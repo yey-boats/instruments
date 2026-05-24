@@ -181,11 +181,18 @@ static lv_timer_t *g_demo_timer = nullptr;
 static uint32_t g_demo_period_ms = 3000;
 static lv_obj_t *g_demo_badge = nullptr;
 
+// Triple-tap state and current focused quadrant (-1 = grid view).
+static int g_focused_quad = -1;
+static uint32_t g_tap_times[3] = {0, 0, 0};
+
 // FPS overlay state
 static lv_obj_t *g_fps_overlay = nullptr;
 static float g_fps = 0.0f;
 static uint32_t g_fps_peak_us = 0;
 static float g_fps_avg_us = 0.0f;
+
+// Forward decls (definitions live below build_ui).
+static void screen_tap_handler(lv_event_t *e);
 
 static lv_obj_t *make_quadrant(lv_obj_t *parent, int qx, int qy, const char *header) {
     lv_obj_t *q = lv_obj_create(parent);
@@ -197,6 +204,7 @@ static lv_obj_t *make_quadrant(lv_obj_t *parent, int qx, int qy, const char *hea
     lv_obj_set_style_radius(q, 8, 0);
     lv_obj_set_style_pad_all(q, 8, 0);
     lv_obj_clear_flag(q, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(q, LV_OBJ_FLAG_EVENT_BUBBLE);  // taps reach screen handler
 
     lv_obj_t *h = lv_label_create(q);
     lv_label_set_text(h, header);
@@ -210,6 +218,8 @@ static void build_ui(void) {
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(0x05101c), LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(scr, screen_tap_handler, LV_EVENT_CLICKED, NULL);
 
     // Wind (top-left)
     lv_obj_t *q1 = make_quadrant(scr, 0, 0, "WIND");
@@ -381,7 +391,46 @@ static void demo_stop() {
     }
     if (g_demo_badge) lv_obj_add_flag(g_demo_badge, LV_OBJ_FLAG_HIDDEN);
     set_quadrant_focus(-1);
+    g_focused_quad = -1;
     net::logf("[demo] stopped");
+}
+
+// Triple-tap detector at the screen level. Triple-tap in grid view focuses
+// the tapped quadrant; triple-tap in focused view returns to grid; triple-tap
+// during demo stops demo first.
+static void screen_tap_handler(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    uint32_t now = millis();
+    g_tap_times[0] = g_tap_times[1];
+    g_tap_times[1] = g_tap_times[2];
+    g_tap_times[2] = now;
+
+    // Triple-tap = 3 clicks within 700 ms
+    if (g_tap_times[0] != 0 && (now - g_tap_times[0]) < 700) {
+        g_tap_times[0] = g_tap_times[1] = g_tap_times[2] = 0;
+
+        if (g_demo_timer) {
+            demo_stop();
+            return;
+        }
+        if (g_focused_quad >= 0) {
+            set_quadrant_focus(-1);
+            g_focused_quad = -1;
+            net::logf("[ui] grid");
+            return;
+        }
+        // Grid view -> focus the quadrant the user tapped on
+        lv_indev_t *indev = lv_indev_get_act();
+        if (!indev) return;
+        lv_point_t p;
+        lv_indev_get_point(indev, &p);
+        int q = 0;
+        if (p.x >= LCD_W / 2) q++;
+        if (p.y >= LCD_H / 2) q += 2;
+        set_quadrant_focus(q);
+        g_focused_quad = q;
+        net::logf("[ui] focus q%d", q);
+    }
 }
 
 // 1 Hz FPS sampling
