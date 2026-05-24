@@ -7,6 +7,7 @@
 #include "net.h"
 #include "signalk.h"
 #include "layout_loader.h"
+#include <Preferences.h>
 #include <math.h>
 
 // ST7701 init via 3-wire SPI, then RGB takes over.
@@ -196,6 +197,60 @@ static lv_obj_t *mob_button = nullptr;
 static lv_obj_t *mob_view = nullptr;
 static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
 
+// Position formatting (configurable via `pos-format` console cmd, NVS-persisted)
+enum PosFormat : uint8_t {
+    POS_DDM = 0,  // 41°23.106'N  002°10.404'E   - marine standard
+    POS_DD = 1,   // 41.3851°N    2.1734°E       - decimal degrees
+    POS_DMS = 2,  // 41°23'06.4"N  2°10'24.2"E   - deg/min/sec
+};
+static PosFormat g_pos_format = POS_DDM;
+
+static const char *pos_format_name(PosFormat f) {
+    switch (f) {
+    case POS_DDM:
+        return "ddm";
+    case POS_DD:
+        return "dd";
+    case POS_DMS:
+        return "dms";
+    }
+    return "?";
+}
+
+// Renders into buf as two newline-separated lines (lat, lon).
+static void format_position(double lat, double lon, char *buf, size_t cap) {
+    char ns = lat >= 0 ? 'N' : 'S';
+    char ew = lon >= 0 ? 'E' : 'W';
+    double la = fabs(lat);
+    double lo = fabs(lon);
+    switch (g_pos_format) {
+    case POS_DDM: {
+        int la_d = (int)la;
+        double la_m = (la - la_d) * 60.0;
+        int lo_d = (int)lo;
+        double lo_m = (lo - lo_d) * 60.0;
+        snprintf(buf, cap, "%02d°%06.3f'%c\n%03d°%06.3f'%c", la_d, la_m, ns, lo_d, lo_m, ew);
+        break;
+    }
+    case POS_DD:
+        snprintf(buf, cap, "%.4f°%c\n%.4f°%c", la, ns, lo, ew);
+        break;
+    case POS_DMS: {
+        int la_d = (int)la;
+        double la_r = (la - la_d) * 60.0;
+        int la_m = (int)la_r;
+        double la_s = (la_r - la_m) * 60.0;
+        int lo_d = (int)lo;
+        double lo_r = (lo - lo_d) * 60.0;
+        int lo_m = (int)lo_r;
+        double lo_s = (lo_r - lo_m) * 60.0;
+        snprintf(buf, cap, "%d°%02d'%04.1f\"%c\n%d°%02d'%04.1f\"%c", la_d, la_m, la_s, ns, lo_d,
+                 lo_m, lo_s, ew);
+        break;
+    }
+    }
+}
+
 // FPS overlay state
 static lv_obj_t *g_fps_overlay = nullptr;
 static float g_fps = 0.0f;
@@ -214,6 +269,7 @@ static const double ALARM_BATT_V = 11.5;
 
 // Forward decls (definitions live below build_ui).
 static void screen_tap_handler(lv_event_t *e);
+static void screen_gesture_handler(lv_event_t *e);
 static void mob_build(lv_obj_t *scr);
 static void alarms_build(lv_obj_t *scr);
 
@@ -243,6 +299,7 @@ static void build_ui(void) {
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr, screen_tap_handler, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(scr, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
 
     // Wind (top-left)
     lv_obj_t *q1 = make_quadrant(scr, 0, 0, "WIND");
@@ -627,20 +684,40 @@ static void alarm_check() {
     alarm_set(ALARM_NONE, "");
 }
 
-// Triple-tap detector at the screen level. Triple-tap in grid view focuses
-// the tapped quadrant; triple-tap in focused view returns to grid; triple-tap
-// during demo stops demo first.
+static int hit_test_quadrant(int x, int y) {
+    int q = 0;
+    if (x >= LCD_W / 2) q++;
+    if (y >= LCD_H / 2) q += 2;
+    return q;
+}
+
+// Tap handler. Old triple-tap turned out flaky (timing-sensitive; MOB button
+// blocks the top-right of q2). New gesture map:
+//
+//   single tap in GRID view   -> focus the tapped quadrant
+//   single tap in FOCUSED     -> back to grid
+//   triple-tap anywhere       -> stop demo / force back to grid
+//
+// Every tap is logged so users can see in BLE/UDP whether touches register.
 static void screen_tap_handler(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (g_mob.active) return;
+
     uint32_t now = millis();
     g_tap_times[0] = g_tap_times[1];
     g_tap_times[1] = g_tap_times[2];
     g_tap_times[2] = now;
 
-    // Triple-tap = 3 clicks within 700 ms
-    if (g_tap_times[0] != 0 && (now - g_tap_times[0]) < 700) {
-        g_tap_times[0] = g_tap_times[1] = g_tap_times[2] = 0;
+    lv_indev_t *indev = lv_indev_get_act();
+    lv_point_t p = {0, 0};
+    if (indev) lv_indev_get_point(indev, &p);
 
+    bool triple = (g_tap_times[0] != 0 && (now - g_tap_times[0]) < 900);
+    net::logf("[ui] tap @(%d,%d) focused=%d triple=%d demo=%d", p.x, p.y, g_focused_quad,
+              triple ? 1 : 0, g_demo_timer ? 1 : 0);
+
+    if (triple) {
+        g_tap_times[0] = g_tap_times[1] = g_tap_times[2] = 0;
         if (g_demo_timer) {
             demo_stop();
             return;
@@ -648,20 +725,62 @@ static void screen_tap_handler(lv_event_t *e) {
         if (g_focused_quad >= 0) {
             set_quadrant_focus(-1);
             g_focused_quad = -1;
-            net::logf("[ui] grid");
             return;
         }
-        // Grid view -> focus the quadrant the user tapped on
-        lv_indev_t *indev = lv_indev_get_act();
-        if (!indev) return;
-        lv_point_t p;
-        lv_indev_get_point(indev, &p);
-        int q = 0;
-        if (p.x >= LCD_W / 2) q++;
-        if (p.y >= LCD_H / 2) q += 2;
+        int q = hit_test_quadrant(p.x, p.y);
         set_quadrant_focus(q);
         g_focused_quad = q;
-        net::logf("[ui] focus q%d", q);
+        return;
+    }
+
+    // Single-tap behaviour
+    if (g_focused_quad >= 0) {
+        set_quadrant_focus(-1);
+        g_focused_quad = -1;
+        return;
+    }
+    int q = hit_test_quadrant(p.x, p.y);
+    set_quadrant_focus(q);
+    g_focused_quad = q;
+}
+
+// Swipe handler. Left/right cycles adjacent quadrants; down returns to grid.
+static void screen_gesture_handler(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    if (g_mob.active) return;
+    lv_indev_t *indev = lv_indev_get_act();
+    if (!indev) return;
+    lv_dir_t dir = lv_indev_get_gesture_dir(indev);
+    if (dir == LV_DIR_NONE) return;
+
+    const char *dir_name = dir == LV_DIR_LEFT    ? "left"
+                           : dir == LV_DIR_RIGHT ? "right"
+                           : dir == LV_DIR_TOP   ? "up"
+                                                 : "down";
+    net::logf("[ui] swipe %s focused=%d", dir_name, g_focused_quad);
+
+    if (g_demo_timer) {
+        demo_stop();
+        return;
+    }
+
+    if (g_focused_quad < 0) {
+        // From grid view: any swipe enters focus mode on a starting quadrant.
+        int q = dir == LV_DIR_LEFT ? 1 : dir == LV_DIR_RIGHT ? 0 : dir == LV_DIR_TOP ? 2 : 0;
+        set_quadrant_focus(q);
+        g_focused_quad = q;
+        return;
+    }
+    // In focused view: cycle adjacent quadrants, down returns to grid.
+    if (dir == LV_DIR_LEFT) {
+        g_focused_quad = (g_focused_quad + 1) % 4;
+        set_quadrant_focus(g_focused_quad);
+    } else if (dir == LV_DIR_RIGHT) {
+        g_focused_quad = (g_focused_quad + 3) % 4;
+        set_quadrant_focus(g_focused_quad);
+    } else if (dir == LV_DIR_BOTTOM) {
+        set_quadrant_focus(-1);
+        g_focused_quad = -1;
     }
 }
 
@@ -740,6 +859,32 @@ static bool handleMainCommand(const String &line) {
         mob_clear();
         return true;
     }
+    if (line == "pos-format") {
+        net::logf("pos-format = %s", pos_format_name(g_pos_format));
+        return true;
+    }
+    if (line.startsWith("pos-format ")) {
+        String fmt = line.substring(11);
+        fmt.trim();
+        PosFormat newf = g_pos_format;
+        if (fmt == "ddm")
+            newf = POS_DDM;
+        else if (fmt == "dd")
+            newf = POS_DD;
+        else if (fmt == "dms")
+            newf = POS_DMS;
+        else {
+            net::logf("usage: pos-format ddm|dd|dms  (current: %s)", pos_format_name(g_pos_format));
+            return true;
+        }
+        g_pos_format = newf;
+        Preferences p;
+        p.begin("ui", false);
+        p.putUChar("pos_fmt", (uint8_t)g_pos_format);
+        p.end();
+        net::logf("pos-format -> %s", pos_format_name(g_pos_format));
+        return true;
+    }
     return false;
 }
 
@@ -779,7 +924,7 @@ static void ui_refresh(lv_timer_t *) {
         lv_label_set_text(lbl_hdg, buf);
     }
     if (!isnan(d.lat) && !isnan(d.lon)) {
-        snprintf(buf, sizeof(buf), "%+.4f\n%+.4f", d.lat, d.lon);
+        format_position(d.lat, d.lon, buf, sizeof(buf));
         lv_label_set_text(lbl_pos, buf);
     }
     if (!isnan(d.depth)) {
@@ -879,6 +1024,15 @@ void setup() {
 
     net::setup();
     net::logf("[net] up - ip=%s", net::ipString().c_str());
+
+    // Load runtime UI prefs (position format, ...) from NVS
+    {
+        Preferences p;
+        p.begin("ui", true);
+        g_pos_format = (PosFormat)p.getUChar("pos_fmt", POS_DDM);
+        p.end();
+        net::logf("[ui] pos-format = %s", pos_format_name(g_pos_format));
+    }
 
     // Load layout - default baked-in for now; SignalK REST fetch later.
     layout::load_default();
