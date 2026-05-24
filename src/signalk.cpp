@@ -38,6 +38,13 @@ static void subscribe() {
         "electrical.batteries.house.stateOfCharge",
         "tanks.fuel.0.currentLevel",
         "tanks.freshWater.0.currentLevel",
+        "navigation.courseRhumbline.crossTrackError",
+        "navigation.courseRhumbline.bearingTrackTrue",
+        "navigation.courseRhumbline.nextPoint.bearingTrue",
+        "navigation.courseRhumbline.nextPoint.distance",
+        "navigation.courseRhumbline.velocityMadeGood",
+        "steering.autopilot.target.headingTrue",
+        "steering.autopilot.state",
     };
     for (auto p : paths) {
         JsonObject o = arr.add<JsonObject>();

@@ -60,6 +60,29 @@ void applyValue(const char *path, JsonVariant val, Data &out) {
         out.tankFuel = asDouble(val, out.tankFuel);
     } else if (strncmp(path, "tanks.freshWater.", 17) == 0 && endsWith(path, ".currentLevel")) {
         out.tankWater = asDouble(val, out.tankWater);
+    } else if (strcmp(path, "navigation.courseRhumbline.crossTrackError") == 0 ||
+               strcmp(path, "navigation.courseGreatCircle.crossTrackError") == 0) {
+        out.xte = asDouble(val, out.xte);
+    } else if (strcmp(path, "navigation.courseRhumbline.bearingTrackTrue") == 0 ||
+               strcmp(path, "navigation.courseGreatCircle.bearingTrackTrue") == 0) {
+        out.cts = asDouble(val, out.cts);
+    } else if (strcmp(path, "navigation.courseRhumbline.nextPoint.bearingTrue") == 0 ||
+               strcmp(path, "navigation.courseGreatCircle.nextPoint.bearingTrue") == 0) {
+        out.btw = asDouble(val, out.btw);
+    } else if (strcmp(path, "navigation.courseRhumbline.nextPoint.distance") == 0 ||
+               strcmp(path, "navigation.courseGreatCircle.nextPoint.distance") == 0) {
+        out.dtw = asDouble(val, out.dtw);
+    } else if (strcmp(path, "navigation.courseRhumbline.velocityMadeGood") == 0 ||
+               strcmp(path, "performance.velocityMadeGood") == 0) {
+        out.vmg = asDouble(val, out.vmg);
+    } else if (strcmp(path, "steering.autopilot.target.headingTrue") == 0) {
+        out.apTargetHdg = asDouble(val, out.apTargetHdg);
+    } else if (strcmp(path, "steering.autopilot.state") == 0) {
+        const char *s = val.as<const char *>();
+        if (s) {
+            strncpy(out.apState, s, sizeof(out.apState) - 1);
+            out.apState[sizeof(out.apState) - 1] = 0;
+        }
     }
 }
 

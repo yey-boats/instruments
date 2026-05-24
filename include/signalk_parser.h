@@ -35,6 +35,15 @@ struct Data {
     double tankFuel = NAN;     // 0..1
     double tankWater = NAN;    // 0..1
 
+    // routing / steering (when a route is active on the SignalK server)
+    double xte = NAN;          // cross-track error, m (signed: + = right of track)
+    double cts = NAN;          // course to steer, rad
+    double btw = NAN;          // bearing to waypoint, rad
+    double dtw = NAN;          // distance to waypoint, m
+    double vmg = NAN;          // velocity made good, m/s
+    double apTargetHdg = NAN;  // autopilot target heading, rad
+    char apState[16] = {0};    // autopilot state string ("auto", "wind", "standby", ...)
+
     uint32_t lastUpdateMs = 0;
     bool connected = false;
 };

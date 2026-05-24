@@ -1,0 +1,161 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project
+
+`esp32-boat-mfd` — PlatformIO/Arduino firmware turning a **Sunton ESP32-4848S040**
+(ESP32-S3-N16R8, 4.0″ 480×480 ST7701 RGB panel, GT911 touch) into a SignalK
+marine multi-function display. LVGL 9 UI, WiFi+BLE provisioning, ArduinoOTA.
+Source-available under PolyForm Noncommercial 1.0.0.
+
+## Build & test commands
+
+The Makefile is the user-facing entry point; targets wrap PlatformIO. Three envs:
+
+| Env | Purpose |
+|---|---|
+| `esp32-4848s040` | Production firmware build |
+| `ota` | Same build, `upload_protocol=espota` for OTA flashing |
+| `native` | Host unit tests (Unity). Builds **only** `signalk_parser.cpp` + `layout.cpp`. |
+
+```sh
+make build                              # pio run -e esp32-4848s040
+make test                               # pio test -e native (parser + layout tests)
+make flash                              # USB flash, auto-detects /dev/cu.usbserial-*
+make ota DEVICE_IP=<ip>                 # WiFi flash (port 3232)
+make monitor                            # serial @ 115200
+make ble                                # python BLE console (sends `ip`+`sk-status`, streams logs)
+make ble-cmd CMD="sk-status"            # one-shot BLE command
+make logs                               # listen on UDP :9999 (mirrored logs)
+make demo-up / demo-down                # docker SignalK + tools/fake_boat.py
+make lint / make format                 # clang-format LLVM style + py_compile
+make backup                             # full 16 MB flash dump via tools/dump_chunked.sh
+```
+
+Run a single host test by env-filter on the PIO command:
+```sh
+pio test -e native -f test_parser       # or test_layout
+```
+
+## Architecture
+
+`src/main.cpp` (LVGL UI + display/touch init) is the only TU that depends on
+Arduino_GFX and LVGL. All networking, parsing, and config live in side
+modules so they can be host-tested:
+
+```
+                              +-----------+
+                              |  main.cpp |  display + LVGL + touch + UI refresh
+                              +-----+-----+
+                                    | ui_refresh @ 5 Hz reads sk::data
+                                    | dispatch user input -> net::dispatchCommand
+                                    v
+  +-----------+   +-----------+   +-------------+   +---------------+
+  | net.cpp   |-->| signalk   |-->| signalk_    |   | layout_loader |
+  | WiFi/BLE/ |   | .cpp WS   |   | parser.cpp  |   | .cpp +        |
+  | OTA/mDNS/ |   | client    |   | (pure, host)|   | layout.cpp    |
+  | UDP log   |   +-----------+   +-------------+   | (pure, host)  |
+  +-----+-----+                                     +---------------+
+        |                                                 ^
+        +-----> ble_config.cpp (GATT: CONNECTION + CONFIGURATION characteristics)
+                                                          |
+                                                          +- apply_json() / fetch_from_signalk()
+```
+
+Key contracts:
+
+- **`net::dispatchCommand(line)`** is the single command funnel. It tries
+  `net::handleSerialCommand` → `sk::handleSerialCommand` →
+  `layout::handleSerialCommand` → `s_extra` (main's `handleMainCommand`).
+  Serial, BLE NUS RX, and BLE CONNECTION writes (`view`, `id`) all route
+  through it. Add new commands by extending one of these handlers, not by
+  parsing inside `ble_config.cpp`.
+- **`sk::data`** (in `signalk_parser.h`) is the single source of truth for
+  live boat state. Parser is pure C++ and tested on the host; the device
+  loop only feeds it WebSocket frames.
+- **`layout::Config`** (`include/layout.h`) is a ~34 KB POD with fixed
+  bounds (`MAX_SCREENS=8`, `MAX_TILES_PER_SCREEN=4`, …). The live copy is
+  **heap-allocated in PSRAM** by `layout_loader.cpp` — never make it
+  `static` in `.bss` (see "Memory traps" below).
+- **`net::deviceId()`** is the NVS-persisted name used for BLE advertising,
+  mDNS host, OTA hostname, and WiFi hostname. `id <name>` reboots; default
+  is `OTA_HOSTNAME` from `secrets.h`.
+
+## Memory traps (these have all bitten before — preserve fixes)
+
+- **GT911 returns big-endian coordinates on this panel** (contrary to most
+  GT911 references). Decode each 16-bit field as
+  `((uint16_t)hi << 8) | lo` with explicit ordered reads — never
+  `Wire.read() | (Wire.read() << 8)` (unspecified evaluation order).
+- **`layout::parse()` must `memset(&out, 0, sizeof(out))`**, not
+  `out = Config{}` — the latter creates a 34 KB temporary that overflows
+  the 8 KB Arduino main stack and boot-loops the device.
+- **The live `layout::Config` must be PSRAM-allocated**
+  (`heap_caps_calloc(1, sizeof(Config), MALLOC_CAP_SPIRAM)`). A `static
+  Config` in internal SRAM starves NimBLE and the controller hangs
+  silently between WiFi AP and BLE init.
+- **`NimBLECharacteristic::setValue` overload trap**: always use the
+  `(const uint8_t *data, size_t len)` form. `setValue(const char *)` can
+  resolve to `setValue(uint32_t)` and store 4 bytes of pointer.
+- **BLE attribute values are capped at 512 bytes.** `ConfigCb::onRead`
+  returns a JSON summary stub (`{truncated, size, screen_count, ...}`)
+  when the layout exceeds the cap; large layouts must come in via the
+  SignalK REST endpoint and be triggered with `layout-fetch`.
+- **R0–R4 / B0–B4 pin lists were swapped in early references.** The
+  verified pin map is in `include/board_pins.h`; do not "fix" it from
+  web sources without a camera-based color test.
+- **`board_pins.h` ST7701 init table and the NUS UUID `#define` block
+  are wrapped in `// clang-format off`/`on`** — keep that protection when
+  editing or `make lint` will fail in CI.
+
+## Adding things
+
+### A new SignalK path
+1. Field on `sk::Data` in `include/signalk_parser.h`.
+2. Path → field branch in `applyValue` in `src/signalk_parser.cpp`.
+3. Test case in `test/test_parser/test_parser.cpp` (host-runnable).
+4. `subscribe()` entry in `src/signalk.cpp` so the server sends it.
+5. Render in `main.cpp::ui_refresh` if it should appear on screen.
+
+### A new board variant
+1. `include/board_pins_<board>.h` with full GPIO map.
+2. `[env:<board>]` block in `platformio.ini` with a `-D BOARD_<NAME>` flag.
+3. Switch on the macro in `main.cpp` to include the right pins file.
+4. Add a CI matrix entry in `.github/workflows/ci.yml`.
+
+### A new console command
+Pick the right handler: `net` (connectivity/identity), `sk` (SignalK target),
+`layout` (layout loader/show/fetch), or `handleMainCommand` in `main.cpp`
+(UI actions like `view`, `demo`). It will automatically be reachable from
+serial **and** BLE NUS via `net::dispatchCommand`.
+
+## Conventions
+
+- **Commits**: Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`,
+  `chore:`, `test:`) — used by the `release.yml` workflow to generate
+  release notes from a tag.
+- **Code style**: C++17, LLVM-ish, 4-space indent, brace on same line.
+  `make format` runs clang-format-17 in place.
+- **Licensing/identity**: project is attributed to **"navado and
+  contributors"** — do not insert real names in headers, license, or
+  README. License is **PolyForm Noncommercial 1.0.0**; do not relicense
+  or add an OSI-OSS dual-license without explicit instruction.
+- **Releases**: `make release-tag VERSION=v0.x.y` then `git push origin
+  v0.x.y`. Tags matching `*-rc*`/`*-alpha*`/`*-beta*` are auto-marked
+  pre-release.
+
+## Demo / SignalK auth note
+
+`tools/fake_boat.py` and the firmware both authenticate against SignalK
+with a token (`?token=` on the WebSocket). The bundled `signalk/signalk-server`
+Docker image rejects anonymous writes by default — first run creates the
+admin user (the demo scripts assume username `admin`, password `admin`).
+
+## Recovery notes
+
+- Bad WiFi credentials or a runaway OTA can wedge the device; recovery is
+  `esptool erase_region 0x9000 0x5000` (NVS) over USB, then re-provision.
+- The CH340 USB-UART is flaky; cycle the cable before assuming a
+  firmware/serial problem.
+- iOS Personal Hotspot blocks mDNS — use the raw IP for `make ota`.
