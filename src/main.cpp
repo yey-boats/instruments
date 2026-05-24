@@ -201,9 +201,20 @@ static float g_fps = 0.0f;
 static uint32_t g_fps_peak_us = 0;
 static float g_fps_avg_us = 0.0f;
 
+// Alarms (single-slot, highest-priority condition shown)
+enum AlarmId { ALARM_NONE = 0, ALARM_DEPTH_SHALLOW, ALARM_SK_STALLED, ALARM_BATT_LOW };
+static AlarmId g_alarm = ALARM_NONE;
+static lv_obj_t *alarm_banner = nullptr;
+static lv_obj_t *alarm_label = nullptr;
+
+// Thresholds (TODO: configurable via #7 server-managed layout config)
+static const double ALARM_DEPTH_M = 3.0;
+static const double ALARM_BATT_V = 11.5;
+
 // Forward decls (definitions live below build_ui).
 static void screen_tap_handler(lv_event_t *e);
 static void mob_build(lv_obj_t *scr);
+static void alarms_build(lv_obj_t *scr);
 
 static lv_obj_t *make_quadrant(lv_obj_t *parent, int qx, int qy, const char *header) {
     lv_obj_t *q = lv_obj_create(parent);
@@ -351,6 +362,7 @@ static void build_ui(void) {
     // Always-visible MOB button + rescue overlay (created after quadrants
     // so it sits on top in z-order).
     mob_build(scr);
+    alarms_build(scr);
 }
 
 // --- demo mode + fps benchmark helpers ----------------------------------
@@ -564,6 +576,56 @@ static void mob_build(lv_obj_t *scr) {
     lv_obj_center(cbl);
 }
 
+// ----- Alarms ------------------------------------------------------------
+
+static void alarms_build(lv_obj_t *scr) {
+    alarm_banner = lv_obj_create(scr);
+    lv_obj_set_size(alarm_banner, 360, 36);
+    lv_obj_align(alarm_banner, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(0xff1f3a), 0);
+    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_border_width(alarm_banner, 1, 0);
+    lv_obj_set_style_radius(alarm_banner, 6, 0);
+    lv_obj_set_style_pad_all(alarm_banner, 0, 0);
+    lv_obj_clear_flag(alarm_banner, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
+    alarm_label = lv_label_create(alarm_banner);
+    lv_label_set_text(alarm_label, "");
+    lv_obj_set_style_text_color(alarm_label, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(alarm_label, &lv_font_montserrat_20, 0);
+    lv_obj_center(alarm_label);
+}
+
+static void alarm_set(AlarmId id, const char *msg) {
+    if (g_alarm == id) return;
+    g_alarm = id;
+    if (!alarm_banner) return;
+    if (id == ALARM_NONE) {
+        lv_obj_add_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
+        net::logf("[alarm] cleared");
+    } else {
+        lv_label_set_text(alarm_label, msg);
+        lv_obj_clear_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
+        net::logf("[alarm] %s", msg);
+    }
+}
+
+static void alarm_check() {
+    if (!isnan(sk::data.depth) && sk::data.depth > 0 && sk::data.depth < ALARM_DEPTH_M) {
+        alarm_set(ALARM_DEPTH_SHALLOW, "SHALLOW WATER");
+        return;
+    }
+    if (sk::connectionStatus() == "stalled") {
+        alarm_set(ALARM_SK_STALLED, "SIGNALK STALLED");
+        return;
+    }
+    if (!isnan(sk::data.battVoltage) && sk::data.battVoltage < ALARM_BATT_V) {
+        alarm_set(ALARM_BATT_LOW, "BATTERY LOW");
+        return;
+    }
+    alarm_set(ALARM_NONE, "");
+}
+
 // Triple-tap detector at the screen level. Triple-tap in grid view focuses
 // the tapped quadrant; triple-tap in focused view returns to grid; triple-tap
 // during demo stops demo first.
@@ -736,6 +798,7 @@ static void ui_refresh(lv_timer_t *) {
         lv_label_set_text(lbl_rssi, buf);
     }
     mob_refresh();
+    alarm_check();
 }
 
 void setup() {
