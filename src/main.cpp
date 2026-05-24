@@ -756,6 +756,11 @@ static void ui_refresh(lv_timer_t *) {
         snprintf(buf, sizeof(buf), "%.0f°", deg);
         lv_label_set_text(lbl_awa, buf);
         lv_obj_set_style_transform_rotation(needle, (int16_t)(deg * 10), 0);
+    } else {
+        // No wind data: slowly sweep the needle so the screen reads alive.
+        int16_t a = (int16_t)((millis() / 4) % 3600);
+        lv_obj_set_style_transform_rotation(needle, a, 0);
+        lv_label_set_text(lbl_awa, "no data");
     }
     if (!isnan(d.sog)) {
         snprintf(buf, sizeof(buf), "%.1f", d.sog * 1.94384);
@@ -788,16 +793,28 @@ static void ui_refresh(lv_timer_t *) {
     if (!isnan(d.battVoltage)) {
         snprintf(buf, sizeof(buf), "%.1f V", d.battVoltage);
         lv_label_set_text(lbl_batt, buf);
+    } else {
+        // No SK battery data - fall back to free heap as a "device pulse".
+        snprintf(buf, sizeof(buf), "%lu kB", (unsigned long)(ESP.getFreeHeap() / 1024));
+        lv_label_set_text(lbl_batt, buf);
     }
     snprintf(buf, sizeof(buf), "sk: %s", sk::connectionStatus().c_str());
     lv_label_set_text(lbl_status, buf);
     snprintf(buf, sizeof(buf), "ip %s", net::ipString().c_str());
     lv_label_set_text(lbl_ip, buf);
+
+    // Bottom line ticks every refresh: RSSI when on STA, uptime in AP mode.
     int r = net::rssi();
+    uint32_t up = millis() / 1000;
     if (r != 0) {
-        snprintf(buf, sizeof(buf), "rssi %d dBm", r);
-        lv_label_set_text(lbl_rssi, buf);
+        snprintf(buf, sizeof(buf), "rssi %d dBm  up %lu:%02lu", r, (unsigned long)(up / 60),
+                 (unsigned long)(up % 60));
+    } else {
+        snprintf(buf, sizeof(buf), "ap mode  up %02lu:%02lu:%02lu", (unsigned long)(up / 3600),
+                 (unsigned long)((up / 60) % 60), (unsigned long)(up % 60));
     }
+    lv_label_set_text(lbl_rssi, buf);
+
     mob_refresh();
     alarm_check();
 }

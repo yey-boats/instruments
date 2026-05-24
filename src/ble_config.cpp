@@ -164,10 +164,12 @@ void notifyAll() {
     if (s_config) {
         size_t len = 0;
         const char *j = layout::last_json(&len);
-        if (j && len) {
+        if (j && len && len <= 512) {
             s_config->setValue((const uint8_t *)j, len);
             s_config->notify();
         }
+        // For layouts > 512 B, the read callback returns a summary; no notify
+        // to avoid spamming the NimBLE "value exceeds max" error.
     }
 }
 
