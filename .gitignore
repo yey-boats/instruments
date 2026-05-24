@@ -1,0 +1,31 @@
+# PlatformIO
+.pio/
+.vscode/
+.pioenvs/
+.piolibdeps/
+
+# Build artifacts
+*.o
+*.elf
+*.bin
+*.hex
+
+# Local secrets
+include/secrets.h
+
+# Local-only working directories (machine-specific firmware dumps + camera frames)
+backup/
+captures/
+
+# Build logs
+build.log
+upload.log
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS / IDE
+.DS_Store
+.idea/
+*.swp

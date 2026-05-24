@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      TAG_NAME: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-release-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Create placeholder secrets.h
+        run: cp include/secrets.h.example include/secrets.h
+
+      - name: Build firmware
+        run: pio run -e esp32-4848s040
+
+      - name: Stage release artifacts
+        run: |
+          out="release-staging"
+          mkdir -p "$out"
+          cp .pio/build/esp32-4848s040/bootloader.bin   "$out/bootloader.bin"
+          cp .pio/build/esp32-4848s040/partitions.bin   "$out/partitions.bin"
+          cp .pio/build/esp32-4848s040/firmware.bin     "$out/firmware.bin"
+          cp .pio/build/esp32-4848s040/firmware.elf     "$out/firmware.elf"
+          ~/.platformio/penv/bin/python -m esptool --chip esp32s3 merge_bin \
+            -o "$out/merged_firmware.bin" \
+            --flash_mode qio --flash_size 16MB \
+            0x0     "$out/bootloader.bin" \
+            0x8000  "$out/partitions.bin" \
+            0xe000  ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0x10000 "$out/firmware.bin"
+          ( cd "$out" && sha256sum *.bin > SHA256SUMS )
+
+      - name: Generate release notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          {
+            echo "## Changes"
+            if [ -n "$prev" ]; then
+              git log --pretty=format:'- %s (%h)' "$prev"..HEAD
+            else
+              git log --pretty=format:'- %s (%h)'
+            fi
+            echo ""
+            echo ""
+            echo "## Flash instructions"
+            echo ""
+            echo '```sh'
+            echo "esptool.py --chip esp32s3 --port /dev/cu.usbserial-* write_flash 0x0 merged_firmware.bin"
+            echo '```'
+            echo ""
+            echo "Or via PlatformIO OTA once the device is on the network:"
+            echo ""
+            echo '```sh'
+            echo "pio run -e ota -t upload --upload-port <device-ip>"
+            echo '```'
+          } > release_notes.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.TAG_NAME }}
+          body_path: release_notes.md
+          files: |
+            release-staging/firmware.bin
+            release-staging/firmware.elf
+            release-staging/bootloader.bin
+            release-staging/partitions.bin
+            release-staging/merged_firmware.bin
+            release-staging/SHA256SUMS
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
