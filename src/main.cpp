@@ -119,6 +119,9 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
 }
 
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
+    static lv_indev_state_t last_state = LV_INDEV_STATE_RELEASED;
+    static int16_t last_x = -1, last_y = -1;
+
     if (!touch_present) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
@@ -146,17 +149,36 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         Wire.requestFrom(0x5D, 6);
         if (Wire.available() >= 6) {
             (void)Wire.read();  // track id
-            uint16_t x = Wire.read() | (Wire.read() << 8);
-            uint16_t y = Wire.read() | (Wire.read() << 8);
+            // Empirically verified: GT911 on this Sunton 4848S040 panel
+            // returns coord bytes high-byte-first (big-endian) within
+            // each 16-bit field, contrary to most GT911 references.
+            // Reading them as little-endian gave raw values in the
+            // 30000+ range. Tap-tested at known positions to confirm.
+            uint8_t xh = Wire.read();
+            uint8_t xl = Wire.read();
+            uint8_t yh = Wire.read();
+            uint8_t yl = Wire.read();
+            uint16_t x = ((uint16_t)xh << 8) | xl;
+            uint16_t y = ((uint16_t)yh << 8) | yl;
             data->point.x = x;
             data->point.y = y;
             data->state = LV_INDEV_STATE_PRESSED;
+            if (last_state == LV_INDEV_STATE_RELEASED ||
+                abs((int)x - last_x) > 20 || abs((int)y - last_y) > 20) {
+                net::logf("[touch] DOWN raw=(%d,%d) pts=%d", x, y, pts);
+                last_x = x;
+                last_y = y;
+            }
         } else {
             data->state = LV_INDEV_STATE_RELEASED;
         }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
+    if (last_state == LV_INDEV_STATE_PRESSED && data->state == LV_INDEV_STATE_RELEASED) {
+        net::logf("[touch] UP   raw=(%d,%d)", last_x, last_y);
+    }
+    last_state = data->state;
     // Clear status register
     Wire.beginTransmission(0x5D);
     Wire.write(0x81);
@@ -349,19 +371,19 @@ static void build_ui(void) {
     lbl_cog = lv_label_create(q2);
     lv_label_set_text(lbl_cog, "COG ---°");
     lv_obj_set_style_text_color(lbl_cog, lv_color_hex(0xeaf2ff), 0);
-    lv_obj_set_style_text_font(lbl_cog, &lv_font_montserrat_20, 0);
-    lv_obj_align(lbl_cog, LV_ALIGN_TOP_LEFT, 0, 92);
+    lv_obj_set_style_text_font(lbl_cog, &lv_font_montserrat_28, 0);
+    lv_obj_align(lbl_cog, LV_ALIGN_TOP_LEFT, 0, 88);
 
     lbl_hdg = lv_label_create(q2);
     lv_label_set_text(lbl_hdg, "HDG ---°");
-    lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(0xeaf2ff), 0);
-    lv_obj_set_style_text_font(lbl_hdg, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(0x9ec5fe), 0);
+    lv_obj_set_style_text_font(lbl_hdg, &lv_font_montserrat_14, 0);
     lv_obj_align(lbl_hdg, LV_ALIGN_TOP_LEFT, 0, 122);
 
     lbl_pos = lv_label_create(q2);
-    lv_label_set_text(lbl_pos, "---.----\n---.----");
-    lv_obj_set_style_text_color(lbl_pos, lv_color_hex(0x9ec5fe), 0);
-    lv_obj_set_style_text_font(lbl_pos, &lv_font_montserrat_14, 0);
+    lv_label_set_text(lbl_pos, "---°--.---'N\n---°--.---'E");
+    lv_obj_set_style_text_color(lbl_pos, lv_color_hex(0xeaf2ff), 0);
+    lv_obj_set_style_text_font(lbl_pos, &lv_font_montserrat_20, 0);
     lv_obj_align(lbl_pos, LV_ALIGN_BOTTOM_LEFT, 0, 0);
 
     // Depth (bottom-left)
