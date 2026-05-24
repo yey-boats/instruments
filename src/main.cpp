@@ -185,6 +185,16 @@ static lv_obj_t *g_demo_badge = nullptr;
 static int g_focused_quad = -1;
 static uint32_t g_tap_times[3] = {0, 0, 0};
 
+// MOB (Man Overboard) state - captured GPS at trigger time.
+static struct {
+    bool active = false;
+    double lat = NAN, lon = NAN;
+    uint32_t trigger_ms = 0;
+} g_mob;
+static lv_obj_t *mob_button = nullptr;
+static lv_obj_t *mob_view = nullptr;
+static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
+
 // FPS overlay state
 static lv_obj_t *g_fps_overlay = nullptr;
 static float g_fps = 0.0f;
@@ -193,6 +203,7 @@ static float g_fps_avg_us = 0.0f;
 
 // Forward decls (definitions live below build_ui).
 static void screen_tap_handler(lv_event_t *e);
+static void mob_build(lv_obj_t *scr);
 
 static lv_obj_t *make_quadrant(lv_obj_t *parent, int qx, int qy, const char *header) {
     lv_obj_t *q = lv_obj_create(parent);
@@ -336,6 +347,10 @@ static void build_ui(void) {
     lv_obj_set_style_text_color(lbl_rssi, lv_color_hex(0xeaf2ff), 0);
     lv_obj_set_style_text_font(lbl_rssi, &lv_font_montserrat_14, 0);
     lv_obj_align(lbl_rssi, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+
+    // Always-visible MOB button + rescue overlay (created after quadrants
+    // so it sits on top in z-order).
+    mob_build(scr);
 }
 
 // --- demo mode + fps benchmark helpers ----------------------------------
@@ -393,6 +408,160 @@ static void demo_stop() {
     set_quadrant_focus(-1);
     g_focused_quad = -1;
     net::logf("[demo] stopped");
+}
+
+// ----- MOB ---------------------------------------------------------------
+
+static double mob_dist_m() {
+    if (!g_mob.active || isnan(sk::data.lat) || isnan(sk::data.lon)) return NAN;
+    const double R = 6371000.0;
+    double dlat = (g_mob.lat - sk::data.lat) * M_PI / 180.0;
+    double dlon = (g_mob.lon - sk::data.lon) * M_PI / 180.0;
+    double l1 = sk::data.lat * M_PI / 180.0;
+    double l2 = g_mob.lat * M_PI / 180.0;
+    double a = sin(dlat / 2) * sin(dlat / 2) + cos(l1) * cos(l2) * sin(dlon / 2) * sin(dlon / 2);
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a));
+}
+
+static double mob_brg_deg() {
+    if (!g_mob.active || isnan(sk::data.lat) || isnan(sk::data.lon)) return NAN;
+    double phi1 = sk::data.lat * M_PI / 180.0;
+    double phi2 = g_mob.lat * M_PI / 180.0;
+    double dlon = (g_mob.lon - sk::data.lon) * M_PI / 180.0;
+    double y = sin(dlon) * cos(phi2);
+    double x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dlon);
+    double b = atan2(y, x) * 180.0 / M_PI;
+    while (b < 0)
+        b += 360;
+    return b;
+}
+
+static void mob_trigger() {
+    if (isnan(sk::data.lat) || isnan(sk::data.lon)) {
+        net::logf("[mob] no GPS fix - cannot mark");
+        return;
+    }
+    g_mob.active = true;
+    g_mob.lat = sk::data.lat;
+    g_mob.lon = sk::data.lon;
+    g_mob.trigger_ms = millis();
+    net::logf("[mob] MARK at %+.5f %+.5f", g_mob.lat, g_mob.lon);
+    if (mob_view) lv_obj_clear_flag(mob_view, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void mob_clear() {
+    if (!g_mob.active) return;
+    g_mob.active = false;
+    net::logf("[mob] cleared");
+    if (mob_view) lv_obj_add_flag(mob_view, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void mob_btn_evt(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) mob_trigger();
+}
+
+static void mob_clear_evt(lv_event_t *e) {
+    if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) mob_clear();
+}
+
+static void mob_refresh() {
+    if (!g_mob.active) return;
+    char buf[64];
+    double d = mob_dist_m();
+    if (!isnan(d)) {
+        if (d >= 1000)
+            snprintf(buf, sizeof(buf), "%.2f km", d / 1000.0);
+        else
+            snprintf(buf, sizeof(buf), "%.0f m", d);
+        lv_label_set_text(mob_lbl_dist, buf);
+    }
+    double b = mob_brg_deg();
+    if (!isnan(b)) {
+        snprintf(buf, sizeof(buf), "BRG %03.0f°", b);
+        lv_label_set_text(mob_lbl_brg, buf);
+        double back = b + 180.0;
+        while (back >= 360)
+            back -= 360;
+        snprintf(buf, sizeof(buf), "return %03.0f°", back);
+        lv_label_set_text(mob_lbl_back, buf);
+    }
+    uint32_t s = (millis() - g_mob.trigger_ms) / 1000;
+    snprintf(buf, sizeof(buf), "elapsed %02lu:%02lu", (unsigned long)(s / 60),
+             (unsigned long)(s % 60));
+    lv_label_set_text(mob_lbl_elapsed, buf);
+}
+
+static void mob_build(lv_obj_t *scr) {
+    mob_button = lv_obj_create(scr);
+    lv_obj_set_size(mob_button, 56, 56);
+    lv_obj_align(mob_button, LV_ALIGN_TOP_RIGHT, -6, 6);
+    lv_obj_set_style_bg_color(mob_button, lv_color_hex(0xff1f3a), 0);
+    lv_obj_set_style_border_color(mob_button, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_border_width(mob_button, 2, 0);
+    lv_obj_set_style_radius(mob_button, 28, 0);
+    lv_obj_set_style_pad_all(mob_button, 0, 0);
+    lv_obj_clear_flag(mob_button, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(mob_button, mob_btn_evt, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_t *btn_lbl = lv_label_create(mob_button);
+    lv_label_set_text(btn_lbl, "MOB");
+    lv_obj_set_style_text_color(btn_lbl, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(btn_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_center(btn_lbl);
+
+    mob_view = lv_obj_create(scr);
+    lv_obj_set_size(mob_view, LCD_W, LCD_H);
+    lv_obj_set_pos(mob_view, 0, 0);
+    lv_obj_set_style_bg_color(mob_view, lv_color_hex(0x1a0000), 0);
+    lv_obj_set_style_border_width(mob_view, 4, 0);
+    lv_obj_set_style_border_color(mob_view, lv_color_hex(0xff1f3a), 0);
+    lv_obj_set_style_radius(mob_view, 0, 0);
+    lv_obj_set_style_pad_all(mob_view, 16, 0);
+    lv_obj_clear_flag(mob_view, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(mob_view, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *t = lv_label_create(mob_view);
+    lv_label_set_text(t, "MAN OVERBOARD");
+    lv_obj_set_style_text_color(t, lv_color_hex(0xff4d6d), 0);
+    lv_obj_set_style_text_font(t, &lv_font_montserrat_28, 0);
+    lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 0);
+
+    mob_lbl_dist = lv_label_create(mob_view);
+    lv_label_set_text(mob_lbl_dist, "--- m");
+    lv_obj_set_style_text_color(mob_lbl_dist, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(mob_lbl_dist, &lv_font_montserrat_48, 0);
+    lv_obj_align(mob_lbl_dist, LV_ALIGN_TOP_MID, 0, 70);
+
+    mob_lbl_brg = lv_label_create(mob_view);
+    lv_label_set_text(mob_lbl_brg, "BRG ---°");
+    lv_obj_set_style_text_color(mob_lbl_brg, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(mob_lbl_brg, &lv_font_montserrat_48, 0);
+    lv_obj_align(mob_lbl_brg, LV_ALIGN_CENTER, 0, 10);
+
+    mob_lbl_back = lv_label_create(mob_view);
+    lv_label_set_text(mob_lbl_back, "return ---°");
+    lv_obj_set_style_text_color(mob_lbl_back, lv_color_hex(0x9ec5fe), 0);
+    lv_obj_set_style_text_font(mob_lbl_back, &lv_font_montserrat_20, 0);
+    lv_obj_align(mob_lbl_back, LV_ALIGN_CENTER, 0, 70);
+
+    mob_lbl_elapsed = lv_label_create(mob_view);
+    lv_label_set_text(mob_lbl_elapsed, "elapsed --:--");
+    lv_obj_set_style_text_color(mob_lbl_elapsed, lv_color_hex(0xeaf2ff), 0);
+    lv_obj_set_style_text_font(mob_lbl_elapsed, &lv_font_montserrat_20, 0);
+    lv_obj_align(mob_lbl_elapsed, LV_ALIGN_BOTTOM_MID, 0, -70);
+
+    lv_obj_t *clear_btn = lv_obj_create(mob_view);
+    lv_obj_set_size(clear_btn, 220, 56);
+    lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_bg_color(clear_btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_radius(clear_btn, 8, 0);
+    lv_obj_set_style_pad_all(clear_btn, 0, 0);
+    lv_obj_clear_flag(clear_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(clear_btn, mob_clear_evt, LV_EVENT_LONG_PRESSED, NULL);
+    lv_obj_t *cbl = lv_label_create(clear_btn);
+    lv_label_set_text(cbl, "HOLD TO CLEAR");
+    lv_obj_set_style_text_color(cbl, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_font(cbl, &lv_font_montserrat_14, 0);
+    lv_obj_center(cbl);
 }
 
 // Triple-tap detector at the screen level. Triple-tap in grid view focuses
@@ -500,6 +669,14 @@ static bool handleMainCommand(const String &line) {
         bench_dump();
         return true;
     }
+    if (line == "mob" || line == "mob-on") {
+        mob_trigger();
+        return true;
+    }
+    if (line == "mob-off" || line == "mob-clear") {
+        mob_clear();
+        return true;
+    }
     return false;
 }
 
@@ -558,6 +735,7 @@ static void ui_refresh(lv_timer_t *) {
         snprintf(buf, sizeof(buf), "rssi %d dBm", r);
         lv_label_set_text(lbl_rssi, buf);
     }
+    mob_refresh();
 }
 
 void setup() {
