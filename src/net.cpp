@@ -10,6 +10,7 @@
 
 #include "secrets.h"
 #include "signalk.h"
+#include "layout_loader.h"
 
 namespace net {
 
@@ -48,7 +49,8 @@ class RxCb : public NimBLECharacteristicCallbacks {
             line.trim();
             if (line.length()) {
                 Serial.printf("[ble] rx: %s\n", line.c_str());
-                if (!handleSerialCommand(line) && !sk::handleSerialCommand(line)) {
+                if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
+                    !layout::handleSerialCommand(line)) {
                     if (s_extra) s_extra(line);
                 }
             }

@@ -6,6 +6,7 @@
 #include "board_pins.h"
 #include "net.h"
 #include "signalk.h"
+#include "layout_loader.h"
 #include <math.h>
 
 // ST7701 init via 3-wire SPI, then RGB takes over.
@@ -862,6 +863,9 @@ void setup() {
     net::setup();
     net::logf("[net] up - ip=%s", net::ipString().c_str());
 
+    // Load layout - default baked-in for now; SignalK REST fetch later.
+    layout::load_default();
+
     // SignalK: empty default - configure with 'sk <host> [port]' on Serial/BLE.
     sk::setup("", 3000);
 
@@ -882,7 +886,8 @@ static void pollSerialCommands() {
             serial_line.trim();
             if (serial_line.length()) {
                 if (!net::handleSerialCommand(serial_line) &&
-                    !sk::handleSerialCommand(serial_line)) {
+                    !sk::handleSerialCommand(serial_line) &&
+                    !layout::handleSerialCommand(serial_line)) {
                     handleMainCommand(serial_line);
                 }
             }
