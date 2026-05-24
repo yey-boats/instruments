@@ -6,6 +6,25 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-24
+
+### Added
+- **NAV quadrant** now shows SOG (large), COG, HDG, and live lat/lon together
+- **STATUS quadrant** is now a device-health panel: battery, SignalK state, IP, RSSI
+- **Triple-tap any quadrant** to expand it to a centered focus view; triple-tap again to return to grid
+- **Demo mode** (`demo [seconds]` console command) cycles each quadrant focused for 3 s with a visible DEMO badge — useful for video capture
+- **FPS overlay** (`fps` console command) — toggleable on-screen Hz + flush time stats
+- **`bench` console command** dumps fps, flush stats, heap/PSRAM free, SignalK status
+- **MOB (Man Overboard)** — always-visible red button at top-right; long-press to capture current GPS as the MOB mark and enter a full-screen rescue view (distance / true bearing / return bearing / elapsed time); long-press the bottom button to clear
+- **Alarm banner** at bottom-center auto-shows for SHALLOW WATER (depth<3 m), SIGNALK STALLED (>10 s without data), or BATTERY LOW (V<11.5)
+- `net::setExtraCommandHandler` allows `main` to register its own console commands; demo/fps/bench/mob route through this
+- Forward declarations + multiple sanity edits across `main.cpp`
+
+### Changed
+- Default SignalK target is now empty — configure with `sk <host>` rather than a baked-in hotspot IP
+
+[0.2.0]: https://github.com/navado/esp32-boat-mfd/releases/tag/v0.2.0
+
 ## [0.1.0] - 2026-05-24
 
 ### Added
