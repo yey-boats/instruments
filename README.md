@@ -11,6 +11,14 @@ A wireless marine multi-function display (MFD) for the Sunton/Guition
 **ESP32-4848S040** 4.0″ 480×480 IPS touchscreen. Acts as a SignalK
 client over WiFi, with BLE debug, OTA updates, and a 4-quadrant LVGL UI.
 
+<p align="center">
+  <a href="docs/demo.mp4">
+    <img src="docs/demo.gif" alt="Live dashboard demo" width="320">
+  </a>
+  <br>
+  <em>Live SignalK data — wind, navigation, depth, position, battery. Click for full-quality MP4.</em>
+</p>
+
 ## Highlights
 
 - Boats up to ~£20M of yacht-style equipment in a $30 board
