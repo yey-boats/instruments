@@ -110,16 +110,51 @@ Send these over the serial monitor (`make monitor`) or BLE (`make ble`):
 
 ## BLE access
 
-The device advertises as `espdisp` with the Nordic UART service
-(`6E400001-B5A3-F393-E0A3-9F4DD9E3A05A`). Subscribe to the TX characteristic
-`6E400003-…` to stream logs; write UTF-8 strings to RX `6E400002-…` for commands.
+The device advertises as `espdisp` with **two** GATT services:
 
-The bundled tool uses Python + [`bleak`](https://github.com/hbldh/bleak):
+### 1. Nordic UART (text console)
+
+UUID `6E400001-B5A3-F393-E0A3-9F4DD9E3A05A` — line-oriented, same commands
+as the serial console. Subscribe to TX `6E400003-…` for streamed logs;
+write UTF-8 lines to RX `6E400002-…`.
 
 ```sh
-make ble                       # interactive: sends ip + sk-status, then streams logs
+make ble                       # sends `ip` + `sk-status`, then streams logs
 make ble-cmd CMD="sk-status"   # one-shot command
 ```
+
+### 2. boat-mfd config service (structured)
+
+Service UUID `a3f7e000-7a6b-4f47-b3a5-c4d2e5f6a000` — intended for a
+companion mobile app (task #26).
+
+| Characteristic | UUID suffix | Props | Payload |
+|---|---|---|---|
+| **CONNECTION** | `…e001…` | Read · Write · Notify | JSON: `{ "wifi": {ssid, ip, rssi, mode}, "sk": {host, port, state}, "device": {uptime_ms, heap_free, psram_free} }` |
+| **CONFIGURATION** | `…e003…` | Read · Write · Notify | Layout JSON (same schema as the SignalK resource at `configuration.boat-mfd.layouts`), up to 512 B |
+
+Write to CONNECTION with a partial JSON to update WiFi or SignalK target:
+
+```jsonc
+{ "wifi": { "ssid": "MyHomeNet", "password": "secret" } }   // saves + reboots
+{ "wifi": { "forget": true } }                              // clears creds + reboots
+{ "sk": { "host": "192.168.1.100", "port": 3000 } }          // saves + reboots
+```
+
+Write to CONFIGURATION with a complete layout JSON to replace the live config.
+Reads return the last successfully applied document **only if it fits in 512
+bytes** (the BLE attribute-value cap per the BT spec). Larger layouts return
+a JSON summary stub:
+
+```json
+{ "truncated": true, "size": 917, "screen_count": 1, "alarm_count": 2,
+  "default_screen": "dashboard" }
+```
+
+For full-layout transfer above 512 B, smartphone apps should use SignalK's
+REST endpoint (`PUT /signalk/v1/api/vessels/self/configuration/boat-mfd/layouts/value`)
+and trigger a re-load via the device's `layout-fetch` command. Native BLE
+chunked transfer is on the roadmap (see task #20).
 
 ## Running with synthetic data
 
