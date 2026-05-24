@@ -42,7 +42,7 @@ jobs:
         run: pio run -e esp32-4848s040
 
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firmware-${{ github.sha }}
           path: |
