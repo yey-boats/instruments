@@ -101,7 +101,11 @@ static void parse_alarm(JsonObjectConst a, AlarmRule &out) {
 }
 
 int parse(const char *json, size_t len, Config &out) {
-    out = Config{};  // reset to defaults
+    // Reset in place - assigning Config{} would create a temporary ~34 KB
+    // object on the stack and overflow Arduino's 8 KB main task stack.
+    memset(&out, 0, sizeof(out));
+    out.settings.demo_period_ms = 3000;
+
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, json, len);
     if (err) return -1;
