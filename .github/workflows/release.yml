@@ -30,8 +30,8 @@ jobs:
             ~/.cache/pip
           key: pio-release-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
 
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
+      - name: Install PlatformIO and esptool
+        run: pip install --upgrade platformio esptool
 
       - name: Create placeholder secrets.h
         run: cp include/secrets.h.example include/secrets.h
@@ -43,24 +43,32 @@ jobs:
         run: |
           out="release-staging"
           mkdir -p "$out"
-          cp .pio/build/esp32-4848s040/bootloader.bin   "$out/bootloader.bin"
-          cp .pio/build/esp32-4848s040/partitions.bin   "$out/partitions.bin"
-          cp .pio/build/esp32-4848s040/firmware.bin     "$out/firmware.bin"
-          cp .pio/build/esp32-4848s040/firmware.elf     "$out/firmware.elf"
-          ~/.platformio/penv/bin/python -m esptool --chip esp32s3 merge_bin \
+          cp .pio/build/esp32-4848s040/bootloader.bin "$out/bootloader.bin"
+          cp .pio/build/esp32-4848s040/partitions.bin "$out/partitions.bin"
+          cp .pio/build/esp32-4848s040/firmware.bin   "$out/firmware.bin"
+          cp .pio/build/esp32-4848s040/firmware.elf   "$out/firmware.elf"
+          BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin 2>/dev/null | head -1)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "::error::boot_app0.bin not found under ~/.platformio/packages"
+            exit 1
+          fi
+          echo "Using boot_app0.bin from: $BOOT_APP0"
+          esptool.py --chip esp32s3 merge_bin \
             -o "$out/merged_firmware.bin" \
             --flash_mode qio --flash_size 16MB \
             0x0     "$out/bootloader.bin" \
             0x8000  "$out/partitions.bin" \
-            0xe000  ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin \
+            0xe000  "$BOOT_APP0" \
             0x10000 "$out/firmware.bin"
           ( cd "$out" && sha256sum *.bin > SHA256SUMS )
+          ls -la "$out"
 
       - name: Generate release notes
         run: |
           prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           {
             echo "## Changes"
+            echo ""
             if [ -n "$prev" ]; then
               git log --pretty=format:'- %s (%h)' "$prev"..HEAD
             else
@@ -70,16 +78,19 @@ jobs:
             echo ""
             echo "## Flash instructions"
             echo ""
+            echo 'Single-file flash (covers bootloader, partition table, OTA boot selector, and app):'
+            echo ""
             echo '```sh'
             echo "esptool.py --chip esp32s3 --port /dev/cu.usbserial-* write_flash 0x0 merged_firmware.bin"
             echo '```'
             echo ""
-            echo "Or via PlatformIO OTA once the device is on the network:"
+            echo 'Or via PlatformIO OTA once the device is on the network:'
             echo ""
             echo '```sh'
             echo "pio run -e ota -t upload --upload-port <device-ip>"
             echo '```'
           } > release_notes.md
+          cat release_notes.md
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
