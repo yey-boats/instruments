@@ -734,6 +734,9 @@ void breadcrumb_build(lv_obj_t *scr) {
     lv_obj_set_style_pad_ver(bc_label, 2, 0);
     lv_obj_set_style_radius(bc_label, 8, 0);
     lv_obj_align(bc_label, LV_ALIGN_TOP_MID, 0, 2);
+    // Don't let the chip eat touches that should land on the screen
+    // widgets underneath (settings "close", screen-tap handlers, etc.).
+    lv_obj_clear_flag(bc_label, LV_OBJ_FLAG_CLICKABLE);
 
     bc_pips = lv_obj_create(scr);
     lv_obj_set_size(bc_pips, 200, 8);
