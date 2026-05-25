@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include <WiFi.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
@@ -18,7 +19,30 @@
 namespace web {
 
 static WebServer server(80);
+static DNSServer dns;
 static bool started = false;
+static bool captive_active = false;  // only true when in AP mode
+
+// Probe URLs the major OSes hit to detect captive portals. Any non-2xx
+// response (or unexpected body) triggers the "Sign in to network" prompt
+// which opens our config page directly.
+static bool is_captive_probe_path(const String &p) {
+    return p == "/generate_204" || p == "/gen_204" ||
+           p == "/hotspot-detect.html" || p == "/library/test/success.html" ||
+           p == "/connecttest.txt" || p == "/ncsi.txt" ||
+           p == "/success.txt" || p == "/redirect" ||
+           p == "/chat" || p == "/check_network_status.txt";
+}
+
+static void send_captive_redirect() {
+    IPAddress ap_ip = WiFi.softAPIP();
+    String loc = String("http://") + ap_ip.toString() + "/";
+    server.sendHeader("Location", loc, true);
+    server.sendHeader("Cache-Control", "no-store");
+    // Some OSes parse only the body; include a manual link too.
+    String body = String("<html><body><a href=\"") + loc + "\">setup</a></body></html>";
+    server.send(302, "text/html", body);
+}
 
 // ---- helpers -----------------------------------------------------------
 
@@ -615,10 +639,21 @@ static void bind_routes() {
         }
         if (server.method() == HTTP_OPTIONS) {
             server.sendHeader("Access-Control-Allow-Origin", "*");
-            server.sendHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+            server.sendHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
             server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
             server.send(204);
             return;
+        }
+        // Captive portal: in AP mode, redirect every unknown request to
+        // the config root. Catches both the well-known probe paths and
+        // requests with foreign Host: headers (DNS routes them to us).
+        if (captive_active) {
+            IPAddress ap_ip = WiFi.softAPIP();
+            String host = server.hostHeader();
+            if (is_captive_probe_path(server.uri()) || host != ap_ip.toString()) {
+                send_captive_redirect();
+                return;
+            }
         }
         server.send(404, "text/plain", "not found");
     });
@@ -637,8 +672,17 @@ static TaskHandle_t s_task = nullptr;
 
 static void web_task(void *) {
     server.begin();
-    net::logf("[web] http server up on :80 (task on core %d)", xPortGetCoreID());
+    if (captive_active) {
+        // Resolve every DNS query to the AP IP so the phone's captive-portal
+        // probe (whatever hostname) lands on our HTTP server.
+        dns.setErrorReplyCode(DNSReplyCode::NoError);
+        dns.start(53, "*", WiFi.softAPIP());
+        net::logf("[web] captive DNS on :53 -> %s", WiFi.softAPIP().toString().c_str());
+    }
+    net::logf("[web] http server up on :80 (task on core %d, captive=%d)",
+              xPortGetCoreID(), (int)captive_active);
     for (;;) {
+        if (captive_active) dns.processNextRequest();
         server.handleClient();
         vTaskDelay(pdMS_TO_TICKS(2));
     }
@@ -646,6 +690,7 @@ static void web_task(void *) {
 
 void setup() {
     if (started) return;
+    captive_active = !net::wifiUp();  // captive only when we're the AP
     bind_routes();
     BaseType_t r = xTaskCreatePinnedToCore(web_task, "web", 8192, nullptr,
                                            1 /* low prio */, &s_task, 0 /* core 0 */);
