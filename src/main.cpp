@@ -11,6 +11,7 @@
 #include "ui_theme.h"
 #include "ui_data.h"
 #include "screens.h"
+#include "web.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -796,6 +797,7 @@ void setup() {
 
     net::setup();
     net::logf("[net] up - ip=%s", net::ipString().c_str());
+    web::setup();
 
     layout::load_default();
     sk::setup("", 3000);
@@ -832,6 +834,7 @@ void loop() {
     lv_timer_handler();
     net::loop();
     sk::loop();
+    web::loop();
     pollSerialCommands();
     delay(5);
 }

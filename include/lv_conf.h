@@ -80,3 +80,7 @@
 #define LV_USE_SHADOW    1
 #define LV_USE_OUTLINE   1
 #define LV_USE_BLEND_MODES 1
+
+// Enable lv_snapshot_take so the web UI can return a BMP of the active
+// screen (used by /api/screenshot.bmp for the future design iteration loop).
+#define LV_USE_SNAPSHOT 1
