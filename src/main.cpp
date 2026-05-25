@@ -763,29 +763,31 @@ void setup() {
         else ui::use_night();
     }
 
-    // Build screens as children of lv_screen_active(). The screen manager
-    // swaps them with the HIDDEN flag. (Native multi-screen via
-    // lv_screen_load is the ideal pattern but at boot it pre-builds every
-    // tree which overflows the LVGL pool on this board. Tracked in #34.)
-    lv_obj_t *scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(ui::theme.bg), LV_PART_MAIN);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(scr, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
+    // Each screen is a DETACHED screen object (parent = NULL). Screen
+    // manager swaps via lv_screen_load, so only the active screen lives
+    // in the render tree at any time. Possible now that LVGL pool sits in
+    // PSRAM (8 MB) - all 10 screen trees fit with room to spare.
+    ui::register_screen({"dashboard", "Dashboard",  ui::dashboard::build(NULL),     ui::dashboard::refresh,    false});
+    ui::register_screen({"wind",      "Wind",       ui::wind::build(NULL),          ui::wind::refresh,         false});
+    ui::register_screen({"nav",       "Nav",        ui::nav::build(NULL),           ui::nav::refresh,          false});
+    ui::register_screen({"depth",     "Depth",      ui::depth::build(NULL),         ui::depth::refresh,        false});
+    ui::register_screen({"steering",  "Steering",   ui::steering::build(NULL),      ui::steering::refresh,     false});
+    ui::register_screen({"route",     "Route",      ui::route::build(NULL),         ui::route::refresh,        false});
+    ui::register_screen({"autopilot", "Autopilot",  ui::autopilot::build(NULL),     ui::autopilot::refresh,    false});
+    ui::register_screen({"trip",      "Trip",       ui::trip::build(NULL),          ui::trip::refresh,         false});
+    ui::register_screen({"status",    "System",     ui::status_panel::build(NULL),  ui::status_panel::refresh, false});
+    ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(NULL),    ui::wifi_setup::refresh,   true});
 
-    ui::register_screen({"dashboard", "Dashboard",  ui::dashboard::build(scr),     ui::dashboard::refresh,    false});
-    ui::register_screen({"wind",      "Wind",       ui::wind::build(scr),          ui::wind::refresh,         false});
-    ui::register_screen({"nav",       "Nav",        ui::nav::build(scr),           ui::nav::refresh,          false});
-    ui::register_screen({"depth",     "Depth",      ui::depth::build(scr),         ui::depth::refresh,        false});
-    ui::register_screen({"steering",  "Steering",   ui::steering::build(scr),      ui::steering::refresh,     false});
-    ui::register_screen({"route",     "Route",      ui::route::build(scr),         ui::route::refresh,        false});
-    ui::register_screen({"autopilot", "Autopilot",  ui::autopilot::build(scr),     ui::autopilot::refresh,    false});
-    ui::register_screen({"trip",      "Trip",       ui::trip::build(scr),          ui::trip::refresh,         false});
-    ui::register_screen({"status",    "System",     ui::status_panel::build(scr),  ui::status_panel::refresh, false});
-    ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(scr),    ui::wifi_setup::refresh,   true});
+    // Global overlays + gestures live on lv_layer_top() so they survive
+    // screen swaps without re-parenting.
+    lv_obj_t *top = lv_layer_top();
+    lv_obj_clear_flag(top, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(top, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(top, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
 
-    mob_build(scr);
-    alarms_build(scr);
-    breadcrumb_build(scr);
+    mob_build(top);
+    alarms_build(top);
+    breadcrumb_build(top);
 
     if (!net::wifiUp()) {
         ui::show_by_id("wifi");

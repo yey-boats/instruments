@@ -8,31 +8,22 @@ static Screen s_screens[MAX_SCREENS];
 static size_t s_count = 0;
 static int s_index = 0;
 
-static void apply_visibility() {
-    for (size_t i = 0; i < s_count; ++i) {
-        if ((int)i == s_index)
-            lv_obj_clear_flag(s_screens[i].root, LV_OBJ_FLAG_HIDDEN);
-        else
-            lv_obj_add_flag(s_screens[i].root, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
 void register_screen(const Screen &s) {
     if (s_count >= MAX_SCREENS) return;
     s_screens[s_count++] = s;
-    if (s_count == 1)
-        lv_obj_clear_flag(s.root, LV_OBJ_FLAG_HIDDEN);
-    else
-        lv_obj_add_flag(s.root, LV_OBJ_FLAG_HIDDEN);
+    if (s_count == 1) {
+        lv_screen_load(s.root);
+        s_index = 0;
+    }
 }
 
 void show(int index) {
     if (s_count == 0) return;
     if (index < 0) index = 0;
     if (index >= (int)s_count) index = (int)s_count - 1;
-    if (index == s_index) return;
+    if (lv_screen_active() == s_screens[index].root && index == s_index) return;
     s_index = index;
-    apply_visibility();
+    lv_screen_load(s_screens[s_index].root);
     net::logf("[ui] screen -> %d (%s)", s_index, s_screens[s_index].id);
 }
 
