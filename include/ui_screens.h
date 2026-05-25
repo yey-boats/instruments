@@ -42,6 +42,10 @@ const char *current_title();
 size_t screen_count();
 bool is_hidden(int index);
 
+// Read-only metadata access (does NOT switch screens). Returns false if
+// index is out of range; otherwise *out_* are set (nullable).
+bool screen_info(int index, const char **out_id, const char **out_title, bool *out_hidden);
+
 // Call from the global 5 Hz ui_refresh timer.
 void refresh_current();
 

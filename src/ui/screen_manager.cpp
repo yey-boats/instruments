@@ -81,6 +81,14 @@ bool is_hidden(int index) {
     return s_screens[index].hidden;
 }
 
+bool screen_info(int index, const char **out_id, const char **out_title, bool *out_hidden) {
+    if (index < 0 || index >= (int)s_count) return false;
+    if (out_id) *out_id = s_screens[index].id;
+    if (out_title) *out_title = s_screens[index].title;
+    if (out_hidden) *out_hidden = s_screens[index].hidden;
+    return true;
+}
+
 void refresh_current() {
     if (s_count == 0) return;
     if (s_screens[s_index].refresh) s_screens[s_index].refresh();

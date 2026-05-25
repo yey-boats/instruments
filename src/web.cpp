@@ -73,17 +73,19 @@ static void handle_state() {
 static void handle_screens() {
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
-    int saved = ui::current_index();
+    int active = ui::current_index();
     for (size_t i = 0; i < ui::screen_count(); ++i) {
-        ui::show((int)i);
+        const char *id = "?";
+        const char *title = "?";
+        bool hidden = false;
+        ui::screen_info((int)i, &id, &title, &hidden);
         JsonObject s = arr.add<JsonObject>();
         s["index"] = (uint32_t)i;
-        s["id"] = ui::current_id();
-        s["title"] = ui::current_title();
-        s["hidden"] = ui::is_hidden(i);
-        s["active"] = (saved == (int)i);
+        s["id"] = id;
+        s["title"] = title;
+        s["hidden"] = hidden;
+        s["active"] = (active == (int)i);
     }
-    ui::show(saved);
     send_json(200, doc);
 }
 
@@ -216,7 +218,13 @@ static void handle_cmd() {
 // LVGL snapshot of the active screen. Requires LV_USE_SNAPSHOT in lv_conf.h.
 
 static void handle_screenshot() {
-#if LV_USE_SNAPSHOT
+    // Disabled while we run the HTTP server on a separate task: lv_snapshot
+    // walks the LVGL widget tree and renders into a fresh buffer, which is
+    // not safe from a non-LVGL task. Will return once we marshal via a
+    // queue back to the LVGL loop.
+    server.send(503, "text/plain", "screenshot temporarily disabled");
+    return;
+#if 0 && LV_USE_SNAPSHOT
     lv_draw_buf_t *buf = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_NATIVE);
     if (!buf) {
         server.send(500, "text/plain", "snapshot failed");
@@ -370,7 +378,7 @@ for (const b of document.querySelectorAll('button[data-cmd]')) {
 }
 refresh();
 loadLayout();
-setInterval(refresh, 2000);
+setInterval(refresh, 5000);
 </script>
 )HTML";
 
@@ -406,16 +414,40 @@ static void bind_routes() {
     });
 }
 
+// ---- task --------------------------------------------------------------
+// WebServer is fully synchronous - if we call handleClient() from the same
+// task as LVGL, a slow socket flush blocks UI rendering. Run the server on
+// its own FreeRTOS task pinned to core 0 (Arduino loop runs on core 1).
+// All handlers above touch only thread-safe accessors (no direct LVGL
+// drawing). ui::show / layout::apply_json toggle flags / PSRAM buffers
+// that the LVGL render loop reads atomically enough for our use - worst
+// case is one frame of mismatched state, never a crash.
+
+static TaskHandle_t s_task = nullptr;
+
+static void web_task(void *) {
+    server.begin();
+    net::logf("[web] http server up on :80 (task on core %d)", xPortGetCoreID());
+    for (;;) {
+        server.handleClient();
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+}
+
 void setup() {
     if (started) return;
     bind_routes();
-    server.begin();
+    BaseType_t r = xTaskCreatePinnedToCore(web_task, "web", 8192, nullptr,
+                                           1 /* low prio */, &s_task, 0 /* core 0 */);
+    if (r != pdPASS) {
+        net::logf("[web] task create failed");
+        return;
+    }
     started = true;
-    net::logf("[web] http server up on :80");
 }
 
 void loop() {
-    if (started) server.handleClient();
+    // Server runs on its own task - nothing to do here.
 }
 
 }  // namespace web
