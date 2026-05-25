@@ -816,9 +816,9 @@ void setup() {
     alarms_build(top);
     breadcrumb_build(top);
 
-    if (!net::wifiUp()) {
-        ui::show_by_id("wifi");
-    }
+    // (initial screen selection happens AFTER net::setup() runs below;
+    // doing it here would always see WiFi as down because we haven't
+    // tried to join yet.)
 
     // Restore last-known brightness from NVS (default 200/255 ~ 78%).
     {
@@ -835,6 +835,15 @@ void setup() {
     net::logf("[net] up - ip=%s", net::ipString().c_str());
     screenshot::setup();
     web::setup();
+
+    // Choose the boot screen based on whether the radio is actually up.
+    // STA -> dashboard (already loaded by register_screen anyway). AP ->
+    // wifi setup so the QR / SSID is the first thing the user sees.
+    if (net::wifiUp()) {
+        ui::show_by_id("dashboard");
+    } else {
+        ui::show_by_id("wifi");
+    }
 
     layout::load_default();
     sk::setup("", 3000);
