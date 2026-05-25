@@ -44,6 +44,10 @@ struct Data {
     double apTargetHdg = NAN;  // autopilot target heading, rad
     char apState[16] = {0};    // autopilot state string ("auto", "wind", "standby", ...)
 
+    // current / tide
+    double currentSetTrue = NAN;  // true direction the current is flowing toward, rad
+    double currentDrift = NAN;    // current speed, m/s
+
     uint32_t lastUpdateMs = 0;
     bool connected = false;
 };

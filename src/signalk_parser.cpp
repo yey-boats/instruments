@@ -77,6 +77,12 @@ void applyValue(const char *path, JsonVariant val, Data &out) {
         out.vmg = asDouble(val, out.vmg);
     } else if (strcmp(path, "steering.autopilot.target.headingTrue") == 0) {
         out.apTargetHdg = asDouble(val, out.apTargetHdg);
+    } else if (strcmp(path, "environment.current.setTrue") == 0 ||
+               strcmp(path, "environment.current.drift.setTrue") == 0) {
+        out.currentSetTrue = asDouble(val, out.currentSetTrue);
+    } else if (strcmp(path, "environment.current.drift") == 0 ||
+               strcmp(path, "environment.current.speed") == 0) {
+        out.currentDrift = asDouble(val, out.currentDrift);
     } else if (strcmp(path, "steering.autopilot.state") == 0) {
         const char *s = val.as<const char *>();
         if (s) {

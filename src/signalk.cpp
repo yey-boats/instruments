@@ -47,6 +47,8 @@ static void subscribe() {
         "navigation.courseRhumbline.velocityMadeGood",
         "steering.autopilot.target.headingTrue",
         "steering.autopilot.state",
+        "environment.current.setTrue",
+        "environment.current.drift",
     };
     for (auto p : paths) {
         JsonObject o = arr.add<JsonObject>();
