@@ -13,6 +13,7 @@
 #include "layout_loader.h"
 #include "ui_screens.h"
 #include "board_pins.h"
+#include "wifi_store.h"
 
 namespace web {
 
@@ -272,6 +273,30 @@ static void handle_wifi_forget() {
     net::dispatchCommand("wifi-forget");
 }
 
+static void handle_wifi_saved_get() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", wifi_store::to_json(false));
+}
+
+static void handle_wifi_saved_delete() {
+    // URI form: /api/wifi/saved/<ssid>
+    String u = server.uri();
+    int slash = u.lastIndexOf('/');
+    if (slash < 0 || slash == (int)u.length() - 1) {
+        server.send(400, "text/plain", "ssid required in path");
+        return;
+    }
+    String ssid = u.substring(slash + 1);
+    // URL-decode minimally (replace +)
+    ssid.replace("+", " ");
+    bool ok = wifi_store::remove(ssid.c_str());
+    JsonDocument out;
+    out["ok"] = ok;
+    out["ssid"] = ssid;
+    out["count"] = (uint32_t)wifi_store::count();
+    send_json(ok ? 200 : 404, out);
+}
+
 // ---- /api/cmd ----------------------------------------------------------
 
 static void handle_cmd() {
@@ -398,9 +423,12 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
       <span id=wifiStatus class=k>idle</span>
       <input id=wifiSsid placeholder="ssid" style="width:160px"/>
       <input id=wifiPass placeholder="password (blank if open)" type=password style="width:220px"/>
-      <button id=wifiConnect>connect + reboot</button>
-      <button id=wifiForget>forget creds</button>
+      <button id=wifiConnect>save + reboot</button>
+      <button id=wifiForget>forget all</button>
     </div>
+    <div class=k>SAVED NETWORKS  (tried in order on boot)</div>
+    <div id=wifiSaved style="margin-bottom:8px"></div>
+    <div class=k>NEARBY</div>
     <div id=wifiList></div>
   </div>
 </div>
@@ -516,12 +544,41 @@ async function wifiForget(){
   document.getElementById('wifiStatus').textContent = 'forgetting + rebooting...';
   await fetch('/api/wifi/forget', {method:'POST'});
 }
+async function wifiSavedRefresh(){
+  try{
+    const r = await fetch('/api/wifi/saved');
+    const arr = await r.json();
+    const box = document.getElementById('wifiSaved');
+    box.replaceChildren();
+    if (!arr.length) {
+      const e = document.createElement('span'); e.className = 'k'; e.textContent = 'none';
+      box.appendChild(e); return;
+    }
+    for (let i = 0; i < arr.length; ++i) {
+      const n = arr[i];
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid #1a2a3a';
+      const left = document.createElement('span');
+      left.textContent = (i+1) + '. ' + n.ssid + (n.has_password ? '  [+pw]' : '  [open]');
+      const del = document.createElement('button');
+      del.textContent = 'forget';
+      del.addEventListener('click', async () => {
+        await fetch('/api/wifi/saved/' + encodeURIComponent(n.ssid).replace(/%20/g,'+'), {method:'DELETE'});
+        wifiSavedRefresh();
+      });
+      row.appendChild(left); row.appendChild(del);
+      box.appendChild(row);
+    }
+  }catch(e){ /* transient */ }
+}
+
 document.getElementById('wifiScan').addEventListener('click', wifiScan);
 document.getElementById('wifiConnect').addEventListener('click', wifiConnect);
 document.getElementById('wifiForget').addEventListener('click', wifiForget);
 
 refresh();
 loadLayout();
+wifiSavedRefresh();
 setInterval(refresh, 5000);
 </script>
 )HTML";
@@ -545,10 +602,15 @@ static void bind_routes() {
     server.on("/api/wifi/networks", HTTP_GET, handle_wifi_networks);
     server.on("/api/wifi/connect", HTTP_POST, handle_wifi_connect);
     server.on("/api/wifi/forget", HTTP_POST, handle_wifi_forget);
+    server.on("/api/wifi/saved", HTTP_GET, handle_wifi_saved_get);
     server.on("/api/screenshot.bmp", HTTP_GET, handle_screenshot);
     server.onNotFound([]() {
         if (server.method() == HTTP_POST && server.uri().startsWith("/api/screen/")) {
             handle_screen_set();
+            return;
+        }
+        if (server.method() == HTTP_DELETE && server.uri().startsWith("/api/wifi/saved/")) {
+            handle_wifi_saved_delete();
             return;
         }
         if (server.method() == HTTP_OPTIONS) {

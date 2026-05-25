@@ -55,8 +55,8 @@
 #define LV_USE_SPINNER     0
 #define LV_USE_LED         0
 #define LV_USE_ANIMIMG     0
-#define LV_USE_CANVAS      0
-#define LV_USE_QRCODE      0
+#define LV_USE_CANVAS      1  // required by LV_USE_QRCODE
+#define LV_USE_QRCODE      1
 #define LV_USE_BARCODE     0
 
 // Themes

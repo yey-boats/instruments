@@ -12,6 +12,7 @@
 #include "signalk.h"
 #include "layout_loader.h"
 #include "ble_config.h"
+#include "wifi_store.h"
 
 namespace net {
 
@@ -107,51 +108,73 @@ static void otaSetup() {
     Serial.printf("[ota] ready at %s.local\n", s_device_id.c_str());
 }
 
-static void wifiStart() {
-    String ssid = prefs.getString("ssid", WIFI_SSID);
-    String pass = prefs.getString("pass", WIFI_PASS);
-
-    if (ssid.length() == 0) {
-        Serial.println("[wifi] no credentials, starting AP-only");
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP("espdisp-setup");
-        broadcastAddr = WiFi.softAPIP();
-        broadcastAddr[3] = 255;
-        ap_mode = true;
-        Serial.printf("[wifi] AP ip=%s  send 'wifi <ssid> <pass>' on serial to configure\n",
-                      WiFi.softAPIP().toString().c_str());
-        return;
-    }
-
+// Try one network with a 10s timeout. Returns true on association.
+static bool try_join(const char *ssid, const char *pass) {
+    WiFi.disconnect(false, true);
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(s_device_id.c_str());
-    WiFi.begin(ssid.c_str(), pass.c_str());
-    Serial.printf("[wifi] connecting to '%s'", ssid.c_str());
+    Serial.printf("[wifi] trying '%s' (pass len %u)\n", ssid, (unsigned)strlen(pass ? pass : ""));
+    if (pass && *pass)
+        WiFi.begin(ssid, pass);
+    else
+        WiFi.begin(ssid);
     uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 12000) {
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000) {
         delay(250);
         Serial.print('.');
     }
     Serial.println();
+    return WiFi.status() == WL_CONNECTED;
+}
 
-    if (WiFi.status() == WL_CONNECTED) {
+static void start_ap_mode() {
+    Serial.println("[wifi] starting AP mode");
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP("espdisp-setup");
+    broadcastAddr = WiFi.softAPIP();
+    broadcastAddr[3] = 255;
+    ap_mode = true;
+    Serial.printf("[wifi] AP ip=%s ssid='espdisp-setup' (open)\n",
+                  WiFi.softAPIP().toString().c_str());
+}
+
+static void wifiStart() {
+    wifi_store::load();
+    wifi_store::migrate_legacy_if_any();
+
+    if (wifi_store::count() == 0) {
+        Serial.println("[wifi] no saved networks, AP-only");
+        start_ap_mode();
+        udp.begin(UDP_LOG_PORT);
+        return;
+    }
+
+    Serial.printf("[wifi] %u saved network%s, trying in order\n",
+                  (unsigned)wifi_store::count(), wifi_store::count() == 1 ? "" : "s");
+
+    bool joined = false;
+    for (size_t i = 0; i < wifi_store::count(); ++i) {
+        const auto &n = wifi_store::at(i);
+        if (try_join(n.ssid, n.pass)) {
+            joined = true;
+            break;
+        }
+    }
+
+    if (joined) {
         IPAddress ip = WiFi.localIP();
         broadcastAddr = ip;
         broadcastAddr[3] = 255;
-        Serial.printf("[wifi] up: ip=%s  rssi=%d\n", ip.toString().c_str(), WiFi.RSSI());
+        Serial.printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(),
+                      WiFi.SSID().c_str(), WiFi.RSSI());
         if (MDNS.begin(s_device_id.c_str())) {
             MDNS.addService("arduino", "tcp", 3232);
             Serial.printf("[mdns] %s.local\n", s_device_id.c_str());
         }
         otaSetup();
     } else {
-        Serial.println("[wifi] connect failed, fallback to AP");
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP("espdisp-setup");
-        broadcastAddr = WiFi.softAPIP();
-        broadcastAddr[3] = 255;
-        ap_mode = true;
-        Serial.printf("[wifi] AP ip=%s\n", WiFi.softAPIP().toString().c_str());
+        Serial.println("[wifi] all saved networks failed, fallback to AP");
+        start_ap_mode();
     }
     udp.begin(UDP_LOG_PORT);
 }
@@ -192,10 +215,9 @@ void setExtraCommandHandler(ExtraCommandHandler h) {
 }
 
 void saveWifi(const String &ssid, const String &pass) {
-    prefs.putString("ssid", ssid);
-    prefs.putString("pass", pass);
-    logf("[wifi] saved ssid='%s' (pass len %u) - rebooting", ssid.c_str(),
-         (unsigned)pass.length());
+    wifi_store::put(ssid.c_str(), pass.c_str());
+    logf("[wifi] saved ssid='%s' (pass len %u, total %u nets) - rebooting", ssid.c_str(),
+         (unsigned)pass.length(), (unsigned)wifi_store::count());
     delay(200);
     ESP.restart();
 }
@@ -261,11 +283,28 @@ bool handleSerialCommand(const String &line) {
         return true;
     }
     if (line == "wifi-forget") {
+        wifi_store::clear_all();
         prefs.remove("ssid");
         prefs.remove("pass");
-        logf("[wifi] credentials cleared - rebooting");
+        logf("[wifi] all networks cleared - rebooting");
         delay(200);
         ESP.restart();
+        return true;
+    }
+    if (line.startsWith("wifi-forget ")) {
+        String ssid = line.substring(12);
+        ssid.trim();
+        bool ok = wifi_store::remove(ssid.c_str());
+        logf("[wifi] forget '%s' -> %s", ssid.c_str(), ok ? "removed" : "not found");
+        return true;
+    }
+    if (line == "wifi-list") {
+        logf("[wifi] %u saved network%s:", (unsigned)wifi_store::count(),
+             wifi_store::count() == 1 ? "" : "s");
+        for (size_t i = 0; i < wifi_store::count(); ++i) {
+            const auto &n = wifi_store::at(i);
+            logf("  [%u] %s  (pass: %s)", (unsigned)i, n.ssid, n.pass[0] ? "yes" : "no");
+        }
         return true;
     }
     if (line == "ip") {

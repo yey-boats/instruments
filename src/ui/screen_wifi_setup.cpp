@@ -19,15 +19,19 @@
 
 namespace ui::wifi_setup {
 
-enum class View { List, Entry };
-static View s_view = View::List;
+enum class View { Provision, List, Entry };
+static View s_view = View::Provision;
 
 static lv_obj_t *s_root = nullptr;
+static lv_obj_t *provision_view = nullptr;    // AP-mode QR provisioning
 static lv_obj_t *list_view = nullptr;
 static lv_obj_t *entry_view = nullptr;
 static lv_obj_t *ssid_list = nullptr;   // scrolling container of buttons
 static lv_obj_t *btn_scan = nullptr;
 static lv_obj_t *lbl_scan_status = nullptr;
+
+static lv_obj_t *qr_code = nullptr;
+static lv_obj_t *lbl_ap_url = nullptr;
 
 static lv_obj_t *lbl_selected_ssid = nullptr;
 static lv_obj_t *ta_pass = nullptr;
@@ -38,8 +42,16 @@ static lv_obj_t *btn_back = nullptr;
 static String s_selected_ssid;
 static bool s_scanning = false;
 
+static void show_provision() {
+    s_view = View::Provision;
+    if (provision_view) lv_obj_clear_flag(provision_view, LV_OBJ_FLAG_HIDDEN);
+    if (list_view) lv_obj_add_flag(list_view, LV_OBJ_FLAG_HIDDEN);
+    if (entry_view) lv_obj_add_flag(entry_view, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void show_list() {
     s_view = View::List;
+    if (provision_view) lv_obj_add_flag(provision_view, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(list_view, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(entry_view, LV_OBJ_FLAG_HIDDEN);
 }
@@ -49,6 +61,7 @@ static void show_entry(const String &ssid) {
     s_selected_ssid = ssid;
     if (lbl_selected_ssid) lv_label_set_text(lbl_selected_ssid, ssid.c_str());
     if (ta_pass) lv_textarea_set_text(ta_pass, "");
+    if (provision_view) lv_obj_add_flag(provision_view, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(list_view, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(entry_view, LV_OBJ_FLAG_HIDDEN);
 }
@@ -145,6 +158,50 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_pad_all(s_root, 0, 0);
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_EVENT_BUBBLE);
+
+    // ---- PROVISION VIEW (shown when device is in AP mode) ----
+    provision_view = lv_obj_create(s_root);
+    lv_obj_set_size(provision_view, LCD_W, LCD_H);
+    lv_obj_set_pos(provision_view, 0, 0);
+    lv_obj_set_style_bg_color(provision_view, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_border_width(provision_view, 0, 0);
+    lv_obj_set_style_pad_all(provision_view, 16, 0);
+    lv_obj_clear_flag(provision_view, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(provision_view, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t *prov_title = lv_label_create(provision_view);
+    lv_label_set_text(prov_title, "JOIN TO CONFIGURE");
+    lv_obj_set_style_text_font(prov_title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(prov_title, lv_color_hex(theme.accent), 0);
+    lv_obj_align(prov_title, LV_ALIGN_TOP_MID, 0, 0);
+
+    lv_obj_t *prov_sub = lv_label_create(provision_view);
+    lv_label_set_text(prov_sub,
+                      "1. scan QR or join \"espdisp-setup\"\n"
+                      "2. open http://192.168.4.1/\n"
+                      "3. pick a network in the WIFI panel");
+    lv_obj_set_style_text_font(prov_sub, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(prov_sub, lv_color_hex(theme.fg), 0);
+    lv_obj_set_style_text_align(prov_sub, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(prov_sub, LV_ALIGN_TOP_MID, 0, 28);
+
+    // QR encodes the standard Android/iOS WiFi-join URI. T:nopass = open AP.
+    qr_code = lv_qrcode_create(provision_view);
+    lv_qrcode_set_size(qr_code, 240);
+    lv_qrcode_set_dark_color(qr_code, lv_color_hex(0x0a1a2b));
+    lv_qrcode_set_light_color(qr_code, lv_color_hex(0xffffff));
+    const char *wifi_uri = "WIFI:T:nopass;S:espdisp-setup;;";
+    lv_qrcode_update(qr_code, wifi_uri, strlen(wifi_uri));
+    lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, 14);
+    lv_obj_set_style_border_width(qr_code, 6, 0);
+    lv_obj_set_style_border_color(qr_code, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_radius(qr_code, 6, 0);
+
+    lbl_ap_url = lv_label_create(provision_view);
+    lv_label_set_text(lbl_ap_url, "espdisp-setup  ->  http://192.168.4.1/");
+    lv_obj_set_style_text_font(lbl_ap_url, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(lbl_ap_url, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(lbl_ap_url, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     // ---- LIST VIEW ----
     list_view = lv_obj_create(s_root);
@@ -244,6 +301,28 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_size(kb, LCD_W - 12, 280);
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -4);
     lv_keyboard_set_textarea(kb, ta_pass);
+
+    // "scan on-screen instead" button on the provision view
+    lv_obj_t *btn_list = lv_button_create(provision_view);
+    lv_obj_set_size(btn_list, 200, 36);
+    lv_obj_align(btn_list, LV_ALIGN_BOTTOM_MID, 0, -36);
+    lv_obj_set_style_bg_color(btn_list, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_set_style_radius(btn_list, 8, 0);
+    lv_obj_add_event_cb(btn_list,
+                        [](lv_event_t *e) {
+                            if (lv_event_get_code(e) == LV_EVENT_CLICKED) show_list();
+                        },
+                        LV_EVENT_CLICKED, NULL);
+    lv_obj_t *list_btn_lbl = lv_label_create(btn_list);
+    lv_label_set_text(list_btn_lbl, "scan on-screen instead");
+    lv_obj_center(list_btn_lbl);
+
+    // Initial view depends on whether we have WiFi up. AP mode = provision.
+    if (!net::wifiUp()) {
+        show_provision();
+    } else {
+        show_list();
+    }
 
     return s_root;
 }
