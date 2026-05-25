@@ -128,14 +128,36 @@ static bool try_join(const char *ssid, const char *pass) {
 }
 
 static void start_ap_mode() {
-    Serial.println("[wifi] starting AP mode");
+    Serial.println("[wifi] starting AP mode (full reset)");
+    // Fully tear down any lingering STA state. Without this, after one or
+    // more failed try_join calls the lwIP / DHCP server may not initialise
+    // on the AP interface and clients get "could not obtain IP".
+    WiFi.persistent(false);
+    WiFi.disconnect(true /* wifioff */, true /* erase */);
+    delay(120);
+    WiFi.mode(WIFI_OFF);
+    delay(180);
     WiFi.mode(WIFI_AP);
-    WiFi.softAP("espdisp-setup");
+    delay(120);
+
+    IPAddress ip(192, 168, 4, 1);
+    IPAddress gw(192, 168, 4, 1);
+    IPAddress mask(255, 255, 255, 0);
+    if (!WiFi.softAPConfig(ip, gw, mask)) {
+        Serial.println("[wifi] softAPConfig FAILED");
+    }
+    // channel 1, not hidden, max 4 clients, beacon interval default.
+    bool ok = WiFi.softAP("espdisp-setup", nullptr, 1, 0, 4);
+    delay(500);  // allow the DHCP server task to spin up
+    if (!ok) {
+        Serial.println("[wifi] softAP FAILED");
+    }
     broadcastAddr = WiFi.softAPIP();
     broadcastAddr[3] = 255;
     ap_mode = true;
-    Serial.printf("[wifi] AP ip=%s ssid='espdisp-setup' (open)\n",
-                  WiFi.softAPIP().toString().c_str());
+    Serial.printf("[wifi] AP ip=%s  mac=%s  ssid='espdisp-setup' (open)\n",
+                  WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
+    Serial.printf("[wifi] connected stations: %d\n", WiFi.softAPgetStationNum());
 }
 
 static void wifiStart() {
