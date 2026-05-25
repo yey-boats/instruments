@@ -15,6 +15,8 @@
 #include "ui_screens.h"
 #include "board_pins.h"
 #include "wifi_store.h"
+#include "screenshot.h"
+#include <esp_heap_caps.h>
 
 namespace web {
 
@@ -349,53 +351,28 @@ static void handle_cmd() {
 // LVGL snapshot of the active screen. Requires LV_USE_SNAPSHOT in lv_conf.h.
 
 static void handle_screenshot() {
-    // Disabled while we run the HTTP server on a separate task: lv_snapshot
-    // walks the LVGL widget tree and renders into a fresh buffer, which is
-    // not safe from a non-LVGL task. Will return once we marshal via a
-    // queue back to the LVGL loop.
-    server.send(503, "text/plain", "screenshot temporarily disabled");
-    return;
-#if 0 && LV_USE_SNAPSHOT
-    lv_draw_buf_t *buf = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_NATIVE);
-    if (!buf) {
-        server.send(500, "text/plain", "snapshot failed");
+    uint8_t *bmp = nullptr;
+    size_t len = 0;
+    if (!screenshot::request(2500, &bmp, &len) || !bmp || len == 0) {
+        server.send(504, "text/plain", "snapshot timeout");
         return;
     }
-    uint32_t w = buf->header.w;
-    uint32_t h = buf->header.h;
-    uint32_t stride = buf->header.stride;
-    uint32_t pix_bytes = stride * h;
-    uint32_t total = 14 + 40 + 12 + pix_bytes;
-    uint8_t hdr[14 + 40 + 12] = {0};
-    hdr[0] = 'B'; hdr[1] = 'M';
-    hdr[2] = total & 0xff; hdr[3] = (total >> 8) & 0xff;
-    hdr[4] = (total >> 16) & 0xff; hdr[5] = (total >> 24) & 0xff;
-    hdr[10] = (14 + 40 + 12) & 0xff;
-    hdr[14] = 40;
-    hdr[18] = w & 0xff; hdr[19] = (w >> 8) & 0xff;
-    int32_t neg_h = -(int32_t)h;
-    hdr[22] = neg_h & 0xff; hdr[23] = (neg_h >> 8) & 0xff;
-    hdr[24] = (neg_h >> 16) & 0xff; hdr[25] = (neg_h >> 24) & 0xff;
-    hdr[26] = 1;
-    hdr[28] = 16;
-    hdr[30] = 3;
-    hdr[34] = pix_bytes & 0xff;
-    hdr[35] = (pix_bytes >> 8) & 0xff;
-    hdr[36] = (pix_bytes >> 16) & 0xff;
-    hdr[37] = (pix_bytes >> 24) & 0xff;
-    hdr[54] = 0x00; hdr[55] = 0xF8;
-    hdr[58] = 0xE0; hdr[59] = 0x07;
-    hdr[62] = 0x1F;
-
     server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.setContentLength(total);
+    server.sendHeader("Cache-Control", "no-store");
+    server.setContentLength(len);
     server.send(200, "image/bmp", "");
-    server.client().write(hdr, sizeof(hdr));
-    server.client().write((const uint8_t *)buf->data, pix_bytes);
-    lv_draw_buf_destroy(buf);
-#else
-    server.send(501, "text/plain", "LV_USE_SNAPSHOT not enabled");
-#endif
+    // Chunked write so we don't blast a 460+ kB payload in one shot.
+    WiFiClient client = server.client();
+    const uint8_t *p = bmp;
+    size_t left = len;
+    while (left && client.connected()) {
+        size_t chunk = left > 1460 ? 1460 : left;
+        size_t w = client.write(p, chunk);
+        if (w == 0) break;
+        p += w;
+        left -= w;
+    }
+    heap_caps_free(bmp);
 }
 
 // ---- root HTML page ----------------------------------------------------

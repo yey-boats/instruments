@@ -12,6 +12,7 @@
 #include "ui_data.h"
 #include "screens.h"
 #include "web.h"
+#include "screenshot.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -695,6 +696,9 @@ static void ui_refresh(lv_timer_t *) {
     breadcrumb_refresh();
     mob_refresh();
     alarm_check();
+    // Service any pending screenshot request from the web task (snapshot
+    // walks LVGL objects, must run on this task).
+    screenshot::serve_pending();
     // Force a full redraw every cycle. Without this, FPS dropped to 0 on
     // this hardware - LVGL was correctly tracking that "nothing changed"
     // but the panel needs a refresh anyway for time-based animations
@@ -798,6 +802,7 @@ void setup() {
 
     net::setup();
     net::logf("[net] up - ip=%s", net::ipString().c_str());
+    screenshot::setup();
     web::setup();
 
     layout::load_default();
