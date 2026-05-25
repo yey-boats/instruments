@@ -59,4 +59,9 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace wifi_setup
 
+namespace settings {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace settings
+
 }  // namespace ui

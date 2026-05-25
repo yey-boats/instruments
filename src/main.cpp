@@ -520,9 +520,18 @@ static void screen_gesture_handler(lv_event_t *e) {
         return;
     }
 
+    const char *cur = ui::current_id();
+    bool on_settings = cur && strcmp(cur, "settings") == 0;
+
     if (dir == LV_DIR_LEFT) ui::next();
     else if (dir == LV_DIR_RIGHT) ui::prev();
-    else if (dir == LV_DIR_BOTTOM) ui::show(0);
+    else if (dir == LV_DIR_TOP) ui::show_by_id("settings");
+    else if (dir == LV_DIR_BOTTOM) {
+        // Down swipe: from Settings (or any overlay screen) -> dashboard.
+        // From a normal screen this is the existing "home" gesture.
+        ui::show(0);
+        (void)on_settings;
+    }
 }
 
 // ----- Command handler --------------------------------------------------
@@ -804,6 +813,7 @@ void setup() {
     ui::register_screen({"trip",      "Trip",       ui::trip::build(NULL),          ui::trip::refresh,         false});
     ui::register_screen({"status",    "System",     ui::status_panel::build(NULL),  ui::status_panel::refresh, false});
     ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(NULL),    ui::wifi_setup::refresh,   true});
+    ui::register_screen({"settings",  "Settings",   ui::settings::build(NULL),      ui::settings::refresh,     true});
 
     // Global overlays + gestures live on lv_layer_top() so they survive
     // screen swaps without re-parenting.
