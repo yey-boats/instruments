@@ -426,7 +426,7 @@ static void demo_tick(lv_timer_t *) { ui::next(); }
 static void demo_start(uint32_t period_ms) {
     g_demo_period_ms = period_ms ? period_ms : 3000;
     if (!g_demo_badge) {
-        g_demo_badge = lv_label_create(lv_screen_active());
+        g_demo_badge = lv_label_create(lv_layer_top());
         lv_label_set_text(g_demo_badge, " DEMO ");
         lv_obj_set_style_bg_color(g_demo_badge, lv_color_hex(ui::theme.port), 0);
         lv_obj_set_style_bg_opa(g_demo_badge, LV_OPA_COVER, 0);
@@ -469,7 +469,7 @@ static void fps_tick(lv_timer_t *) {
 
 static void fps_overlay_toggle() {
     if (!g_fps_overlay) {
-        g_fps_overlay = lv_label_create(lv_screen_active());
+        g_fps_overlay = lv_label_create(lv_layer_top());
         lv_label_set_text(g_fps_overlay, "-- Hz");
         lv_obj_set_style_bg_color(g_fps_overlay, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(g_fps_overlay, LV_OPA_70, 0);
@@ -695,6 +695,11 @@ static void ui_refresh(lv_timer_t *) {
     breadcrumb_refresh();
     mob_refresh();
     alarm_check();
+    // Force a full redraw every cycle. Without this, FPS dropped to 0 on
+    // this hardware - LVGL was correctly tracking that "nothing changed"
+    // but the panel needs a refresh anyway for time-based animations
+    // (needle sweep, uptime label, etc.) to be visible.
+    lv_obj_invalidate(lv_screen_active());
 }
 
 void setup() {
@@ -758,7 +763,10 @@ void setup() {
         else ui::use_night();
     }
 
-    // Build screens
+    // Build screens as children of lv_screen_active(). The screen manager
+    // swaps them with the HIDDEN flag. (Native multi-screen via
+    // lv_screen_load is the ideal pattern but at boot it pre-builds every
+    // tree which overflows the LVGL pool on this board. Tracked in #34.)
     lv_obj_t *scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_hex(ui::theme.bg), LV_PART_MAIN);
     lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
@@ -773,21 +781,12 @@ void setup() {
     ui::register_screen({"autopilot", "Autopilot",  ui::autopilot::build(scr),     ui::autopilot::refresh,    false});
     ui::register_screen({"trip",      "Trip",       ui::trip::build(scr),          ui::trip::refresh,         false});
     ui::register_screen({"status",    "System",     ui::status_panel::build(scr),  ui::status_panel::refresh, false});
-    // WiFi setup is hidden from the swipe cycle - open with `screen wifi` from
-    // console / BLE, or open automatically when not connected (below).
     ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(scr),    ui::wifi_setup::refresh,   true});
 
-    // Global overlays after screens so they render on top
     mob_build(scr);
     alarms_build(scr);
-
-    // Breadcrumb chip top-center: "Wind 2/9" + a pip strip below.
-    // Lives on lv_screen_active() above all screens so it follows view changes.
     breadcrumb_build(scr);
 
-    // Auto-open WiFi setup when we booted into AP mode (no saved creds or
-    // STA connect failed). User can still swipe past it - it's just the
-    // friendlier first impression.
     if (!net::wifiUp()) {
         ui::show_by_id("wifi");
     }

@@ -185,17 +185,34 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_align(prov_sub, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(prov_sub, LV_ALIGN_TOP_MID, 0, 28);
 
-    // QR encodes the standard Android/iOS WiFi-join URI. T:nopass = open AP.
-    qr_code = lv_qrcode_create(provision_view);
-    lv_qrcode_set_size(qr_code, 240);
-    lv_qrcode_set_dark_color(qr_code, lv_color_hex(0x0a1a2b));
-    lv_qrcode_set_light_color(qr_code, lv_color_hex(0xffffff));
-    const char *wifi_uri = "WIFI:T:nopass;S:espdisp-setup;;";
-    lv_qrcode_update(qr_code, wifi_uri, strlen(wifi_uri));
+    // QR is disabled in lv_conf.h for now (would need ~115 kB canvas).
+    // Show a giant SSID + URL block so users can join manually until we
+    // move the LVGL pool to PSRAM and re-enable LV_USE_QRCODE.
+    qr_code = lv_obj_create(provision_view);
+    lv_obj_set_size(qr_code, 280, 180);
+    lv_obj_set_style_bg_color(qr_code, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_radius(qr_code, 12, 0);
+    lv_obj_set_style_pad_all(qr_code, 12, 0);
+    lv_obj_clear_flag(qr_code, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, 14);
-    lv_obj_set_style_border_width(qr_code, 6, 0);
-    lv_obj_set_style_border_color(qr_code, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_radius(qr_code, 6, 0);
+
+    lv_obj_t *ssid_big = lv_label_create(qr_code);
+    lv_label_set_text(ssid_big, "espdisp-setup");
+    lv_obj_set_style_text_font(ssid_big, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(ssid_big, lv_color_hex(0x0a1a2b), 0);
+    lv_obj_align(ssid_big, LV_ALIGN_TOP_MID, 0, 4);
+
+    lv_obj_t *open_lbl = lv_label_create(qr_code);
+    lv_label_set_text(open_lbl, "(open, no password)");
+    lv_obj_set_style_text_font(open_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(open_lbl, lv_color_hex(0x4d6b8a), 0);
+    lv_obj_align(open_lbl, LV_ALIGN_TOP_MID, 0, 38);
+
+    lv_obj_t *url_big = lv_label_create(qr_code);
+    lv_label_set_text(url_big, "http://192.168.4.1/");
+    lv_obj_set_style_text_font(url_big, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(url_big, lv_color_hex(0x0a59c4), 0);
+    lv_obj_align(url_big, LV_ALIGN_BOTTOM_MID, 0, -4);
 
     lbl_ap_url = lv_label_create(provision_view);
     lv_label_set_text(lbl_ap_url, "espdisp-setup  ->  http://192.168.4.1/");

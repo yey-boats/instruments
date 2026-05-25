@@ -20,7 +20,6 @@ static void apply_visibility() {
 void register_screen(const Screen &s) {
     if (s_count >= MAX_SCREENS) return;
     s_screens[s_count++] = s;
-    // Initial state: only index 0 visible.
     if (s_count == 1)
         lv_obj_clear_flag(s.root, LV_OBJ_FLAG_HIDDEN);
     else

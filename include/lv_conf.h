@@ -55,8 +55,13 @@
 #define LV_USE_SPINNER     0
 #define LV_USE_LED         0
 #define LV_USE_ANIMIMG     0
-#define LV_USE_CANVAS      1  // required by LV_USE_QRCODE
-#define LV_USE_QRCODE      1
+// Canvas/snapshot disabled along with qrcode - both allocate large pixel
+// buffers from the LVGL pool.
+#define LV_USE_CANVAS      0
+// QR is disabled for now - lv_qrcode allocates a full-size canvas (240*240*
+// 2 = 115 kB at 16bpp) which exceeds LV_MEM_SIZE and crashes the renderer.
+// Re-enable once we move LVGL pool to PSRAM.
+#define LV_USE_QRCODE      0
 #define LV_USE_BARCODE     0
 
 // Themes
@@ -81,6 +86,6 @@
 #define LV_USE_OUTLINE   1
 #define LV_USE_BLEND_MODES 1
 
-// Enable lv_snapshot_take so the web UI can return a BMP of the active
-// screen (used by /api/screenshot.bmp for the future design iteration loop).
-#define LV_USE_SNAPSHOT 1
+// Snapshot disabled - it depends on canvas (which we disabled) and the
+// screenshot endpoint isn't safe from the web task anyway.
+#define LV_USE_SNAPSHOT 0
