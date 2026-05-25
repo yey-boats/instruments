@@ -13,6 +13,7 @@
 #include "screens.h"
 #include "web.h"
 #include "screenshot.h"
+#include "app_events.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -530,16 +531,31 @@ static void fps_overlay_toggle() {
         lv_obj_add_flag(g_fps_overlay, LV_OBJ_FLAG_HIDDEN);
 }
 
+// Metrics maintained inside loop()
+static volatile uint32_t g_loop_last_ms = 0;
+static volatile uint32_t g_loop_max_us = 0;
+static volatile uint32_t g_lvgl_max_us = 0;
+
 static void bench_dump() {
     size_t heap_free = esp_get_free_heap_size();
+    size_t heap_lowwater = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
     size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
     net::logf("[bench] fps=%.1f Hz", g_fps);
     net::logf("[bench] flush avg=%.0f us  peak=%lu us", g_fps_avg_us, (unsigned long)g_fps_peak_us);
-    net::logf("[bench] heap free=%u KB", (unsigned)(heap_free / 1024));
+    net::logf("[bench] loop peak=%lu us  lvgl peak=%lu us",
+              (unsigned long)g_loop_max_us, (unsigned long)g_lvgl_max_us);
+    net::logf("[bench] heap free=%u KB  low-water=%u KB",
+              (unsigned)(heap_free / 1024), (unsigned)(heap_lowwater / 1024));
     net::logf("[bench] psram free=%u / %u KB", (unsigned)(psram_free / 1024),
               (unsigned)(psram_total / 1024));
+    net::logf("[bench] queues ui=%u (hi=%lu)  net=%u (hi=%lu)",
+              (unsigned)app::ui_queue_depth(), (unsigned long)app::ui_high_water(),
+              (unsigned)app::net_queue_depth(), (unsigned long)app::net_high_water());
     net::logf("[bench] sk: %s", sk::connectionStatus().c_str());
+    // Reset peak counters so next bench shows recent activity.
+    g_loop_max_us = 0;
+    g_lvgl_max_us = 0;
 }
 
 // ----- Gesture handler --------------------------------------------------
@@ -764,6 +780,9 @@ static void breadcrumb_refresh() {
 }
 
 static void ui_refresh(lv_timer_t *) {
+    // Drain queued commands from web/BLE first - they may change the
+    // active screen before refresh() runs.
+    app::pump();
     ui::refresh_current();
     breadcrumb_refresh();
     mob_refresh();
@@ -895,6 +914,7 @@ void setup() {
     net::setup();
     net::logf("[net] up - ip=%s", net::ipString().c_str());
     screenshot::setup();
+    app::setup();
     web::setup();
 
     // Choose the boot screen based on whether the radio is actually up.
@@ -938,10 +958,19 @@ static void pollSerialCommands() {
 }
 
 void loop() {
+    uint32_t t_loop = micros();
+    uint32_t t_lvgl = micros();
     lv_timer_handler();
+    uint32_t dt_lvgl = micros() - t_lvgl;
+    if (dt_lvgl > g_lvgl_max_us) g_lvgl_max_us = dt_lvgl;
+
     net::loop();
     sk::loop();
     web::loop();
     pollSerialCommands();
+
+    uint32_t dt_loop = micros() - t_loop;
+    if (dt_loop > g_loop_max_us) g_loop_max_us = dt_loop;
+    g_loop_last_ms = millis();
     delay(5);
 }

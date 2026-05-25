@@ -16,6 +16,7 @@
 #include "board_pins.h"
 #include "wifi_store.h"
 #include "screenshot.h"
+#include "app_events.h"
 #include <esp_heap_caps.h>
 
 namespace web {
@@ -96,6 +97,12 @@ static void handle_state() {
     screen["title"] = ui::current_title();
     screen["count"] = (uint32_t)ui::screen_count();
 
+    JsonObject queues = doc["queues"].to<JsonObject>();
+    queues["ui_depth"] = (uint32_t)app::ui_queue_depth();
+    queues["ui_hi"] = app::ui_high_water();
+    queues["net_depth"] = (uint32_t)app::net_queue_depth();
+    queues["net_hi"] = app::net_high_water();
+
     send_json(200, doc);
 }
 
@@ -128,17 +135,20 @@ static void handle_screen_set() {
         return;
     }
     id = id.substring(slash + 1);
-    if (id == "next") ui::next();
-    else if (id == "prev") ui::prev();
-    else if (id.length() && isdigit(id[0])) ui::show(id.toInt());
-    else if (!ui::show_by_id(id.c_str())) {
-        server.send(404, "text/plain", "unknown screen id");
+    // Queue the screen change for the UI task. ui::current_index/id read
+    // here is "current at request time" - response is best-effort and
+    // not synchronised with the change applying.
+    app::Command cmd;
+    cmd.type = app::CommandType::ShowScreen;
+    strncpy(cmd.a, id.c_str(), sizeof(cmd.a) - 1);
+    if (!app::post(cmd, 50)) {
+        server.send(503, "text/plain", "ui queue full");
         return;
     }
     JsonDocument doc;
-    doc["index"] = ui::current_index();
-    doc["id"] = ui::current_id();
-    send_json(200, doc);
+    doc["queued"] = true;
+    doc["target"] = id;
+    send_json(202, doc);
 }
 
 // ---- /api/sk -----------------------------------------------------------
@@ -211,18 +221,36 @@ static void handle_layout_put() {
         return;
     }
     const String &body = server.arg("plain");
-    if (body.length() == 0) {
+    size_t len = body.length();
+    if (len == 0) {
         server.send(400, "text/plain", "empty body");
         return;
     }
-    if (!layout::apply_json(body.c_str(), body.length())) {
-        server.send(400, "text/plain", "layout parse / apply failed");
+    if (len > 32 * 1024) {
+        server.send(413, "text/plain", "layout too large (32 KB max)");
+        return;
+    }
+    // Copy into a PSRAM-backed buffer; ownership transfers to the queue.
+    // Pump frees on completion.
+    void *blob = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!blob) {
+        server.send(503, "text/plain", "blob alloc failed");
+        return;
+    }
+    memcpy(blob, body.c_str(), len);
+    app::Command cmd;
+    cmd.type = app::CommandType::ApplyLayout;
+    cmd.blob = blob;
+    cmd.blob_len = len;
+    if (!app::post(cmd, 50)) {
+        heap_caps_free(blob);
+        server.send(503, "text/plain", "ui queue full");
         return;
     }
     JsonDocument doc;
-    doc["ok"] = true;
-    doc["size"] = (uint32_t)body.length();
-    send_json(200, doc);
+    doc["queued"] = true;
+    doc["size"] = (uint32_t)len;
+    send_json(202, doc);
 }
 
 // ---- /api/wifi/scan, /networks, /connect -------------------------------
@@ -284,14 +312,21 @@ static void handle_wifi_connect() {
         server.send(400, "text/plain", "ssid required");
         return;
     }
+    // Queue for the net worker (it'll save to NVS and reboot). Avoids
+    // blocking the HTTP handler in the reboot delay path.
+    app::Command cmd;
+    cmd.type = app::CommandType::SaveWifi;
+    strncpy(cmd.a, ssid, sizeof(cmd.a) - 1);
+    strncpy(cmd.b, pass, sizeof(cmd.b) - 1);
+    if (!app::post_net(cmd, 50)) {
+        server.send(503, "text/plain", "net queue full");
+        return;
+    }
     JsonDocument out;
-    out["ok"] = true;
+    out["queued"] = true;
     out["rebooting"] = true;
     out["ssid"] = ssid;
-    send_json(200, out);
-    delay(150);  // give the client a chance to receive before reset
-    // saveWifi handles spaces / special chars directly - no string parsing.
-    net::saveWifi(String(ssid), String(pass));
+    send_json(202, out);
 }
 
 static void handle_wifi_forget() {
@@ -340,11 +375,20 @@ static void handle_cmd() {
         server.send(400, "text/plain", "empty command");
         return;
     }
-    bool handled = net::dispatchCommand(line);
+    // Queue for the UI task. Many console commands touch LVGL state
+    // (screen, theme, bright, demo, mob, ...) - executing them inline
+    // here would race the LVGL render loop.
+    app::Command cmd;
+    cmd.type = app::CommandType::RunCommand;
+    strncpy(cmd.a, line.c_str(), sizeof(cmd.a) - 1);
+    if (!app::post(cmd, 50)) {
+        server.send(503, "text/plain", "ui queue full");
+        return;
+    }
     JsonDocument doc;
-    doc["handled"] = handled;
+    doc["queued"] = true;
     doc["cmd"] = line;
-    send_json(handled ? 200 : 422, doc);
+    send_json(202, doc);
 }
 
 // ---- /api/screenshot.bmp -----------------------------------------------

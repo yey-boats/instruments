@@ -7,10 +7,18 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 namespace sk {
 
 Data data;
+// Mutex guards mutation of `data` from the WS event task vs reads from
+// UI/web. Reads should use sk::copyData(out) which takes a short
+// critical section. Direct `sk::data` reads are still tolerated -
+// they're 64-bit doubles that the ESP32 can corrupt under contention,
+// but a torn read is just one stale frame.
+static SemaphoreHandle_t s_data_mtx = nullptr;
 
 static WebSocketsClient ws;
 static Preferences prefs;
@@ -66,8 +74,10 @@ static void subscribe() {
 }
 
 static void onText(uint8_t *payload, size_t len) {
+    if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
     int n = applyDelta((const char *)payload, len, data);
     if (n > 0) data.lastUpdateMs = millis();
+    if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 }
 
 static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
@@ -94,7 +104,14 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
     }
 }
 
+void copyData(Data &out) {
+    if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+    out = data;
+    if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+}
+
 void setup(const String &host, uint16_t port) {
+    if (!s_data_mtx) s_data_mtx = xSemaphoreCreateMutex();
     prefs.begin("sk", false);
     s_host = prefs.getString("host", host);
     s_port = (uint16_t)prefs.getUInt("port", port);

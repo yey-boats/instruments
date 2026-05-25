@@ -13,6 +13,7 @@
 #include "layout_loader.h"
 #include "ble_config.h"
 #include "wifi_store.h"
+#include "app_events.h"
 
 namespace net {
 
@@ -51,16 +52,32 @@ class ServerCb : public NimBLEServerCallbacks {
 class RxCb : public NimBLECharacteristicCallbacks {
     void onWrite(NimBLECharacteristic *c) override {
         std::string v = c->getValue();
-        if (!v.empty()) {
-            String line(v.c_str());
-            line.trim();
-            if (line.length()) {
-                Serial.printf("[ble] rx: %s\n", line.c_str());
-                if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
-                    !layout::handleSerialCommand(line)) {
-                    if (s_extra) s_extra(line);
-                }
+        if (v.empty()) return;
+        String line(v.c_str());
+        line.trim();
+        if (line.length() == 0) return;
+        Serial.printf("[ble] rx: %s\n", line.c_str());
+        // BLE callbacks run on the NimBLE task and must stay short. Most
+        // commands touch LVGL or NVS; queue them for the UI task instead
+        // of executing in-place. Read-only / status commands (sk-status,
+        // sk-dump, ip, bench, screen, wifi-list, bright (read)) are fast
+        // enough to keep inline so the immediate BLE-stream response
+        // doesn't lag.
+        bool inline_ok = (line == "ip" || line == "bench" || line == "screen" ||
+                          line == "sk-status" || line == "sk-dump" ||
+                          line == "wifi-list" || line == "bright" || line == "scan");
+        if (inline_ok) {
+            if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
+                !layout::handleSerialCommand(line)) {
+                if (s_extra) s_extra(line);
             }
+            return;
+        }
+        app::Command cmd;
+        cmd.type = app::CommandType::RunCommand;
+        strncpy(cmd.a, line.c_str(), sizeof(cmd.a) - 1);
+        if (!app::post(cmd, 50)) {
+            Serial.println("[ble] queue full, dropping command");
         }
     }
 };

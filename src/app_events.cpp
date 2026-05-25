@@ -1,0 +1,180 @@
+#include "app_events.h"
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
+#include <esp_heap_caps.h>
+
+#include <Arduino.h>
+#include <Preferences.h>
+
+#include "net.h"
+#include "signalk.h"
+#include "ui_screens.h"
+#include "ui_theme.h"
+#include "layout_loader.h"
+
+namespace app {
+
+static constexpr size_t UI_QUEUE_LEN = 16;
+static constexpr size_t NET_QUEUE_LEN = 8;
+
+static QueueHandle_t s_ui_q = nullptr;
+static QueueHandle_t s_net_q = nullptr;
+static TaskHandle_t s_net_task = nullptr;
+
+// Track maximum observed queue depth so /bench can surface it.
+static volatile uint32_t s_ui_hi = 0;
+static volatile uint32_t s_net_hi = 0;
+
+static inline void track_depth(QueueHandle_t q, volatile uint32_t *hi) {
+    if (!q) return;
+    UBaseType_t n = uxQueueMessagesWaiting(q);
+    if (n > *hi) *hi = n;
+}
+
+// ---- net worker --------------------------------------------------------
+// Drains the net queue on core 0. Anything slow (HTTP, WiFi reboot) lives
+// here so the UI never blocks waiting for the network.
+static void net_task(void *) {
+    Command cmd;
+    for (;;) {
+        if (xQueueReceive(s_net_q, &cmd, portMAX_DELAY) != pdTRUE) continue;
+        switch (cmd.type) {
+        case CommandType::SignalKPut: {
+            int code = sk::putValue(cmd.a, cmd.b);
+            net::logf("[net-worker] sk PUT %s = %s -> %d", cmd.a, cmd.b, code);
+            break;
+        }
+        case CommandType::SaveWifi: {
+            net::logf("[net-worker] saveWifi ssid='%s' (pass len %u) - rebooting",
+                      cmd.a, (unsigned)strlen(cmd.b));
+            net::saveWifi(String(cmd.a), String(cmd.b));  // reboots
+            break;
+        }
+        case CommandType::Reboot: {
+            net::logf("[net-worker] reboot requested");
+            delay(150);
+            ESP.restart();
+            break;
+        }
+        default:
+            net::logf("[net-worker] unhandled cmd type %d", (int)cmd.type);
+            break;
+        }
+        if (cmd.blob) {
+            heap_caps_free(cmd.blob);
+            cmd.blob = nullptr;
+        }
+    }
+}
+
+void setup() {
+    if (s_ui_q) return;
+    s_ui_q = xQueueCreate(UI_QUEUE_LEN, sizeof(Command));
+    s_net_q = xQueueCreate(NET_QUEUE_LEN, sizeof(Command));
+    if (!s_ui_q || !s_net_q) {
+        net::logf("[app] event queue alloc FAILED");
+        return;
+    }
+    xTaskCreatePinnedToCore(net_task, "app-net", 6144, nullptr, 2, &s_net_task, 0);
+    net::logf("[app] event queues up (ui=%u, net=%u)", (unsigned)UI_QUEUE_LEN,
+              (unsigned)NET_QUEUE_LEN);
+}
+
+bool post(const Command &cmd, uint32_t timeout_ms) {
+    if (!s_ui_q) return false;
+    bool ok = xQueueSend(s_ui_q, &cmd, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    if (ok) track_depth(s_ui_q, &s_ui_hi);
+    return ok;
+}
+
+bool post_net(const Command &cmd, uint32_t timeout_ms) {
+    if (!s_net_q) return false;
+    bool ok = xQueueSend(s_net_q, &cmd, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+    if (ok) track_depth(s_net_q, &s_net_hi);
+    return ok;
+}
+
+// ---- UI pump (LVGL task) ----------------------------------------------
+void pump() {
+    if (!s_ui_q) return;
+    Command cmd;
+    // Drain whatever is currently queued; don't loop forever in case the
+    // queue is being spammed (we'd starve LVGL).
+    int max_per_tick = 8;
+    while (max_per_tick-- > 0 && xQueueReceive(s_ui_q, &cmd, 0) == pdTRUE) {
+        switch (cmd.type) {
+        case CommandType::ShowScreen: {
+            const char *id = cmd.a;
+            if (!id || !*id) break;
+            if (strcmp(id, "next") == 0) {
+                ui::next();
+            } else if (strcmp(id, "prev") == 0) {
+                ui::prev();
+            } else if (isdigit((unsigned char)id[0])) {
+                ui::show(atoi(id));
+            } else {
+                ui::show_by_id(id);
+            }
+            break;
+        }
+        case CommandType::ApplyLayout: {
+            if (cmd.blob && cmd.blob_len) {
+                bool ok = layout::apply_json((const char *)cmd.blob, cmd.blob_len);
+                net::logf("[app] apply_layout %u bytes -> %s",
+                          (unsigned)cmd.blob_len, ok ? "ok" : "fail");
+            }
+            break;
+        }
+        case CommandType::SetTheme: {
+            String t(cmd.a);
+            t.trim();
+            if (t == "day") {
+                ui::use_day();
+            } else if (t == "night") {
+                ui::use_night();
+            }
+            Preferences p;
+            p.begin("ui", false);
+            p.putString("theme", t);
+            p.end();
+            break;
+        }
+        case CommandType::SetBrightness: {
+            int v = cmd.i;
+            if (v < 0) v = 0;
+            if (v > 255) v = 255;
+            ledcWrite(0, v);
+            Preferences p;
+            p.begin("ui", false);
+            p.putUChar("bright", (uint8_t)v);
+            p.end();
+            break;
+        }
+        case CommandType::RunCommand: {
+            net::dispatchCommand(String(cmd.a));
+            break;
+        }
+        case CommandType::SignalKPut:
+        case CommandType::SaveWifi:
+        case CommandType::Reboot:
+            // These are net-side jobs; forward.
+            post_net(cmd);
+            return;  // don't free blob below - net owns it now
+        default:
+            break;
+        }
+        if (cmd.blob) {
+            heap_caps_free(cmd.blob);
+            cmd.blob = nullptr;
+        }
+    }
+}
+
+size_t ui_queue_depth() { return s_ui_q ? uxQueueMessagesWaiting(s_ui_q) : 0; }
+size_t net_queue_depth() { return s_net_q ? uxQueueMessagesWaiting(s_net_q) : 0; }
+uint32_t ui_high_water() { return s_ui_hi; }
+uint32_t net_high_water() { return s_net_hi; }
+
+}  // namespace app

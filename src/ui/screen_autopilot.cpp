@@ -4,6 +4,7 @@
 #include "signalk.h"
 #include "net.h"
 #include "board_pins.h"
+#include "app_events.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -24,25 +25,23 @@ static lv_obj_t *lbl_delta, *lbl_status;
 static double s_target_local = NAN;  // local pending target (rad), commits via ENGAGE
 
 static void put_heading(double rad) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%.4f", rad);
-    int code = sk::putValue("steering/autopilot/target/headingTrue", buf);
-    if (code == 200 || code == 204) {
-        net::logf("[ap] target set to %.0f\xC2\xB0", rad * 180.0 / M_PI);
-    } else {
-        net::logf("[ap] PUT failed (%d) - check SK auth/token", code);
-    }
+    // Queue for the net worker; HTTPClient::PUT is too slow to run from
+    // the UI event handler.
+    app::Command cmd;
+    cmd.type = app::CommandType::SignalKPut;
+    strncpy(cmd.a, "steering/autopilot/target/headingTrue", sizeof(cmd.a) - 1);
+    snprintf(cmd.b, sizeof(cmd.b), "%.4f", rad);
+    app::post_net(cmd, 50);
+    net::logf("[ap] target -> %.0f\xC2\xB0 queued", rad * 180.0 / M_PI);
 }
 
 static void put_state(const char *state) {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "\"%s\"", state);
-    int code = sk::putValue("steering/autopilot/state", buf);
-    if (code == 200 || code == 204) {
-        net::logf("[ap] state -> %s", state);
-    } else {
-        net::logf("[ap] state PUT failed (%d)", code);
-    }
+    app::Command cmd;
+    cmd.type = app::CommandType::SignalKPut;
+    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
+    snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
+    app::post_net(cmd, 50);
+    net::logf("[ap] state -> %s queued", state);
 }
 
 static void on_adjust(lv_event_t *e) {

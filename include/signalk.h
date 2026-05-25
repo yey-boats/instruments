@@ -26,4 +26,9 @@ String connectionStatus();
 // or a negative value on transport error.
 int putValue(const char *path, const char *valueJson);
 
+// Thread-safe snapshot copy of sk::data. Use this from any task that
+// isn't the SK parser task (UI, web, BLE). Cheap; copies under a short
+// critical section.
+void copyData(Data &out);
+
 }  // namespace sk

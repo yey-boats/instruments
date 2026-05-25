@@ -2,11 +2,13 @@
 #include "net.h"
 #include "signalk.h"
 #include "layout_loader.h"
+#include "app_events.h"
 
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_heap_caps.h>
 
 namespace bleconfig {
 
@@ -50,17 +52,26 @@ static void applyConnectionWrite(const std::string &data) {
         net::logf("[bleconfig] connection write: invalid JSON");
         return;
     }
+    // Everything below this point is queued for the appropriate task -
+    // BLE callbacks must stay short.
     JsonVariantConst wifi = doc["wifi"];
     if (!wifi.isNull()) {
         const char *ssid = wifi["ssid"];
         if (ssid && *ssid) {
             const char *pass = wifi["password"] | "";
-            net::logf("[bleconfig] applying wifi config (will reboot)");
-            net::saveWifi(String(ssid), String(pass));  // reboots inside
+            app::Command cmd;
+            cmd.type = app::CommandType::SaveWifi;
+            strncpy(cmd.a, ssid, sizeof(cmd.a) - 1);
+            strncpy(cmd.b, pass, sizeof(cmd.b) - 1);
+            app::post_net(cmd, 50);
+            net::logf("[bleconfig] wifi save queued");
             return;
         }
         if (wifi["forget"] | false) {
-            net::handleSerialCommand("wifi-forget");
+            app::Command cmd;
+            cmd.type = app::CommandType::RunCommand;
+            strncpy(cmd.a, "wifi-forget", sizeof(cmd.a) - 1);
+            app::post(cmd, 50);
             return;
         }
     }
@@ -69,27 +80,30 @@ static void applyConnectionWrite(const std::string &data) {
         const char *host = skc["host"];
         if (host) {
             uint16_t port = skc["port"] | 3000;
-            String cmd = String("sk ") + host + " " + String(port);
-            net::logf("[bleconfig] applying sk target (will reboot)");
-            sk::handleSerialCommand(cmd);
+            app::Command cmd;
+            cmd.type = app::CommandType::RunCommand;
+            snprintf(cmd.a, sizeof(cmd.a), "sk %s %u", host, (unsigned)port);
+            app::post(cmd, 50);
             return;
         }
     }
     JsonVariantConst dev = doc["device"];
     if (!dev.isNull()) {
         const char *id = dev["id"];
-        if (id && strlen(id)) {
-            String cmd = String("id ") + id;
-            net::logf("[bleconfig] applying device id (will reboot)");
-            net::dispatchCommand(cmd);
+        if (id && *id) {
+            app::Command cmd;
+            cmd.type = app::CommandType::RunCommand;
+            snprintf(cmd.a, sizeof(cmd.a), "id %s", id);
+            app::post(cmd, 50);
             return;
         }
     }
     const char *view = doc["view"].as<const char *>();
     if (view) {
-        String cmd = String("view ") + view;
-        net::logf("[bleconfig] view -> %s", view);
-        net::dispatchCommand(cmd);
+        app::Command cmd;
+        cmd.type = app::CommandType::ShowScreen;
+        strncpy(cmd.a, view, sizeof(cmd.a) - 1);
+        app::post(cmd, 50);
         return;
     }
     net::logf("[bleconfig] connection write: no actionable fields");
@@ -138,7 +152,23 @@ class ConfigCb : public NimBLECharacteristicCallbacks {
             net::logf("[bleconfig] configuration write: rejected (size > 512)");
             return;
         }
-        layout::apply_json(data.data(), data.size());
+        // Copy into a PSRAM blob and queue for the UI task. BLE callback
+        // must not call layout::apply_json directly (touches LVGL state
+        // indirectly via the screen renderer reading it).
+        void *blob = heap_caps_malloc(data.size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!blob) {
+            net::logf("[bleconfig] configuration write: blob alloc failed");
+            return;
+        }
+        memcpy(blob, data.data(), data.size());
+        app::Command cmd;
+        cmd.type = app::CommandType::ApplyLayout;
+        cmd.blob = blob;
+        cmd.blob_len = data.size();
+        if (!app::post(cmd, 50)) {
+            heap_caps_free(blob);
+            net::logf("[bleconfig] configuration write: queue full");
+        }
     }
 };
 
