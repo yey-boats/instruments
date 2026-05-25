@@ -194,6 +194,84 @@ static void handle_layout_put() {
     send_json(200, doc);
 }
 
+// ---- /api/wifi/scan, /networks, /connect -------------------------------
+
+static bool s_scan_started = false;
+
+static void handle_wifi_scan() {
+    // Async kick. Returns immediately; result is fetched via /api/wifi/networks.
+    int r = WiFi.scanComplete();
+    if (r == WIFI_SCAN_RUNNING) {
+        send_json(202, "{\"running\":true}");
+        return;
+    }
+    WiFi.scanNetworks(true /* async */, true /* show hidden */);
+    s_scan_started = true;
+    send_json(202, "{\"running\":true,\"started\":true}");
+}
+
+static void handle_wifi_networks() {
+    int n = WiFi.scanComplete();
+    JsonDocument doc;
+    if (n == WIFI_SCAN_RUNNING) {
+        doc["running"] = true;
+        send_json(200, doc);
+        return;
+    }
+    if (n == WIFI_SCAN_FAILED || n < 0) {
+        doc["running"] = false;
+        doc["error"] = (int)n;
+        send_json(200, doc);
+        return;
+    }
+    doc["running"] = false;
+    JsonArray arr = doc["networks"].to<JsonArray>();
+    for (int i = 0; i < n && i < 32; ++i) {
+        JsonObject o = arr.add<JsonObject>();
+        o["ssid"] = WiFi.SSID(i);
+        o["rssi"] = WiFi.RSSI(i);
+        o["channel"] = WiFi.channel(i);
+        o["secured"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+    }
+    // Don't auto-delete; let the next /scan call replace.
+    send_json(200, doc);
+}
+
+static void handle_wifi_connect() {
+    if (!server.hasArg("plain")) {
+        server.send(400, "text/plain", "json body required");
+        return;
+    }
+    JsonDocument doc;
+    if (deserializeJson(doc, server.arg("plain"))) {
+        server.send(400, "text/plain", "bad json");
+        return;
+    }
+    const char *ssid = doc["ssid"];
+    const char *pass = doc["password"] | "";
+    if (!ssid || !*ssid) {
+        server.send(400, "text/plain", "ssid required");
+        return;
+    }
+    JsonDocument out;
+    out["ok"] = true;
+    out["rebooting"] = true;
+    out["ssid"] = ssid;
+    send_json(200, out);
+    delay(150);  // give the client a chance to receive before reset
+    // saveWifi handles spaces / special chars directly - no string parsing.
+    net::saveWifi(String(ssid), String(pass));
+}
+
+static void handle_wifi_forget() {
+    JsonDocument out;
+    out["ok"] = true;
+    out["rebooting"] = true;
+    send_json(200, out);
+    delay(150);
+    net::dispatchCommand("wifi-forget");
+}
+
 // ---- /api/cmd ----------------------------------------------------------
 
 static void handle_cmd() {
@@ -314,6 +392,20 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 </div>
 <div class=row>
   <div class=card style="flex:1 0 100%">
+    <div class=k>WIFI</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+      <button id=wifiScan>scan</button>
+      <span id=wifiStatus class=k>idle</span>
+      <input id=wifiSsid placeholder="ssid" style="width:160px"/>
+      <input id=wifiPass placeholder="password (blank if open)" type=password style="width:220px"/>
+      <button id=wifiConnect>connect + reboot</button>
+      <button id=wifiForget>forget creds</button>
+    </div>
+    <div id=wifiList></div>
+  </div>
+</div>
+<div class=row>
+  <div class=card style="flex:1 0 100%">
     <div class=k>LAYOUT JSON</div>
     <textarea id=layout></textarea>
     <button id=layoutApply>apply</button>
@@ -376,6 +468,58 @@ document.getElementById('layoutLoad').addEventListener('click', loadLayout);
 for (const b of document.querySelectorAll('button[data-cmd]')) {
   b.addEventListener('click', () => sendCmd(b.getAttribute('data-cmd')));
 }
+
+let wifiPoll = null;
+async function wifiScan(){
+  await fetch('/api/wifi/scan', {method:'POST'});
+  document.getElementById('wifiStatus').textContent = 'scanning...';
+  if (wifiPoll) clearInterval(wifiPoll);
+  wifiPoll = setInterval(wifiPollOnce, 1500);
+}
+async function wifiPollOnce(){
+  try{
+    const r = await fetch('/api/wifi/networks');
+    const j = await r.json();
+    if (j.running) {
+      document.getElementById('wifiStatus').textContent = 'scanning...';
+      return;
+    }
+    if (wifiPoll) { clearInterval(wifiPoll); wifiPoll = null; }
+    const list = document.getElementById('wifiList');
+    list.replaceChildren();
+    document.getElementById('wifiStatus').textContent = (j.networks ? j.networks.length : 0) + ' networks';
+    for (const n of (j.networks || [])) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a2a3a;cursor:pointer';
+      const left = document.createElement('span');
+      left.textContent = n.ssid + (n.secured ? '  [lock]' : '  [open]');
+      const right = document.createElement('span');
+      right.className = 'k';
+      right.textContent = n.rssi + ' dBm  ch ' + n.channel;
+      row.appendChild(left); row.appendChild(right);
+      row.addEventListener('click', () => {
+        document.getElementById('wifiSsid').value = n.ssid;
+        document.getElementById('wifiPass').focus();
+      });
+      list.appendChild(row);
+    }
+  }catch(e){ /* transient */ }
+}
+async function wifiConnect(){
+  const ssid = document.getElementById('wifiSsid').value;
+  const password = document.getElementById('wifiPass').value;
+  if (!ssid) { document.getElementById('wifiStatus').textContent = 'enter ssid'; return; }
+  document.getElementById('wifiStatus').textContent = 'saving + rebooting...';
+  await fetch('/api/wifi/connect', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ssid, password})});
+}
+async function wifiForget(){
+  document.getElementById('wifiStatus').textContent = 'forgetting + rebooting...';
+  await fetch('/api/wifi/forget', {method:'POST'});
+}
+document.getElementById('wifiScan').addEventListener('click', wifiScan);
+document.getElementById('wifiConnect').addEventListener('click', wifiConnect);
+document.getElementById('wifiForget').addEventListener('click', wifiForget);
+
 refresh();
 loadLayout();
 setInterval(refresh, 5000);
@@ -397,6 +541,10 @@ static void bind_routes() {
     server.on("/api/layout", HTTP_GET, handle_layout_get);
     server.on("/api/layout", HTTP_PUT, handle_layout_put);
     server.on("/api/cmd", HTTP_POST, handle_cmd);
+    server.on("/api/wifi/scan", HTTP_POST, handle_wifi_scan);
+    server.on("/api/wifi/networks", HTTP_GET, handle_wifi_networks);
+    server.on("/api/wifi/connect", HTTP_POST, handle_wifi_connect);
+    server.on("/api/wifi/forget", HTTP_POST, handle_wifi_forget);
     server.on("/api/screenshot.bmp", HTTP_GET, handle_screenshot);
     server.onNotFound([]() {
         if (server.method() == HTTP_POST && server.uri().startsWith("/api/screen/")) {

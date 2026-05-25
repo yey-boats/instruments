@@ -111,14 +111,9 @@ static void on_scan_clicked(lv_event_t *e) {
     if (s_scanning) return;
     s_scanning = true;
     lv_label_set_text(lbl_scan_status, "scanning...");
-    // Async-ish: WiFi.scanNetworks blocks ~2-5 s. We accept the brief stall.
-    int n = WiFi.scanNetworks(false, true);
-    populate_list_from_scan(n);
-    char status[32];
-    snprintf(status, sizeof(status), "%d network%s", n, n == 1 ? "" : "s");
-    lv_label_set_text(lbl_scan_status, status);
-    WiFi.scanDelete();
-    s_scanning = false;
+    // Async kick - returns immediately. We poll WiFi.scanComplete() from
+    // refresh() so the UI stays responsive while the scan runs (~2-5 s).
+    WiFi.scanNetworks(true /* async */, true /* show hidden */);
 }
 
 static void on_connect_clicked(lv_event_t *e) {
@@ -254,7 +249,31 @@ lv_obj_t *build(lv_obj_t *parent) {
 }
 
 void refresh() {
-    // No periodic refresh needed; state changes are event-driven.
+    // Poll the async scan: -1 = running, -2 = no scan, >=0 = N results.
+    if (!s_scanning) return;
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_RUNNING) {
+        // Update spinner-style status so the user sees activity.
+        static uint8_t dots = 0;
+        char status[24];
+        snprintf(status, sizeof(status), "scanning%s",
+                 (dots % 4) == 0 ? "" : (dots % 4) == 1 ? "." : (dots % 4) == 2 ? ".." : "...");
+        lv_label_set_text(lbl_scan_status, status);
+        dots++;
+        return;
+    }
+    if (n == WIFI_SCAN_FAILED) {
+        lv_label_set_text(lbl_scan_status, "scan failed");
+        s_scanning = false;
+        return;
+    }
+    // Done - render results
+    populate_list_from_scan(n);
+    char status[32];
+    snprintf(status, sizeof(status), "%d network%s", n, n == 1 ? "" : "s");
+    lv_label_set_text(lbl_scan_status, status);
+    WiFi.scanDelete();
+    s_scanning = false;
 }
 
 }  // namespace ui::wifi_setup

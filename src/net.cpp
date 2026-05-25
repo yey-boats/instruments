@@ -191,6 +191,15 @@ void setExtraCommandHandler(ExtraCommandHandler h) {
     s_extra = h;
 }
 
+void saveWifi(const String &ssid, const String &pass) {
+    prefs.putString("ssid", ssid);
+    prefs.putString("pass", pass);
+    logf("[wifi] saved ssid='%s' (pass len %u) - rebooting", ssid.c_str(),
+         (unsigned)pass.length());
+    delay(200);
+    ESP.restart();
+}
+
 void logf(const char *fmt, ...) {
     char buf[256];
     va_list ap;
@@ -215,18 +224,40 @@ void logf(const char *fmt, ...) {
 
 bool handleSerialCommand(const String &line) {
     if (line.startsWith("wifi ")) {
-        int sp = line.indexOf(' ', 5);
-        if (sp < 0) {
-            logf("usage: wifi <ssid> <pass>");
+        // Accept either:
+        //   wifi <ssid>                          (open, no spaces in ssid)
+        //   wifi <ssid> <pass>                   (no spaces in ssid)
+        //   wifi "<ssid with spaces>" [pass]     (any ssid)
+        String ssid, pass;
+        const char *p = line.c_str() + 5;
+        while (*p == ' ') p++;
+        if (*p == '"') {
+            const char *start = p + 1;
+            const char *end = strchr(start, '"');
+            if (!end) {
+                logf("usage: wifi \"<ssid>\" [pass]   (missing closing quote)");
+                return true;
+            }
+            ssid = String(start).substring(0, end - start);
+            p = end + 1;
+            while (*p == ' ') p++;
+            pass = String(p);
+        } else {
+            const char *sp = strchr(p, ' ');
+            if (!sp) {
+                ssid = String(p);
+                pass = "";
+            } else {
+                ssid = String(p).substring(0, sp - p);
+                pass = String(sp + 1);
+            }
+        }
+        ssid.trim();
+        if (ssid.length() == 0) {
+            logf("usage: wifi <ssid> [pass]  or  wifi \"<ssid>\" [pass]");
             return true;
         }
-        String ssid = line.substring(5, sp);
-        String pass = line.substring(sp + 1);
-        prefs.putString("ssid", ssid);
-        prefs.putString("pass", pass);
-        logf("[wifi] saved ssid='%s' (len %d) - rebooting", ssid.c_str(), pass.length());
-        delay(200);
-        ESP.restart();
+        saveWifi(ssid, pass);
         return true;
     }
     if (line == "wifi-forget") {

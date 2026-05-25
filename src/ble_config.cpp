@@ -53,12 +53,11 @@ static void applyConnectionWrite(const std::string &data) {
     JsonVariantConst wifi = doc["wifi"];
     if (!wifi.isNull()) {
         const char *ssid = wifi["ssid"];
-        const char *pass = wifi["password"];
-        if (ssid && pass) {
-            String cmd = String("wifi ") + ssid + " " + pass;
+        if (ssid && *ssid) {
+            const char *pass = wifi["password"] | "";
             net::logf("[bleconfig] applying wifi config (will reboot)");
-            net::handleSerialCommand(cmd);  // saves + reboots
-            return;                         // we won't reach here
+            net::saveWifi(String(ssid), String(pass));  // reboots inside
+            return;
         }
         if (wifi["forget"] | false) {
             net::handleSerialCommand("wifi-forget");

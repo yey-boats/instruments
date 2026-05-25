@@ -19,6 +19,11 @@ bool wifiUp();
 String ipString();
 int rssi();
 
+// Persist WiFi credentials (NVS) and reboot. Pass empty `pass` for open
+// networks. SSIDs with spaces are fine - this is the path callers should
+// use when they already have the ssid/pass split (e.g. JSON over BLE / web).
+void saveWifi(const String &ssid, const String &pass);
+
 // User-configurable device identity (BLE name, mDNS host, OTA host).
 // Default = OTA_HOSTNAME from secrets.h.
 const String &deviceId();
