@@ -608,6 +608,26 @@ static bool handleMainCommand(const String &line) {
         ui::trip::reset();
         return true;
     }
+    if (line == "bright" || line.startsWith("bright ")) {
+        if (line == "bright") {
+            Preferences p;
+            p.begin("ui", true);
+            uint8_t b = p.getUChar("bright", 200);
+            p.end();
+            net::logf("brightness = %u/255", (unsigned)b);
+            return true;
+        }
+        int b = line.substring(7).toInt();
+        if (b < 0) b = 0;
+        if (b > 255) b = 255;
+        ledcWrite(0, b);
+        Preferences p;
+        p.begin("ui", false);
+        p.putUChar("bright", (uint8_t)b);
+        p.end();
+        net::logf("brightness -> %d/255", b);
+        return true;
+    }
     if (line.startsWith("theme ")) {
         String v = line.substring(6);
         v.trim();
@@ -711,8 +731,11 @@ void setup() {
     delay(200);
     Serial.println("\n[boot] ESP32-4848S040 hello-touch");
 
-    pinMode(LCD_BL, OUTPUT);
-    digitalWrite(LCD_BL, LOW);
+    // Backlight: PWM via LEDC ch0, 5 kHz, 8-bit -> duty 0..255. (Arduino-
+    // ESP32 2.x API; 3.x renamed to ledcAttach(pin, freq, res).)
+    ledcSetup(0, 5000, 8);
+    ledcAttachPin(LCD_BL, 0);
+    ledcWrite(0, 0);  // off until display init succeeds
 
     if (!gfx->begin()) {
         Serial.println("[gfx] begin FAILED");
@@ -797,7 +820,15 @@ void setup() {
         ui::show_by_id("wifi");
     }
 
-    digitalWrite(LCD_BL, HIGH);
+    // Restore last-known brightness from NVS (default 200/255 ~ 78%).
+    {
+        Preferences p;
+        p.begin("ui", true);
+        uint8_t b = p.getUChar("bright", 200);
+        p.end();
+        ledcWrite(0, b);
+        Serial.printf("[bl] brightness %u/255\n", (unsigned)b);
+    }
     Serial.println("[boot] ready");
 
     net::setup();

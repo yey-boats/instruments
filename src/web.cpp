@@ -412,6 +412,8 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
     <div class=k style="margin-top:8px">THEME</div>
     <button data-cmd="theme day">day</button>
     <button data-cmd="theme night">night</button>
+    <div class=k style="margin-top:8px">BRIGHTNESS</div>
+    <input type=range id=brightSlider min=20 max=255 value=200 style="width:100%">
   </div>
   <div class=card>
     <div class=k>COMMAND</div>
@@ -580,6 +582,12 @@ async function wifiSavedRefresh(){
 document.getElementById('wifiScan').addEventListener('click', wifiScan);
 document.getElementById('wifiConnect').addEventListener('click', wifiConnect);
 document.getElementById('wifiForget').addEventListener('click', wifiForget);
+
+let brightT = null;
+document.getElementById('brightSlider').addEventListener('input', e => {
+  if (brightT) clearTimeout(brightT);
+  brightT = setTimeout(() => sendCmd('bright ' + e.target.value), 120);
+});
 
 refresh();
 loadLayout();
