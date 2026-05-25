@@ -23,9 +23,11 @@ static DNSServer dns;
 static bool started = false;
 static bool captive_active = false;  // only true when in AP mode
 
-// Probe URLs the major OSes hit to detect captive portals. Any non-2xx
-// response (or unexpected body) triggers the "Sign in to network" prompt
-// which opens our config page directly.
+// Probe URLs the major OSes hit to detect captive portals. The trick: if
+// they DON'T get the exact expected response, the OS pops "Sign in to
+// network" and opens the captive browser pointing at the URL whose
+// response triggered the detection. So we serve the config page inline
+// rather than a 302 (some captive browsers refuse to follow redirects).
 static bool is_captive_probe_path(const String &p) {
     return p == "/generate_204" || p == "/gen_204" ||
            p == "/hotspot-detect.html" || p == "/library/test/success.html" ||
@@ -34,14 +36,16 @@ static bool is_captive_probe_path(const String &p) {
            p == "/chat" || p == "/check_network_status.txt";
 }
 
-static void send_captive_redirect() {
-    IPAddress ap_ip = WiFi.softAPIP();
-    String loc = String("http://") + ap_ip.toString() + "/";
-    server.sendHeader("Location", loc, true);
-    server.sendHeader("Cache-Control", "no-store");
-    // Some OSes parse only the body; include a manual link too.
-    String body = String("<html><body><a href=\"") + loc + "\">setup</a></body></html>";
-    server.send(302, "text/html", body);
+// Forward decl: INDEX_HTML[] is defined further down (the big R"HTML(...)"
+// block). Both forward decl and definition need consistent linkage.
+extern const char INDEX_HTML[];
+
+static void send_captive_page(const char *why) {
+    net::logf("[web] captive serve uri=%s host=%s why=%s", server.uri().c_str(),
+              server.hostHeader().c_str(), why);
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.send(200, "text/html", FPSTR(INDEX_HTML));
 }
 
 // ---- helpers -----------------------------------------------------------
@@ -398,7 +402,7 @@ static void handle_screenshot() {
 // Self-contained vanilla HTML+JS. No external CDN. All DOM writes go
 // through textContent or createElement/append - no innerHTML with values.
 
-static const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
+const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 <meta charset="utf-8">
 <title>esp32-boat-mfd</title>
 <style>
@@ -614,8 +618,40 @@ static void handle_root() {
 
 // ---- setup / loop ------------------------------------------------------
 
+// In captive mode, ensure we also explicitly answer the well-known probe
+// paths (some clients require an exact route match, not catch-all).
+static void handle_probe() {
+    if (captive_active) {
+        send_captive_page("probe-explicit");
+    } else {
+        // STA mode: be nice and return the OS-expected no-captive response
+        // so devices proxying through us don't mis-detect a captive portal.
+        String u = server.uri();
+        if (u == "/generate_204" || u == "/gen_204") {
+            server.send(204);
+        } else if (u == "/hotspot-detect.html") {
+            server.send(200, "text/html",
+                        "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
+        } else {
+            server.send(200, "text/plain", "Microsoft NCSI");
+        }
+    }
+}
+
 static void bind_routes() {
     server.on("/", HTTP_GET, handle_root);
+
+    // Captive-portal probe URLs (must match exactly on some OSes).
+    server.on("/generate_204", HTTP_GET, handle_probe);
+    server.on("/gen_204", HTTP_GET, handle_probe);
+    server.on("/hotspot-detect.html", HTTP_GET, handle_probe);
+    server.on("/library/test/success.html", HTTP_GET, handle_probe);
+    server.on("/connecttest.txt", HTTP_GET, handle_probe);
+    server.on("/ncsi.txt", HTTP_GET, handle_probe);
+    server.on("/success.txt", HTTP_GET, handle_probe);
+    server.on("/redirect", HTTP_GET, handle_probe);
+    server.on("/chat", HTTP_GET, handle_probe);
+    server.on("/check_network_status.txt", HTTP_GET, handle_probe);
     server.on("/api/state", HTTP_GET, handle_state);
     server.on("/api/screens", HTTP_GET, handle_screens);
     server.on("/api/sk", HTTP_GET, handle_sk_data);
@@ -644,14 +680,18 @@ static void bind_routes() {
             server.send(204);
             return;
         }
-        // Captive portal: in AP mode, redirect every unknown request to
-        // the config root. Catches both the well-known probe paths and
-        // requests with foreign Host: headers (DNS routes them to us).
+        // Captive portal: in AP mode, serve the config page inline for
+        // any unknown request. Captive-portal browsers tend to render
+        // whatever the probe returns rather than follow a 302 the way a
+        // normal browser would, so we skip the redirect step entirely.
         if (captive_active) {
             IPAddress ap_ip = WiFi.softAPIP();
             String host = server.hostHeader();
-            if (is_captive_probe_path(server.uri()) || host != ap_ip.toString()) {
-                send_captive_redirect();
+            host.toLowerCase();
+            String ap = ap_ip.toString();
+            bool foreign_host = host.length() > 0 && host != ap;
+            if (is_captive_probe_path(server.uri()) || foreign_host) {
+                send_captive_page(foreign_host ? "foreign-host" : "probe-path");
                 return;
             }
         }
