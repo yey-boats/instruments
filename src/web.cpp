@@ -19,6 +19,13 @@
 #include "app_events.h"
 #include <esp_heap_caps.h>
 
+// Gesture diagnostics live in main.cpp (top-level - not in any namespace).
+extern "C" {
+uint32_t main_gesture_count();
+uint32_t main_gesture_suppressed();
+const char *main_last_gesture();
+}
+
 namespace web {
 
 static WebServer server(80);
@@ -103,6 +110,11 @@ static void handle_state() {
     queues["ui_hi"] = app::ui_high_water();
     queues["net_depth"] = (uint32_t)app::net_queue_depth();
     queues["net_hi"] = app::net_high_water();
+
+    JsonObject gestures = doc["gestures"].to<JsonObject>();
+    gestures["count"] = ::main_gesture_count();
+    gestures["suppressed"] = ::main_gesture_suppressed();
+    gestures["last"] = ::main_last_gesture();
 
     send_json(200, doc);
 }

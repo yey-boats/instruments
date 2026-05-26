@@ -536,6 +536,11 @@ static volatile uint32_t g_loop_last_ms = 0;
 static volatile uint32_t g_loop_max_us = 0;
 static volatile uint32_t g_lvgl_max_us = 0;
 
+// Forward decls for gesture diagnostics defined below.
+extern volatile uint32_t g_gesture_count;
+extern volatile uint32_t g_gesture_suppressed;
+extern char g_last_gesture[24];
+
 static void bench_dump() {
     size_t heap_free = esp_get_free_heap_size();
     size_t heap_lowwater = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
@@ -554,16 +559,32 @@ static void bench_dump() {
               (unsigned)app::net_queue_depth(), (unsigned long)app::net_high_water());
     net::logf("[bench] wifi: %s  sk: %s", net::wifiStateName(),
               sk::connectionStatus().c_str());
+    net::logf("[bench] gestures: %lu (sup %lu)  last=%s",
+              (unsigned long)g_gesture_count,
+              (unsigned long)g_gesture_suppressed,
+              g_last_gesture[0] ? g_last_gesture : "-");
     // Reset peak counters so next bench shows recent activity.
     g_loop_max_us = 0;
     g_lvgl_max_us = 0;
 }
 
 // ----- Gesture handler --------------------------------------------------
+// Diagnostics for /api/state.gestures.* and `bench`. Declared before
+// bench_dump etc. above; defined here.
+extern volatile uint32_t g_gesture_count;
+extern volatile uint32_t g_gesture_suppressed;
+extern char g_last_gesture[24];
+volatile uint32_t g_gesture_count = 0;
+volatile uint32_t g_gesture_suppressed = 0;
+char g_last_gesture[24] = "";
+extern "C" {
+uint32_t main_gesture_count() { return g_gesture_count; }
+uint32_t main_gesture_suppressed() { return g_gesture_suppressed; }
+const char *main_last_gesture() { return g_last_gesture; }
+}
 
 static void screen_gesture_handler(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
-    if (g_mob.active) return;
     lv_indev_t *indev = lv_indev_get_act();
     if (!indev) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
@@ -573,25 +594,39 @@ static void screen_gesture_handler(lv_event_t *e) {
                            : dir == LV_DIR_RIGHT ? "right"
                            : dir == LV_DIR_TOP   ? "up"
                                                  : "down";
-    net::logf("[ui] swipe %s screen=%d (%s)", dir_name, ui::current_index(), ui::current_id());
+    const char *cur = ui::current_id();
+
+    // Per docs/specs/05 / 06: MOB rescue overlay swallows all navigation
+    // swipes - the user must explicitly long-press CLEAR to leave.
+    if (g_mob.active) {
+        net::logf("[ui] swipe %s suppressed (mob active)", dir_name);
+        g_gesture_suppressed++;
+        return;
+    }
+
+    // Per docs/specs/05: while the WiFi password keyboard is up, horizontal
+    // swipes would steal touches meant for the keyboard. Allow vertical
+    // (up = settings, down = dashboard) as escape paths.
+    if (cur && strcmp(cur, "wifi") == 0 &&
+        (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT)) {
+        net::logf("[ui] swipe %s suppressed (wifi keyboard active)", dir_name);
+        g_gesture_suppressed++;
+        return;
+    }
+
+    net::logf("[ui] swipe %s screen=%d (%s)", dir_name, ui::current_index(), cur);
+    snprintf(g_last_gesture, sizeof(g_last_gesture), "swipe_%s", dir_name);
+    g_gesture_count++;
 
     if (g_demo_timer) {
         demo_stop();
         return;
     }
 
-    const char *cur = ui::current_id();
-    bool on_settings = cur && strcmp(cur, "settings") == 0;
-
     if (dir == LV_DIR_LEFT) ui::next();
     else if (dir == LV_DIR_RIGHT) ui::prev();
     else if (dir == LV_DIR_TOP) ui::show_by_id("settings");
-    else if (dir == LV_DIR_BOTTOM) {
-        // Down swipe: from Settings (or any overlay screen) -> dashboard.
-        // From a normal screen this is the existing "home" gesture.
-        ui::show(0);
-        (void)on_settings;
-    }
+    else if (dir == LV_DIR_BOTTOM) ui::show(0);
 }
 
 // ----- Command handler --------------------------------------------------
