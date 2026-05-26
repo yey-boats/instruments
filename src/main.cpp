@@ -861,6 +861,12 @@ void setup() {
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(indev, touch_read_cb);
+    // Tune for wet-finger / glove tolerance per docs/specs/06-ui-interactions.md:
+    // - long-press 500 ms (up from LVGL's 400 ms) reduces accidental MOB / safety
+    //   triggers from glove brushes.
+    // - keep gesture limit / velocity at LVGL defaults (50 px / 3 px-per-refresh)
+    //   - tested-clean on the 480x480 panel.
+    lv_indev_set_long_press_time(indev, 500);
 
     // Load theme + position format prefs
     {
