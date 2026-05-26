@@ -144,14 +144,28 @@ static TouchSnapshot g_touch = {-1, -1, false, 0};
 static SemaphoreHandle_t g_touch_mtx = nullptr;
 static TaskHandle_t g_touch_task = nullptr;
 
+static volatile uint32_t g_i2c_err_count = 0;
+static volatile uint32_t g_i2c_ok_count = 0;
+static volatile uint32_t g_gt_ready_count = 0;     // status had 0x80 set
+static volatile uint32_t g_gt_points_count = 0;    // status reported >=1 point
+extern "C" {
+uint32_t main_i2c_err_count() { return g_i2c_err_count; }
+uint32_t main_i2c_ok_count() { return g_i2c_ok_count; }
+uint32_t main_gt_ready_count() { return g_gt_ready_count; }
+uint32_t main_gt_points_count() { return g_gt_points_count; }
+}
+
 static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
     Wire.beginTransmission(0x5D);
     Wire.write(0x81);
     Wire.write(0x4E);
-    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.endTransmission(false) != 0) { g_i2c_err_count++; return false; }
     Wire.requestFrom(0x5D, 1);
-    if (!Wire.available()) return false;
+    if (!Wire.available()) { g_i2c_err_count++; return false; }
+    g_i2c_ok_count++;
     uint8_t status = Wire.read();
+    if (status & 0x80) g_gt_ready_count++;
+    if ((status & 0x80) && ((status & 0x0F) > 0)) g_gt_points_count++;
     bool has_point = (status & 0x80) && ((status & 0x0F) > 0);
 
     if (has_point) {
@@ -183,9 +197,115 @@ static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
     return has_point;
 }
 
+// Forward decls for state owned later in the file but referenced by the
+// touch-task swipe detector (which sits above those definitions).
+static bool mob_is_active();
+extern volatile uint32_t g_gesture_count;
+extern volatile uint32_t g_gesture_suppressed;
+extern char g_last_gesture[24];
+
+// Swipe detection runs in touch_task (core 0) and is INDEPENDENT of
+// LVGL. LVGL's own indev_gesture path can stall up to ~2s on the wind
+// screen while the renderer composes transformed widgets, eating the
+// swipe entirely. Detecting here and posting a ShowScreen command into
+// app's UI queue means the swipe is captured even if LVGL is busy; the
+// queued screen swap fires as soon as lv_timer_handler unblocks.
+//
+// Thresholds match docs/specs/06: 50 px min stroke, <500 ms, x or y
+// component dominant. The LVGL gesture handler stays as a fallback for
+// screens that aren't laggy; it suppresses itself within 500 ms of a
+// touch_task swipe to avoid double-fire.
+volatile uint32_t g_last_swipe_ms = 0;
+
+// Thresholds from docs/specs/05-gesture-subsystem-spec.md - tightened
+// from the earlier 50 px / 500 ms because finger drift on the GT911
+// capacitive panel can reach 60-70 px during a "stationary" tap, which
+// the loose thresholds were classifying as swipes and stealing taps
+// from settings buttons.
+//
+//   SWIPE_MIN_PX:  80   (was 50 - within 80 px is a tap-or-drag, not a swipe)
+//   SWIPE_MAX_MS:  1200 (was 500 - swipes on glove can be slow)
+//   OFF_AXIS_MAX:  0.55 (new - reject diagonal motion as a directional swipe)
+//   DEBOUNCE_MS:   250  (unchanged)
+static constexpr int16_t SWIPE_MIN_PX = 80;
+static constexpr uint32_t SWIPE_MAX_MS = 1200;
+static constexpr uint32_t DEBOUNCE_MS = 250;
+
+static void detect_swipe_release(int16_t down_x, int16_t down_y, uint32_t down_ms,
+                                 int16_t up_x, int16_t up_y) {
+    uint32_t now = millis();
+    uint32_t dt = now - down_ms;
+    if (dt == 0 || dt > SWIPE_MAX_MS) return;
+    if (g_last_swipe_ms && (now - g_last_swipe_ms) < DEBOUNCE_MS) {
+        net::logf("[touch] swipe debounced (%u ms since last)",
+                  (unsigned)(now - g_last_swipe_ms));
+        return;
+    }
+    int32_t dx = (int32_t)up_x - down_x;
+    int32_t dy = (int32_t)up_y - down_y;
+    int32_t adx = dx < 0 ? -dx : dx;
+    int32_t ady = dy < 0 ? -dy : dy;
+    if (adx < SWIPE_MIN_PX && ady < SWIPE_MIN_PX) return;
+
+    // Off-axis filter: the dominant axis must be substantially larger
+    // than the perpendicular axis (ratio < 0.55). Otherwise the motion
+    // is ambiguous diagonal drift, not a deliberate swipe.
+    const char *cmd = nullptr;
+    const char *dir = nullptr;
+    if (adx > ady) {
+        if (ady * 100 > adx * 55) return;  // too diagonal for horizontal
+        if (dx < 0) { cmd = "next";      dir = "left";  }
+        else        { cmd = "prev";      dir = "right"; }
+    } else {
+        if (adx * 100 > ady * 55) return;  // too diagonal for vertical
+        if (dy < 0) { cmd = "settings";  dir = "up";    }
+        else        { cmd = "dashboard"; dir = "down";  }
+    }
+
+    // Per-screen policy (docs/specs/05-gesture-subsystem-spec.md "Screen-local maps"):
+    const char *cur = ui::current_id();
+    bool is_horizontal = (strcmp(cmd, "next") == 0 || strcmp(cmd, "prev") == 0);
+    bool is_vertical = !is_horizontal;
+    (void)is_vertical;
+
+    // MOB overlay swallows all navigation - user must long-press CLEAR.
+    if (mob_is_active()) {
+        net::logf("[touch] swipe %s suppressed (mob active)", dir);
+        g_gesture_suppressed++;
+        return;
+    }
+    // Settings: only swipe-down (close) makes sense; L/R/up are no-ops.
+    if (cur && strcmp(cur, "settings") == 0) {
+        if (is_horizontal || strcmp(cmd, "settings") == 0) {
+            net::logf("[touch] swipe %s suppressed on settings", dir);
+            g_gesture_suppressed++;
+            return;
+        }
+    }
+    // WiFi keyboard: horizontal swipes collide with keyboard letter rows.
+    // Vertical (up=settings, down=dashboard) remains as escape paths.
+    if (cur && strcmp(cur, "wifi") == 0 && is_horizontal) {
+        net::logf("[touch] swipe %s suppressed (wifi keyboard)", dir);
+        g_gesture_suppressed++;
+        return;
+    }
+
+    net::logf("[touch] swipe %s (dx=%d dy=%d dt=%u ms) -> %s",
+              dir, (int)dx, (int)dy, (unsigned)dt, cmd);
+    g_last_swipe_ms = now;
+    g_gesture_count++;
+    snprintf(g_last_gesture, sizeof(g_last_gesture), "swipe_%s", dir);
+    app::Command c;
+    c.type = app::CommandType::ShowScreen;
+    strncpy(c.a, cmd, sizeof(c.a) - 1);
+    app::post(c, 0);
+}
+
 static void touch_task(void *) {
     int16_t last_logged_x = -1, last_logged_y = -1;
     bool last_state = false;
+    int16_t down_x = -1, down_y = -1;
+    uint32_t down_ms = 0;
     for (;;) {
         if (touch_present) {
             int16_t x = -1, y = -1;
@@ -207,8 +327,16 @@ static void touch_task(void *) {
                 last_logged_x = x;
                 last_logged_y = y;
             }
+            // Track start of contact for the touch-task swipe detector.
+            if (pressed && !last_state) {
+                down_x = x;
+                down_y = y;
+                down_ms = millis();
+            }
             if (!pressed && last_state) {
                 net::logf("[touch] UP   raw=(%d,%d)", last_logged_x, last_logged_y);
+                detect_swipe_release(down_x, down_y, down_ms,
+                                     last_logged_x, last_logged_y);
             }
             last_state = pressed;
         }
@@ -244,6 +372,7 @@ static struct {
     double lat = NAN, lon = NAN;
     uint32_t trigger_ms = 0;
 } g_mob;
+static bool mob_is_active() { return g_mob.active; }
 static lv_obj_t *mob_button = nullptr;
 static lv_obj_t *mob_view = nullptr;
 static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
@@ -538,6 +667,7 @@ static volatile uint32_t g_loop_max_us = 0;
 static volatile uint32_t g_lvgl_max_us = 0;
 static volatile uint32_t g_section_max_us = 0;
 static char g_section_peak_name[24] = "-";
+static volatile bool g_force_invalidate = true;
 
 static void note_slow_section(const char *name, uint32_t dt_us) {
     if (dt_us <= g_section_max_us) return;
@@ -595,10 +725,32 @@ extern "C" {
 uint32_t main_gesture_count() { return g_gesture_count; }
 uint32_t main_gesture_suppressed() { return g_gesture_suppressed; }
 const char *main_last_gesture() { return g_last_gesture; }
+void main_touch_state(int *x, int *y, int *pressed, uint32_t *last_ms) {
+    TouchSnapshot snap = {-1, -1, false, 0};
+    if (g_touch_mtx && xSemaphoreTake(g_touch_mtx, pdMS_TO_TICKS(2))) {
+        snap = g_touch;
+        xSemaphoreGive(g_touch_mtx);
+    }
+    if (x) *x = snap.x;
+    if (y) *y = snap.y;
+    if (pressed) *pressed = snap.pressed ? 1 : 0;
+    if (last_ms) *last_ms = snap.last_ms;
 }
+}
+
+extern volatile uint32_t g_last_swipe_ms;
 
 static void screen_gesture_handler(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
+    // Navigation now flows exclusively through touch_task's swipe
+    // detector (independent of LVGL's render pipeline so it works even
+    // when wind stalls lv_timer_handler for ~2 s). LVGL's gesture path
+    // would otherwise fire AGAIN once the stall ends and double-advance.
+    // We keep the callback only for diagnostics; it must not navigate.
+    g_gesture_suppressed++;
+    return;
+    // Unreachable - kept for reference until a use case for LVGL-side
+    // gestures emerges again.
     lv_indev_t *indev = lv_indev_get_act();
     if (!indev) return;
     lv_dir_t dir = lv_indev_get_gesture_dir(indev);
@@ -662,6 +814,22 @@ static bool handleMainCommand(const String &line) {
     }
     if (line == "bench") {
         bench_dump();
+        return true;
+    }
+    if (line == "wind-refresh" || line.startsWith("wind-refresh ")) {
+        String v = line.length() > 13 ? line.substring(13) : String();
+        v.trim();
+        if (v == "on" || v == "1") ui::wind::set_refresh_enabled(true);
+        else if (v == "off" || v == "0") ui::wind::set_refresh_enabled(false);
+        net::logf("[ui] wind-refresh=%s", ui::wind::refresh_enabled() ? "on" : "off");
+        return true;
+    }
+    if (line == "force-invalidate" || line.startsWith("force-invalidate ")) {
+        String v = line.length() > 17 ? line.substring(17) : String();
+        v.trim();
+        if (v == "on" || v == "1") g_force_invalidate = true;
+        else if (v == "off" || v == "0") g_force_invalidate = false;
+        net::logf("[ui] force-invalidate=%s", g_force_invalidate ? "on" : "off");
         return true;
     }
     if (line == "mob" || line == "mob-on") {
@@ -862,7 +1030,12 @@ static void ui_refresh(lv_timer_t *) {
     // this hardware - LVGL was correctly tracking that "nothing changed"
     // but the panel needs a refresh anyway for time-based animations
     // (needle sweep, uptime label, etc.) to be visible.
-    lv_obj_invalidate(lv_screen_active());
+    //
+    // Runtime-togglable so we can A/B test perf on the wind screen
+    // (force-invalidate on|off via console).
+    if (g_force_invalidate) {
+        lv_obj_invalidate(lv_screen_active());
+    }
 }
 
 void setup() {
@@ -928,9 +1101,23 @@ void setup() {
     // Tune for wet-finger / glove tolerance per docs/specs/06-ui-interactions.md:
     // - long-press 500 ms (up from LVGL's 400 ms) reduces accidental MOB / safety
     //   triggers from glove brushes.
-    // - keep gesture limit / velocity at LVGL defaults (50 px / 3 px-per-refresh)
-    //   - tested-clean on the 480x480 panel.
     lv_indev_set_long_press_time(indev, 500);
+    // Disable LVGL's own gesture detection. Navigation gestures are now
+    // recognized in touch_task (decoupled from the render pipeline so
+    // they survive the wind screen's 2-second LVGL stalls). LVGL kept
+    // classifying noisy taps as gestures (~50 px finger drift on a
+    // capacitive panel) and swallowing the CLICKED event for settings
+    // buttons. Raising the per-tick velocity threshold to 255 px makes
+    // LVGL's gesture path practically unreachable without disturbing
+    // its tap/long-press handling.
+    lv_indev_set_gesture_min_velocity(indev, 255);
+    // Capacitive-touch finger contact drifts 20-50 px during a normal
+    // "tap" on this panel. With LVGL's default scroll_limit=10 every
+    // such tap is reclassified as a drag and the button never fires
+    // CLICKED. Raise it to 50 px so finger drift up to the swipe
+    // threshold still resolves as a tap. Sliders use their own PRESSING
+    // handler so this doesn't affect them.
+    lv_indev_set_scroll_limit(indev, 50);
 
     // Load theme + position format prefs
     {

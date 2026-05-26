@@ -3,6 +3,8 @@
 #include "ui_data.h"
 #include "ui_screens.h"
 #include "net.h"
+
+#include <math.h>
 #include "board_pins.h"
 
 #include <Arduino.h>
@@ -23,7 +25,16 @@ static lv_obj_t *fmt_lbl = nullptr;
 static void apply_brightness(int v) {
     if (v < 0) v = 0;
     if (v > 255) v = 255;
-    ledcWrite(0, v);
+    // Perceptual brightness: human vision is logarithmic, but the LEDC
+    // duty cycle is linear, so the slider feels useless above ~50%. Map
+    // slider value -> duty via a gamma curve (gamma ~= 2.2) so the
+    // displayed change matches what the eye expects.
+    double norm = (double)v / 255.0;
+    double curved = pow(norm, 2.2);
+    int duty = (int)(curved * 255.0 + 0.5);
+    // Keep a small floor so 1% slider doesn't fully black out the panel.
+    if (v > 0 && duty < 2) duty = 2;
+    ledcWrite(0, duty);
     Preferences p;
     p.begin("ui", false);
     p.putUChar("bright", (uint8_t)v);
@@ -121,7 +132,12 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 4, 4);
 
-    make_btn(s_root, "close", LCD_W - 96, 6, 88, 36, theme.fg_dim, on_close, nullptr);
+    // Close button moved to the LEFT - the top-right corner is occupied
+    // by the global MOB button on lv_layer_top, which would intercept
+    // taps meant for "close".
+    make_btn(s_root, "close", 12, 6, 88, 36, theme.fg_dim, on_close, nullptr);
+    // Move the title to the right so close has room on the left.
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 112, 4);
 
     // Brightness row
     lv_obj_t *bl_cap = lv_label_create(s_root);

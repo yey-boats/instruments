@@ -16,6 +16,8 @@ void refresh();
 namespace wind {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();
+void set_refresh_enabled(bool e);
+bool refresh_enabled();
 }  // namespace wind
 
 namespace nav {

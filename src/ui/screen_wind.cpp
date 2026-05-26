@@ -428,14 +428,22 @@ lv_obj_t *build(lv_obj_t *parent) {
 // ---- refresh -----------------------------------------------------------
 
 static int16_t deg_to_lvgl(double deg) {
-    // LVGL transform_rotation is in 0.1° units, [0..3600). Wrap.
-    int16_t r = (int16_t)lround(deg * 10);
+    // LVGL transform_rotation is in 0.1° units, [0..3600). Quantize to
+    // whole degrees - sub-degree sensor jitter would otherwise force a
+    // re-invalidate of large transformed bounding boxes on every refresh
+    // and stall the SW renderer.
+    int16_t r = (int16_t)(lround(deg) * 10);
     while (r < 0) r += 3600;
     while (r >= 3600) r -= 3600;
     return r;
 }
 
+static volatile bool s_refresh_enabled = true;
+void set_refresh_enabled(bool e) { s_refresh_enabled = e; }
+bool refresh_enabled() { return s_refresh_enabled; }
+
 void refresh() {
+    if (!s_refresh_enabled) return;
     sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
     char buf[64];
 

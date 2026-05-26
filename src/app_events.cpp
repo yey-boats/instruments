@@ -142,7 +142,21 @@ void pump() {
         case CommandType::ShowScreen: {
             const char *id = cmd.a;
             if (!id || !*id) break;
-            if (strcmp(id, "next") == 0) {
+            // Track the screen the user was on before opening settings so
+            // a "close settings" swipe-down (which posts "dashboard")
+            // returns to that screen instead of always Dashboard.
+            static int s_prev_before_settings = -1;
+            const char *cur = ui::current_id();
+            bool on_settings = (cur && strcmp(cur, "settings") == 0);
+            bool going_settings = (strcmp(id, "settings") == 0);
+            bool going_dashboard = (strcmp(id, "dashboard") == 0);
+            if (going_settings && !on_settings) {
+                s_prev_before_settings = ui::current_index();
+            }
+            if (going_dashboard && on_settings && s_prev_before_settings >= 0) {
+                ui::show(s_prev_before_settings);
+                s_prev_before_settings = -1;
+            } else if (strcmp(id, "next") == 0) {
                 ui::next();
             } else if (strcmp(id, "prev") == 0) {
                 ui::prev();

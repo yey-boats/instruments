@@ -24,6 +24,11 @@ extern "C" {
 uint32_t main_gesture_count();
 uint32_t main_gesture_suppressed();
 const char *main_last_gesture();
+void main_touch_state(int *x, int *y, int *pressed, uint32_t *last_ms);
+uint32_t main_i2c_err_count();
+uint32_t main_i2c_ok_count();
+uint32_t main_gt_ready_count();
+uint32_t main_gt_points_count();
 }
 
 namespace web {
@@ -116,6 +121,19 @@ static void handle_state() {
     gestures["count"] = ::main_gesture_count();
     gestures["suppressed"] = ::main_gesture_suppressed();
     gestures["last"] = ::main_last_gesture();
+
+    int tx = -1, ty = -1, tp = 0;
+    uint32_t tlast = 0;
+    ::main_touch_state(&tx, &ty, &tp, &tlast);
+    JsonObject touch = doc["touch"].to<JsonObject>();
+    touch["x"] = tx;
+    touch["y"] = ty;
+    touch["pressed"] = tp;
+    touch["last_ms"] = tlast;
+    touch["i2c_ok"] = ::main_i2c_ok_count();
+    touch["i2c_err"] = ::main_i2c_err_count();
+    touch["gt_ready"] = ::main_gt_ready_count();
+    touch["gt_points"] = ::main_gt_points_count();
 
     send_json(200, doc);
 }
