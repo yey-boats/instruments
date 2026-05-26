@@ -50,34 +50,43 @@ static constexpr int R_MARKER = 200;     // distance from center to wind marker 
 
 // ---- helpers -----------------------------------------------------------
 
-static void apply_pivot_center(lv_obj_t *o, int half_w, int distance_above_center) {
-    // Position the object so its tail (bottom) sits at radius `distance_above_center`
-    // above the dial center, and set the rotation pivot to (CX, CY) so a
-    // rotation of theta deg sweeps the object around the dial.
-    lv_obj_set_pos(o, CX - half_w, CY - distance_above_center);
+// Position `o` so its tail sits `distance_above_center` above (cx, cy)
+// in the PARENT'S coordinate system, with rotation pivot at the tail.
+// Rotating `o` then sweeps it around (cx, cy).
+static void apply_pivot_at(lv_obj_t *o, int cx, int cy, int half_w,
+                           int distance_above_center) {
+    lv_obj_set_pos(o, cx - half_w, cy - distance_above_center);
     lv_obj_set_style_transform_pivot_x(o, half_w, 0);
     lv_obj_set_style_transform_pivot_y(o, distance_above_center, 0);
 }
+static void apply_pivot_center(lv_obj_t *o, int half_w, int distance_above_center) {
+    apply_pivot_at(o, CX, CY, half_w, distance_above_center);
+}
 
-static lv_obj_t *make_label_at_polar(lv_obj_t *parent, const char *txt, int angle_deg,
-                                     int radius, const lv_font_t *font, uint32_t color) {
+static lv_obj_t *make_label_at_polar_at(lv_obj_t *parent, int cx, int cy, const char *txt,
+                                        int angle_deg, int radius, const lv_font_t *font,
+                                        uint32_t color) {
     lv_obj_t *l = lv_label_create(parent);
     lv_label_set_text(l, txt);
     lv_obj_set_style_text_font(l, font, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     double a = angle_deg * M_PI / 180.0;
-    int x = CX + (int)(radius * sin(a));
-    int y = CY - (int)(radius * cos(a));
-    // Approximate label center; LVGL labels don't auto-center
-    int hw = 14;  // half-width estimate
+    int x = cx + (int)(radius * sin(a));
+    int y = cy - (int)(radius * cos(a));
+    int hw = 14;  // half-width estimate (LVGL labels don't auto-center)
     int hh = 10;
     lv_obj_set_pos(l, x - hw, y - hh);
     return l;
 }
+static lv_obj_t *make_label_at_polar(lv_obj_t *parent, const char *txt, int angle_deg,
+                                     int radius, const lv_font_t *font, uint32_t color) {
+    return make_label_at_polar_at(parent, CX, CY, txt, angle_deg, radius, font, color);
+}
 
-// Build a "tick rectangle" sticking inward from the bezel rim by `len` px.
-static lv_obj_t *make_tick(lv_obj_t *parent, int angle_deg, int len, int width,
-                            uint32_t color) {
+// Build a "tick rectangle" sticking inward from the bezel rim, rotating
+// around (cx, cy) in the parent's coordinate system.
+static lv_obj_t *make_tick_at(lv_obj_t *parent, int cx, int cy, int angle_deg, int len,
+                               int width, uint32_t color) {
     lv_obj_t *t = lv_obj_create(parent);
     lv_obj_set_size(t, width, len);
     lv_obj_set_style_bg_color(t, lv_color_hex(color), 0);
@@ -87,16 +96,16 @@ static lv_obj_t *make_tick(lv_obj_t *parent, int angle_deg, int len, int width,
     lv_obj_set_style_pad_all(t, 0, 0);
     lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
-    apply_pivot_center(t, width / 2, R_BEZEL - 4);
+    apply_pivot_at(t, cx, cy, width / 2, R_BEZEL - 4);
     lv_obj_set_style_transform_rotation(t, angle_deg * 10, 0);
     return t;
 }
 
-static lv_obj_t *make_ring(lv_obj_t *p, int diameter, int border, uint32_t color,
-                            int opa = LV_OPA_COVER) {
+static lv_obj_t *make_ring_at(lv_obj_t *p, int cx, int cy, int diameter, int border,
+                              uint32_t color, int opa = LV_OPA_COVER) {
     lv_obj_t *r = lv_obj_create(p);
     lv_obj_set_size(r, diameter, diameter);
-    lv_obj_set_pos(r, CX - diameter / 2, CY - diameter / 2);
+    lv_obj_set_pos(r, cx - diameter / 2, cy - diameter / 2);
     lv_obj_set_style_radius(r, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(r, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(r, lv_color_hex(color), 0);
@@ -107,6 +116,10 @@ static lv_obj_t *make_ring(lv_obj_t *p, int diameter, int border, uint32_t color
     lv_obj_clear_flag(r, LV_OBJ_FLAG_CLICKABLE);
     return r;
 }
+static lv_obj_t *make_ring(lv_obj_t *p, int diameter, int border, uint32_t color,
+                            int opa = LV_OPA_COVER) {
+    return make_ring_at(p, CX, CY, diameter, border, color, opa);
+}
 
 // ---- bezel -------------------------------------------------------------
 
@@ -116,34 +129,37 @@ static void build_bezel(lv_obj_t *parent) {
     // them all together around the dial center.
     bezel = lv_obj_create(parent);
     int size = R_BEZEL * 2 + 12;
+    int bcx = size / 2;  // bezel's LOCAL center - children must use this,
+    int bcy = size / 2;  // not CX/CY which are screen-absolute.
     lv_obj_set_size(bezel, size, size);
-    lv_obj_set_pos(bezel, CX - size / 2, CY - size / 2);
+    lv_obj_set_pos(bezel, CX - bcx, CY - bcy);  // bezel's local center == screen's (CX, CY)
     lv_obj_set_style_bg_opa(bezel, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(bezel, 0, 0);
     lv_obj_set_style_pad_all(bezel, 0, 0);
     lv_obj_clear_flag(bezel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(bezel, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_transform_pivot_x(bezel, size / 2, 0);
-    lv_obj_set_style_transform_pivot_y(bezel, size / 2, 0);
+    lv_obj_set_style_transform_pivot_x(bezel, bcx, 0);
+    lv_obj_set_style_transform_pivot_y(bezel, bcy, 0);
 
-    // Rim ring (the bezel's outer metal-look band)
-    make_ring(bezel, R_BEZEL * 2, 6, theme.panel_edge);
-    make_ring(bezel, R_BEZEL * 2 + 10, 2, 0x111a26);  // outer shadow
-    make_ring(bezel, R_BEZEL * 2 - 14, 1, 0x0c1828);  // inner highlight edge
+    // Rim ring + shadow + highlight ring; all concentric with the
+    // dial-center rings drawn on s_root.
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2, 6, theme.panel_edge);
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 + 10, 2, 0x111a26);  // outer shadow
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 - 14, 1, 0x0c1828);  // inner highlight
 
-    // Cardinal labels (N/E/S/W large; NE/SE/SW/NW small)
-    make_label_at_polar(bezel, "N", 0, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar(bezel, "E", 90, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar(bezel, "S", 180, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar(bezel, "W", 270, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar(bezel, "NE", 45, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
-    make_label_at_polar(bezel, "SE", 135, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
-    make_label_at_polar(bezel, "SW", 225, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
-    make_label_at_polar(bezel, "NW", 315, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
+    // Cardinal labels (N/E/S/W large; NE/SE/SW/NW small) - polar from bezel center
+    make_label_at_polar_at(bezel, bcx, bcy, "N", 0, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "E", 90, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "S", 180, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "W", 270, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "NE", 45, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "SE", 135, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "SW", 225, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "NW", 315, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
 
-    // 22.5° tick marks (between cardinals + intercardinals)
+    // 22.5deg tick marks (between cardinals + intercardinals)
     for (int deg = 0; deg < 360; deg += 45) {
-        make_tick(bezel, deg + 22, 10, 2, theme.fg_dim);
+        make_tick_at(bezel, bcx, bcy, deg + 22, 10, 2, theme.fg_dim);
     }
 
     // Fixed bow indicator (notch on the rim) — a small white triangle
