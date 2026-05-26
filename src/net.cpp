@@ -109,11 +109,14 @@ class RxCb : public NimBLECharacteristicCallbacks {
 };
 
 static void ble_advertising_watchdog(void *) {
+    // First sleep before checking - bleSetup() already called
+    // startAdvertising() so an immediate retry just logs
+    // "Advertising already active" noise on every boot.
     for (;;) {
+        vTaskDelay(pdMS_TO_TICKS(5000));
         if (!bleConnected) {
             NimBLEDevice::startAdvertising();
         }
-        vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 

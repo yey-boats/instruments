@@ -765,12 +765,15 @@ static void sync_captive_dns() {
     net::WifiState state = net::wifiState();
     if (state != s_bound_state &&
         (state == net::WifiState::StaUp || state == net::WifiState::ApSetup)) {
-        // Re-run begin after the actual STA/AP interface exists. Starting
-        // WebServer while the async WiFi manager is still connecting can
-        // leave :80 unreachable on some Arduino-ESP32/lwIP states.
+        // Bind once the actual STA/AP interface is up. Calling
+        // server.begin() before lwIP's TCPIP task is initialized
+        // (i.e., before WiFi.mode/begin) trips "Invalid mbox" in
+        // tcpip_send_msg_wait_sem and panics the device.
         server.begin();
+        bool first = (s_bound_state == net::WifiState::Idle);
         s_bound_state = state;
-        net::logf("[web] http rebound on :80 for wifi=%s", net::wifiStateName());
+        net::logf("[web] http %s on :80 for wifi=%s",
+                  first ? "bound" : "rebound", net::wifiStateName());
     }
 
     bool want_captive = (state == net::WifiState::ApSetup);
@@ -791,9 +794,11 @@ static void sync_captive_dns() {
 }
 
 static void web_task(void *) {
-    server.begin();
-    net::logf("[web] http server up on :80 (task on core %d, captive=%d)",
-              xPortGetCoreID(), (int)captive_active);
+    // Defer server.begin() until sync_captive_dns() sees WiFi reach
+    // StaUp or ApSetup - by then lwIP's TCPIP task is up. Calling
+    // begin() here while state is still Idle asserts inside lwIP.
+    net::logf("[web] http task on core %d (deferring bind until wifi up)",
+              xPortGetCoreID());
     for (;;) {
         sync_captive_dns();
         if (captive_active) dns.processNextRequest();
