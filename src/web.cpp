@@ -32,6 +32,7 @@ static WebServer server(80);
 static DNSServer dns;
 static bool started = false;
 static bool captive_active = false;  // only true when in AP mode
+static net::WifiState s_bound_state = net::WifiState::Idle;
 
 // Probe URLs the major OSes hit to detect captive portals. The trick: if
 // they DON'T get the exact expected response, the OS pops "Sign in to
@@ -760,18 +761,41 @@ static void bind_routes() {
 
 static TaskHandle_t s_task = nullptr;
 
-static void web_task(void *) {
-    server.begin();
-    if (captive_active) {
-        // Resolve every DNS query to the AP IP so the phone's captive-portal
-        // probe (whatever hostname) lands on our HTTP server.
+static void sync_captive_dns() {
+    net::WifiState state = net::wifiState();
+    if (state != s_bound_state &&
+        (state == net::WifiState::StaUp || state == net::WifiState::ApSetup)) {
+        // Re-run begin after the actual STA/AP interface exists. Starting
+        // WebServer while the async WiFi manager is still connecting can
+        // leave :80 unreachable on some Arduino-ESP32/lwIP states.
+        server.begin();
+        s_bound_state = state;
+        net::logf("[web] http rebound on :80 for wifi=%s", net::wifiStateName());
+    }
+
+    bool want_captive = (state == net::WifiState::ApSetup);
+    if (want_captive == captive_active) return;
+
+    if (want_captive) {
         dns.setErrorReplyCode(DNSReplyCode::NoError);
         dns.start(53, "*", WiFi.softAPIP());
+        captive_active = true;
         net::logf("[web] captive DNS on :53 -> %s", WiFi.softAPIP().toString().c_str());
+    } else {
+        if (captive_active) {
+            dns.stop();
+            net::logf("[web] captive DNS stopped");
+        }
+        captive_active = false;
     }
+}
+
+static void web_task(void *) {
+    server.begin();
     net::logf("[web] http server up on :80 (task on core %d, captive=%d)",
               xPortGetCoreID(), (int)captive_active);
     for (;;) {
+        sync_captive_dns();
         if (captive_active) dns.processNextRequest();
         server.handleClient();
         vTaskDelay(pdMS_TO_TICKS(2));
@@ -780,7 +804,6 @@ static void web_task(void *) {
 
 void setup() {
     if (started) return;
-    captive_active = !net::wifiUp();  // captive only when we're the AP
     bind_routes();
     BaseType_t r = xTaskCreatePinnedToCore(web_task, "web", 8192, nullptr,
                                            1 /* low prio */, &s_task, 0 /* core 0 */);

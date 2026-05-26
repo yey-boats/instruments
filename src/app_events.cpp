@@ -7,6 +7,7 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <string.h>
 
 #include "net.h"
 #include "signalk.h"
@@ -31,6 +32,32 @@ static inline void track_depth(QueueHandle_t q, volatile uint32_t *hi) {
     if (!q) return;
     UBaseType_t n = uxQueueMessagesWaiting(q);
     if (n > *hi) *hi = n;
+}
+
+static bool is_exact_or_arg(const char *line, const char *cmd) {
+    size_t n = strlen(cmd);
+    return strncmp(line, cmd, n) == 0 && (line[n] == 0 || line[n] == ' ');
+}
+
+static bool is_net_command(const char *line) {
+    if (!line) return false;
+    return strcmp(line, "ip") == 0 || strcmp(line, "scan") == 0 ||
+           strcmp(line, "wifi-list") == 0 || strcmp(line, "wifi-forget") == 0 ||
+           strcmp(line, "reboot") == 0 || strcmp(line, "id") == 0 ||
+           strcmp(line, "sk-status") == 0 || strcmp(line, "sk-dump") == 0 ||
+           strncmp(line, "wifi ", 5) == 0 || strncmp(line, "wifi-forget ", 12) == 0 ||
+           strncmp(line, "sk ", 3) == 0 || strncmp(line, "id ", 3) == 0 ||
+           is_exact_or_arg(line, "layout-fetch");
+}
+
+static bool forward_to_net(Command &cmd) {
+    if (post_net(cmd)) return true;
+    net::logf("[app] net queue full, dropping cmd type %d", (int)cmd.type);
+    if (cmd.blob) {
+        heap_caps_free(cmd.blob);
+        cmd.blob = nullptr;
+    }
+    return false;
 }
 
 // ---- net worker --------------------------------------------------------
@@ -160,6 +187,10 @@ void pump() {
             break;
         }
         case CommandType::RunCommand: {
+            if (is_net_command(cmd.a)) {
+                if (forward_to_net(cmd)) return;  // net worker owns any blob
+                break;
+            }
             net::dispatchCommand(String(cmd.a));
             break;
         }
@@ -167,8 +198,8 @@ void pump() {
         case CommandType::SaveWifi:
         case CommandType::Reboot:
             // These are net-side jobs; forward.
-            post_net(cmd);
-            return;  // don't free blob below - net owns it now
+            if (forward_to_net(cmd)) return;  // don't free blob below - net owns it now
+            break;
         default:
             break;
         }

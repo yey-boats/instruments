@@ -17,6 +17,7 @@
 
 #include <Preferences.h>
 #include <math.h>
+#include <string.h>
 
 // ST7701 init via 3-wire SPI, then RGB takes over.
 static Arduino_DataBus *bus =
@@ -535,6 +536,15 @@ static void fps_overlay_toggle() {
 static volatile uint32_t g_loop_last_ms = 0;
 static volatile uint32_t g_loop_max_us = 0;
 static volatile uint32_t g_lvgl_max_us = 0;
+static volatile uint32_t g_section_max_us = 0;
+static char g_section_peak_name[24] = "-";
+
+static void note_slow_section(const char *name, uint32_t dt_us) {
+    if (dt_us <= g_section_max_us) return;
+    g_section_max_us = dt_us;
+    strncpy(g_section_peak_name, name ? name : "?", sizeof(g_section_peak_name) - 1);
+    g_section_peak_name[sizeof(g_section_peak_name) - 1] = 0;
+}
 
 // Forward decls for gesture diagnostics defined below.
 extern volatile uint32_t g_gesture_count;
@@ -548,8 +558,9 @@ static void bench_dump() {
     size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
     net::logf("[bench] fps=%.1f Hz", g_fps);
     net::logf("[bench] flush avg=%.0f us  peak=%lu us", g_fps_avg_us, (unsigned long)g_fps_peak_us);
-    net::logf("[bench] loop peak=%lu us  lvgl peak=%lu us",
-              (unsigned long)g_loop_max_us, (unsigned long)g_lvgl_max_us);
+    net::logf("[bench] loop peak=%lu us  slow section=%s %lu us  lvgl peak=%lu us",
+              (unsigned long)g_loop_max_us, g_section_peak_name,
+              (unsigned long)g_section_max_us, (unsigned long)g_lvgl_max_us);
     net::logf("[bench] heap free=%u KB  low-water=%u KB",
               (unsigned)(heap_free / 1024), (unsigned)(heap_lowwater / 1024));
     net::logf("[bench] psram free=%u / %u KB", (unsigned)(psram_free / 1024),
@@ -566,6 +577,9 @@ static void bench_dump() {
     // Reset peak counters so next bench shows recent activity.
     g_loop_max_us = 0;
     g_lvgl_max_us = 0;
+    g_section_max_us = 0;
+    strncpy(g_section_peak_name, "-", sizeof(g_section_peak_name) - 1);
+    g_section_peak_name[sizeof(g_section_peak_name) - 1] = 0;
 }
 
 // ----- Gesture handler --------------------------------------------------
@@ -821,14 +835,29 @@ static void breadcrumb_refresh() {
 static void ui_refresh(lv_timer_t *) {
     // Drain queued commands from web/BLE first - they may change the
     // active screen before refresh() runs.
+    uint32_t t = micros();
     app::pump();
+    note_slow_section("ui:pump", micros() - t);
+
+    t = micros();
     ui::refresh_current();
+    note_slow_section("ui:screen", micros() - t);
+
+    t = micros();
     breadcrumb_refresh();
+    note_slow_section("ui:breadcrumb", micros() - t);
+
+    t = micros();
     mob_refresh();
     alarm_check();
+    note_slow_section("ui:overlays", micros() - t);
+
     // Service any pending screenshot request from the web task (snapshot
     // walks LVGL objects, must run on this task).
+    t = micros();
     screenshot::serve_pending();
+    note_slow_section("ui:screenshot", micros() - t);
+
     // Force a full redraw every cycle. Without this, FPS dropped to 0 on
     // this hardware - LVGL was correctly tracking that "nothing changed"
     // but the panel needs a refresh anyway for time-based animations
@@ -1009,15 +1038,28 @@ static void pollSerialCommands() {
 
 void loop() {
     uint32_t t_loop = micros();
-    uint32_t t_lvgl = micros();
-    lv_timer_handler();
-    uint32_t dt_lvgl = micros() - t_lvgl;
-    if (dt_lvgl > g_lvgl_max_us) g_lvgl_max_us = dt_lvgl;
 
+    uint32_t t_section = micros();
+    lv_timer_handler();
+    uint32_t dt_lvgl = micros() - t_section;
+    if (dt_lvgl > g_lvgl_max_us) g_lvgl_max_us = dt_lvgl;
+    note_slow_section("lvgl", dt_lvgl);
+
+    t_section = micros();
     net::loop();
+    note_slow_section("net", micros() - t_section);
+
+    t_section = micros();
     sk::loop();
+    note_slow_section("signalk", micros() - t_section);
+
+    t_section = micros();
     web::loop();
+    note_slow_section("web", micros() - t_section);
+
+    t_section = micros();
     pollSerialCommands();
+    note_slow_section("serial", micros() - t_section);
 
     uint32_t dt_loop = micros() - t_loop;
     if (dt_loop > g_loop_max_us) g_loop_max_us = dt_loop;

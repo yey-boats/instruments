@@ -7,6 +7,7 @@
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
 #include <NimBLEDevice.h>
+#include <freertos/semphr.h>
 
 #include "secrets.h"
 #include "signalk.h"
@@ -26,6 +27,8 @@ static ExtraCommandHandler s_extra = nullptr;
 static String s_device_id;
 static volatile WifiState s_wifi_state = WifiState::Idle;
 static TaskHandle_t s_wifi_task = nullptr;
+static TaskHandle_t s_ble_adv_task = nullptr;
+static SemaphoreHandle_t s_log_mtx = nullptr;
 
 WifiState wifiState() { return s_wifi_state; }
 
@@ -54,13 +57,16 @@ const String &deviceId() {
 
 static NimBLECharacteristic *bleTxChar = nullptr;
 static NimBLECharacteristic *bleRxChar = nullptr;
-static bool bleConnected = false;
+static volatile bool bleConnected = false;
 
 class ServerCb : public NimBLEServerCallbacks {
-    void onConnect(NimBLEServer *) override { bleConnected = true; }
+    void onConnect(NimBLEServer *) override {
+        bleConnected = true;
+        logf("[ble] connected");
+    }
     void onDisconnect(NimBLEServer *s) override {
         bleConnected = false;
-        NimBLEDevice::startAdvertising();
+        logf("[ble] disconnected");
     }
 };
 
@@ -71,7 +77,7 @@ class RxCb : public NimBLECharacteristicCallbacks {
         String line(v.c_str());
         line.trim();
         if (line.length() == 0) return;
-        Serial.printf("[ble] rx: %s\n", line.c_str());
+        logf("[ble] rx: %s", line.c_str());
         // BLE callbacks run on the NimBLE task and must stay short. Most
         // commands touch LVGL or NVS; queue them for the UI task instead
         // of executing in-place. Read-only / status commands (sk-status,
@@ -97,10 +103,19 @@ class RxCb : public NimBLECharacteristicCallbacks {
         cmd.type = app::CommandType::RunCommand;
         strncpy(cmd.a, line.c_str(), sizeof(cmd.a) - 1);
         if (!app::post(cmd, 50)) {
-            Serial.println("[ble] queue full, dropping command");
+            logf("[ble] queue full, dropping command");
         }
     }
 };
+
+static void ble_advertising_watchdog(void *) {
+    for (;;) {
+        if (!bleConnected) {
+            NimBLEDevice::startAdvertising();
+        }
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
 
 static void bleSetup() {
     NimBLEDevice::init(s_device_id.c_str());
@@ -121,6 +136,8 @@ static void bleSetup() {
     adv->setScanResponse(true);
     NimBLEDevice::startAdvertising();
     Serial.printf("[ble] advertising as %s\n", s_device_id.c_str());
+    xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1,
+                            &s_ble_adv_task, 0);
 }
 
 // ---- WiFi / OTA ----
@@ -258,6 +275,7 @@ static void wifi_manager_task(void *) {
 }
 
 void setup() {
+    if (!s_log_mtx) s_log_mtx = xSemaphoreCreateMutex();
     prefs.begin("net", false);
     s_device_id = prefs.getString("device_id", OTA_HOSTNAME);
     Serial.printf("[net] device id: %s\n", s_device_id.c_str());
@@ -314,6 +332,12 @@ void logf(const char *fmt, ...) {
     va_end(ap);
     if (n < 0) return;
     if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
+    if (n == 0) return;
+
+    bool locked = false;
+    if (s_log_mtx && xSemaphoreTake(s_log_mtx, pdMS_TO_TICKS(50)) == pdTRUE) {
+        locked = true;
+    }
     Serial.write((uint8_t *)buf, n);
     if (buf[n - 1] != '\n') Serial.println();
 
@@ -326,6 +350,7 @@ void logf(const char *fmt, ...) {
         bleTxChar->setValue((uint8_t *)buf, n);
         bleTxChar->notify();
     }
+    if (locked) xSemaphoreGive(s_log_mtx);
 }
 
 bool handleSerialCommand(const String &line) {
