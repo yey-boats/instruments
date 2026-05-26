@@ -889,8 +889,19 @@ void setup() {
     ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(NULL),    ui::wifi_setup::refresh,   true});
     ui::register_screen({"settings",  "Settings",   ui::settings::build(NULL),      ui::settings::refresh,     true});
 
-    // Global overlays + gestures live on lv_layer_top() so they survive
-    // screen swaps without re-parenting.
+    // Attach the gesture handler to EVERY screen root. LVGL routes
+    // LV_EVENT_GESTURE to the currently loaded screen (or the widget
+    // the touch landed on), not to lv_layer_top - so without
+    // per-screen handlers swipes that started on empty screen area
+    // silently dropped.
+    for (size_t i = 0; i < ui::screen_count(); ++i) {
+        lv_obj_t *root = ui::screen_root((int)i);
+        if (root) lv_obj_add_event_cb(root, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
+    }
+
+    // Global overlays + gestures also live on lv_layer_top() so they
+    // survive screen swaps and catch gestures that landed on overlay
+    // children (MOB button etc.).
     lv_obj_t *top = lv_layer_top();
     lv_obj_clear_flag(top, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(top, LV_OBJ_FLAG_CLICKABLE);

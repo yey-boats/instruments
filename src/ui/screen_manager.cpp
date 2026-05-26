@@ -79,6 +79,11 @@ bool screen_info(int index, const char **out_id, const char **out_title, bool *o
     return true;
 }
 
+lv_obj_t *screen_root(int index) {
+    if (index < 0 || index >= (int)s_count) return nullptr;
+    return s_screens[index].root;
+}
+
 void refresh_current() {
     if (s_count == 0) return;
     if (s_screens[s_index].refresh) s_screens[s_index].refresh();

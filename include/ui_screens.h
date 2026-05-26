@@ -46,6 +46,10 @@ bool is_hidden(int index);
 // index is out of range; otherwise *out_* are set (nullable).
 bool screen_info(int index, const char **out_id, const char **out_title, bool *out_hidden);
 
+// Direct access to the screen's LVGL root - needed when main wires up
+// per-screen gesture / event handlers.
+lv_obj_t *screen_root(int index);
+
 // Call from the global 5 Hz ui_refresh timer.
 void refresh_current();
 
