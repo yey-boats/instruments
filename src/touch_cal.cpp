@@ -66,6 +66,16 @@ Matrix current() { return s_m; }
 
 bool is_default() { return s_default; }
 
+void reset() {
+    s_m = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
+    s_default = true;
+    Preferences p;
+    p.begin(NS, false);
+    p.clear();
+    p.end();
+    net::logf("[cal] reset to identity (effective immediately)");
+}
+
 // Solve A x = b in the least-squares sense for A 2N x 6, b 2N x 1.
 // Each sample contributes two rows:
 //   target_x = a*raw_x + b*raw_y + c
@@ -126,12 +136,35 @@ static bool solve3(const Sample *samples, size_t n, bool x_axis,
     return true;
 }
 
+// Plausibility bounds for a sane screen-touch affine matrix. A real
+// panel has scale near 1, skew near 0, modest offset. If the user's
+// calibration produced wildly different coefficients (finger drift
+// during cal taps, tapping in the wrong order), the resulting matrix
+// would shift coordinates so badly that the UI becomes untouchable.
+// Reject it - the caller surfaces an error so the user can retry.
+static bool plausible(const Matrix &m) {
+    if (m.a < 0.5f || m.a > 1.5f) return false;
+    if (m.e < 0.5f || m.e > 1.5f) return false;
+    if (m.b < -0.3f || m.b > 0.3f) return false;
+    if (m.d < -0.3f || m.d > 0.3f) return false;
+    if (m.c < -100.0f || m.c > 100.0f) return false;
+    if (m.f < -100.0f || m.f > 100.0f) return false;
+    return true;
+}
+
 bool solve(const Sample *samples, size_t n, Matrix &out) {
     if (!samples || n < 3) return false;
     float a, b, c, d, e, f;
     if (!solve3(samples, n, true, a, b, c)) return false;
     if (!solve3(samples, n, false, d, e, f)) return false;
-    out = {a, b, c, d, e, f};
+    Matrix candidate = {a, b, c, d, e, f};
+    if (!plausible(candidate)) {
+        net::logf("[cal] rejected implausible matrix "
+                  "a=%.3f b=%.3f c=%.1f d=%.3f e=%.3f f=%.1f",
+                  a, b, c, d, e, f);
+        return false;
+    }
+    out = candidate;
     return true;
 }
 

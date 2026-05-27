@@ -412,9 +412,12 @@ lv_obj_t *build(lv_obj_t *parent) {
     build_waypoint(s_root);
 
     // ---- four corner data boxes + bow/stern strip ---------------------
-    // Top-left: AWS  /  Top-right: TWS
+    // Top-left: AWS. Top-right would conflict with the global MOB pill
+    // (LV_ALIGN_TOP_RIGHT -6, 6, 56x56, on lv_layer_top) so TWS is
+    // shifted down below the safe zone. Keep visual pairing by also
+    // pushing AWS slightly so they share a baseline.
     make_data_box(s_root, "AWS", 16, 12, 90, 50, &lbl_aws_value, theme.fg);
-    make_data_box(s_root, "TWS", LCD_W - 90, 12, 90, 50, &lbl_tws_value, theme.fg);
+    make_data_box(s_root, "TWS", LCD_W - 90, 72, 90, 50, &lbl_tws_value, theme.fg);
     // Mid-left: AWA  /  Mid-right: TWA
     make_data_box(s_root, "AWA", 16, 220, 90, 50, &lbl_awa_value, 0xf6a21a);
     make_data_box(s_root, "TWA", LCD_W - 90, 220, 90, 50, &lbl_twa_value, theme.fg);

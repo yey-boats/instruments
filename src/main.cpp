@@ -842,12 +842,10 @@ static bool handleMainCommand(const String &line) {
         return true;
     }
     if (line == "touch-cal-reset") {
-        // Restore identity matrix (clear NVS keys).
-        Preferences p;
-        p.begin("touch_cal", false);
-        p.clear();
-        p.end();
-        net::logf("[cal] reset to identity (reboot to take effect)");
+        // Restore identity matrix in RAM and NVS - effective immediately,
+        // no reboot. Use this if a bad calibration locks you out of the
+        // UI (taps don't land on the widgets you see).
+        touch_cal::reset();
         return true;
     }
     if (line == "wind-refresh" || line.startsWith("wind-refresh ")) {

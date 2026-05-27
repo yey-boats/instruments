@@ -51,7 +51,7 @@ static void apply_and_save() {
     ::touch_cal::Matrix m;
     if (!::touch_cal::solve(s_samples, N_TARGETS, m)) {
         net::logf("[cal] solve failed - keeping previous matrix");
-        if (s_lbl_help) lv_label_set_text(s_lbl_help, "Solve failed - try again");
+        if (s_lbl_help) lv_label_set_text(s_lbl_help, "Solve failed - tap to retry");
         s_step = 0;
         move_target(0);
         return;
@@ -59,9 +59,11 @@ static void apply_and_save() {
     ::touch_cal::set(m);
     net::logf("[cal] calibrated %d points -> a=%.4f b=%.4f c=%.2f / d=%.4f e=%.4f f=%.2f",
               N_TARGETS, m.a, m.b, m.c, m.d, m.e, m.f);
-    if (s_lbl_help) lv_label_set_text(s_lbl_help, "Done. Returning to Settings.");
-    // Defer the navigation by one timer tick so the user sees the message.
-    s_step = N_TARGETS + 1;  // sentinel: "done, waiting to leave"
+    // Navigate immediately. Any deferred path (LVGL timer, "press again
+    // to exit") risks getting stuck if lv_timer_handler stalls or the
+    // user is confused about state.
+    s_step = N_TARGETS + 1;
+    ui::show_by_id("settings");
 }
 
 static void on_cancel(lv_event_t *e) {
@@ -74,6 +76,19 @@ static void poll(lv_timer_t *) {
     // Capture press-release transitions of the raw touch.
     int rx = -1, ry = -1, pressed = 0;
     ::main_touch_raw(&rx, &ry, &pressed);
+
+    // Emergency escape: a sustained press (>= 1.2 s) anywhere in the
+    // bottom 100 px of the RAW panel area exits to Settings. Doesn't
+    // depend on LVGL hit-testing - if the panel has a coordinate shift
+    // big enough to break the cancel button, this still works because
+    // it reads raw GT911 coords directly.
+    if (pressed && s_last_pressed && s_press_ry >= 380 &&
+        (millis() - s_press_ms) >= 1200) {
+        net::logf("[cal] emergency escape (raw bottom-zone long press)");
+        s_step = N_TARGETS + 1;
+        ui::show_by_id("settings");
+        return;
+    }
 
     if (pressed && !s_last_pressed) {
         // Press DOWN
@@ -150,7 +165,11 @@ lv_obj_t *build(lv_obj_t *parent) {
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     if (parent) lv_obj_set_pos(s_root, 0, 0);
-    lv_obj_set_style_bg_color(s_root, lv_color_hex(theme.bg), 0);
+    // Force solid dark background so the cal UI fully covers whatever
+    // screen the user was on before. The bezel uses very dark navy
+    // (overrides theme so the bright accents read clearly).
+    lv_obj_set_style_bg_color(s_root, lv_color_hex(0x000814), 0);
+    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_root, 0, 0);
     lv_obj_set_style_radius(s_root, 0, 0);
     lv_obj_set_style_pad_all(s_root, 0, 0);
@@ -169,22 +188,25 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(s_lbl_step, LV_ALIGN_CENTER, 0, -20);
 
     s_lbl_help = lv_label_create(s_root);
-    lv_label_set_text(s_lbl_help, "Tap the highlighted cross");
+    lv_label_set_text(s_lbl_help, "Tap each cross.  Long-press bottom of screen to escape.");
     lv_obj_set_style_text_font(s_lbl_help, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(s_lbl_help, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(s_lbl_help, LV_ALIGN_CENTER, 0, 8);
 
-    // Cancel button below the help text - returns without saving.
+    // Cancel button - bottom center, large hit target so it works
+    // before calibration is applied. Returns to Settings without
+    // saving the in-progress matrix.
     s_btn_cancel = lv_button_create(s_root);
-    lv_obj_set_size(s_btn_cancel, 140, 40);
-    lv_obj_align(s_btn_cancel, LV_ALIGN_CENTER, 0, 60);
-    lv_obj_set_style_bg_color(s_btn_cancel, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_set_size(s_btn_cancel, 220, 60);
+    lv_obj_align(s_btn_cancel, LV_ALIGN_BOTTOM_MID, 0, -80);
+    lv_obj_set_style_bg_color(s_btn_cancel, lv_color_hex(0x803030), 0);
+    lv_obj_set_style_bg_opa(s_btn_cancel, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(s_btn_cancel, 8, 0);
     lv_obj_add_event_cb(s_btn_cancel, on_cancel, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl = lv_label_create(s_btn_cancel);
-    lv_label_set_text(lbl, "cancel");
+    lv_label_set_text(lbl, "CANCEL");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_28, 0);
     lv_obj_center(lbl);
 
     s_target = make_target(s_root);
@@ -194,16 +216,25 @@ lv_obj_t *build(lv_obj_t *parent) {
 }
 
 void refresh() {
-    // The screen needs continuous touch polling to capture raw GT911
-    // coords. Stand up a 50 ms LVGL timer the first time refresh runs
-    // (which is when this screen becomes active); tear it down when we
-    // leave by simply checking s_root visibility.
+    // First time this screen becomes active, reset the state machine
+    // and stand up a 50 ms LVGL timer for polling raw touch coords.
+    // We invalidate s_root once explicitly because lv_screen_load()
+    // does not always trigger a full redraw if the previous active
+    // screen was the same object.
     if (!s_timer) {
         s_timer = lv_timer_create(poll, 50, NULL);
-        s_step = 0;
-        s_last_pressed = false;
-        move_target(0);
-        if (s_lbl_help) lv_label_set_text(s_lbl_help, "Tap the highlighted cross");
+    }
+    // If we re-entered (e.g., user opened cal twice), reset state.
+    if (lv_screen_active() == s_root) {
+        if (s_step >= N_TARGETS) {
+            // Coming back after a previous successful or failed run -
+            // reset so the user can recalibrate.
+            s_step = 0;
+            s_last_pressed = false;
+            move_target(0);
+            if (s_lbl_help) lv_label_set_text(s_lbl_help, "Tap the highlighted cross");
+        }
+        lv_obj_invalidate(s_root);
     }
 }
 

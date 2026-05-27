@@ -46,4 +46,9 @@ bool solve(const Sample *samples, size_t n, Matrix &out);
 // never calibrated).
 bool is_default();
 
+// Restore identity in RAM and clear NVS keys - effective immediately,
+// no reboot needed. Useful as a recovery path when a bad calibration
+// has shifted the panel coordinates so far that LVGL hit-testing fails.
+void reset();
+
 }  // namespace touch_cal
