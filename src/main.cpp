@@ -842,6 +842,10 @@ static bool handleMainCommand(const String &line) {
         ui::show_by_id("touch_cal");
         return true;
     }
+    if (line == "touch-grid" || line == "grid-cal") {
+        ui::show_by_id("touch_grid");
+        return true;
+    }
     if (line == "config-show") {
         config::UiConfig u = config::ui();
         config::AlarmConfig a = config::alarms();
@@ -1224,6 +1228,7 @@ void setup() {
     ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(NULL),    ui::wifi_setup::refresh,   true});
     ui::register_screen({"settings",  "Settings",   ui::settings::build(NULL),      ui::settings::refresh,     true});
     ui::register_screen({"touch_cal", "Touch Cal",  ui::touch_cal_screen::build(NULL), ui::touch_cal_screen::refresh, true});
+    ui::register_screen({"touch_grid","Touch Grid", ui::touch_grid_screen::build(NULL),ui::touch_grid_screen::refresh, true});
 
     // Attach the gesture handler to EVERY screen root. LVGL routes
     // LV_EVENT_GESTURE to the currently loaded screen (or the widget

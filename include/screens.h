@@ -25,6 +25,11 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace touch_cal_screen
 
+namespace touch_grid_screen {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace touch_grid_screen
+
 namespace nav {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();

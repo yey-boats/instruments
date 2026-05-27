@@ -14,7 +14,7 @@
 
 namespace ui {
 
-constexpr size_t MAX_SCREENS = 12;
+constexpr size_t MAX_SCREENS = 16;
 
 struct Screen {
     const char *id;       // short canonical id, e.g. "wind"
