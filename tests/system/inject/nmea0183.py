@@ -66,6 +66,9 @@ def xte_left(nm: float) -> str:
 
 def send_udp(target_host: str, port: int, sentences: Iterable[str]) -> None:
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # macOS + Linux require SO_BROADCAST for 255.255.255.255 / subnet
+    # broadcast addresses. Harmless for unicast targets.
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     try:
         for sent in sentences:
             s.sendto(sent.encode(), (target_host, port))
