@@ -124,7 +124,7 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
         subscribe();
         break;
     case WStype_DISCONNECTED:
-        net::logf("[sk] WS disconnected");
+        net::logf("[sk] WS disconnected (target %s:%u)", s_host.c_str(), s_port);
         set_connected(false);
         subscribed = false;
         break;
@@ -132,7 +132,7 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
         onText(payload, len);
         break;
     case WStype_ERROR:
-        net::logf("[sk] WS error");
+        net::logf("[sk] WS error: %.*s", (int)len, (const char *)payload);
         break;
     default:
         break;
