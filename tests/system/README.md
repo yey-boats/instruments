@@ -14,6 +14,11 @@ The tests exercise every data path that ships today:
 | Layout templates    | Per-template render + screenshot               |
 | Source priority     | NMEA2k > NMEA-WiFi > SignalK switchover        |
 | Touch / gestures    | Calibration (attended); tap / swipe / gesture injection (unattended) |
+| User journeys       | Multi-step taps + swipes between screens (unattended) |
+| Rendering perf      | FPS, RenderLatency, idle quietness (unattended) |
+| Command latency     | Tap-to-screen-switch RTT (unattended)          |
+| Data scenarios      | No data, SK only, conflict, stale fallback, mixed routing |
+| Stress              | Gesture spam, tap flood, NMEA flood, heap stability |
 | Settings UI         | Brightness, theme, screen pick (attended)      |
 | WiFi captive portal | First-boot provisioning (attended)             |
 
