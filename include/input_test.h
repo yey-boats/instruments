@@ -13,10 +13,10 @@
 //      command). Useful for tests that don't care about the touch
 //      pipeline but want to verify the screen-router / handler logic.
 //
-// Always available - the endpoints are POST-only under /api/test/* and
-// the web API is intended for trusted-LAN use. Production builds can
-// stub this out by gating the registrations in web.cpp on a
-// -DDISABLE_TEST_API flag if ever needed.
+// Available over BLE (Nordic UART) and the USB serial console only.
+// Deliberately NOT reachable over the HTTP API: /api/cmd rejects these
+// command words at the entry point so a network attacker cannot drive
+// the UI even on a permissive LAN.
 
 #include <Arduino.h>
 #include <stdint.h>
@@ -56,5 +56,20 @@ bool inject_swipe(int16_t x0, int16_t y0,
 //   "down"  -> dashboard
 // Returns false if `dir` is unknown.
 bool post_gesture(const char *dir);
+
+// --- Console wiring -----------------------------------------------------
+//
+// Registered in net::dispatchCommand so any caller in the BLE / serial
+// console path can drive injection:
+//   touch <x> <y> <0|1>
+//   tap <x> <y> [hold_ms]
+//   swipe <x0> <y0> <x1> <y1> [dur_ms] [steps]
+//   gesture <left|right|up|down>
+//
+// Returns true if the line was consumed.
+bool handleConsoleCommand(const String &line);
+
+// Word check used by web.cpp's /api/cmd to reject these over HTTP.
+bool is_injection_command(const String &line);
 
 }  // namespace input_test

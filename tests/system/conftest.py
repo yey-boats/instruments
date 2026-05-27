@@ -75,37 +75,39 @@ class Device:
         path.write_bytes(r.content)
         return path
 
-    # ---- Touch / gesture injection ----
-    def touch(self, x: int, y: int, pressed: bool) -> dict:
+    # ---- Touch / gesture injection (BLE / USB serial only) ------------
+    # The HTTP path deliberately does NOT support injection - /api/cmd
+    # 403s these words. Tests need ESPDISP_BLE_NAME or
+    # ESPDISP_SERIAL_PORT set; the `console` fixture wraps the
+    # appropriate transport.
+
+    def touch(self, console, x: int, y: int, pressed: bool) -> None:
         """Raw touchscreen-manager-level injection."""
-        r = requests.post(f"{self.base}/api/test/touch",
-                          json={"x": x, "y": y, "pressed": pressed},
-                          timeout=5)
-        r.raise_for_status()
-        return r.json()
+        console.send(f"touch {x} {y} {1 if pressed else 0}")
+        console.wait_for("[test] touch ok=1", timeout_s=3)
 
-    def tap(self, x: int, y: int, hold_ms: int = 50) -> dict:
-        r = requests.post(f"{self.base}/api/test/tap",
-                          json={"x": x, "y": y, "hold_ms": hold_ms},
-                          timeout=10)
-        r.raise_for_status()
-        return r.json()
+    def tap(self, console, x: int, y: int, hold_ms: int = 50) -> None:
+        console.send(f"tap {x} {y} {hold_ms}")
+        console.wait_for("[test] tap ok=", timeout_s=3 + hold_ms / 1000)
 
-    def swipe(self, x0: int, y0: int, x1: int, y1: int,
-              dur_ms: int = 300, steps: int = 8) -> dict:
-        r = requests.post(f"{self.base}/api/test/swipe",
-                          json={"x0": x0, "y0": y0, "x1": x1, "y1": y1,
-                                "dur_ms": dur_ms, "steps": steps},
-                          timeout=15)
-        r.raise_for_status()
-        return r.json()
+    def swipe(self, console, x0: int, y0: int, x1: int, y1: int,
+              dur_ms: int = 300, steps: int = 8) -> None:
+        console.send(f"swipe {x0} {y0} {x1} {y1} {dur_ms} {steps}")
+        console.wait_for("[test] swipe ok=", timeout_s=3 + dur_ms / 1000)
 
-    def gesture(self, direction: str) -> dict:
-        """Action-queue-level injection: 'left' / 'right' / 'up' / 'down'."""
-        r = requests.post(f"{self.base}/api/test/gesture",
-                          json={"dir": direction}, timeout=5)
-        r.raise_for_status()
-        return r.json()
+    def gesture(self, console, direction: str) -> None:
+        console.send(f"gesture {direction}")
+        console.wait_for("[test] gesture ok=", timeout_s=3)
+
+    def cmd_via_console(self, console, line: str,
+                        wait_for: str | None = None,
+                        timeout_s: float = 3.0) -> str | None:
+        """Send any console command through the chosen transport (i.e.
+        not through /api/cmd). Used by tests asserting BLE/serial paths."""
+        console.send(line)
+        if wait_for:
+            return console.wait_for(wait_for, timeout_s)
+        return None
 
     # ---- Polling helpers ----
     def wait_for_screen(self, screen_id: str,
@@ -220,3 +222,25 @@ def udp_logs():
     tap.start()
     yield tap
     tap.stop()
+
+
+# --- Console transport for BLE/serial injection ----------------------
+
+@pytest.fixture(scope="session")
+def console():
+    """Open a persistent BLE or USB-serial console for injection tests.
+
+    Skips the test if neither ESPDISP_SERIAL_PORT nor ESPDISP_BLE_NAME
+    is set. The HTTP path does NOT carry injection - this fixture is
+    the only way to drive tap/swipe/gesture/touch from tests.
+    """
+    from tests.system.inject.console import make_console
+    c = make_console()
+    if c is None:
+        pytest.skip("set ESPDISP_SERIAL_PORT or ESPDISP_BLE_NAME "
+                    "for injection tests")
+    yield c
+    try:
+        c.close()
+    except Exception:
+        pass

@@ -57,27 +57,28 @@ it never blocks CI.
 
 ## Touch / gesture injection
 
-For UI tests that can't bring a finger to the device, the firmware
-exposes `/api/test/*` (POST, JSON body) at two levels:
+Injection commands (`tap`, `swipe`, `gesture`, `touch`) are reachable
+over **BLE NUS** and **USB serial** only. The HTTP `/api/cmd` endpoint
+explicitly **403**s these words so a network attacker can't drive the
+UI even on a permissive LAN.
 
-| Level | Endpoint            | Body                                                   |
-|-------|---------------------|--------------------------------------------------------|
-| 1     | `/api/test/touch`   | `{"x":N,"y":N,"pressed":bool}` — raw snapshot write    |
-| 1     | `/api/test/tap`     | `{"x":N,"y":N,"hold_ms":50}` — press + hold + release  |
-| 1     | `/api/test/swipe`   | `{"x0":..,"y0":..,"x1":..,"y1":..,"dur_ms":300}`       |
-| 2     | `/api/test/gesture` | `{"dir":"left"\|"right"\|"up"\|"down"}` — direct queue |
+| Level | Command                                | What runs                                                |
+|-------|----------------------------------------|----------------------------------------------------------|
+| 1     | `touch <x> <y> <0\|1>`                 | Raw write to the touch snapshot                          |
+| 1     | `tap <x> <y> [hold_ms]`                | Press → hold → release (full LVGL pipeline)              |
+| 1     | `swipe <x0> <y0> <x1> <y1> [dur] [steps]` | Intermediate samples + `detect_swipe_release` direct call |
+| 2     | `gesture <left\|right\|up\|down>`      | Post `ShowScreen` to the action queue, skip touch entirely |
 
-Level 1 drives the full pipeline (touch snapshot → LVGL hit-test →
-CLICKED → tile_clicked_cb → `app::post`) so it exercises calibration,
-gesture-detection thresholds, and the screen-local suppression rules
-(MOB, WiFi keyboard, settings drawer).
+Set one of:
 
-Level 2 bypasses touch entirely and posts a `ShowScreen` command, so
-tests of the screen-router and handler logic don't depend on coordinate
-geometry.
+- `ESPDISP_SERIAL_PORT=/dev/cu.usbserial-XXXX` — fastest, CI-friendly
+- `ESPDISP_BLE_NAME=espdisp` — no cables; uses [`bleak`](https://github.com/hbldh/bleak)
 
-The `Device` fixture wraps both: `device.tap(x, y)`, `device.swipe(...)`,
-`device.gesture("left")`. See `test_input_injection.py` for examples.
+The `console` pytest fixture wraps either transport and keeps the link
+open for the session. The `Device` fixture exposes
+`device.tap(console, x, y)`, `device.swipe(...)`, `device.gesture(...)`,
+`device.touch(...)`. Tests that don't have a console available skip
+cleanly. See `test_input_injection.py` for examples.
 
 ## Adding a new test
 

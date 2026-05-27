@@ -338,61 +338,6 @@ static void handle_boat() {
     send_json(200, doc);
 }
 
-// ---- /api/test/* -------------------------------------------------------
-// Touch / gesture injection for system tests. POST-only, JSON body.
-
-static bool parse_json_body(JsonDocument &out) {
-    if (!server.hasArg("plain")) return false;
-    return deserializeJson(out, server.arg("plain")) == DeserializationError::Ok;
-}
-
-static void handle_test_touch() {
-    JsonDocument body;
-    if (!parse_json_body(body)) { server.send(400, "text/plain", "bad json"); return; }
-    int16_t x = (int16_t)(body["x"] | 0);
-    int16_t y = (int16_t)(body["y"] | 0);
-    bool pressed = body["pressed"] | false;
-    bool ok = input_test::inject_touch(x, y, pressed);
-    JsonDocument res; res["ok"] = ok; res["x"] = x; res["y"] = y; res["pressed"] = pressed;
-    send_json(ok ? 200 : 503, res);
-}
-
-static void handle_test_tap() {
-    JsonDocument body;
-    if (!parse_json_body(body)) { server.send(400, "text/plain", "bad json"); return; }
-    int16_t x = (int16_t)(body["x"] | 0);
-    int16_t y = (int16_t)(body["y"] | 0);
-    uint32_t hold = body["hold_ms"] | 50;
-    bool ok = input_test::inject_tap(x, y, hold);
-    JsonDocument res; res["ok"] = ok; res["x"] = x; res["y"] = y; res["hold_ms"] = hold;
-    send_json(ok ? 200 : 503, res);
-}
-
-static void handle_test_swipe() {
-    JsonDocument body;
-    if (!parse_json_body(body)) { server.send(400, "text/plain", "bad json"); return; }
-    int16_t x0 = (int16_t)(body["x0"] | 0);
-    int16_t y0 = (int16_t)(body["y0"] | 0);
-    int16_t x1 = (int16_t)(body["x1"] | 0);
-    int16_t y1 = (int16_t)(body["y1"] | 0);
-    uint32_t dur = body["dur_ms"] | 300;
-    uint8_t steps = (uint8_t)(body["steps"] | 8);
-    bool ok = input_test::inject_swipe(x0, y0, x1, y1, dur, steps);
-    JsonDocument res;
-    res["ok"] = ok; res["x0"] = x0; res["y0"] = y0;
-    res["x1"] = x1; res["y1"] = y1; res["dur_ms"] = dur; res["steps"] = steps;
-    send_json(ok ? 200 : 503, res);
-}
-
-static void handle_test_gesture() {
-    JsonDocument body;
-    if (!parse_json_body(body)) { server.send(400, "text/plain", "bad json"); return; }
-    const char *dir = body["dir"] | "";
-    bool ok = input_test::post_gesture(dir);
-    JsonDocument res; res["ok"] = ok; res["dir"] = dir;
-    send_json(ok ? 200 : 400, res);
-}
-
 // ---- /api/layout (GET / PUT) -------------------------------------------
 
 static void handle_layout_get() {
@@ -570,6 +515,14 @@ static void handle_cmd() {
     line.trim();
     if (line.length() == 0) {
         server.send(400, "text/plain", "empty command");
+        return;
+    }
+    // Touch/gesture injection is intentionally NOT reachable over IP -
+    // these commands run from BLE NUS / USB serial only. A network
+    // attacker on the LAN should not be able to drive the UI.
+    if (input_test::is_injection_command(line)) {
+        server.send(403, "text/plain",
+                    "injection commands are BLE/serial only");
         return;
     }
     // Queue for the UI task. Many console commands touch LVGL state
@@ -955,10 +908,6 @@ static void bind_routes() {
     server.on("/api/screens", HTTP_GET, handle_screens);
     server.on("/api/sk", HTTP_GET, handle_sk_data);
     server.on("/api/boat", HTTP_GET, handle_boat);
-    server.on("/api/test/touch", HTTP_POST, handle_test_touch);
-    server.on("/api/test/tap", HTTP_POST, handle_test_tap);
-    server.on("/api/test/swipe", HTTP_POST, handle_test_swipe);
-    server.on("/api/test/gesture", HTTP_POST, handle_test_gesture);
     server.on("/api/layout", HTTP_GET, handle_layout_get);
     server.on("/api/layout", HTTP_PUT, handle_layout_put);
     server.on("/api/cmd", HTTP_POST, handle_cmd);

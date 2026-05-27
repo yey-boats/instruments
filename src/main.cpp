@@ -679,6 +679,92 @@ bool post_gesture(const char *dir) {
     return app::post(c, 0);
 }
 
+bool is_injection_command(const String &line) {
+    return line == "tap" || line.startsWith("tap ")
+        || line == "swipe" || line.startsWith("swipe ")
+        || line == "gesture" || line.startsWith("gesture ")
+        || line == "touch" || line.startsWith("touch ");
+}
+
+namespace {
+
+// Pull N whitespace-separated integers off the front of `s`. Returns
+// the number successfully parsed (up to `max_n`). Tokens past the
+// requested count are ignored.
+int parse_ints(const String &s, int *out, int max_n) {
+    int n = 0;
+    int i = 0;
+    int len = s.length();
+    while (i < len && n < max_n) {
+        while (i < len && (s[i] == ' ' || s[i] == '\t')) ++i;
+        if (i >= len) break;
+        int start = i;
+        if (s[i] == '-' || s[i] == '+') ++i;
+        bool any = false;
+        while (i < len && s[i] >= '0' && s[i] <= '9') { ++i; any = true; }
+        if (!any) break;
+        out[n++] = s.substring(start, i).toInt();
+    }
+    return n;
+}
+
+}  // namespace
+
+bool handleConsoleCommand(const String &line) {
+    if (!is_injection_command(line)) return false;
+
+    int sp = line.indexOf(' ');
+    String head = sp < 0 ? line : line.substring(0, sp);
+    String rest = sp < 0 ? String("") : line.substring(sp + 1);
+    rest.trim();
+
+    int args[6] = {0};
+
+    if (head == "touch") {
+        int n = parse_ints(rest, args, 3);
+        if (n < 3) {
+            net::logf("[test] usage: touch <x> <y> <0|1>");
+            return true;
+        }
+        bool ok = inject_touch((int16_t)args[0], (int16_t)args[1], args[2] != 0);
+        net::logf("[test] touch ok=%d", ok);
+        return true;
+    }
+    if (head == "tap") {
+        int n = parse_ints(rest, args, 3);
+        if (n < 2) {
+            net::logf("[test] usage: tap <x> <y> [hold_ms]");
+            return true;
+        }
+        uint32_t hold = n >= 3 ? (uint32_t)args[2] : 50;
+        bool ok = inject_tap((int16_t)args[0], (int16_t)args[1], hold);
+        net::logf("[test] tap ok=%d x=%d y=%d hold=%lu", ok, args[0], args[1],
+                  (unsigned long)hold);
+        return true;
+    }
+    if (head == "swipe") {
+        int n = parse_ints(rest, args, 6);
+        if (n < 4) {
+            net::logf("[test] usage: swipe <x0> <y0> <x1> <y1> [dur_ms] [steps]");
+            return true;
+        }
+        uint32_t dur = n >= 5 ? (uint32_t)args[4] : 300;
+        uint8_t steps = n >= 6 ? (uint8_t)args[5] : 8;
+        bool ok = inject_swipe((int16_t)args[0], (int16_t)args[1],
+                               (int16_t)args[2], (int16_t)args[3], dur, steps);
+        net::logf("[test] swipe ok=%d (%d,%d)->(%d,%d) dur=%lu steps=%u",
+                  ok, args[0], args[1], args[2], args[3],
+                  (unsigned long)dur, (unsigned)steps);
+        return true;
+    }
+    if (head == "gesture") {
+        bool ok = post_gesture(rest.c_str());
+        net::logf("[test] gesture ok=%d dir=%s", ok, rest.c_str());
+        return true;
+    }
+    return false;  // unreachable
+}
+
 }  // namespace input_test
 
 // ----- Global overlays (visible on every screen) -------------------------
