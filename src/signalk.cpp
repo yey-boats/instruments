@@ -27,6 +27,13 @@ static WebSocketsClient ws;
 static Preferences prefs;
 static String s_host = "";
 static uint16_t s_port = 3000;
+// Optional JWT for SignalK servers in token-security mode. Loaded
+// once at setup() from NVS; updated in-place by the `sk-token` CLI
+// (which then reboots so the WS reconnects with the new token).
+// Stored in plain text in NVS - acceptable for a single-user marine
+// device; never echoed back via /api/state or sk-status (only the
+// length is exposed).
+static String s_token = "";
 // "auto" mode = no manual host saved -> we'll poll mDNS for
 // _signalk-ws._tcp.local. and use the first record found. The user can
 // pin a manual host with `sk-host manual <host>` (or the legacy `sk
@@ -149,12 +156,19 @@ void copyData(Data &out) {
 // re-begin by closing the prior connection.
 static void start_ws() {
     if (s_host.length() == 0) return;
-    ws.begin(s_host.c_str(), s_port, "/signalk/v1/stream?subscribe=none");
+    // Append ?token=<jwt> for SK servers in token-security mode.
+    // Without a token the server may accept the connection but refuse
+    // the subscribe; with one it works transparently. SK is happy with
+    // either ? or & as the second separator (we already have subscribe).
+    String path = "/signalk/v1/stream?subscribe=none";
+    if (s_token.length()) path += "&token=" + s_token;
+    ws.begin(s_host.c_str(), s_port, path.c_str());
     ws.onEvent(onEvent);
     ws.setReconnectInterval(5000);
     ws.enableHeartbeat(15000, 3000, 2);
     s_ws_started = true;
-    net::logf("[sk] ws begin %s:%u", s_host.c_str(), s_port);
+    net::logf("[sk] ws begin %s:%u token_len=%u",
+              s_host.c_str(), s_port, (unsigned)s_token.length());
 }
 
 bool isAutoMode() { return s_auto_mode; }
@@ -210,6 +224,7 @@ void setup(const String &host, uint16_t port) {
     prefs.begin("sk", false);
     s_host = prefs.getString("host", host);
     s_port = (uint16_t)prefs.getUInt("port", port);
+    s_token = prefs.getString("token", "");
     // Auto mode iff no saved host. Manual mode persists across reboot
     // by virtue of a saved host being present.
     s_auto_mode = (s_host.length() == 0);
@@ -264,6 +279,30 @@ bool handleSerialCommand(const String &line) {
         ESP.restart();
         return true;
     }
+    if (line.startsWith("sk-token")) {
+        String rest = line.length() > 8 ? line.substring(8) : String("");
+        rest.trim();
+        if (rest.length() == 0) {
+            // Status: never echo the token value, only its length.
+            net::logf("[sk] token_len=%u", (unsigned)s_token.length());
+            return true;
+        }
+        if (rest == "clear") {
+            prefs.remove("token");
+            net::logf("[sk] token cleared - rebooting");
+            delay(200);
+            ESP.restart();
+            return true;
+        }
+        // Anything else is the JWT itself. Save + reboot so the WS
+        // reconnects with the new credential.
+        prefs.putString("token", rest);
+        net::logf("[sk] token saved (len=%u) - rebooting",
+                  (unsigned)rest.length());
+        delay(200);
+        ESP.restart();
+        return true;
+    }
     if (line == "sk-discover") {
         s_last_discover_ms = 0;  // unthrottle
         bool ok = tryAutoDiscover(millis());
@@ -271,9 +310,11 @@ bool handleSerialCommand(const String &line) {
         return true;
     }
     if (line == "sk-status") {
-        net::logf("mode=%s host=%s port=%u connected=%d lastUpdateAgo=%lums",
+        net::logf("mode=%s host=%s port=%u token_len=%u connected=%d "
+                  "lastUpdateAgo=%lums",
                   s_auto_mode ? "auto" : "manual",
                   s_host.c_str(), s_port,
+                  (unsigned)s_token.length(),
                   data.connected, data.lastUpdateMs ? (millis() - data.lastUpdateMs) : 0);
         return true;
     }
@@ -310,14 +351,7 @@ int putValue(const char *path, const char *valueJson) {
         net::logf("[sk] PUT: begin failed");
         return -4;
     }
-    String token;
-    {
-        Preferences p;
-        p.begin("sk", true);
-        token = p.getString("token", "");
-        p.end();
-    }
-    if (token.length()) http.addHeader("Authorization", String("Bearer ") + token);
+    if (s_token.length()) http.addHeader("Authorization", String("Bearer ") + s_token);
     http.addHeader("Content-Type", "application/json");
     String body = String("{\"value\":") + valueJson + "}";
     int code = http.PUT(body);

@@ -110,6 +110,9 @@ static void handle_state() {
     p.begin("sk", true);
     sk["host"] = p.getString("host", "");
     sk["port"] = p.getUInt("port", 3000);
+    // Never echo the token itself - only whether one is configured.
+    // CLAUDE.md: "the SignalK token field is sensitive."
+    sk["has_token"] = p.getString("token", "").length() > 0;
     p.end();
     // Task diagnostics: confirms sk_task is alive (iters keeps growing)
     // and exposes the peak ws.loop() duration since last sample. A high
