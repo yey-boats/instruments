@@ -6,3 +6,6 @@ websockets>=12.0
 # `pip install -r requirements.txt` covers either path.
 bleak>=0.21
 pyserial>=3.5
+# Lane B (spec 17/18) manager plugin mock - aiohttp serves the
+# manager endpoints in-process for firmware-side contract tests.
+aiohttp>=3.9

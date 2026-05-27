@@ -50,26 +50,25 @@ def _udp(*sents: str) -> None:
 
 
 def test_signalk_then_nmea_wins_then_falls_back(device):
-    # Phase 1: only SignalK
+    # Phase 1: SignalK provides SOG (fake_boat sinusoid is fine; we only
+    # require source=signalk, not a specific value).
     sk_pump.send(SK_HOST, SK_PORT, "navigation.speedOverGround", 3.0)
     device.wait_for_field("sog_mps", "signalk", timeout_s=8)
 
-    # Phase 2: layer NMEA-WiFi - higher priority, should take over
+    # Phase 2: layer NMEA-WiFi - higher priority, should take over.
     for _ in range(5):
         _udp(nmea0183.rmc(sog_kn=10.0, cog_deg=90.0))
         time.sleep(0.2)
     f = device.wait_for_field("sog_mps", "nmea-wifi", timeout_s=6)
-    assert abs(f["value"] - 5.144) < 0.1  # 10 kn
+    assert abs(f["value"] - 5.144) < 0.1  # 10 kn = 5.14 m/s
 
-    # Phase 3: stop NMEA, wait past freshness -> SignalK reclaims
-    # We keep SK fresh by re-publishing it during the wait.
-    deadline = time.time() + 6.0
+    # Phase 3: stop NMEA, wait past freshness -> SignalK reclaims.
+    # fake_boat keeps SK fresh on its own.
+    deadline = time.time() + 8.0
     while time.time() < deadline:
-        sk_pump.send(SK_HOST, SK_PORT, "navigation.speedOverGround", 3.0)
         b = device.boat()
         f = b["fields"]["sog_mps"]
         if f["source"] == "signalk":
-            assert abs(f["value"] - 3.0) < 0.1
             return
         time.sleep(1.0)
     pytest.fail(f"SignalK never reclaimed sog_mps; final={f}")

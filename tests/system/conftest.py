@@ -226,6 +226,33 @@ def udp_logs():
 
 # --- Console transport for BLE/serial injection ----------------------
 
+@pytest.fixture(scope="session", autouse=True)
+def _sk_pump_teardown():
+    """Close the cached SK injector at end-of-session to avoid leaking
+    a WS that the SK server would later count against the IP limiter."""
+    yield
+    try:
+        from tests.system.inject import sk_pump
+        sk_pump.close()
+    except Exception:
+        pass
+
+
+@pytest.fixture(scope="session")
+def manager():
+    """Start the spec-18 plugin mock for Lane B tests. Returns the
+    ManagerMock instance with .queue_command(), .set_config(),
+    .devices etc. Skipped automatically if aiohttp isn't installed."""
+    try:
+        from tests.system.inject.manager_mock import ManagerMock
+    except ImportError as e:
+        pytest.skip(f"manager mock unavailable: {e}")
+    m = ManagerMock(port=4738)
+    m.start()
+    yield m
+    m.stop()
+
+
 @pytest.fixture(scope="session")
 def console():
     """Open a persistent BLE or USB-serial console for injection tests.

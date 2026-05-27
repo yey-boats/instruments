@@ -35,7 +35,7 @@ def test_idle_render_count_is_low(device, udp_logs):
     device.post_cmd("latency-reset")
     time.sleep(5.0)  # stay idle for 5 seconds
     s = bench.collect(udp_logs, device, reset=False)
-    fi = s.latencies.get("FrameInterval")
+    fi = s.latencies.get("FrameInterval") or s.latencies.get("frame_interval")
     if not fi or fi.count == 0:
         pytest.skip("no FrameInterval samples")
     # 5 s @ <12 Hz target after stabilisation; allow generous headroom.
@@ -58,5 +58,5 @@ def test_data_update_triggers_render(device, udp_logs):
         time.sleep(0.25)
     time.sleep(1.5)
     s = bench.collect(udp_logs, device, reset=False)
-    fi = s.latencies.get("FrameInterval")
+    fi = s.latencies.get("FrameInterval") or s.latencies.get("frame_interval")
     assert fi and fi.count > 0, "no frames during data updates"

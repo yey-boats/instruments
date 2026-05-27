@@ -30,6 +30,24 @@ SK_REQUIRED = pytest.mark.skipif(
     not _sk_available(), reason=f"SignalK demo not at {SK_HOST}:{SK_PORT}")
 
 
+def _fake_boat_running() -> bool:
+    """Heuristic: is fake_boat.py actively publishing nav data right now?"""
+    import urllib.request, json
+    try:
+        with urllib.request.urlopen(
+                f"http://{SK_HOST}:{SK_PORT}/signalk/v1/api/vessels/self/"
+                "navigation/speedOverGround/value", timeout=2) as r:
+            v = json.loads(r.read())
+            return isinstance(v, (int, float))
+    except Exception:
+        return False
+
+
+CLEAN_SK_REQUIRED = pytest.mark.skipif(
+    _fake_boat_running(),
+    reason="fake_boat.py is publishing - stop it first (kill -HUP $(pgrep fake_boat))")
+
+
 @pytest.fixture(autouse=True)
 def _reset(device):
     device.post_cmd("boat reset")
@@ -47,6 +65,7 @@ def _ensure_nmea_wifi_enabled(device):
 
 # --- Scenario A: no data --------------------------------------------
 
+@CLEAN_SK_REQUIRED
 def test_no_data_screen_shows_placeholders(device):
     device.show_screen("dashboard")
     time.sleep(1.0)
@@ -118,6 +137,7 @@ def test_higher_priority_stale_then_signalk_reclaims(device):
 # --- Scenario E: data drops out -> field goes stale -----------------
 
 @SK_REQUIRED
+@CLEAN_SK_REQUIRED
 def test_field_marked_stale_after_timeout(device):
     sk_pump.send(SK_HOST, SK_PORT, "environment.depth.belowTransducer", 5.0)
     f = device.wait_for_field("depth_m", "signalk", timeout_s=6)

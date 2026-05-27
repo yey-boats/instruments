@@ -319,6 +319,34 @@ bool handleSerialCommand(const String &line) {
         start_ws();
         return true;
     }
+    if (line.startsWith("sk-ap-state ")) {
+        // PUT steering/autopilot/state per spec 16. signalk-autopilot
+        // emulator accepts: "standby" / "auto" / "wind" / "track".
+        String state = line.substring(12);
+        state.trim();
+        if (state.length() == 0) {
+            net::logf("[sk] usage: sk-ap-state <standby|auto|wind|track>");
+            return true;
+        }
+        String body = String("\"") + state + "\"";
+        int rc = putValue("steering/autopilot/state", body.c_str());
+        net::logf("[sk] ap state=%s -> %d", state.c_str(), rc);
+        return true;
+    }
+    if (line.startsWith("sk-ap-adjust ")) {
+        // PUT steering/autopilot/actions/adjustHeading per spec 16.
+        // Value is integer degrees; emulator updates target/headingMagnetic.
+        String deg = line.substring(13);
+        deg.trim();
+        if (deg.length() == 0) {
+            net::logf("[sk] usage: sk-ap-adjust <degrees>");
+            return true;
+        }
+        int rc = putValue("steering/autopilot/actions/adjustHeading",
+                          deg.c_str());
+        net::logf("[sk] ap adjust=%s deg -> %d", deg.c_str(), rc);
+        return true;
+    }
     if (line == "sk-test") {
         // Plain TCP connect probe to s_host:s_port. Reports OK/FAIL so
         // we can tell apart "can't reach the server" from "WS upgrade /
