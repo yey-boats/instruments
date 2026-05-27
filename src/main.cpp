@@ -173,8 +173,10 @@ struct TouchSnapshot {
 };
 static TouchSnapshot g_touch = {-1, -1, false, 0, -1, -1};
 static SemaphoreHandle_t g_touch_mtx = nullptr;
+static SemaphoreHandle_t g_touch_i2c_mtx = nullptr;
 static TaskHandle_t g_touch_task = nullptr;
 
+static uint8_t g_gt911_addr = 0x5D;
 static volatile uint32_t g_i2c_err_count = 0;
 static volatile uint32_t g_i2c_ok_count = 0;
 static volatile uint32_t g_gt_ready_count = 0;     // status had 0x80 set
@@ -197,6 +199,45 @@ static void IRAM_ATTR touch_irq_isr() {
         vTaskNotifyGiveFromISR(g_touch_task, &hp_task_woken);
         if (hp_task_woken) portYIELD_FROM_ISR();
     }
+}
+
+static bool gt911_read_regs_locked(uint16_t reg, uint8_t *buf, size_t len) {
+    if (!buf || len == 0) return false;
+    size_t off = 0;
+    while (off < len) {
+        size_t n = len - off;
+        if (n > 32) n = 32;
+        Wire.beginTransmission(g_gt911_addr);
+        Wire.write((uint8_t)(reg >> 8));
+        Wire.write((uint8_t)(reg & 0xFF));
+        if (Wire.endTransmission(false) != 0) {
+            g_i2c_err_count++;
+            return false;
+        }
+        size_t got = Wire.requestFrom((int)g_gt911_addr, (int)n);
+        if (got != n) {
+            g_i2c_err_count++;
+            return false;
+        }
+        for (size_t i = 0; i < n; ++i) buf[off + i] = Wire.read();
+        g_i2c_ok_count++;
+        off += n;
+        reg += n;
+    }
+    return true;
+}
+
+static bool gt911_write_reg_locked(uint16_t reg, uint8_t value) {
+    Wire.beginTransmission(g_gt911_addr);
+    Wire.write((uint8_t)(reg >> 8));
+    Wire.write((uint8_t)(reg & 0xFF));
+    Wire.write(value);
+    if (Wire.endTransmission() != 0) {
+        g_i2c_err_count++;
+        return false;
+    }
+    g_i2c_ok_count++;
+    return true;
 }
 
 // ----- GT911 INT pin probe utility ---------------------------------------
@@ -272,32 +313,31 @@ static void tick() {
 }  // namespace irq_probe
 
 static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
-    Wire.beginTransmission(0x5D);
-    Wire.write(0x81);
-    Wire.write(0x4E);
-    if (Wire.endTransmission(false) != 0) { g_i2c_err_count++; return false; }
-    Wire.requestFrom(0x5D, 1);
-    if (!Wire.available()) { g_i2c_err_count++; return false; }
-    g_i2c_ok_count++;
-    uint8_t status = Wire.read();
+    bool locked = true;
+    if (g_touch_i2c_mtx) {
+        locked = xSemaphoreTake(g_touch_i2c_mtx, pdMS_TO_TICKS(20)) == pdTRUE;
+    }
+    if (!locked) return false;
+
+    uint8_t status = 0;
+    if (!gt911_read_regs_locked(0x814E, &status, 1)) {
+        if (g_touch_i2c_mtx) xSemaphoreGive(g_touch_i2c_mtx);
+        return false;
+    }
     if (status & 0x80) g_gt_ready_count++;
     if ((status & 0x80) && ((status & 0x0F) > 0)) g_gt_points_count++;
     bool has_point = (status & 0x80) && ((status & 0x0F) > 0);
 
     if (has_point) {
-        Wire.beginTransmission(0x5D);
-        Wire.write(0x81);
-        Wire.write(0x50);
-        Wire.endTransmission(false);
-        Wire.requestFrom(0x5D, 6);
-        if (Wire.available() >= 6) {
-            (void)Wire.read();  // track id
+        uint8_t point[6] = {0};
+        if (gt911_read_regs_locked(0x8150, point, sizeof(point))) {
+            (void)point[0];  // track id
             // GT911 on this panel returns coords high-byte-first within
             // each 16-bit field (empirically verified).
-            uint8_t xh = Wire.read();
-            uint8_t xl = Wire.read();
-            uint8_t yh = Wire.read();
-            uint8_t yl = Wire.read();
+            uint8_t xh = point[1];
+            uint8_t xl = point[2];
+            uint8_t yh = point[3];
+            uint8_t yl = point[4];
             *out_x = (int16_t)(((uint16_t)xh << 8) | xl);
             *out_y = (int16_t)(((uint16_t)yh << 8) | yl);
         } else {
@@ -305,12 +345,77 @@ static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
         }
     }
     // Always clear status register so next sample fires
-    Wire.beginTransmission(0x5D);
-    Wire.write(0x81);
-    Wire.write(0x4E);
-    Wire.write(0x00);
-    Wire.endTransmission();
+    gt911_write_reg_locked(0x814E, 0x00);
+    if (g_touch_i2c_mtx) xSemaphoreGive(g_touch_i2c_mtx);
     return has_point;
+}
+
+static void gt911_dump_config() {
+    static constexpr uint16_t CFG_START = 0x8047;
+    static constexpr uint16_t CFG_END = 0x8100;
+    static constexpr size_t CFG_LEN = CFG_END - CFG_START + 1;
+    uint8_t cfg[CFG_LEN] = {0};
+
+    if (!touch_present) {
+        net::logf("[gt911] no controller present");
+        return;
+    }
+    bool locked = true;
+    if (g_touch_i2c_mtx) {
+        locked = xSemaphoreTake(g_touch_i2c_mtx, pdMS_TO_TICKS(250)) == pdTRUE;
+    }
+    if (!locked) {
+        net::logf("[gt911] config dump: I2C busy");
+        return;
+    }
+    bool ok = gt911_read_regs_locked(CFG_START, cfg, sizeof(cfg));
+    if (g_touch_i2c_mtx) xSemaphoreGive(g_touch_i2c_mtx);
+    if (!ok) {
+        net::logf("[gt911] config dump failed at addr=0x%02X", g_gt911_addr);
+        return;
+    }
+
+    uint16_t x_max = (uint16_t)cfg[1] | ((uint16_t)cfg[2] << 8);
+    uint16_t y_max = (uint16_t)cfg[3] | ((uint16_t)cfg[4] << 8);
+    uint8_t module1 = cfg[6];
+    uint8_t int_mode = module1 & 0x03;
+    uint8_t touch_level = cfg[0x8053 - CFG_START];
+    uint8_t leave_level = cfg[0x8054 - CFG_START];
+    uint8_t refresh = cfg[0x8056 - CFG_START] & 0x0F;
+    uint8_t x_threshold = cfg[0x8057 - CFG_START];
+    uint8_t y_threshold = cfg[0x8058 - CFG_START];
+    uint8_t border_tb = cfg[0x805B - CFG_START];
+    uint8_t border_lr = cfg[0x805C - CFG_START];
+    uint8_t chksum = cfg[0x80FF - CFG_START];
+    uint8_t fresh = cfg[0x8100 - CFG_START];
+    uint8_t sum = 0;
+    for (size_t i = 0; i <= 0x80FE - CFG_START; ++i) sum += cfg[i];
+    uint8_t calc = (uint8_t)((~sum) + 1);
+
+    net::logf("[gt911] config addr=0x%02X range=0x%04X..0x%04X len=%u",
+              g_gt911_addr, CFG_START, CFG_END, (unsigned)CFG_LEN);
+    net::logf("[gt911] version=0x%02X x_max=%u y_max=%u touch_points=%u",
+              cfg[0], (unsigned)x_max, (unsigned)y_max, (unsigned)(cfg[5] & 0x0F));
+    net::logf("[gt911] module1=0x%02X int=%u axis_swap=%u sensor_rev=%u driver_rev=%u",
+              module1, (unsigned)int_mode, (unsigned)((module1 >> 3) & 1),
+              (unsigned)((module1 >> 4) & 1), (unsigned)((module1 >> 5) & 1));
+    net::logf("[gt911] touch_level=%u leave_level=%u refresh=%u x_th=%u y_th=%u",
+              (unsigned)touch_level, (unsigned)leave_level, (unsigned)refresh,
+              (unsigned)x_threshold, (unsigned)y_threshold);
+    net::logf("[gt911] border top=%u bottom=%u left=%u right=%u (units=32)",
+              (unsigned)((border_tb >> 4) & 0x0F), (unsigned)(border_tb & 0x0F),
+              (unsigned)((border_lr >> 4) & 0x0F), (unsigned)(border_lr & 0x0F));
+    net::logf("[gt911] checksum stored=0x%02X calc=0x%02X fresh=0x%02X %s",
+              chksum, calc, fresh, chksum == calc ? "OK" : "MISMATCH");
+
+    for (size_t off = 0; off < CFG_LEN; off += 16) {
+        char line[96];
+        int n = snprintf(line, sizeof(line), "[gt911] %04X:", (unsigned)(CFG_START + off));
+        for (size_t i = 0; i < 16 && off + i < CFG_LEN; ++i) {
+            n += snprintf(line + n, sizeof(line) - n, " %02X", cfg[off + i]);
+        }
+        net::logf("%s", line);
+    }
 }
 
 // Forward decls for state owned later in the file but referenced by the
@@ -1012,6 +1117,10 @@ static bool handleMainCommand(const String &line) {
         irq_probe::disarm();
         return true;
     }
+    if (line == "gt911-config" || line == "touch-config") {
+        gt911_dump_config();
+        return true;
+    }
     if (line == "touch-cal" || line == "calibrate") {
         ui::show_by_id("touch_cal");
         return true;
@@ -1062,6 +1171,21 @@ static bool handleMainCommand(const String &line) {
         strncpy(g_section_peak_name, "-", sizeof(g_section_peak_name) - 1);
         g_section_peak_name[sizeof(g_section_peak_name) - 1] = 0;
         net::logf("[bench] reset");
+        return true;
+    }
+    if (line.startsWith("touch-cal-set ")) {
+        // Emergency manual calibration: parse six floats a b c d e f.
+        // Useful when on-device tap calibration is impractical and we
+        // already have a known-good matrix from earlier sample data.
+        float a, b, c, d, e, f;
+        const char *p = line.c_str() + strlen("touch-cal-set ");
+        if (sscanf(p, "%f %f %f %f %f %f", &a, &b, &c, &d, &e, &f) == 6) {
+            touch_cal::Matrix m = {a, b, c, d, e, f};
+            touch_cal::set(m);
+            net::logf("[cal] manual matrix applied");
+        } else {
+            net::logf("usage: touch-cal-set a b c d e f");
+        }
         return true;
     }
     if (line == "touch-cal-reset") {
@@ -1345,11 +1469,14 @@ void setup() {
     delay(50);
     Wire.beginTransmission(0x5D);
     bool ok = (Wire.endTransmission() == 0);
+    g_gt911_addr = 0x5D;
     if (!ok) {
         Wire.beginTransmission(0x14);
         ok = (Wire.endTransmission() == 0);
+        if (ok) g_gt911_addr = 0x14;
     }
-    Serial.printf("[touch] GT911 probe: %s\n", ok ? "ACK" : "no response");
+    Serial.printf("[touch] GT911 probe: %s addr=0x%02X\n",
+                  ok ? "ACK" : "no response", g_gt911_addr);
     touch_present = ok;
 
     // Load any persisted calibration before the touch task starts so
@@ -1361,6 +1488,7 @@ void setup() {
     // ticks; the task decouples them. Boards that route GT911 INT use it
     // to block while idle, then read coordinates in this task.
     g_touch_mtx = xSemaphoreCreateMutex();
+    g_touch_i2c_mtx = xSemaphoreCreateMutex();
     if (touch_present && g_touch_mtx) {
         xTaskCreatePinnedToCore(touch_task, "touch", 4096, nullptr, 2, &g_touch_task, 0);
         if (TOUCH_INT >= 0 && g_touch_task) {
@@ -1454,6 +1582,7 @@ void setup() {
     ui::register_screen({"settings",  "Settings",   ui::settings::build(NULL),      ui::settings::refresh,     true});
     ui::register_screen({"touch_cal", "Touch Cal",  ui::touch_cal_screen::build(NULL), ui::touch_cal_screen::refresh, true});
     ui::register_screen({"touch_grid","Touch Grid", ui::touch_grid_screen::build(NULL),ui::touch_grid_screen::refresh, true});
+    ui::register_screen({"demo_grid", "Demo Grid",  ui::demo_grid::build(NULL),         ui::demo_grid::refresh,         true});
 
     // Attach the gesture handler to EVERY screen root. LVGL routes
     // LV_EVENT_GESTURE to the currently loaded screen (or the widget

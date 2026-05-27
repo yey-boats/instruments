@@ -136,19 +136,25 @@ static bool solve3(const Sample *samples, size_t n, bool x_axis,
     return true;
 }
 
-// Plausibility bounds for a sane screen-touch affine matrix. A real
-// panel has scale near 1, skew near 0, modest offset. If the user's
-// calibration produced wildly different coefficients (finger drift
-// during cal taps, tapping in the wrong order), the resulting matrix
-// would shift coordinates so badly that the UI becomes untouchable.
-// Reject it - the caller surfaces an error so the user can retry.
+// Plausibility bounds for a sane screen-touch affine matrix. Bounds
+// must cover real-world panels that the IC reports with a compressed
+// or expanded range. On the Sunton 4848S040 the GT911 reports Y as
+// approximately raw 12..297 for visual 0..479 - a scale of ~1.68
+// with no rotation/skew. The previous tight bound [0.5, 1.5] was
+// rejecting that valid matrix and forcing the user back to identity.
+//
+// Widened bounds, with sanity still in place to reject obvious garbage
+// (rotation, big offset, mirrored axes):
+//   scale  : 0.4 .. 2.5  (handles up to ~2.5x compression)
+//   skew   : +/- 0.4     (no significant rotation expected)
+//   offset : +/- 400 px  (compressed ranges produce large offsets)
 static bool plausible(const Matrix &m) {
-    if (m.a < 0.5f || m.a > 1.5f) return false;
-    if (m.e < 0.5f || m.e > 1.5f) return false;
-    if (m.b < -0.3f || m.b > 0.3f) return false;
-    if (m.d < -0.3f || m.d > 0.3f) return false;
-    if (m.c < -100.0f || m.c > 100.0f) return false;
-    if (m.f < -100.0f || m.f > 100.0f) return false;
+    if (m.a < 0.4f || m.a > 2.5f) return false;
+    if (m.e < 0.4f || m.e > 2.5f) return false;
+    if (m.b < -0.4f || m.b > 0.4f) return false;
+    if (m.d < -0.4f || m.d > 0.4f) return false;
+    if (m.c < -400.0f || m.c > 400.0f) return false;
+    if (m.f < -400.0f || m.f > 400.0f) return false;
     return true;
 }
 

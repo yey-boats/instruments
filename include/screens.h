@@ -30,6 +30,11 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace touch_grid_screen
 
+namespace demo_grid {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace demo_grid
+
 namespace nav {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();
