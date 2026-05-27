@@ -15,6 +15,9 @@
 #include "ui_screens.h"
 #include "board_pins.h"
 #include "wifi_store.h"
+#include "boat_data.h"
+#include "source_nmea_wifi.h"
+#include "source_nmea2000.h"
 #include "screenshot.h"
 #include "app_events.h"
 #include "config_runtime.h"
@@ -242,6 +245,94 @@ static void handle_sk_data() {
     doc["connected"] = d.connected;
     doc["lastUpdateAgeMs"] =
         d.lastUpdateMs ? (uint32_t)(millis() - d.lastUpdateMs) : (uint32_t)0;
+
+    send_json(200, doc);
+}
+
+// ---- /api/boat ---------------------------------------------------------
+// Per-field source / age / freshness view onto boat::Snapshot. Tests
+// use this to verify that priority + freshness routes the right
+// source-of-truth to renderers.
+
+static void handle_boat() {
+    boat::Snapshot s;
+    boat::copy_snapshot(s);
+    boat::Timeouts t = boat::get_timeouts();
+    boat::Priority p = boat::get_priority();
+    uint32_t now = millis();
+
+    JsonDocument doc;
+    JsonObject prio = doc["priority"].to<JsonObject>();
+    JsonArray order = prio["order"].to<JsonArray>();
+    for (uint8_t i = 0; i < 5; ++i) {
+        if (p.order[i] == boat::SourceKind::None) break;
+        order.add(boat::source_name(p.order[i]));
+    }
+    JsonObject to = prio["timeouts_ms"].to<JsonObject>();
+    to["nmea2000"] = t.nmea2000_ms;
+    to["nmea_wifi"] = t.nmea_wifi_ms;
+    to["signalk"] = t.signalk_ms;
+    to["demo"] = t.demo_ms;
+
+    JsonObject fields = doc["fields"].to<JsonObject>();
+    auto emit = [&](const char *name, const boat::Field &f) {
+        JsonObject o = fields[name].to<JsonObject>();
+        if (!isnan(f.value)) o["value"] = f.value;
+        o["source"] = boat::source_name(f.source);
+        if (f.updated_ms) o["age_ms"] = (uint32_t)(now - f.updated_ms);
+        o["fresh"] = boat::fresh(f, now, boat::timeout_for(t, f.source));
+    };
+    emit("lat_deg", s.lat_deg);
+    emit("lon_deg", s.lon_deg);
+    emit("sog_mps", s.sog_mps);
+    emit("stw_mps", s.stw_mps);
+    emit("cog_true_rad", s.cog_true_rad);
+    emit("heading_true_rad", s.heading_true_rad);
+    emit("awa_rad", s.awa_rad);
+    emit("aws_mps", s.aws_mps);
+    emit("twa_rad", s.twa_rad);
+    emit("tws_mps", s.tws_mps);
+    emit("depth_m", s.depth_m);
+    emit("water_temp_k", s.water_temp_k);
+    emit("battery_v", s.battery_v);
+    emit("battery_soc", s.battery_soc);
+    emit("xte_m", s.xte_m);
+    emit("btw_rad", s.btw_rad);
+    emit("dtw_m", s.dtw_m);
+
+    JsonObject ap = doc["autopilot_state"].to<JsonObject>();
+    if (s.autopilot_state[0]) ap["value"] = s.autopilot_state;
+    ap["source"] = boat::source_name(s.autopilot_state_source);
+    if (s.autopilot_state_updated_ms) {
+        ap["age_ms"] = (uint32_t)(now - s.autopilot_state_updated_ms);
+    }
+
+    JsonObject sources = doc["sources"].to<JsonObject>();
+    {
+        auto st = nmea_wifi::status();
+        JsonObject nw = sources["nmea_wifi"].to<JsonObject>();
+        nw["enabled"] = st.enabled;
+        nw["proto"] = st.proto == nmea_wifi::Protocol::Tcp ? "tcp" : "udp";
+        nw["host"] = st.host;
+        nw["port"] = st.port;
+        nw["connected"] = st.connected;
+        nw["bytes_in"] = st.bytes_in;
+        nw["sentences_ok"] = st.sentences_ok;
+        nw["sentences_bad"] = st.sentences_bad;
+        nw["last_rx_age_ms"] = st.last_rx_ms ? (uint32_t)(now - st.last_rx_ms) : 0;
+    }
+    {
+        auto st = nmea2000::status();
+        JsonObject n2 = sources["nmea2000"].to<JsonObject>();
+        n2["compiled_in"] = st.compiled_in;
+        n2["enabled"] = st.enabled;
+        n2["rx_pin"] = st.rx_pin;
+        n2["tx_pin"] = st.tx_pin;
+        n2["frames_rx"] = st.frames_rx;
+        n2["pgns_decoded"] = st.pgns_decoded;
+        n2["pgns_unknown"] = st.pgns_unknown;
+        n2["last_rx_age_ms"] = st.last_rx_ms ? (uint32_t)(now - st.last_rx_ms) : 0;
+    }
 
     send_json(200, doc);
 }
@@ -807,6 +898,7 @@ static void bind_routes() {
     server.on("/api/config/status", HTTP_GET, handle_config_status);
     server.on("/api/screens", HTTP_GET, handle_screens);
     server.on("/api/sk", HTTP_GET, handle_sk_data);
+    server.on("/api/boat", HTTP_GET, handle_boat);
     server.on("/api/layout", HTTP_GET, handle_layout_get);
     server.on("/api/layout", HTTP_PUT, handle_layout_put);
     server.on("/api/cmd", HTTP_POST, handle_cmd);

@@ -44,6 +44,17 @@ build:  ## Build firmware
 test:  ## Run host-side unit tests
 	$(PIO) test -e native
 
+sys-test:  ## Run unattended system tests against ESPDISP_HOST (set env var)
+	@if [ -z "$$ESPDISP_HOST" ]; then \
+		echo "ESPDISP_HOST not set. Example: ESPDISP_HOST=esp32-boat-mfd.local make sys-test"; \
+		exit 1; \
+	fi
+	pytest tests/system/unattended
+
+sys-test-attended:  ## Open the attended-test checklist
+	@echo "Open tests/system/attended/README.md and step through each numbered file."
+	@command -v open >/dev/null && open tests/system/attended/README.md || true
+
 flash: setup  ## Flash via USB (uses PORT, auto-detected if not set)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
 	$(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
@@ -68,15 +79,10 @@ logs:  ## Listen for UDP log broadcasts on port 9999
 	  $(_)\nwhile True:\n    d, a = s.recvfrom(2048)\n    print(f'[{a[0]}] {d.decode(\"utf-8\", \"replace\").rstrip()}')"
 
 demo-up:  ## Start SignalK in Docker and push synthetic boat data
-	@docker start signalk-server 2>/dev/null || docker run -d --name signalk-server -p 3000:3000 signalk/signalk-server:latest
-	@sleep 5
-	@nohup python3 -u tools/fake_boat.py $(SK_HOST) $(SK_PORT) >/tmp/fake_boat.log 2>&1 &
-	@echo "SignalK at http://$(SK_HOST):$(SK_PORT) ; fake_boat log: /tmp/fake_boat.log"
+	@SK_HOST=$(SK_HOST) SK_PORT=$(SK_PORT) ./signalk/scripts/run.sh
 
 demo-down:  ## Stop fake_boat and SignalK
-	@pkill -f tools/fake_boat.py 2>/dev/null || true
-	@docker stop signalk-server 2>/dev/null || true
-	@echo "demo stopped."
+	@./signalk/scripts/stop.sh
 
 lint:  ## Check C++ formatting and Python syntax
 	@find src include test -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
