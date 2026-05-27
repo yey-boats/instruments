@@ -1,6 +1,7 @@
 #include "screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
+#include "ui_dirty.h"
 #include "signalk.h"
 #include "net.h"
 #include "board_pins.h"
@@ -178,11 +179,17 @@ lv_obj_t *build(lv_obj_t *parent) {
     return s_root;
 }
 
+// Dirty-value caches (docs/specs/09).
+static char s_last_dist[16] = {(char)0xFF};
+static char s_last_time[16] = {(char)0xFF};
+static char s_last_avg[16] = {(char)0xFF};
+static char s_last_max[16] = {(char)0xFF};
+static char s_last_sog[16] = {(char)0xFF};
+
 void refresh() {
     sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
     char buf[64];
 
-    // Integrate SOG over real elapsed time (sample at most 1 Hz).
     uint32_t now = millis();
     if (s_last_sample_ms == 0) s_last_sample_ms = now;
     if (!isnan(d.sog) && now - s_last_sample_ms >= 1000) {
@@ -193,21 +200,20 @@ void refresh() {
             s_underway_s += (uint32_t)dt_s;
         }
         if (d.sog > s_max_sog) s_max_sog = d.sog;
-        // Save every ~30 s of underway time so a power-off doesn't lose much
         if ((s_underway_s % 30) == 0) save_to_nvs();
     }
 
     double nm = s_dist_m / 1852.0;
     if (nm >= 10) snprintf(buf, sizeof(buf), "%.1f", nm);
     else snprintf(buf, sizeof(buf), "%.2f", nm);
-    lv_label_set_text(lbl_dist, buf);
+    set_text_if_changed(lbl_dist, s_last_dist, sizeof(s_last_dist), buf);
 
     uint32_t hh = s_underway_s / 3600;
     uint32_t mm = (s_underway_s / 60) % 60;
     uint32_t ss = s_underway_s % 60;
     snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", (unsigned long)hh, (unsigned long)mm,
              (unsigned long)ss);
-    lv_label_set_text(lbl_time, buf);
+    set_text_if_changed(lbl_time, s_last_time, sizeof(s_last_time), buf);
 
     if (s_underway_s > 5) {
         double avg_kn = mps_to_kn(s_dist_m / s_underway_s);
@@ -215,16 +221,16 @@ void refresh() {
     } else {
         snprintf(buf, sizeof(buf), "-.-- kn");
     }
-    lv_label_set_text(lbl_avg, buf);
+    set_text_if_changed(lbl_avg, s_last_avg, sizeof(s_last_avg), buf);
 
     snprintf(buf, sizeof(buf), "%.1f kn", mps_to_kn(s_max_sog));
-    lv_label_set_text(lbl_max, buf);
+    set_text_if_changed(lbl_max, s_last_max, sizeof(s_last_max), buf);
 
     if (!isnan(d.sog))
         snprintf(buf, sizeof(buf), "%.1f kn", mps_to_kn(d.sog));
     else
         snprintf(buf, sizeof(buf), "-.- kn");
-    lv_label_set_text(lbl_sog_now, buf);
+    set_text_if_changed(lbl_sog_now, s_last_sog, sizeof(s_last_sog), buf);
 }
 
 }  // namespace ui::trip

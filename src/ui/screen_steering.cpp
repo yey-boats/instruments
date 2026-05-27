@@ -1,6 +1,7 @@
 #include "screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
+#include "ui_dirty.h"
 #include "signalk.h"
 #include "board_pins.h"
 
@@ -115,7 +116,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_label_set_text(lbl_btw, "BTW ---\xC2\xB0");
     lv_obj_set_style_text_font(lbl_btw, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_btw, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_btw, LV_ALIGN_TOP_RIGHT, -12, 40);
+    // Top-right is reserved for the global MOB pill - shift down.
+    lv_obj_align(lbl_btw, LV_ALIGN_TOP_RIGHT, -12, 72);
 
     lbl_dtw = lv_label_create(s_root);
     lv_label_set_text(lbl_dtw, "DTW --- nm");
@@ -128,7 +130,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_label_set_text(lbl_ap, "AP standby");
     lv_obj_set_style_text_font(lbl_ap, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_ap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_ap, LV_ALIGN_TOP_RIGHT, -12, 68);
+    lv_obj_align(lbl_ap, LV_ALIGN_TOP_RIGHT, -12, 100);
 
     // XTE bar at the bottom
     xte_scale = lv_obj_create(s_root);
@@ -174,6 +176,18 @@ lv_obj_t *build(lv_obj_t *parent) {
     return s_root;
 }
 
+// Dirty-value caches (docs/specs/09).
+static char s_last_hdg[16] = {(char)0xFF};
+static char s_last_cts[16] = {(char)0xFF};
+static char s_last_btw[16] = {(char)0xFF};
+static char s_last_dtw[24] = {(char)0xFF};
+static char s_last_xte[32] = {(char)0xFF};
+static char s_last_ap[32] = {(char)0xFF};
+static int16_t s_last_bug_rot = INT16_MIN;
+static int8_t s_last_bug_hidden = -1;
+static uint32_t s_last_xte_bg = 0xFFFFFFFF;
+static uint32_t s_last_ap_color = 0xFFFFFFFF;
+
 void refresh() {
     sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
     char buf[64];
@@ -182,56 +196,52 @@ void refresh() {
     if (!isnan(d.headingTrue)) {
         hdg_deg = rad_to_deg_pos(d.headingTrue);
         snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", hdg_deg);
-        lv_label_set_text(lbl_hdg, buf);
+        set_text_if_changed(lbl_hdg, s_last_hdg, sizeof(s_last_hdg), buf);
     }
     if (!isnan(d.cts)) {
         cts_deg = rad_to_deg_pos(d.cts);
         snprintf(buf, sizeof(buf), "CTS %03.0f\xC2\xB0", cts_deg);
-        lv_label_set_text(lbl_cts, buf);
+        set_text_if_changed(lbl_cts, s_last_cts, sizeof(s_last_cts), buf);
     }
     if (!isnan(d.btw)) {
         snprintf(buf, sizeof(buf), "BTW %03.0f\xC2\xB0", rad_to_deg_pos(d.btw));
-        lv_label_set_text(lbl_btw, buf);
+        set_text_if_changed(lbl_btw, s_last_btw, sizeof(s_last_btw), buf);
     }
     if (!isnan(d.dtw)) {
         if (d.dtw >= 1852.0)
             snprintf(buf, sizeof(buf), "DTW %.2f nm", d.dtw / 1852.0);
         else
             snprintf(buf, sizeof(buf), "DTW %.0f m", d.dtw);
-        lv_label_set_text(lbl_dtw, buf);
+        set_text_if_changed(lbl_dtw, s_last_dtw, sizeof(s_last_dtw), buf);
     }
 
-    // Heading bug position: delta = CTS - HDG (head-up)
     if (!isnan(hdg_deg) && !isnan(cts_deg)) {
         double delta = cts_deg - hdg_deg;
         while (delta > 180) delta -= 360;
         while (delta < -180) delta += 360;
-        lv_obj_set_style_transform_rotation(bug, (int16_t)(delta * 10), 0);
-        lv_obj_clear_flag(bug, LV_OBJ_FLAG_HIDDEN);
+        set_rot_if_changed(bug, &s_last_bug_rot, (int16_t)(delta * 10));
+        set_hidden_if_changed(bug, &s_last_bug_hidden, false);
     } else {
-        lv_obj_add_flag(bug, LV_OBJ_FLAG_HIDDEN);
+        set_hidden_if_changed(bug, &s_last_bug_hidden, true);
     }
 
-    // XTE: clamp at +-200m for display, map to scale half-width (-180..180 px)
+    // XTE
     if (!isnan(d.xte)) {
         double clamped = d.xte;
         if (clamped > 200) clamped = 200;
         if (clamped < -200) clamped = -200;
         int x = (int)(clamped / 200.0 * 180);
         lv_obj_align(xte_indicator, LV_ALIGN_CENTER, x, 0);
-        // Color: warn if > 50 m, alarm if > 100 m
         uint32_t c = theme.good;
         double abs_xte = fabs(d.xte);
-        if (abs_xte > 100)
-            c = theme.alarm;
-        else if (abs_xte > 50)
-            c = theme.warn;
-        lv_obj_set_style_bg_color(xte_indicator, lv_color_hex(c), 0);
+        if (abs_xte > 100) c = theme.alarm;
+        else if (abs_xte > 50) c = theme.warn;
+        set_bg_color_if_changed(xte_indicator, &s_last_xte_bg, c);
         const char *side = d.xte > 0 ? "STBD" : (d.xte < 0 ? "PORT" : "");
         snprintf(buf, sizeof(buf), "XTE %.0f m %s", fabs(d.xte), side);
-        lv_label_set_text(lbl_xte, buf);
+        set_text_if_changed(lbl_xte, s_last_xte, sizeof(s_last_xte), buf);
     } else {
-        lv_label_set_text(lbl_xte, "XTE -- m");
+        set_text_if_changed(lbl_xte, s_last_xte, sizeof(s_last_xte), "XTE -- m");
         lv_obj_align(xte_indicator, LV_ALIGN_CENTER, 0, 0);
     }
 
@@ -242,13 +252,13 @@ void refresh() {
                      rad_to_deg_pos(d.apTargetHdg));
         else
             snprintf(buf, sizeof(buf), "AP %s", d.apState);
-        lv_label_set_text(lbl_ap, buf);
+        set_text_if_changed(lbl_ap, s_last_ap, sizeof(s_last_ap), buf);
         bool engaged = (strcmp(d.apState, "auto") == 0 || strcmp(d.apState, "wind") == 0 ||
                         strcmp(d.apState, "route") == 0);
-        lv_obj_set_style_text_color(lbl_ap,
-                                    lv_color_hex(engaged ? theme.good : theme.fg_dim), 0);
+        set_text_color_if_changed(lbl_ap, &s_last_ap_color,
+                                  engaged ? theme.good : theme.fg_dim);
     } else {
-        lv_label_set_text(lbl_ap, "AP -");
+        set_text_if_changed(lbl_ap, s_last_ap, sizeof(s_last_ap), "AP -");
     }
 }
 

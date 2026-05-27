@@ -1,6 +1,7 @@
 #include "screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
+#include "ui_dirty.h"
 #include "signalk.h"
 #include "board_pins.h"
 
@@ -138,53 +139,64 @@ lv_obj_t *build(lv_obj_t *parent) {
     return s_root;
 }
 
+// Dirty-value caches (docs/specs/09).
+static char s_last_dtw[16] = {(char)0xFF};
+static char s_last_dtw_unit[8] = {(char)0xFF};
+static char s_last_btw[16] = {(char)0xFF};
+static char s_last_cts[16] = {(char)0xFF};
+static char s_last_vmg[16] = {(char)0xFF};
+static char s_last_xte[24] = {(char)0xFF};
+static char s_last_ttg[16] = {(char)0xFF};
+static char s_last_eta[16] = {(char)0xFF};
+static int8_t s_last_no_route_hidden = -1;
+
 void refresh() {
     sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
     char buf[64];
 
     bool have_route = !isnan(d.dtw) || !isnan(d.btw) || !isnan(d.cts) || !isnan(d.xte);
-    if (have_route)
-        lv_obj_add_flag(no_route_msg, LV_OBJ_FLAG_HIDDEN);
-    else
-        lv_obj_clear_flag(no_route_msg, LV_OBJ_FLAG_HIDDEN);
+    set_hidden_if_changed(no_route_msg, &s_last_no_route_hidden, have_route);
 
     if (!isnan(d.dtw)) {
         if (d.dtw >= 1852.0) {
             double nm = d.dtw / 1852.0;
             snprintf(buf, sizeof(buf), nm >= 10 ? "%.1f" : "%.2f", nm);
-            lv_label_set_text(lbl_dtw, buf);
-            lv_label_set_text(lbl_dtw_unit, "nm");
+            set_text_if_changed(lbl_dtw, s_last_dtw, sizeof(s_last_dtw), buf);
+            set_text_if_changed(lbl_dtw_unit, s_last_dtw_unit, sizeof(s_last_dtw_unit), "nm");
         } else {
             snprintf(buf, sizeof(buf), "%.0f", d.dtw);
-            lv_label_set_text(lbl_dtw, buf);
-            lv_label_set_text(lbl_dtw_unit, "m");
+            set_text_if_changed(lbl_dtw, s_last_dtw, sizeof(s_last_dtw), buf);
+            set_text_if_changed(lbl_dtw_unit, s_last_dtw_unit, sizeof(s_last_dtw_unit), "m");
         }
-    } else
-        lv_label_set_text(lbl_dtw, "--.--");
+    } else {
+        set_text_if_changed(lbl_dtw, s_last_dtw, sizeof(s_last_dtw), "--.--");
+    }
 
     if (!isnan(d.btw)) {
         snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(d.btw));
-        lv_label_set_text(lbl_btw_value, buf);
-    } else
-        lv_label_set_text(lbl_btw_value, "--\xC2\xB0");
+        set_text_if_changed(lbl_btw_value, s_last_btw, sizeof(s_last_btw), buf);
+    } else {
+        set_text_if_changed(lbl_btw_value, s_last_btw, sizeof(s_last_btw), "--\xC2\xB0");
+    }
 
     if (!isnan(d.cts)) {
         snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(d.cts));
-        lv_label_set_text(lbl_cts_value, buf);
-    } else
-        lv_label_set_text(lbl_cts_value, "--\xC2\xB0");
+        set_text_if_changed(lbl_cts_value, s_last_cts, sizeof(s_last_cts), buf);
+    } else {
+        set_text_if_changed(lbl_cts_value, s_last_cts, sizeof(s_last_cts), "--\xC2\xB0");
+    }
 
     if (!isnan(d.vmg)) {
         snprintf(buf, sizeof(buf), "%.1f kn", mps_to_kn(d.vmg));
-        lv_label_set_text(lbl_vmg_value, buf);
+        set_text_if_changed(lbl_vmg_value, s_last_vmg, sizeof(s_last_vmg), buf);
     } else if (!isnan(d.sog) && !isnan(d.cogTrue) && !isnan(d.btw)) {
-        // Compute VMG locally if not provided
         double delta = d.cogTrue - d.btw;
         double vmg = d.sog * cos(delta);
         snprintf(buf, sizeof(buf), "%.1f kn", mps_to_kn(vmg));
-        lv_label_set_text(lbl_vmg_value, buf);
-    } else
-        lv_label_set_text(lbl_vmg_value, "-.- kn");
+        set_text_if_changed(lbl_vmg_value, s_last_vmg, sizeof(s_last_vmg), buf);
+    } else {
+        set_text_if_changed(lbl_vmg_value, s_last_vmg, sizeof(s_last_vmg), "-.- kn");
+    }
 
     if (!isnan(d.xte)) {
         const char *side = d.xte > 0 ? "STBD" : (d.xte < 0 ? "PORT" : "");
@@ -192,39 +204,37 @@ void refresh() {
             snprintf(buf, sizeof(buf), "%.2f nm %s", fabs(d.xte) / 1852.0, side);
         else
             snprintf(buf, sizeof(buf), "%.0f m %s", fabs(d.xte), side);
-        lv_label_set_text(lbl_xte_value, buf);
-    } else
-        lv_label_set_text(lbl_xte_value, "- m");
+        set_text_if_changed(lbl_xte_value, s_last_xte, sizeof(s_last_xte), buf);
+    } else {
+        set_text_if_changed(lbl_xte_value, s_last_xte, sizeof(s_last_xte), "- m");
+    }
 
-    // TTG = dtw / vmg (or sog if vmg unknown); only meaningful when both > 0
     double speed = NAN;
     if (!isnan(d.vmg) && d.vmg > 0.05) speed = d.vmg;
     else if (!isnan(d.sog) && d.sog > 0.05) speed = d.sog;
     if (!isnan(d.dtw) && !isnan(speed)) {
         double secs = d.dtw / speed;
-        if (secs < 36000) {  // < 10h: HH:MM
+        if (secs < 36000) {
             uint32_t s = (uint32_t)secs;
             snprintf(buf, sizeof(buf), "%lu:%02lu", (unsigned long)(s / 3600),
                      (unsigned long)((s / 60) % 60));
         } else {
             snprintf(buf, sizeof(buf), ">10h");
         }
-        lv_label_set_text(lbl_ttg, buf);
-
-        // ETA = now + ttg (local clock not synced -> just show offset in HH:MM)
+        set_text_if_changed(lbl_ttg, s_last_ttg, sizeof(s_last_ttg), buf);
         time_t now = time(nullptr);
         if (now > 1700000000) {
             now += (time_t)secs;
             struct tm tmv;
             localtime_r(&now, &tmv);
             snprintf(buf, sizeof(buf), "%02d:%02d", tmv.tm_hour, tmv.tm_min);
-            lv_label_set_text(lbl_eta, buf);
+            set_text_if_changed(lbl_eta, s_last_eta, sizeof(s_last_eta), buf);
         } else {
-            lv_label_set_text(lbl_eta, "no clock");
+            set_text_if_changed(lbl_eta, s_last_eta, sizeof(s_last_eta), "no clock");
         }
     } else {
-        lv_label_set_text(lbl_ttg, "--:--");
-        lv_label_set_text(lbl_eta, "--:--");
+        set_text_if_changed(lbl_ttg, s_last_ttg, sizeof(s_last_ttg), "--:--");
+        set_text_if_changed(lbl_eta, s_last_eta, sizeof(s_last_eta), "--:--");
     }
 }
 

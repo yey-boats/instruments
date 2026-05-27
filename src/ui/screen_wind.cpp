@@ -1,6 +1,7 @@
 #include "screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
+#include "ui_dirty.h"
 #include "signalk.h"
 #include "board_pins.h"
 
@@ -466,33 +467,10 @@ static int8_t s_last_twa_hidden = -1;
 static int8_t s_last_tide_hidden = -1;
 static int8_t s_last_wp_hidden = -1;
 
-static inline void set_text_if_changed(lv_obj_t *obj, char *cache, size_t cap,
-                                       const char *value) {
-    if (!obj) return;
-    if (strncmp(cache, value, cap) != 0) {
-        strncpy(cache, value, cap - 1);
-        cache[cap - 1] = 0;
-        lv_label_set_text(obj, value);
-    }
-}
-
-static inline void set_rot_if_changed(lv_obj_t *obj, int16_t *cache, int16_t value) {
-    if (!obj) return;
-    if (*cache != value) {
-        *cache = value;
-        lv_obj_set_style_transform_rotation(obj, value, 0);
-    }
-}
-
-static inline void set_hidden_if_changed(lv_obj_t *obj, int8_t *cache, bool hidden) {
-    if (!obj) return;
-    int8_t want = hidden ? 1 : 0;
-    if (*cache != want) {
-        *cache = want;
-        if (hidden) lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-        else        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
-    }
-}
+// Helpers moved to include/ui_dirty.h - shared across all screens.
+using ui::set_text_if_changed;
+using ui::set_rot_if_changed;
+using ui::set_hidden_if_changed;
 
 void refresh() {
     if (!s_refresh_enabled) return;

@@ -1,6 +1,7 @@
 #include "screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
+#include "ui_dirty.h"
 #include "signalk.h"
 #include "net.h"
 #include "board_pins.h"
@@ -168,52 +169,62 @@ lv_obj_t *build(lv_obj_t *parent) {
     return s_root;
 }
 
+// Dirty-value caches (docs/specs/09).
+static char s_last_state[16] = {(char)0xFF};
+static char s_last_target[16] = {(char)0xFF};
+static char s_last_hdg[16] = {(char)0xFF};
+static char s_last_delta[16] = {(char)0xFF};
+static char s_last_status[24] = {(char)0xFF};
+static uint32_t s_last_state_color = 0xFFFFFFFF;
+
 void refresh() {
     sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
     char buf[64];
 
     if (d.apState[0]) {
-        // Uppercase state for badge
         char up[16];
         size_t i = 0;
         for (; d.apState[i] && i < sizeof(up) - 1; ++i) up[i] = toupper(d.apState[i]);
         up[i] = 0;
-        lv_label_set_text(lbl_state, up);
+        set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), up);
         bool engaged = (strcmp(d.apState, "auto") == 0 || strcmp(d.apState, "wind") == 0 ||
                         strcmp(d.apState, "route") == 0);
-        lv_obj_set_style_text_color(lbl_state,
-                                    lv_color_hex(engaged ? theme.good : theme.fg_dim), 0);
+        set_text_color_if_changed(lbl_state, &s_last_state_color,
+                                  engaged ? theme.good : theme.fg_dim);
     } else {
-        lv_label_set_text(lbl_state, "OFFLINE");
-        lv_obj_set_style_text_color(lbl_state, lv_color_hex(theme.fg_dim), 0);
+        set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), "OFFLINE");
+        set_text_color_if_changed(lbl_state, &s_last_state_color, theme.fg_dim);
     }
 
     double target = !isnan(s_target_local) ? s_target_local : d.apTargetHdg;
     if (!isnan(target)) {
         snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(target));
-        lv_label_set_text(lbl_target_value, buf);
-    } else
-        lv_label_set_text(lbl_target_value, "---\xC2\xB0");
+        set_text_if_changed(lbl_target_value, s_last_target, sizeof(s_last_target), buf);
+    } else {
+        set_text_if_changed(lbl_target_value, s_last_target, sizeof(s_last_target), "---\xC2\xB0");
+    }
 
     if (!isnan(d.headingTrue)) {
         snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(d.headingTrue));
-        lv_label_set_text(lbl_hdg_value, buf);
-    } else
-        lv_label_set_text(lbl_hdg_value, "---\xC2\xB0");
+        set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), buf);
+    } else {
+        set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), "---\xC2\xB0");
+    }
 
     if (!isnan(target) && !isnan(d.headingTrue)) {
         double delta = (target - d.headingTrue) * 180.0 / M_PI;
         while (delta > 180) delta -= 360;
         while (delta < -180) delta += 360;
         snprintf(buf, sizeof(buf), "\xCE\x94 %+.0f\xC2\xB0", delta);
-        lv_label_set_text(lbl_delta, buf);
-    } else
-        lv_label_set_text(lbl_delta, "\xCE\x94 ---\xC2\xB0");
+        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), buf);
+    } else {
+        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "\xCE\x94 ---\xC2\xB0");
+    }
 
-    if (sk::connectionStatus() == "live")
-        lv_label_set_text(lbl_status, "SignalK live");
-    else
-        lv_label_set_text(lbl_status, sk::connectionStatus().c_str());
+    const char *status = (sk::connectionStatus() == "live")
+                             ? "SignalK live"
+                             : sk::connectionStatus().c_str();
+    set_text_if_changed(lbl_status, s_last_status, sizeof(s_last_status), status);
 }
 
 }  // namespace ui::autopilot
