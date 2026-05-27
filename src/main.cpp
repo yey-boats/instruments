@@ -152,12 +152,97 @@ static volatile uint32_t g_i2c_err_count = 0;
 static volatile uint32_t g_i2c_ok_count = 0;
 static volatile uint32_t g_gt_ready_count = 0;     // status had 0x80 set
 static volatile uint32_t g_gt_points_count = 0;    // status reported >=1 point
+static volatile uint32_t g_touch_irq_count = 0;
+static bool g_touch_irq_enabled = false;
 extern "C" {
 uint32_t main_i2c_err_count() { return g_i2c_err_count; }
 uint32_t main_i2c_ok_count() { return g_i2c_ok_count; }
 uint32_t main_gt_ready_count() { return g_gt_ready_count; }
 uint32_t main_gt_points_count() { return g_gt_points_count; }
+uint32_t main_touch_irq_count() { return g_touch_irq_count; }
+const char *main_touch_mode() { return g_touch_irq_enabled ? "irq" : "poll"; }
 }
+
+static void IRAM_ATTR touch_irq_isr() {
+    g_touch_irq_count++;
+    BaseType_t hp_task_woken = pdFALSE;
+    if (g_touch_task) {
+        vTaskNotifyGiveFromISR(g_touch_task, &hp_task_woken);
+        if (hp_task_woken) portYIELD_FROM_ISR();
+    }
+}
+
+// ----- GT911 INT pin probe utility ---------------------------------------
+// docs/specs/14-touch-interrupt-testing.md says the GT911 INT line is not
+// known to be routed on the Sunton/Guition 4848S040. The probe arms each
+// candidate GPIO with INPUT_PULLUP + a counted FALLING interrupt; the
+// user touches the panel; we dump the counters. Whichever pin's counter
+// climbs is the routed INT line (if any).
+//
+// Candidate set: ESP32-S3 GPIOs that are
+//   - not used by RGB panel, I2C, ST7701 SPI, SD, backlight
+//   - not internal to PSRAM/flash on the N16R8 module (33-37 reserved)
+//   - NOT UART0 TX/RX (43/44) - those carry the CH340 console; touching
+//     them locks the serial debug channel.
+// Safe candidates: GPIO 1, 2, 40, 41.
+//
+// Console commands:
+//   irq-probe        - arm probes, sample for 10 seconds, auto-disarm
+//   irq-probe-dump   - print current counts without disarming
+namespace irq_probe {
+static const int s_pins[] = {1, 2, 40, 41};
+static constexpr int N = sizeof(s_pins) / sizeof(s_pins[0]);
+static volatile uint32_t s_counts[N] = {0};
+static bool s_armed = false;
+static uint32_t s_arm_ms = 0;
+
+static void IRAM_ATTR isr(void *arg) {
+    int idx = (int)(intptr_t)arg;
+    if (idx >= 0 && idx < N) s_counts[idx]++;
+}
+
+static void dump() {
+    char buf[256];
+    int n = snprintf(buf, sizeof(buf), "[irq-probe] %s elapsed=%lums ",
+                     s_armed ? "armed" : "off",
+                     (unsigned long)(s_arm_ms ? (millis() - s_arm_ms) : 0));
+    for (int i = 0; i < N && n < (int)sizeof(buf) - 16; ++i) {
+        n += snprintf(buf + n, sizeof(buf) - n, "g%d=%lu ",
+                      s_pins[i], (unsigned long)s_counts[i]);
+    }
+    net::logf("%s", buf);
+}
+
+static void disarm() {
+    if (!s_armed) return;
+    for (int i = 0; i < N; ++i) {
+        detachInterrupt(digitalPinToInterrupt(s_pins[i]));
+    }
+    s_armed = false;
+    net::logf("[irq-probe] disarmed");
+    dump();
+}
+
+static void arm() {
+    if (s_armed) return;
+    for (int i = 0; i < N; ++i) {
+        s_counts[i] = 0;
+        pinMode(s_pins[i], INPUT_PULLUP);
+        attachInterruptArg(digitalPinToInterrupt(s_pins[i]),
+                           isr, (void *)(intptr_t)i, FALLING);
+    }
+    s_armed = true;
+    s_arm_ms = millis();
+    net::logf("[irq-probe] armed gpios=%d active_low FALLING - "
+              "touch the panel; auto-disarms in 10s", N);
+}
+
+static void tick() {
+    if (!s_armed) return;
+    if (millis() - s_arm_ms >= 10000) disarm();
+    else dump();
+}
+}  // namespace irq_probe
 
 static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
     Wire.beginTransmission(0x5D);
@@ -312,6 +397,9 @@ static void touch_task(void *) {
     uint32_t down_ms = 0;
     for (;;) {
         if (touch_present) {
+            if (g_touch_irq_enabled && !last_state) {
+                ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            }
             int16_t raw_x = -1, raw_y = -1;
             bool pressed = gt911_read_once(&raw_x, &raw_y);
             int16_t x = raw_x, y = raw_y;
@@ -715,6 +803,13 @@ static void bench_dump() {
               (unsigned long)g_gesture_count,
               (unsigned long)g_gesture_suppressed,
               g_last_gesture[0] ? g_last_gesture : "-");
+    net::logf("[bench] touch: mode=%s irq=%lu i2c ok=%lu err=%lu ready=%lu points=%lu",
+              main_touch_mode(),
+              (unsigned long)g_touch_irq_count,
+              (unsigned long)g_i2c_ok_count,
+              (unsigned long)g_i2c_err_count,
+              (unsigned long)g_gt_ready_count,
+              (unsigned long)g_gt_points_count);
     // Reset peak counters so next bench shows recent activity.
     g_loop_max_us = 0;
     g_lvgl_max_us = 0;
@@ -836,6 +931,18 @@ static bool handleMainCommand(const String &line) {
     }
     if (line == "bench") {
         bench_dump();
+        return true;
+    }
+    if (line == "irq-probe") {
+        irq_probe::arm();
+        return true;
+    }
+    if (line == "irq-probe-dump") {
+        irq_probe::dump();
+        return true;
+    }
+    if (line == "irq-probe-stop") {
+        irq_probe::disarm();
         return true;
     }
     if (line == "touch-cal" || line == "calibrate") {
@@ -1100,6 +1207,11 @@ static void ui_refresh(lv_timer_t *) {
     screenshot::serve_pending();
     note_slow_section("ui:screenshot", micros() - t);
 
+    // GT911 INT-line probe (manual via `irq-probe` console command).
+    // tick() dumps live counts each ui_refresh and auto-disarms after
+    // 10 s. When idle (s_armed == false) the call is a one-line no-op.
+    irq_probe::tick();
+
     // Force a full redraw every cycle. Without this, FPS dropped to 0 on
     // this hardware - LVGL was correctly tracking that "nothing changed"
     // but the panel needs a refresh anyway for time-based animations
@@ -1148,10 +1260,25 @@ void setup() {
 
     // Start the dedicated touch polling task on core 0 (LVGL stays on
     // core 1). I2C reads in the LVGL indev callback were stalling render
-    // ticks; the task decouples them.
+    // ticks; the task decouples them. Boards that route GT911 INT use it
+    // to block while idle, then read coordinates in this task.
     g_touch_mtx = xSemaphoreCreateMutex();
     if (touch_present && g_touch_mtx) {
         xTaskCreatePinnedToCore(touch_task, "touch", 4096, nullptr, 2, &g_touch_task, 0);
+        if (TOUCH_INT >= 0 && g_touch_task) {
+#if TOUCH_INT_ACTIVE_LOW
+            pinMode(TOUCH_INT, INPUT_PULLUP);
+            attachInterrupt(digitalPinToInterrupt(TOUCH_INT), touch_irq_isr, FALLING);
+#else
+            pinMode(TOUCH_INT, INPUT_PULLDOWN);
+            attachInterrupt(digitalPinToInterrupt(TOUCH_INT), touch_irq_isr, RISING);
+#endif
+            g_touch_irq_enabled = true;
+            Serial.printf("[touch] input mode: irq gpio=%d active_%s\n",
+                          TOUCH_INT, TOUCH_INT_ACTIVE_LOW ? "low" : "high");
+        } else {
+            Serial.println("[touch] input mode: poll");
+        }
     }
 
     lv_init();

@@ -41,10 +41,18 @@
 #define LCD_BL  38     // backlight (active high)
 
 // GT911 capacitive touch (I2C). INT/RST typically unconnected on this board.
+// Set TOUCH_INT to a GPIO on boards that route GT911 INT; firmware will then
+// wait for touch interrupts while idle and fall back to timed reads while a
+// contact is active.
 #define TOUCH_SDA  19
 #define TOUCH_SCL  45
+#ifndef TOUCH_INT
 #define TOUCH_INT  -1
+#endif
 #define TOUCH_RST  -1
+#ifndef TOUCH_INT_ACTIVE_LOW
+#define TOUCH_INT_ACTIVE_LOW 1
+#endif
 
 // MicroSD (SPI mode)
 #define SD_CS   42

@@ -30,6 +30,8 @@ uint32_t main_i2c_err_count();
 uint32_t main_i2c_ok_count();
 uint32_t main_gt_ready_count();
 uint32_t main_gt_points_count();
+uint32_t main_touch_irq_count();
+const char *main_touch_mode();
 }
 
 namespace web {
@@ -136,6 +138,8 @@ static void handle_state() {
     touch["y"] = ty;
     touch["pressed"] = tp;
     touch["last_ms"] = tlast;
+    touch["mode"] = ::main_touch_mode();
+    touch["irq"] = ::main_touch_irq_count();
     touch["i2c_ok"] = ::main_i2c_ok_count();
     touch["i2c_err"] = ::main_i2c_err_count();
     touch["gt_ready"] = ::main_gt_ready_count();
