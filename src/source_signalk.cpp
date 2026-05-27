@@ -14,6 +14,50 @@ inline int pub(Field Snapshot::*field, uint32_t now_ms, double v) {
 
 }  // namespace
 
+void compose_from_boat(sk::Data &out, uint32_t now_ms) {
+    Snapshot s;
+    copy_snapshot(s);
+    Timeouts t = get_timeouts();
+    auto v = [&](const Field &f) -> double {
+        return value_or_nan(f, now_ms, timeout_for(t, f.source));
+    };
+    out.lat          = v(s.lat_deg);
+    out.lon          = v(s.lon_deg);
+    out.sog          = v(s.sog_mps);
+    out.stw          = v(s.stw_mps);
+    out.cogTrue      = v(s.cog_true_rad);
+    out.headingTrue  = v(s.heading_true_rad);
+    out.awa          = v(s.awa_rad);
+    out.aws          = v(s.aws_mps);
+    out.twa          = v(s.twa_rad);
+    out.tws          = v(s.tws_mps);
+    out.depth        = v(s.depth_m);
+    out.waterTemp    = v(s.water_temp_k);
+    out.battVoltage  = v(s.battery_v);
+    out.battSoc      = v(s.battery_soc);
+    out.tankFuel     = v(s.tank_fuel);
+    out.tankWater    = v(s.tank_water);
+    out.xte          = v(s.xte_m);
+    out.cts          = v(s.cts_rad);
+    out.btw          = v(s.btw_rad);
+    out.dtw          = v(s.dtw_m);
+    out.vmg          = v(s.vmg_mps);
+    out.apTargetHdg  = v(s.autopilot_target_rad);
+    out.currentSetTrue = v(s.current_set_rad);
+    out.currentDrift   = v(s.current_drift_mps);
+    Field ap_field;
+    ap_field.value = 0.0;
+    ap_field.updated_ms = s.autopilot_state_updated_ms;
+    ap_field.source = s.autopilot_state_source;
+    if (fresh(ap_field, now_ms, timeout_for(t, s.autopilot_state_source))) {
+        size_t n = sizeof(out.apState);
+        for (size_t i = 0; i < n - 1; ++i) out.apState[i] = s.autopilot_state[i];
+        out.apState[n - 1] = 0;
+    } else {
+        out.apState[0] = 0;
+    }
+}
+
 int bridge_signalk_into_boat(const sk::Data &sk, uint32_t now_ms) {
     int n = 0;
     n += pub(&Snapshot::lat_deg,             now_ms, sk.lat);

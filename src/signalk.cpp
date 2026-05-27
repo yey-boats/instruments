@@ -133,8 +133,14 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
 }
 
 void copyData(Data &out) {
+    // Compose the visible snapshot from boat::Snapshot so callers see
+    // the fused (priority-resolved, freshness-aware) value chosen across
+    // SignalK / NMEA-WiFi / NMEA2000. lastUpdateMs and connected stay
+    // sourced from the WS state.
+    boat::compose_from_boat(out, millis());
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    out = data;
+    out.lastUpdateMs = data.lastUpdateMs;
+    out.connected = data.connected;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 }
 
