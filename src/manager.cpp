@@ -235,6 +235,116 @@ bool apply_config(JsonDocument &cfg) {
     return ok;
 }
 
+// F4 - execute a single queued command. Returns one of:
+//   "ok" | "unsupported_command" | "invalid_payload" | "failed"
+const char *execute_command(const char *type, JsonObject payload) {
+    if (!type || !*type) return "invalid_payload";
+
+    if (strcmp(type, "screen.set") == 0) {
+        const char *id = payload["id"] | "";
+        if (!*id) return "invalid_payload";
+        app::Command c;
+        c.type = app::CommandType::ShowScreen;
+        strncpy(c.a, id, sizeof(c.a) - 1);
+        c.t_post_us = micros();
+        return app::post(c, 100) ? "ok" : "busy";
+    }
+    if (strcmp(type, "theme.set") == 0) {
+        const char *t = payload["theme"] | "";
+        if (strcmp(t, "day") && strcmp(t, "night") && strcmp(t, "auto")) {
+            return "invalid_payload";
+        }
+        app::Command c;
+        c.type = app::CommandType::SetTheme;
+        strncpy(c.a, t, sizeof(c.a) - 1);
+        return app::post(c, 100) ? "ok" : "busy";
+    }
+    if (strcmp(type, "brightness.set") == 0) {
+        if (!payload["value"].is<int>()) return "invalid_payload";
+        int v = payload["value"].as<int>();
+        if (v < 0 || v > 255) return "invalid_payload";
+        app::Command c;
+        c.type = app::CommandType::SetBrightness;
+        c.i = v;
+        return app::post(c, 100) ? "ok" : "busy";
+    }
+    if (strcmp(type, "config.reload") == 0) {
+        s_config_fetch_pending = true;
+        return "ok";
+    }
+    if (strcmp(type, "reboot") == 0) {
+        net::logf("[mgr] reboot requested by manager");
+        // Defer reboot ~1 s so we can POST the ack first.
+        app::Command c;
+        c.type = app::CommandType::Reboot;
+        return app::post(c, 100) ? "ok" : "busy";
+    }
+    if (strcmp(type, "beep") == 0) {
+        // No beeper on this board; log and ack ok per spec.
+        uint32_t ms = payload["duration_ms"] | 50;
+        net::logf("[mgr] beep %lu ms (no hardware - logged only)",
+                  (unsigned long)ms);
+        return "ok";
+    }
+    return "unsupported_command";
+}
+
+void ack_command(const String &cmd_id, const char *result) {
+    HTTPClient http;
+    String url = build_url("/devices/") + device_identity::get().device_id +
+                 "/commands/" + cmd_id + "/ack";
+    if (!http.begin(url)) return;
+    http.setConnectTimeout(3000);
+    http.setTimeout(3000);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", String("Bearer ") + s_token);
+    JsonDocument body;
+    body["result"] = result;
+    String payload;
+    serializeJson(body, payload);
+    int code = http.POST(payload);
+    if (code != 200) {
+        net::logf("[mgr] ack %s -> %d", cmd_id.c_str(), code);
+    }
+    http.end();
+}
+
+int poll_commands() {
+    if (!is_provisioned()) return -1;
+    if (WiFi.status() != WL_CONNECTED) return -2;
+
+    HTTPClient http;
+    String url = build_url("/devices/") + device_identity::get().device_id +
+                 "/commands";
+    if (!http.begin(url)) return -3;
+    http.setConnectTimeout(3000);
+    http.setTimeout(3000);
+    http.addHeader("Authorization", String("Bearer ") + s_token);
+    int code = http.GET();
+    if (code == 200) {
+        String resp = http.getString();
+        http.end();  // close before any nested HTTP calls (acks)
+        JsonDocument r;
+        if (deserializeJson(r, resp) != DeserializationError::Ok) return code;
+        JsonArray cmds = r["commands"].as<JsonArray>();
+        for (JsonObject cmd : cmds) {
+            String cid = cmd["id"] | "";
+            const char *type = cmd["type"] | "";
+            JsonObject payload = cmd["payload"].as<JsonObject>();
+            const char *result = execute_command(type, payload);
+            net::logf("[mgr] cmd %s type=%s -> %s",
+                      cid.c_str(), type, result);
+            if (cid.length()) ack_command(cid, result);
+        }
+        return 200;
+    }
+    http.end();
+    if (code < 200 || code >= 300) {
+        net::logf("[mgr] commands fetch -> %d", code);
+    }
+    return code;
+}
+
 int fetch_config() {
     if (!is_provisioned()) return -1;
     if (WiFi.status() != WL_CONNECTED) return -2;
@@ -338,6 +448,7 @@ void worker(void *) {
     esp_task_wdt_delete(NULL);
     uint32_t next_register_attempt_ms = 0;
     uint32_t next_heartbeat_ms = 0;
+    uint32_t next_command_poll_ms = 0;
     for (;;) {
         // Snapshot mutable state under the mutex so CLI updates can't
         // race the HTTP path mid-call.
@@ -374,6 +485,10 @@ void worker(void *) {
         if (prov && s_config_fetch_pending) {
             s_config_fetch_pending = false;
             fetch_config();
+        }
+        if (prov && now >= next_command_poll_ms) {
+            poll_commands();
+            next_command_poll_ms = millis() + s_command_poll_interval_ms;
         }
         vTaskDelay(pdMS_TO_TICKS(500));
     }
