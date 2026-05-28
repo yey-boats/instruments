@@ -19,13 +19,22 @@ namespace board {
 namespace {
 
 constexpr int BACKLIGHT_PIN = 38;
+constexpr int LEDC_CHANNEL = 0;
+constexpr int LEDC_FREQ_HZ = 5000;
+constexpr int LEDC_RES_BITS = 8;
 uint8_t s_backlight_value = 255;
 bool s_backlight_inited = false;
 
 void ensure_backlight() {
     if (s_backlight_inited) return;
-    pinMode(BACKLIGHT_PIN, OUTPUT);
-    digitalWrite(BACKLIGHT_PIN, HIGH);
+    // Spec 13 §"Backlight And Power" - own the LEDC channel here so
+    // main.cpp doesn't drive the pin directly. Setup is idempotent;
+    // a redundant ledcSetup() in main.cpp before this lands is fine
+    // (same channel/freq), but the future move is to call
+    // board::set_backlight from setup() and remove the main.cpp path.
+    ledcSetup(LEDC_CHANNEL, LEDC_FREQ_HZ, LEDC_RES_BITS);
+    ledcAttachPin(BACKLIGHT_PIN, LEDC_CHANNEL);
+    ledcWrite(LEDC_CHANNEL, 255);
     s_backlight_inited = true;
 }
 
@@ -60,8 +69,7 @@ Capabilities capabilities() {
 bool set_backlight(uint8_t value_0_255) {
     ensure_backlight();
     s_backlight_value = value_0_255;
-    // Until we wire a LEDC channel through this API, on/off above 32.
-    digitalWrite(BACKLIGHT_PIN, value_0_255 > 32 ? HIGH : LOW);
+    ledcWrite(LEDC_CHANNEL, value_0_255);
     return true;
 }
 

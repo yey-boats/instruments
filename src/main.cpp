@@ -23,6 +23,7 @@
 #include "manager.h"
 #include "beeper.h"
 #include "autopilot.h"
+#include "board.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -1620,11 +1621,9 @@ void setup() {
     delay(200);
     Serial.println("\n[boot] ESP32-4848S040 hello-touch");
 
-    // Backlight: PWM via LEDC ch0, 5 kHz, 8-bit -> duty 0..255. (Arduino-
-    // ESP32 2.x API; 3.x renamed to ledcAttach(pin, freq, res).)
-    ledcSetup(0, 5000, 8);
-    ledcAttachPin(LCD_BL, 0);
-    ledcWrite(0, 0);  // off until display init succeeds
+    // Backlight LEDC is owned by board::set_backlight (spec 13
+    // §"Backlight"). main.cpp just asks for "off until display ready".
+    board::set_backlight(0);
 
     if (!gfx->begin()) {
         Serial.println("[gfx] begin FAILED");
@@ -1780,9 +1779,10 @@ void setup() {
     // tried to join yet.)
 
     // Restore last-known brightness from NVS (default 200/255 ~ 78%).
+    // LEDC is owned by board::set_backlight (spec 13 §"Backlight").
     {
         uint8_t b = ui::brightness();
-        ledcWrite(0, b);
+        board::set_backlight(b);
         Serial.printf("[bl] brightness %u/255\n", (unsigned)b);
     }
     Serial.println("[boot] ready");
@@ -1826,6 +1826,7 @@ static void pollSerialCommands() {
             if (serial_line.length()) {
                 if (!net::handleSerialCommand(serial_line) &&
                     !sk::handleSerialCommand(serial_line) &&
+                    !manager::handleSerialCommand(serial_line) &&
                     !layout::handleSerialCommand(serial_line)) {
                     handleMainCommand(serial_line);
                 }

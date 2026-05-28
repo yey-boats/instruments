@@ -12,6 +12,8 @@
 #include "board.h"
 #include "net.h"
 
+#include <lvgl.h>  // for the compiled font sizes list (spec 19 D1)
+
 #ifndef FW_NAME
 #define FW_NAME "espdisp"
 #endif
@@ -138,6 +140,63 @@ void to_json_doc(JsonDocument &doc) {
     caps["autopilot_controls"] = c.autopilot_controls;
     caps["beeper"] = c.beeper;
     caps["local_web_ui"] = c.local_web_ui;
+
+    // ---- spec 19 D1: display + touch + widget + font + layout caps ----
+    board::Geometry g = board::geometry();
+    JsonObject display = doc["display"].to<JsonObject>();
+    display["width"] = g.width_px;
+    display["height"] = g.height_px;
+    display["rotation"] = g.rotation;
+    display["colorDepth"] = 16;  // RGB565 on this panel
+    display["density"] = "mdpi";
+    display["shape"] = g.square ? "square" : "rectangular";
+    JsonObject safe = display["safeArea"].to<JsonObject>();
+    // MOB pill reserves y < 62 on every screen (spec 09 safe zone).
+    safe["x"] = 0;
+    safe["y"] = 62;
+    safe["width"] = g.width_px;
+    safe["height"] = g.height_px - 62;
+
+    board::Capabilities bc = board::capabilities();
+    JsonObject touch = doc["touch"].to<JsonObject>();
+    touch["enabled"] = bc.touch != board::TouchKind::None;
+    touch["width"] = g.width_px;
+    touch["height"] = g.height_px;
+    touch["controller"] = "GT911";
+    touch["interrupt"] = c.touch_irq;
+
+    // Widget capability flags. Maps directly to the 10 spec-11
+    // templates + future map support.
+    JsonObject widgets = caps["widgets"].to<JsonObject>();
+    widgets["numeric"]    = true;   // covered by QuadGrid/HeroPlus/SplitPair
+    widgets["text"]       = true;   // generic label rendering
+    widgets["gauge"]      = false;  // no radial gauge template yet
+    widgets["compass"]    = true;   // RoundInstrument
+    widgets["windRose"]   = false;  // future
+    widgets["trend"]      = true;   // TrendChart
+    widgets["bar"]        = true;   // RouteProgress XTE bar
+    widgets["button"]     = true;   // ControlConsole buttons
+    widgets["autopilot"]  = true;   // ControlConsole
+    widgets["map"]        = false;
+
+    // Compiled font sizes. Hardcoded to match the LVGL fonts the
+    // firmware actually links - keeping this in sync requires updating
+    // lv_conf.h LV_FONT_MONTSERRAT_* enables + this array together.
+    JsonObject fonts = caps["fonts"].to<JsonObject>();
+    fonts["scalable"] = false;
+    JsonArray sizes = fonts["sizes"].to<JsonArray>();
+    sizes.add(14);
+    sizes.add(20);
+    sizes.add(28);
+    sizes.add(48);
+    JsonArray families = fonts["families"].to<JsonArray>();
+    families.add("default");  // Montserrat
+
+    JsonObject layout = caps["layout"].to<JsonObject>();
+    layout["grid"] = true;       // QuadGrid, StatusList, ControlConsole
+    layout["absolute"] = false;  // not in v1
+    JsonArray variants = layout["variants"].to<JsonArray>();
+    variants.add("square-480");
 }
 
 }  // namespace device_identity

@@ -90,6 +90,8 @@ class ManagerMock:
             web.post(r"/devices/{did}/commands/{cid}/ack", self._command_ack),
             web.post(r"/devices/{did}/firmware/jobs/{jid}/progress",
                      self._firmware_progress),
+            web.post(r"/devices/{did}/firmware/confirm",
+                     self._firmware_confirm),
             web.get("/firmware/artifacts/{name}", self._firmware_artifact),
             web.get("/devices", self._devices_list),
             web.get("/audit", self._audit),
@@ -313,6 +315,16 @@ class ManagerMock:
         if data is None:
             return web.Response(status=404, text="unknown artifact")
         return web.Response(body=data, content_type="application/octet-stream")
+
+    async def _firmware_confirm(self, request: web.Request) -> web.Response:
+        did = request.match_info["did"]
+        if not self._check_auth(request, did):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        body = await request.json()
+        self._log("ota.confirm", device_id=did,
+                  version=body.get("version"),
+                  build_time=body.get("build_time"))
+        return web.json_response({"ok": True})
 
     async def _firmware_progress(self, request: web.Request) -> web.Response:
         did = request.match_info["did"]

@@ -1,5 +1,6 @@
 #include "ui_data.h"
 
+#include "board.h"
 #include "board_pins.h"
 #include "config_runtime.h"
 

@@ -57,6 +57,11 @@ String s_ota_url;
 String s_ota_sha256;
 String s_ota_version;
 size_t s_ota_size = 0;
+// Set in setup() iff this boot came from a freshly-installed OTA
+// partition (PENDING_VERIFY). The next successful heartbeat will POST
+// /firmware/confirm to the manager so the plugin can mark the OTA job
+// complete, then clear the flag.
+volatile bool s_ota_confirm_pending = false;
 SemaphoreHandle_t s_state_mtx = nullptr;
 
 void lock_state() {
@@ -95,6 +100,26 @@ String build_url(const char *path) {
     return url;
 }
 
+String build_url_from_base(const String &base, const char *path) {
+    String url = base;
+    if (url.endsWith("/")) url.remove(url.length() - 1);
+    url += path;
+    return url;
+}
+
+String plugin_base_from_root(const String &endpoint) {
+    String base = endpoint;
+    if (base.endsWith("/")) base.remove(base.length() - 1);
+    if (base.indexOf("/plugins/espdisp-manager") >= 0) return base;
+    return base + "/plugins/espdisp-manager";
+}
+
+bool endpoint_has_path(const String &endpoint) {
+    int scheme = endpoint.indexOf("://");
+    int start = scheme >= 0 ? scheme + 3 : 0;
+    return endpoint.indexOf('/', start) >= 0;
+}
+
 // POST /devices/register. On 200, store the returned bearer token +
 // any heartbeat/command-poll intervals the plugin reports.
 int do_register() {
@@ -107,22 +132,55 @@ int do_register() {
     String payload;
     serializeJson(body, payload);
 
-    HTTPClient http;
-    String url = build_url("/devices/register");
-    if (!http.begin(url)) {
-        s_health = HealthState::Failed;
-        return -3;
+    String bases[2];
+    int base_count = 0;
+    // If the user provides a bare SignalK server root, try the real
+    // plugin route first. If they provide a mock manager URL or an
+    // explicit path, try it as-is first.
+    if (!endpoint_has_path(s_endpoint)) {
+        bases[base_count++] = plugin_base_from_root(s_endpoint);
+        bases[base_count++] = s_endpoint;
+    } else {
+        bases[base_count++] = s_endpoint;
     }
-    // Short timeouts: HTTPClient defaults to ~10 s which trips the ESP32
-    // task watchdog (5 s) and can brick the device on a slow/down manager.
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    http.addHeader("Content-Type", "application/json");
-    int code = http.POST(payload);
+
+    int code = -3;
+    String resp;
+    String successful_base;
+    for (int i = 0; i < base_count; ++i) {
+        HTTPClient http;
+        String url = build_url_from_base(bases[i], "/devices/register");
+        if (!http.begin(url)) {
+            code = -3;
+            continue;
+        }
+        // Short timeouts: HTTPClient defaults to ~10 s which trips the ESP32
+        // task watchdog (5 s) and can brick the device on a slow/down manager.
+        http.setConnectTimeout(3000);
+        http.setTimeout(3000);
+        http.addHeader("Content-Type", "application/json");
+        if (s_token.length()) {
+            http.addHeader("Authorization", String("Bearer ") + s_token);
+            http.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
+        }
+        code = http.POST(payload);
+        if (code == 200 || code == 201) {
+            resp = http.getString();
+            successful_base = bases[i];
+            http.end();
+            break;
+        }
+        http.end();
+        // 404 from /plugins/... means this is likely the standalone mock.
+        if (code != 404) break;
+    }
     if (code == 200 || code == 201) {
-        String resp = http.getString();
         JsonDocument r;
         if (deserializeJson(r, resp) == DeserializationError::Ok) {
+            if (successful_base.length() && successful_base != s_endpoint) {
+                s_endpoint = successful_base;
+                save_prefs();
+            }
             const char *tok = r["deviceToken"] | "";
             if (tok && *tok) {
                 s_token = tok;
@@ -131,11 +189,17 @@ int do_register() {
                 net::logf("[mgr] registered ok (token_len=%u)",
                           (unsigned)s_token.length());
             }
-            if (r["heartbeat_interval_ms"].is<uint32_t>()) {
+            if (r["heartbeat"]["intervalMs"].is<uint32_t>()) {
+                s_heartbeat_interval_ms =
+                    r["heartbeat"]["intervalMs"].as<uint32_t>();
+            } else if (r["heartbeat_interval_ms"].is<uint32_t>()) {
                 s_heartbeat_interval_ms =
                     r["heartbeat_interval_ms"].as<uint32_t>();
             }
-            if (r["command_poll_interval_ms"].is<uint32_t>()) {
+            if (r["commands"]["pollMs"].is<uint32_t>()) {
+                s_command_poll_interval_ms =
+                    r["commands"]["pollMs"].as<uint32_t>();
+            } else if (r["command_poll_interval_ms"].is<uint32_t>()) {
                 s_command_poll_interval_ms =
                     r["command_poll_interval_ms"].as<uint32_t>();
             }
@@ -143,7 +207,6 @@ int do_register() {
     } else {
         net::logf("[mgr] register -> %d", code);
     }
-    http.end();
     s_last_register_ms = millis();
     s_last_register_code = code;
     s_health = (code >= 200 && code < 300) ? HealthState::Heartbeating
@@ -461,7 +524,8 @@ const char *execute_command(const char *type, JsonObject payload) {
     if (!type || !*type) return "invalid_payload";
 
     if (strcmp(type, "screen.set") == 0) {
-        const char *id = payload["id"] | "";
+        const char *id = payload["screen"] | "";
+        if (!*id) id = payload["id"] | "";
         if (!*id) return "invalid_payload";
         app::Command c;
         c.type = app::CommandType::ShowScreen;
@@ -504,7 +568,8 @@ const char *execute_command(const char *type, JsonObject payload) {
         const char *url = payload["url"] | "";
         const char *sha = payload["sha256"] | "";
         const char *ver = payload["version"] | "";
-        const char *job_id = payload["job_id"] | "";
+        const char *job_id = payload["jobId"] | "";
+        if (!*job_id) job_id = payload["job_id"] | "";
         size_t size = payload["size"] | 0;
         if (!*url || !*job_id) return "invalid_payload";
         if (size && size < 1024) return "invalid_payload";  // sanity
@@ -602,9 +667,18 @@ int fetch_config() {
         if (deserializeJson(r, resp) == DeserializationError::Ok) {
             String new_version = r["version"] | "";
             String new_hash = r["hash"] | "";
+            JsonObject cfg_src;
             if (r["config"].is<JsonObject>()) {
+                cfg_src = r["config"].as<JsonObject>();
+            } else {
+                cfg_src = r.as<JsonObject>();
+            }
+            if (!new_version.length() && r["version"].is<int>()) {
+                new_version = String(r["version"].as<int>());
+            }
+            if (cfg_src) {
                 JsonDocument cfg;
-                cfg.set(r["config"]);
+                cfg.set(cfg_src);
                 bool ok = apply_config(cfg);
                 if (ok) {
                     lock_state();
@@ -658,12 +732,15 @@ int do_heartbeat() {
         String resp = http.getString();
         JsonDocument r;
         if (deserializeJson(r, resp) == DeserializationError::Ok) {
-            String want_ver = r["desired_config_version"] | "";
-            String want_hash = r["desired_config_hash"] | "";
+            String want_ver = r["desiredConfig"]["version"] | "";
+            String want_hash = r["desiredConfig"]["hash"] | "";
+            if (!want_ver.length()) want_ver = r["desired_config_version"] | "";
+            if (!want_hash.length()) want_hash = r["desired_config_hash"] | "";
             lock_state();
             s_desired_config_version = want_ver;
             s_desired_config_hash = want_hash;
-            bool drift = want_ver.length() && want_ver != s_applied_config_version;
+            bool drift = (want_hash.length() && want_hash != s_applied_config_hash) ||
+                         (want_ver.length() && want_ver != s_applied_config_version);
             unlock_state();
             if (drift) {
                 net::logf("[mgr] config drift: have=%s want=%s -> fetching",
@@ -677,6 +754,35 @@ int do_heartbeat() {
     http.end();
     s_last_heartbeat_ms = millis();
     s_last_heartbeat_code = code;
+
+    // Spec 17 §10 / 18 §11: after a post-OTA boot, the first successful
+    // heartbeat triggers a /firmware/confirm POST so the plugin can
+    // mark its OTA job complete. We don't have the original job id at
+    // boot, so the body just carries the new build's identity - the
+    // plugin correlates by deviceId + version+hash.
+    if (code >= 200 && code < 300 && s_ota_confirm_pending) {
+        HTTPClient hc;
+        String confirm_url = build_url("/devices/") +
+                             device_identity::get().device_id +
+                             "/firmware/confirm";
+        if (hc.begin(confirm_url)) {
+            hc.setConnectTimeout(3000);
+            hc.setTimeout(3000);
+            hc.addHeader("Content-Type", "application/json");
+            hc.addHeader("Authorization", String("Bearer ") + s_token);
+            JsonDocument cbody;
+            const auto &id = device_identity::get();
+            cbody["version"] = id.firmware_version;
+            cbody["build_time"] = id.build_time;
+            cbody["git_commit"] = id.git_commit;
+            String payload;
+            serializeJson(cbody, payload);
+            int cc = hc.POST(payload);
+            net::logf("[mgr] /firmware/confirm -> %d", cc);
+            hc.end();
+            if (cc >= 200 && cc < 300) s_ota_confirm_pending = false;
+        }
+    }
     return code;
 }
 
@@ -748,7 +854,9 @@ void setup() {
     if (running && esp_ota_get_state_partition(running, &st) == ESP_OK) {
         if (st == ESP_OTA_IMG_PENDING_VERIFY) {
             esp_ota_mark_app_valid_cancel_rollback();
-            net::logf("[mgr] post-OTA boot: marked partition valid");
+            s_ota_confirm_pending = true;
+            net::logf("[mgr] post-OTA boot: marked partition valid; "
+                      "/firmware/confirm pending");
         }
     }
     net::logf("[mgr] %s endpoint=%s token=%s",
@@ -776,6 +884,9 @@ Status status() {
     s.last_heartbeat_code = s_last_heartbeat_code;
     s.heartbeat_interval_ms = s_heartbeat_interval_ms;
     s.command_poll_interval_ms = s_command_poll_interval_ms;
+    s.device_id = device_identity::get().device_id;
+    s.config_version = s_applied_config_version;
+    s.config_hash = s_applied_config_hash;
     return s;
 }
 
@@ -804,14 +915,25 @@ bool handleSerialCommand(const String &line) {
     if (line.startsWith("manager-register ")) {
         String url = line.substring(17);
         url.trim();
+        int first_space = url.indexOf(' ');
+        if (first_space > 0) {
+            String host = url.substring(0, first_space);
+            String port = url.substring(first_space + 1);
+            host.trim();
+            port.trim();
+            if (!host.startsWith("http://") && !host.startsWith("https://")) {
+                url = String("http://") + host + ":" + port;
+            }
+        } else if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = String("http://") + url;
+        }
         if (url.length() == 0) {
             net::logf("[mgr] usage: manager-register <http://host:port>");
             return true;
         }
         lock_state();
         s_endpoint = url;
-        s_token = "";
-        s_auth = AuthState::Unprovisioned;
+        if (!s_token.length()) s_auth = AuthState::Unprovisioned;
         save_prefs();
         s_force_register = true;
         unlock_state();

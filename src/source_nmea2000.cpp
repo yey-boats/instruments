@@ -168,6 +168,80 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
             }
             break;
         }
+
+        // --- Raymarine pilot PGNs (spec 12 §4). Decoded from public
+        // protocol references - no GPL source imported.
+        case 127237: {  // Heading/Track Control (rudder commanded + locked heading)
+            if (n < 8) break;
+            // Bytes layout (subset): byte 4-5 = heading_to_steer (rad * 1e-4)
+            uint16_t heading_raw = u16le(d + 4);
+            if (heading_raw != 0xFFFF) {
+                double hdg = heading_raw * 0.0001;
+                if (hdg > M_PI) hdg -= 2 * M_PI;
+                boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
+                ok = true;
+            }
+            break;
+        }
+        case 65360: {  // Raymarine Pilot Locked Heading
+            // Manufacturer PGN: bytes 0-1 = manufacturer id + industry
+            //                   bytes 2-3 = locked heading (rad * 1e-4)
+            if (n < 8) break;
+            uint16_t hdg_raw = u16le(d + 2);
+            if (hdg_raw != 0xFFFF) {
+                double hdg = hdg_raw * 0.0001;
+                if (hdg > M_PI) hdg -= 2 * M_PI;
+                boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
+                ok = true;
+            }
+            break;
+        }
+        case 65379: {  // Raymarine Pilot Mode / Submode
+            // bytes 4-5 = pilot mode enum
+            if (n < 8) break;
+            uint16_t mode_raw = u16le(d + 4);
+            const char *state = nullptr;
+            switch (mode_raw) {
+                case 0x0000: state = "standby"; break;
+                case 0x0040: state = "auto"; break;
+                case 0x0100: state = "wind"; break;
+                case 0x0180: state = "track"; break;
+                default: break;
+            }
+            if (state) {
+                boat::publish_autopilot_state(src, now, state);
+                ok = true;
+            }
+            break;
+        }
+        case 65288: {  // Raymarine Pilot Alarm State
+            // Minimal: any non-zero alarm code -> mark autopilot warning
+            // by appending "/alarm" suffix to the current state, or
+            // record the bare alarm flag in the field for now. Since we
+            // don't have a dedicated autopilot_alarm field, just log.
+            if (n < 8) break;
+            uint16_t alarm = u16le(d + 2);
+            if (alarm) {
+                net::logf("[n2k] Raymarine alarm code=0x%04x", alarm);
+                ok = true;
+            }
+            break;
+        }
+        case 65345: {  // Raymarine Pilot Wind Angle (track-wind ref)
+            // bytes 2-3 = locked wind angle (rad * 1e-4)
+            if (n < 8) break;
+            uint16_t wa_raw = u16le(d + 2);
+            if (wa_raw != 0xFFFF) {
+                double wa = wa_raw * 0.0001;
+                if (wa > M_PI) wa -= 2 * M_PI;
+                // No dedicated field; piggyback on twa_rad as
+                // "target wind angle" hint when in wind mode.
+                boat::publish(&Snapshot::twa_rad, src, now, wa);
+                ok = true;
+            }
+            break;
+        }
+
         default:
             break;
     }
