@@ -13,6 +13,7 @@
 #if defined(BOARD_ID_NATIVE_FAKE)
 
 #include "board.h"
+#include "boards/board_native_fake.h"
 
 #ifndef FAKE_BOARD_WIDTH
 #define FAKE_BOARD_WIDTH 480
@@ -30,6 +31,9 @@ namespace {
 
 uint8_t s_backlight_value = 255;
 bool s_power = true;
+uint16_t s_width = FAKE_BOARD_WIDTH;
+uint16_t s_height = FAKE_BOARD_HEIGHT;
+uint16_t s_diag = FAKE_BOARD_DIAG_TENTHS;
 
 LayoutClass classify(uint16_t w, uint16_t h) {
     if (w == h) return LayoutClass::SquareCompact;
@@ -49,9 +53,9 @@ const char *display_name() { return "Native test fake board"; }
 
 Geometry geometry() {
     Geometry g{};
-    g.width_px = FAKE_BOARD_WIDTH;
-    g.height_px = FAKE_BOARD_HEIGHT;
-    g.diagonal_tenths_in = FAKE_BOARD_DIAG_TENTHS;
+    g.width_px = s_width;
+    g.height_px = s_height;
+    g.diagonal_tenths_in = s_diag;
     g.rotation = 0;
     g.square = (g.width_px == g.height_px);
     g.layout_class = classify(g.width_px, g.height_px);
@@ -81,6 +85,23 @@ bool set_power(bool on) {
     s_power = on;
     return true;
 }
+
+namespace native_fake {
+
+void set_geometry(uint16_t width_px, uint16_t height_px,
+                  uint16_t diagonal_tenths_in) {
+    if (width_px)  s_width  = width_px;
+    if (height_px) s_height = height_px;
+    if (diagonal_tenths_in) s_diag = diagonal_tenths_in;
+}
+
+void reset_geometry() {
+    s_width = FAKE_BOARD_WIDTH;
+    s_height = FAKE_BOARD_HEIGHT;
+    s_diag = FAKE_BOARD_DIAG_TENTHS;
+}
+
+}  // namespace native_fake
 
 }  // namespace board
 

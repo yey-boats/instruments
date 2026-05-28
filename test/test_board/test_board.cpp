@@ -10,9 +10,10 @@
 #include <string.h>
 
 #include "board.h"
+#include "boards/board_native_fake.h"
 
 void setUp(void) {}
-void tearDown(void) {}
+void tearDown(void) { board::native_fake::reset_geometry(); }
 
 static void test_id_and_display_name_set() {
     TEST_ASSERT_NOT_NULL(board::id());
@@ -81,6 +82,99 @@ static void test_layout_context_touch_targets_44_on_small() {
     TEST_ASSERT_EQUAL_UINT16(4, ctx.gap);
 }
 
+// ---- Multi-shape coverage via the native_fake override -------------------
+//
+// A single test binary, three boards. set_geometry() lets us exercise
+// the layout-class classifier and the touch-target / margin / gap
+// heuristics on shapes we don't have hardware for yet.
+
+static void test_wide_800x480_picks_landscape_wide() {
+    board::native_fake::set_geometry(800, 480, 70);
+    auto g = board::geometry();
+    TEST_ASSERT_EQUAL_UINT16(800, g.width_px);
+    TEST_ASSERT_EQUAL_UINT16(480, g.height_px);
+    TEST_ASSERT_FALSE(g.square);
+    // 800/480 = 1.66 >= 1.5 -> Wide
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::LayoutClass::LandscapeWide),
+                          static_cast<int>(g.layout_class));
+
+    auto ctx = ui::layout_context();
+    TEST_ASSERT_FALSE(ctx.square);
+    TEST_ASSERT_TRUE(ctx.landscape);
+    TEST_ASSERT_TRUE(ctx.wide);
+    TEST_ASSERT_EQUAL_UINT16(480, ctx.short_side);
+    TEST_ASSERT_EQUAL_UINT16(800, ctx.long_side);
+    // 480-class short side still uses 44 px touch, 8 px margin.
+    TEST_ASSERT_EQUAL_UINT16(44, ctx.touch_min);
+    TEST_ASSERT_EQUAL_UINT16(8, ctx.margin);
+}
+
+static void test_wide_short_side_800_uses_56px_touch() {
+    // Hypothetical 1024x800 board: short side >= 800 -> 56 px touch,
+    // 16 px margin, 8 px gap per ui::layout_context.
+    board::native_fake::set_geometry(1024, 800, 100);
+    auto ctx = ui::layout_context();
+    TEST_ASSERT_EQUAL_UINT16(56, ctx.touch_min);
+    TEST_ASSERT_EQUAL_UINT16(16, ctx.margin);
+    TEST_ASSERT_EQUAL_UINT16(8, ctx.gap);
+}
+
+static void test_landscape_compact_640x480() {
+    // 640/480 = 1.33 -> not wide; should be LandscapeCompact.
+    board::native_fake::set_geometry(640, 480, 50);
+    auto g = board::geometry();
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::LayoutClass::LandscapeCompact),
+                          static_cast<int>(g.layout_class));
+    auto ctx = ui::layout_context();
+    TEST_ASSERT_TRUE(ctx.landscape);
+    // 5.0" with 640 width is below the wide threshold (diag<70 AND
+    // width<800), so wide must be false.
+    TEST_ASSERT_FALSE(ctx.wide);
+}
+
+static void test_portrait_compact_480x640() {
+    board::native_fake::set_geometry(480, 640, 50);
+    auto g = board::geometry();
+    TEST_ASSERT_FALSE(g.square);
+    // 640/480 = 1.33 -> Compact, not Tall
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::LayoutClass::PortraitCompact),
+                          static_cast<int>(g.layout_class));
+    auto ctx = ui::layout_context();
+    TEST_ASSERT_FALSE(ctx.square);
+    TEST_ASSERT_FALSE(ctx.landscape);
+    TEST_ASSERT_EQUAL_UINT16(480, ctx.short_side);
+    TEST_ASSERT_EQUAL_UINT16(640, ctx.long_side);
+}
+
+static void test_portrait_tall_320x800() {
+    board::native_fake::set_geometry(320, 800, 35);
+    auto g = board::geometry();
+    // 800/320 = 2.5 >= 1.5 -> PortraitTall
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::LayoutClass::PortraitTall),
+                          static_cast<int>(g.layout_class));
+    auto ctx = ui::layout_context();
+    TEST_ASSERT_FALSE(ctx.landscape);
+    TEST_ASSERT_FALSE(ctx.wide);
+    TEST_ASSERT_EQUAL_UINT16(320, ctx.short_side);
+}
+
+static void test_reset_returns_to_compile_time_defaults() {
+    board::native_fake::set_geometry(800, 480, 70);
+    TEST_ASSERT_EQUAL_UINT16(800, board::geometry().width_px);
+    board::native_fake::reset_geometry();
+    TEST_ASSERT_EQUAL_UINT16(480, board::geometry().width_px);
+    TEST_ASSERT_EQUAL_UINT16(480, board::geometry().height_px);
+}
+
+static void test_set_geometry_zero_keeps_current() {
+    board::native_fake::set_geometry(800, 480, 70);
+    board::native_fake::set_geometry(0, 0, 90);  // only diag changes
+    auto g = board::geometry();
+    TEST_ASSERT_EQUAL_UINT16(800, g.width_px);
+    TEST_ASSERT_EQUAL_UINT16(480, g.height_px);
+    TEST_ASSERT_EQUAL_UINT16(90, g.diagonal_tenths_in);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_id_and_display_name_set);
@@ -90,5 +184,12 @@ int main(int, char **) {
     RUN_TEST(test_set_power_does_not_crash);
     RUN_TEST(test_layout_context_square_matches_geometry);
     RUN_TEST(test_layout_context_touch_targets_44_on_small);
+    RUN_TEST(test_wide_800x480_picks_landscape_wide);
+    RUN_TEST(test_wide_short_side_800_uses_56px_touch);
+    RUN_TEST(test_landscape_compact_640x480);
+    RUN_TEST(test_portrait_compact_480x640);
+    RUN_TEST(test_portrait_tall_320x800);
+    RUN_TEST(test_reset_returns_to_compile_time_defaults);
+    RUN_TEST(test_set_geometry_zero_keeps_current);
     return UNITY_END();
 }
