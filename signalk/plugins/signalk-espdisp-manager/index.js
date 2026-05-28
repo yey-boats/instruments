@@ -240,6 +240,13 @@ function registerRoutes (router, getManager) {
     res.end(renderUi(manager, 'deviceConfig', req))
   }))
 
+  router.post('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
+    const result = saveDeviceConfigForm(manager, req.params.id, req.body || {})
+    res.statusCode = 303
+    res.setHeader('location', `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}/config?status=${encodeURIComponent(result.status)}`)
+    res.end()
+  }))
+
   router.get('/ui/discovery', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'discovery', req))
@@ -427,9 +434,14 @@ function jsonBody (req, res, next) {
       req.body = {}
     } else {
       try {
-        req.body = JSON.parse(body)
+        const contentType = req.headers['content-type'] || ''
+        if (contentType.includes('application/x-www-form-urlencoded')) {
+          req.body = Object.fromEntries(new URLSearchParams(body))
+        } else {
+          req.body = JSON.parse(body)
+        }
       } catch (err) {
-        res.status(400).json({ error: { code: 'invalid_json', message: 'invalid JSON body' } })
+        res.status(400).json({ error: { code: 'invalid_body', message: 'invalid request body' } })
         return
       }
     }
@@ -480,11 +492,21 @@ function renderUi (manager, page, req) {
     .config-section.full { grid-column: 1 / -1; }
     .config-section table { margin-bottom: 0; border: 0; }
     .config-section th { width: 38%; }
+    .config-form { background: white; border: 1px solid #d9e0e3; border-radius: 6px; padding: 14px; margin-bottom: 20px; }
+    .form-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+    label { display: block; color: #40515a; font-size: 12px; font-weight: 600; }
+    input, select { box-sizing: border-box; width: 100%; min-height: 34px; margin-top: 4px; border: 1px solid #c6d0d5; border-radius: 4px; padding: 6px 8px; background: white; color: #172026; }
+    input[type="checkbox"] { width: auto; min-height: auto; margin-right: 6px; }
+    fieldset { border: 1px solid #d9e0e3; border-radius: 6px; margin: 0 0 14px; padding: 12px; }
+    legend { color: #40515a; font-size: 13px; font-weight: 700; padding: 0 4px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    button { min-height: 36px; border: 1px solid #0e5c72; border-radius: 4px; padding: 7px 12px; background: #116078; color: white; font-weight: 600; cursor: pointer; }
+    button[value="save"], button[value="save-preset"] { background: white; color: #116078; }
     .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; background: #eef3f5; color: #40515a; font-size: 12px; }
     .status { display: inline-block; min-width: 64px; padding: 2px 7px; border-radius: 999px; background: #eef3f5; text-align: center; }
     .ok { background: #d9f2e3; color: #145d32; }
     .bad { background: #ffe0df; color: #8a1f18; }
-    @media (max-width: 850px) { .grid, .config-grid { grid-template-columns: 1fr; } table { font-size: 12px; } }
+    @media (max-width: 850px) { .grid, .config-grid, .form-grid { grid-template-columns: 1fr; } table { font-size: 12px; } }
   </style>
 </head>
 <body>
@@ -505,7 +527,7 @@ function renderPage (manager, dashboard, page, req) {
   if (page === 'device') return renderDevicePage(manager, req.params.id)
   if (page === 'deviceConfig') return renderDeviceConfigPage(manager, req.params.id)
   if (page === 'discovery') return renderDiscoveryPage(manager.listDiscoveredDevices().devices)
-  if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles)
+  if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices)
   if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs)
   return renderOverviewPage(dashboard)
 }
@@ -564,14 +586,13 @@ function renderDevicePage (manager, id) {
       ${commandTable(commands)}
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
-      <h2>Generated config</h2>
-      ${renderDeviceConfigWidget(config)}
     </section>`
 }
 
 function renderDeviceConfigPage (manager, id) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
+  const profiles = manager.listProfiles().profiles
   return `
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)} config</h2>
@@ -582,8 +603,198 @@ function renderDeviceConfigPage (manager, id) {
       <p>
         <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
       </p>
+      ${renderDeviceConfigForm(device, config, profiles)}
       ${renderDeviceConfigWidget(config)}
     </section>`
+}
+
+function saveDeviceConfigForm (manager, id, body) {
+  const device = manager.getDevice(id)
+  const profileId = String(body.profileId || device.assignedProfile || 'default')
+  if (!manager.store.profiles.profiles[profileId]) throw statusError(400, 'unknown preset')
+  const overrides = configOverridesFromForm(body)
+  let assignedProfile = profileId
+
+  if (body.action === 'save-preset' || body.action === 'save-send-preset') {
+    const presetId = sanitizePresetId(body.presetId || body.presetName)
+    if (!presetId) throw statusError(400, 'preset id is required')
+    const existing = manager.store.profiles.profiles[presetId]
+    manager.upsertProfile({
+      id: presetId,
+      name: body.presetName || presetId,
+      version: existing ? Number(existing.version || 1) + 1 : 1,
+      config: overrides
+    })
+    assignedProfile = presetId
+  }
+
+  manager.patchDevice(id, {
+    assignedProfile,
+    overrides
+  })
+
+  if (body.action === 'save-send' || body.action === 'save-send-preset') {
+    const config = manager.generateConfig(id)
+    manager.createCommand(id, {
+      type: 'config.reload',
+      payload: {
+        version: config.version,
+        hash: config.hash,
+        url: `/plugins/espdisp-manager/devices/${id}/config`
+      }
+    })
+  }
+
+  return { status: body.action || 'saved' }
+}
+
+function configOverridesFromForm (body) {
+  return {
+    settings: {
+      defaultScreen: cleanString(body.defaultScreen) || 'dashboard',
+      theme: cleanString(body.theme) || 'day',
+      brightness: numberValue(body.brightness, 0.8),
+      demoMode: checkboxValue(body.demoMode)
+    },
+    nmea0183Wifi: {
+      enabled: checkboxValue(body.nmeaEnabled),
+      mode: cleanString(body.nmeaMode) || 'tcp',
+      host: cleanString(body.nmeaHost) || 'signalk.local',
+      port: integerValue(body.nmeaPort, 10110)
+    },
+    autopilot: {
+      enabled: checkboxValue(body.autopilotEnabled),
+      allowEngage: checkboxValue(body.allowEngage),
+      allowStandby: checkboxValue(body.allowStandby),
+      allowHeadingAdjust: checkboxValue(body.allowHeadingAdjust),
+      backend: cleanString(body.autopilotBackend) || 'signalk'
+    },
+    widgets: {
+      defaults: {
+        fontSize: integerValue(body.fontSize, 18),
+        labelFontSize: integerValue(body.labelFontSize, 12),
+        valueFontSize: integerValue(body.valueFontSize, 32),
+        unitFontSize: integerValue(body.unitFontSize, 14)
+      }
+    },
+    debug: {
+      logLevel: cleanString(body.logLevel) || 'info',
+      touchMode: cleanString(body.touchMode) || 'irq'
+    }
+  }
+}
+
+function renderDeviceConfigForm (device, config, profiles) {
+  const settings = config.settings || {}
+  const nmea = config.nmea0183Wifi || {}
+  const autopilot = config.autopilot || {}
+  const widgets = (config.widgets && config.widgets.defaults) || {}
+  const debug = config.debug || {}
+  return `
+    <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">
+      <h2>Configure device</h2>
+      <div class="form-grid">
+        ${field('Preset', profileSelect(profiles, device.assignedProfile || config.profile))}
+        ${field('Default screen', input('defaultScreen', settings.defaultScreen || 'dashboard'))}
+        ${field('Theme', select('theme', settings.theme || 'day', [['day', 'Day'], ['night', 'Night'], ['high-contrast', 'High contrast']]))}
+        ${field('Brightness', input('brightness', settings.brightness == null ? 0.8 : settings.brightness, 'number', '0', '1', '0.05'))}
+        ${field('Demo mode', checkbox('demoMode', settings.demoMode))}
+        ${field('NMEA WiFi', checkbox('nmeaEnabled', nmea.enabled))}
+        ${field('NMEA mode', select('nmeaMode', nmea.mode || 'tcp', [['tcp', 'TCP'], ['udp', 'UDP']]))}
+        ${field('NMEA host', input('nmeaHost', nmea.host || 'signalk.local'))}
+        ${field('NMEA port', input('nmeaPort', nmea.port || 10110, 'number', '1', '65535', '1'))}
+        ${field('Autopilot', checkbox('autopilotEnabled', autopilot.enabled))}
+        ${field('Allow engage', checkbox('allowEngage', autopilot.allowEngage))}
+        ${field('Allow standby', checkbox('allowStandby', autopilot.allowStandby))}
+        ${field('Heading adjust', checkbox('allowHeadingAdjust', autopilot.allowHeadingAdjust))}
+        ${field('AP backend', input('autopilotBackend', autopilot.backend || 'signalk'))}
+        ${field('Base font', input('fontSize', widgets.fontSize || 18, 'number', '8', '80', '1'))}
+        ${field('Label font', input('labelFontSize', widgets.labelFontSize || 12, 'number', '8', '80', '1'))}
+        ${field('Value font', input('valueFontSize', widgets.valueFontSize || 32, 'number', '8', '120', '1'))}
+        ${field('Unit font', input('unitFontSize', widgets.unitFontSize || 14, 'number', '8', '80', '1'))}
+        ${field('Log level', select('logLevel', debug.logLevel || 'info', [['debug', 'Debug'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]))}
+        ${field('Touch mode', select('touchMode', debug.touchMode || 'irq', [['irq', 'IRQ'], ['poll', 'Poll'], ['disabled', 'Disabled']]))}
+      </div>
+      <fieldset>
+        <legend>Save as preset</legend>
+        <div class="form-grid">
+          ${field('Preset id', input('presetId', ''))}
+          ${field('Preset name', input('presetName', ''))}
+        </div>
+      </fieldset>
+      <div class="actions">
+        <button type="submit" name="action" value="save">Save device</button>
+        <button type="submit" name="action" value="save-send">Save and send to device</button>
+        <button type="submit" name="action" value="save-preset">Save as preset</button>
+        <button type="submit" name="action" value="save-send-preset">Save preset and send</button>
+      </div>
+    </form>`
+}
+
+function field (labelText, control) {
+  return `<label>${escapeHtml(labelText)}${control}</label>`
+}
+
+function input (name, value, type, min, max, step) {
+  const attrs = [
+    `type="${escapeHtml(type || 'text')}"`,
+    `name="${escapeHtml(name)}"`,
+    `value="${escapeHtml(value)}"`
+  ]
+  if (min != null) attrs.push(`min="${escapeHtml(min)}"`)
+  if (max != null) attrs.push(`max="${escapeHtml(max)}"`)
+  if (step != null) attrs.push(`step="${escapeHtml(step)}"`)
+  return `<input ${attrs.join(' ')}>`
+}
+
+function checkbox (name, checked) {
+  return `<span><input type="checkbox" name="${escapeHtml(name)}" value="1"${checked ? ' checked' : ''}>enabled</span>`
+}
+
+function select (name, value, options) {
+  return `<select name="${escapeHtml(name)}">${options.map(([optionValue, label]) => {
+    const selected = String(optionValue) === String(value) ? ' selected' : ''
+    return `<option value="${escapeHtml(optionValue)}"${selected}>${escapeHtml(label)}</option>`
+  }).join('')}</select>`
+}
+
+function profileSelect (profiles, selectedProfile) {
+  return select('profileId', selectedProfile || 'default', profiles.map((profile) => [
+    profile.id,
+    `${profile.name || profile.id} (${profile.id})`
+  ]))
+}
+
+function cleanString (value) {
+  return String(value == null ? '' : value).trim()
+}
+
+function checkboxValue (value) {
+  return value === '1' || value === 'on' || value === true
+}
+
+function numberValue (value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function integerValue (value, fallback) {
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function sanitizePresetId (value) {
+  return cleanString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function statusError (status, message) {
+  const err = new Error(message)
+  err.status = status
+  err.payload = { error: { code: 'invalid_request', message } }
+  return err
 }
 
 function renderDeviceConfigWidget (config) {
@@ -746,22 +957,34 @@ function renderDiscoveryPage (devices) {
     </section>`
 }
 
-function renderProfilesPage (profiles) {
+function renderProfilesPage (profiles, devices) {
   const rows = profiles.map((profile) => `
         <tr>
           <td><strong>${escapeHtml(profile.name || profile.id)}</strong><br><span>${escapeHtml(profile.id)}</span></td>
           <td>${escapeHtml(profile.version)}</td>
           <td>${escapeHtml(profile.updatedAt || '')}</td>
+          <td>${escapeHtml(devices.filter((device) => device.profile === profile.id).length)}</td>
+          <td>${escapeHtml(configSummary(profile.config || {}))}</td>
           <td><code>${escapeHtml(profile.hash || '')}</code></td>
         </tr>`).join('')
   return `
     <section class="panel">
-      <h2>Profiles</h2>
+      <h2>Device presets</h2>
+      <p class="muted">Presets are shared profiles. Assign them from a device config page, then save per-device overrides or save changes back as a new preset.</p>
       <table>
-        <thead><tr><th>Profile</th><th>Version</th><th>Updated</th><th>Hash</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="4">No profiles configured.</td></tr>'}</tbody>
+        <thead><tr><th>Preset</th><th>Version</th><th>Updated</th><th>Devices</th><th>Summary</th><th>Hash</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="6">No presets configured.</td></tr>'}</tbody>
       </table>
     </section>`
+}
+
+function configSummary (config) {
+  const parts = []
+  if (config.settings && config.settings.theme) parts.push(`theme ${config.settings.theme}`)
+  if (config.settings && config.settings.brightness != null) parts.push(`brightness ${config.settings.brightness}`)
+  if (config.widgets && config.widgets.defaults && config.widgets.defaults.valueFontSize) parts.push(`value font ${config.widgets.defaults.valueFontSize}`)
+  if (config.nmea0183Wifi) parts.push(`NMEA ${config.nmea0183Wifi.enabled ? 'on' : 'off'}`)
+  return parts.join(', ') || 'base layout'
 }
 
 function renderFirmwarePage (catalog, jobs) {
@@ -842,7 +1065,7 @@ function nav (active) {
     ['overview', '/plugins/espdisp-manager/ui', 'Overview'],
     ['devices', '/plugins/espdisp-manager/ui/devices', 'Devices'],
     ['discovery', '/plugins/espdisp-manager/ui/discovery', 'Discovery'],
-    ['profiles', '/plugins/espdisp-manager/ui/profiles', 'Profiles'],
+    ['profiles', '/plugins/espdisp-manager/ui/profiles', 'Presets'],
     ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware']
   ]
   return `<nav>${items.map(([id, href, label]) => `<a class="${active === id ? 'active' : ''}" href="${href}">${label}</a>`).join('')}</nav>`
