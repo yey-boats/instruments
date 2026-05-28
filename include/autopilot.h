@@ -17,18 +17,16 @@
 // uses the configured default. The split lets the autopilot screen
 // run an integration test against SignalK while leaving the N2k
 // surface dormant.
-//
-// Safety rules from spec 12:
-//   * Commands never run from LVGL callbacks; this module's writes
-//     post to the net worker queue.
-//   * Every command has visible queued/pending/result state.
-//   * Track / wind / tack and alarm-silence actions require explicit
-//     controls (the API distinguishes them by name; callers must not
-//     wire them to a free-form swipe).
 
-#include <Arduino.h>
 #include <math.h>
 #include <stdint.h>
+
+// Arduino-only types (`String`, `Preferences`). The pure helpers +
+// enums declared below compile cleanly on the native host test env
+// without these.
+#ifdef ARDUINO
+#include <Arduino.h>
+#endif
 
 namespace autopilot {
 
@@ -64,36 +62,31 @@ struct State {
     char alarm_text[48] = {0};
 };
 
-// Pure helpers - exposed for host tests.
+// Pure helpers - exposed for host tests. Live in autopilot_pure.cpp
+// so the native env can link them without Arduino deps.
 const char *mode_name(Mode m);
 Mode mode_from_string(const char *s);
 const char *backend_name(Backend b);
+const char *result_name(Result r);
 
-// Current default backend.
+// The rest of the API is Arduino-only (touches NVS, HTTPClient,
+// the SK module). Host tests cover the pure helpers above.
+
+#ifdef ARDUINO
+
 Backend default_backend();
 void set_default_backend(Backend b);
-
-// Snapshot the current state from the active backend.
 void copy_state(State &out);
-
-// Set the autopilot mode (standby / auto / wind / track / ...).
 Result set_mode(Mode m);
-
-// Adjust the locked heading by `delta` degrees. Positive = right.
-// On the SignalK backend this maps to actions/adjustHeading.
 Result adjust_heading_deg(int delta);
-
-// Silence the currently sounding alarm. On SK this PUTs to
-// notifications.silence (or a backend-specific path); on N2k this
-// sends the corresponding PGN.
 Result silence_alarm();
-
-// One-time module init. Called from main.cpp setup() AFTER sk::setup.
 void setup();
 
 // Console: autopilot | autopilot status | autopilot mode <m> |
 //          autopilot heading <delta> | autopilot silence |
 //          autopilot backend <signalk|nmea2000>
 bool handleSerialCommand(const String &line);
+
+#endif  // ARDUINO
 
 }  // namespace autopilot

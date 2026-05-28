@@ -68,35 +68,9 @@ Result n2k_silence()      { return Result::BackendUnavailable; }
 
 }  // namespace
 
-const char *mode_name(Mode m) {
-    switch (m) {
-        case Mode::Standby:  return "standby";
-        case Mode::Auto:     return "auto";
-        case Mode::Wind:     return "wind";
-        case Mode::PreTrack: return "pretrack";
-        case Mode::Track:    return "track";
-        case Mode::Unknown:  return "unknown";
-    }
-    return "?";
-}
-
-Mode mode_from_string(const char *s) {
-    if (!s) return Mode::Unknown;
-    if (!strcmp(s, "standby"))  return Mode::Standby;
-    if (!strcmp(s, "auto"))     return Mode::Auto;
-    if (!strcmp(s, "wind"))     return Mode::Wind;
-    if (!strcmp(s, "pretrack")) return Mode::PreTrack;
-    if (!strcmp(s, "track"))    return Mode::Track;
-    return Mode::Unknown;
-}
-
-const char *backend_name(Backend b) {
-    switch (b) {
-        case Backend::SignalK:           return "signalk";
-        case Backend::NMEA2000Raymarine: return "nmea2000";
-    }
-    return "?";
-}
+// mode_name, mode_from_string, backend_name, result_name are pure
+// helpers and live in autopilot_pure.cpp so the host test env can
+// link them without pulling in Arduino dependencies.
 
 Backend default_backend() { return s_default_backend; }
 void set_default_backend(Backend b) {
@@ -166,15 +140,6 @@ void setup() {
     net::logf("[ap] default backend = %s", backend_name(s_default_backend));
 }
 
-static const char *result_name(Result r) {
-    switch (r) {
-        case Result::Ok:                 return "ok";
-        case Result::InvalidPayload:     return "invalid";
-        case Result::BackendUnavailable: return "backend-unavailable";
-        case Result::Failed:             return "failed";
-    }
-    return "?";
-}
 
 bool handleSerialCommand(const String &line) {
     if (!line.startsWith("autopilot") && !line.startsWith("ap-")) return false;
