@@ -836,6 +836,23 @@ const char *execute_command(const char *type, JsonObject payload) {
         beeper::beep_short(ms);
         return "ok";
     }
+    if (strcmp(type, "overlay.show") == 0) {
+        // Spec 17 §8: spec lists `message` as the primary payload key;
+        // accept `text` as a fallback for plugins that named it that way.
+        const char *msg = payload["message"] | "";
+        if (!*msg) msg = payload["text"] | "";
+        if (!*msg) return "invalid_payload";
+        app::Command c;
+        c.type = app::CommandType::ShowOverlay;
+        strncpy(c.a, msg, sizeof(c.a) - 1);
+        c.a[sizeof(c.a) - 1] = 0;
+        return app::post(c, 100) ? "ok" : "busy";
+    }
+    if (strcmp(type, "overlay.clear") == 0) {
+        app::Command c;
+        c.type = app::CommandType::ClearOverlay;
+        return app::post(c, 100) ? "ok" : "busy";
+    }
     return "unsupported_command";
 }
 

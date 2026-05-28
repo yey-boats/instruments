@@ -19,6 +19,22 @@ PosFormat pos_format();
 void set_pos_format(PosFormat f);
 const char *pos_format_name(PosFormat f);
 
+uint8_t brightness();
+void set_brightness(int value);
+double depth_alarm_m();
+void set_depth_alarm_m(double value);
+double battery_alarm_v();
+void set_battery_alarm_v(double value);
+
+// Spec 17 §8 v1 commands. The alarm banner is reused as the overlay
+// surface - overlay_show paints a transient message; overlay_clear
+// removes it. Both must be called on the LVGL task (drained via
+// app::pump). The plugin / manager posts ShowOverlay / ClearOverlay
+// app::Commands; never call these directly from net / BLE / manager
+// worker tasks.
+void overlay_show(const char *message);
+void overlay_clear();
+
 // Unit helpers
 inline double rad_to_deg_pos(double rad) {
     double d = rad * 180.0 / M_PI;

@@ -785,8 +785,14 @@ static lv_obj_t *mob_view = nullptr;
 static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
 
 // Alarm banner
-enum AlarmId { ALARM_NONE = 0, ALARM_DEPTH_SHALLOW, ALARM_SK_STALLED, ALARM_BATT_LOW };
+// Spec 17 §8: ALARM_MGR_OVERLAY carries a transient message pushed
+// from the manager via overlay.show. While it is active, alarm_check
+// is suppressed so a data-driven alarm doesn't overwrite the operator
+// message; overlay_clear releases the suppression.
+enum AlarmId { ALARM_NONE = 0, ALARM_DEPTH_SHALLOW, ALARM_SK_STALLED,
+               ALARM_BATT_LOW, ALARM_MGR_OVERLAY };
 static AlarmId g_alarm = ALARM_NONE;
+static bool g_overlay_pinned = false;
 static lv_obj_t *alarm_banner = nullptr;
 static lv_obj_t *alarm_label = nullptr;
 
@@ -984,6 +990,9 @@ static void alarm_set(AlarmId id, const char *msg) {
 }
 
 static void alarm_check() {
+    // While a manager overlay is pinned, leave the banner alone so the
+    // operator message isn't overwritten by data-driven alarms.
+    if (g_overlay_pinned) return;
     if (!isnan(sk::data.depth) && sk::data.depth > 0 && sk::data.depth < ui::depth_alarm_m()) {
         alarm_set(ALARM_DEPTH_SHALLOW, "SHALLOW WATER");
         return;
@@ -998,6 +1007,28 @@ static void alarm_check() {
     }
     alarm_set(ALARM_NONE, "");
 }
+
+// Spec 17 §8 overlay primitives. Must run on the LVGL task (via the
+// app::Command pump path); calling from any worker task corrupts LVGL
+// state - see CLAUDE.md memory traps. Posting the matching app::Command
+// is the only safe entry point.
+namespace ui {
+
+void overlay_show(const char *message) {
+    g_overlay_pinned = true;
+    // Force the set even if g_alarm == ALARM_MGR_OVERLAY already so the
+    // message text refreshes on a repeated push.
+    g_alarm = ALARM_NONE;
+    alarm_set(ALARM_MGR_OVERLAY, message && *message ? message : "OVERLAY");
+}
+
+void overlay_clear() {
+    g_overlay_pinned = false;
+    alarm_set(ALARM_NONE, "");
+    // Let the next ui_refresh tick re-evaluate auto-alarms.
+}
+
+}  // namespace ui
 
 // ----- Demo / fps -------------------------------------------------------
 

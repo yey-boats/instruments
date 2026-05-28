@@ -29,6 +29,8 @@ enum class CommandType : uint8_t {
     SaveWifi,        // a = ssid, b = password (sent to net queue, reboots)
     ApplyManagedScreens,  // blob = manager_config::RenderPlan*; consumer
                           // calls manager_screens::apply() then frees.
+    ShowOverlay,     // a = message text (spec 17 §8 overlay.show)
+    ClearOverlay,    // (spec 17 §8 overlay.clear)
 };
 
 struct Command {

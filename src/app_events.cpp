@@ -238,6 +238,17 @@ void pump() {
             }
             break;
         }
+        case CommandType::ShowOverlay: {
+            // Spec 17 §8 overlay.show. cmd.a carries the message (up
+            // to 255 chars - the alarm banner truncates if it doesn't
+            // fit visually).
+            ui::overlay_show(cmd.a);
+            break;
+        }
+        case CommandType::ClearOverlay: {
+            ui::overlay_clear();
+            break;
+        }
         case CommandType::SignalKPut:
         case CommandType::SaveWifi:
         case CommandType::Reboot:
