@@ -1344,6 +1344,165 @@ static void update_control_console(lv_obj_t *root, const ScreenVariantSpec &spec
 }
 
 // ---------------------------------------------------------------------------
+// route_progress template - XTE bar + BTW + DTW summary.
+//
+// Reads from boat::Snapshot via sk::Data (which composes fused values).
+// Layout:
+//   top      : "TO WP" caption
+//   middle   : BTW (big, accent) | DTW (big)
+//   centre   : horizontal XTE bar with port (red) / stbd (green)
+//              colored fills, center marker
+//   bottom   : XTE numeric (m) + L/R indicator
+//
+// MetricBinding is unused beyond title - this template doesn't need
+// a binding because the SK paths it cares about (XTE, BTW, DTW) are
+// fixed. Caller can supply spec.metrics[0] to override the title /
+// accent color; otherwise sensible defaults apply.
+
+struct RouteProgressState {
+    lv_obj_t *btw_lbl;
+    lv_obj_t *dtw_lbl;
+    lv_obj_t *xte_bar;
+    lv_obj_t *xte_lbl;
+    lv_obj_t *centre_marker;
+    char last_btw[12];
+    char last_dtw[12];
+    char last_xte[16];
+    double xte_full_scale_m;  // bar saturates at this magnitude
+};
+
+static lv_obj_t *create_route_progress(lv_obj_t *parent,
+                                        const ScreenVariantSpec &spec) {
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_set_size(root, LCD_W, LCD_H);
+    if (parent) lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    RouteProgressState *st = (RouteProgressState *)heap_caps_calloc(
+        1, sizeof(RouteProgressState), MALLOC_CAP_INTERNAL);
+    if (!st) { net::logf("[layout] route_progress alloc failed"); return root; }
+    strncpy(st->last_btw, "\xFF", sizeof(st->last_btw));
+    strncpy(st->last_dtw, "\xFF", sizeof(st->last_dtw));
+    strncpy(st->last_xte, "\xFF", sizeof(st->last_xte));
+    st->xte_full_scale_m = 200.0;  // ±200 m saturates the bar
+
+    // Title at top.
+    lv_obj_t *title = lv_label_create(root);
+    lv_label_set_text(title, spec.title ? spec.title : "ROUTE");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+
+    // BTW left / DTW right at y=80.
+    lv_obj_t *btw_cap = lv_label_create(root);
+    lv_label_set_text(btw_cap, "BEARING");
+    lv_obj_set_style_text_font(btw_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(btw_cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(btw_cap, LV_ALIGN_TOP_LEFT, 24, 76);
+
+    st->btw_lbl = lv_label_create(root);
+    lv_label_set_text(st->btw_lbl, "---");
+    lv_obj_set_style_text_font(st->btw_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(st->btw_lbl, lv_color_hex(theme.fg), 0);
+    lv_obj_align(st->btw_lbl, LV_ALIGN_TOP_LEFT, 24, 96);
+
+    lv_obj_t *dtw_cap = lv_label_create(root);
+    lv_label_set_text(dtw_cap, "DISTANCE");
+    lv_obj_set_style_text_font(dtw_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(dtw_cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(dtw_cap, LV_ALIGN_TOP_RIGHT, -24, 76);
+
+    st->dtw_lbl = lv_label_create(root);
+    lv_label_set_text(st->dtw_lbl, "---");
+    lv_obj_set_style_text_font(st->dtw_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(st->dtw_lbl, lv_color_hex(theme.fg), 0);
+    lv_obj_align(st->dtw_lbl, LV_ALIGN_TOP_RIGHT, -24, 96);
+
+    // XTE bar around y=260, full width. Port = red, stbd = green.
+    // The bar's value 0..200 represents -fullscale..+fullscale; we
+    // recolor based on sign. lv_bar doesn't natively support bipolar
+    // so we use the "symmetrical" range trick.
+    st->xte_bar = lv_bar_create(root);
+    lv_obj_set_size(st->xte_bar, LCD_W - 48, 28);
+    lv_obj_align(st->xte_bar, LV_ALIGN_TOP_MID, 0, 260);
+    lv_bar_set_mode(st->xte_bar, LV_BAR_MODE_SYMMETRICAL);
+    lv_bar_set_range(st->xte_bar, -100, 100);
+    lv_bar_set_value(st->xte_bar, 0, LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(st->xte_bar, lv_color_hex(theme.panel), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(st->xte_bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(st->xte_bar, 6, LV_PART_MAIN);
+    lv_obj_set_style_radius(st->xte_bar, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(st->xte_bar, lv_color_hex(theme.alarm), LV_PART_INDICATOR);
+
+    // Centre marker line.
+    st->centre_marker = lv_obj_create(root);
+    lv_obj_set_size(st->centre_marker, 2, 40);
+    lv_obj_align(st->centre_marker, LV_ALIGN_TOP_MID, 0, 254);
+    lv_obj_set_style_bg_color(st->centre_marker, lv_color_hex(theme.fg), 0);
+    lv_obj_set_style_bg_opa(st->centre_marker, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(st->centre_marker, 0, 0);
+    lv_obj_clear_flag(st->centre_marker, LV_OBJ_FLAG_SCROLLABLE);
+
+    // XTE numeric below the bar.
+    lv_obj_t *xte_cap = lv_label_create(root);
+    lv_label_set_text(xte_cap, "XTE");
+    lv_obj_set_style_text_font(xte_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(xte_cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(xte_cap, LV_ALIGN_TOP_MID, 0, 304);
+
+    st->xte_lbl = lv_label_create(root);
+    lv_label_set_text(st->xte_lbl, "---");
+    lv_obj_set_style_text_font(st->xte_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(st->xte_lbl, lv_color_hex(theme.fg), 0);
+    lv_obj_align(st->xte_lbl, LV_ALIGN_TOP_MID, 0, 324);
+
+    lv_obj_set_user_data(root, st);
+    return root;
+}
+
+static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
+                                   const sk::Data &data) {
+    (void)spec;
+    if (!root) return;
+    auto *st = (RouteProgressState *)lv_obj_get_user_data(root);
+    if (!st) return;
+
+    char buf[16];
+    // BTW
+    if (isnan(data.btw)) snprintf(buf, sizeof(buf), "---");
+    else snprintf(buf, sizeof(buf), "%03d", (int)rad_to_deg_pos(data.btw));
+    ui::set_text_if_changed(st->btw_lbl, st->last_btw, sizeof(st->last_btw), buf);
+
+    // DTW: show nm if >= 1, otherwise m
+    if (isnan(data.dtw)) snprintf(buf, sizeof(buf), "---");
+    else if (data.dtw >= 1852.0) snprintf(buf, sizeof(buf), "%.1fnm", data.dtw / 1852.0);
+    else snprintf(buf, sizeof(buf), "%.0fm", data.dtw);
+    ui::set_text_if_changed(st->dtw_lbl, st->last_dtw, sizeof(st->last_dtw), buf);
+
+    // XTE
+    if (isnan(data.xte)) {
+        snprintf(buf, sizeof(buf), "--");
+        lv_bar_set_value(st->xte_bar, 0, LV_ANIM_OFF);
+    } else {
+        double mag = data.xte / st->xte_full_scale_m * 100.0;
+        if (mag > 100) mag = 100;
+        if (mag < -100) mag = -100;
+        lv_bar_set_value(st->xte_bar, (int32_t)mag, LV_ANIM_OFF);
+        // Color: port (red) when negative, stbd (green) when positive.
+        uint32_t color = data.xte < 0 ? theme.port : theme.good;
+        lv_obj_set_style_bg_color(st->xte_bar, lv_color_hex(color), LV_PART_INDICATOR);
+        const char *side = data.xte < 0 ? "L" : "R";
+        snprintf(buf, sizeof(buf), "%.0f%s m",
+                 fabs(data.xte), data.xte == 0 ? "" : side);
+    }
+    ui::set_text_if_changed(st->xte_lbl, st->last_xte, sizeof(st->last_xte), buf);
+}
+
+// ---------------------------------------------------------------------------
 // Public factory entry points
 
 lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
@@ -1356,6 +1515,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
     case TemplateId::TrendChart:      return create_trend_chart(parent, spec);
     case TemplateId::AlertFocus:      return create_alert_focus(parent, spec);
     case TemplateId::ControlConsole:  return create_control_console(parent, spec);
+    case TemplateId::RouteProgress:   return create_route_progress(parent, spec);
     default:
         net::logf("[layout] template %d not implemented yet", (int)spec.template_id);
         return nullptr;
@@ -1372,6 +1532,7 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
     case TemplateId::TrendChart:      update_trend_chart(root, spec, data); break;
     case TemplateId::AlertFocus:      update_alert_focus(root, spec, data); break;
     case TemplateId::ControlConsole:  update_control_console(root, spec, data); break;
+    case TemplateId::RouteProgress:   update_route_progress(root, spec, data); break;
     default: break;
     }
 }
