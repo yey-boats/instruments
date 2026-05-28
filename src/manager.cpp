@@ -19,6 +19,7 @@
 #include "device_identity.h"
 #include "font_resolver.h"
 #include "manager_config.h"
+#include "manager_screens.h"
 #include "net.h"
 #include "signalk.h"
 
@@ -560,8 +561,17 @@ const char *execute_command(const char *type, JsonObject payload) {
         c.i = v;
         return app::post(c, 100) ? "ok" : "busy";
     }
-    if (strcmp(type, "config.reload") == 0) {
+    if (strcmp(type, "config.reload") == 0 ||
+        strcmp(type, "layout.reload") == 0) {
+        // Spec 19 §"Commands": layout.reload is treated as
+        // config.reload + re-build managed screens. Screens module
+        // is one-shot in MVP, so a full layout swap requires a
+        // reboot.
         s_config_fetch_pending = true;
+        if (strcmp(type, "layout.reload") == 0) {
+            net::logf("[mgr] layout.reload accepted (full apply requires "
+                      "reboot in MVP)");
+        }
         return "ok";
     }
     if (strcmp(type, "reboot") == 0) {
@@ -706,6 +716,12 @@ int fetch_config() {
                               (unsigned)plan.screen_count,
                               plan.layout_variant[0] ? plan.layout_variant
                                                      : "(none)");
+                    // Spec 19 D5: build LVGL screens from the plan.
+                    // Idempotent - apply() logs "already applied" on
+                    // subsequent calls.
+                    if (plan.screen_count > 0) {
+                        manager_screens::apply(plan);
+                    }
                 } else {
                     net::logf("[mgr] render plan parse failed: %s at %s",
                               manager_config::parse_code_to_string(perr.code),
