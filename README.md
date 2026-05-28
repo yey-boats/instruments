@@ -174,6 +174,7 @@ make ota DEVICE_IP=10.0.0.42
 For a no-boat demo run, see [Running with synthetic data](#running-with-synthetic-data).
 For managed-display registry/config/command concepts, see
 [SignalK ESP Display Manager](docs/signalk-espdisp-manager.md).
+For the full status and upcoming work, see the [project roadmap](docs/roadmap.md).
 
 ## Make targets
 

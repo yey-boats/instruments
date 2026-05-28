@@ -1,6 +1,8 @@
 # Specs
 
 This directory contains product and implementation specs for the ESP32 boat MFD.
+The cross-cutting implementation roadmap is tracked in
+[`../roadmap.md`](../roadmap.md).
 
 Files:
 

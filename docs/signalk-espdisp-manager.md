@@ -5,6 +5,9 @@ ESP display dashboards. It manages device registration, dashboard presets,
 per-device configuration, display/layout variants, widget settings, command
 delivery, firmware metadata, and OTA jobs.
 
+Project-wide status, milestones, and remaining firmware/plugin/security/OTA
+work are tracked in the [roadmap](roadmap.md).
+
 At a high level this plugin lets a SignalK server act as the fleet manager for
 small ESP displays. Operators register panels, group similar panels around
 shared dashboard presets, tune the widgets/theme/font sizes from SignalK, and
