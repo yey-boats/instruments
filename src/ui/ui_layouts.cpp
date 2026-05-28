@@ -1011,6 +1011,141 @@ static void update_trend_chart(lv_obj_t *root, const ScreenVariantSpec &spec,
 }
 
 // ---------------------------------------------------------------------------
+// alert_focus template - single-value full-screen view that flips between
+// nominal / warning / alarm visual states when the metric crosses a
+// threshold.
+//
+// Thresholds come from the existing runtime alarm config
+// (ui::depth_alarm_m, ui::battery_alarm_v) so screen authors don't
+// duplicate them. For metrics without an alarm config, the template
+// stays in the nominal state.
+//
+// Visual states:
+//   nominal: theme.panel bg, accent rail
+//   alarm  : theme.alarm bg, white text, banner-style title
+//
+// Use as a focus screen for safety overlays - the existing
+// `alarm_banner` global pill still fires on top; this template gives
+// a dedicated tap-target screen that focuses one metric at a time.
+
+struct AlertFocusState {
+    lv_obj_t *root_panel;
+    lv_obj_t *cap;
+    lv_obj_t *value;
+    lv_obj_t *unit;
+    lv_obj_t *status;
+    char last_value[24];
+    char last_status[24];
+    MetricBinding metric;
+    bool in_alarm = false;
+};
+
+static bool alarm_for(const MetricBinding &m, const sk::Data &d) {
+    switch (m.source) {
+    case MetricSource::Depth_m:
+        return !isnan(d.depth) && d.depth > 0 && d.depth < ui::depth_alarm_m();
+    case MetricSource::BatteryV:
+        return !isnan(d.battVoltage) && d.battVoltage < ui::battery_alarm_v();
+    default:
+        return false;
+    }
+}
+
+static lv_obj_t *create_alert_focus(lv_obj_t *parent,
+                                     const ScreenVariantSpec &spec) {
+    if (spec.metric_count < 1) return nullptr;
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_set_size(root, LCD_W, LCD_H);
+    if (parent) lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    AlertFocusState *st = (AlertFocusState *)heap_caps_calloc(
+        1, sizeof(AlertFocusState), MALLOC_CAP_INTERNAL);
+    if (!st) { net::logf("[layout] alert_focus alloc failed"); return root; }
+    st->metric = spec.metrics[0];
+    strncpy(st->last_value, "\xFF", sizeof(st->last_value));
+    strncpy(st->last_status, "\xFF", sizeof(st->last_status));
+
+    st->root_panel = lv_obj_create(root);
+    lv_obj_set_size(st->root_panel, LCD_W - 16, LCD_H - 16 - 64);
+    lv_obj_set_pos(st->root_panel, 8, 64);
+    lv_obj_set_style_bg_color(st->root_panel, lv_color_hex(theme.panel), 0);
+    lv_obj_set_style_bg_opa(st->root_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(st->root_panel, lv_color_hex(st->metric.accent), 0);
+    lv_obj_set_style_border_width(st->root_panel, 4, 0);
+    lv_obj_set_style_radius(st->root_panel, 12, 0);
+    lv_obj_set_style_pad_all(st->root_panel, 0, 0);
+    lv_obj_clear_flag(st->root_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    st->cap = lv_label_create(st->root_panel);
+    lv_label_set_text(st->cap, st->metric.label ? st->metric.label : "");
+    lv_obj_set_style_text_font(st->cap, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(st->cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(st->cap, LV_ALIGN_TOP_MID, 0, 20);
+
+    st->value = lv_label_create(st->root_panel);
+    lv_label_set_text(st->value, "--");
+    // Largest available font; spec 12 visual adoption notes go further
+    // when a 60-72 pt font ships.
+    lv_obj_set_style_text_font(st->value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
+    lv_obj_align(st->value, LV_ALIGN_CENTER, 0, -10);
+
+    if (st->metric.unit && st->metric.unit[0]) {
+        st->unit = lv_label_create(st->root_panel);
+        lv_label_set_text(st->unit, st->metric.unit);
+        lv_obj_set_style_text_font(st->unit, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_align(st->unit, LV_ALIGN_CENTER, 0, 40);
+    }
+
+    st->status = lv_label_create(st->root_panel);
+    lv_label_set_text(st->status, "");
+    lv_obj_set_style_text_font(st->status, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(st->status, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(st->status, LV_ALIGN_BOTTOM_MID, 0, -16);
+
+    lv_obj_set_user_data(root, st);
+    return root;
+}
+
+static void update_alert_focus(lv_obj_t *root, const ScreenVariantSpec &spec,
+                                const sk::Data &data) {
+    (void)spec;
+    if (!root) return;
+    auto *st = (AlertFocusState *)lv_obj_get_user_data(root);
+    if (!st) return;
+
+    char pri[24], sec[24];
+    format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
+    ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
+
+    bool now_alarm = alarm_for(st->metric, data);
+    const char *status_text = now_alarm ? "ALARM"
+                            : (sec[0] ? sec : "nominal");
+    ui::set_text_if_changed(st->status, st->last_status, sizeof(st->last_status),
+                            status_text);
+
+    if (now_alarm != st->in_alarm) {
+        st->in_alarm = now_alarm;
+        uint32_t bg = now_alarm ? theme.alarm : theme.panel;
+        uint32_t fg = now_alarm ? 0xffffff : theme.fg;
+        uint32_t fg_dim = now_alarm ? 0xffe5e5 : theme.fg_dim;
+        lv_obj_set_style_bg_color(st->root_panel, lv_color_hex(bg), 0);
+        lv_obj_set_style_border_color(st->root_panel,
+            lv_color_hex(now_alarm ? theme.alarm : st->metric.accent), 0);
+        lv_obj_set_style_text_color(st->value, lv_color_hex(fg), 0);
+        lv_obj_set_style_text_color(st->cap, lv_color_hex(fg_dim), 0);
+        if (st->unit) lv_obj_set_style_text_color(st->unit, lv_color_hex(fg_dim), 0);
+        lv_obj_set_style_text_color(st->status, lv_color_hex(fg_dim), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public factory entry points
 
 lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
@@ -1021,6 +1156,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
     case TemplateId::RoundInstrument: return create_round_instrument(parent, spec);
     case TemplateId::SplitPair:       return create_split_pair(parent, spec);
     case TemplateId::TrendChart:      return create_trend_chart(parent, spec);
+    case TemplateId::AlertFocus:      return create_alert_focus(parent, spec);
     default:
         net::logf("[layout] template %d not implemented yet", (int)spec.template_id);
         return nullptr;
@@ -1035,6 +1171,7 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
     case TemplateId::RoundInstrument: update_round_instrument(root, spec, data); break;
     case TemplateId::SplitPair:       update_split_pair(root, spec, data); break;
     case TemplateId::TrendChart:      update_trend_chart(root, spec, data); break;
+    case TemplateId::AlertFocus:      update_alert_focus(root, spec, data); break;
     default: break;
     }
 }
