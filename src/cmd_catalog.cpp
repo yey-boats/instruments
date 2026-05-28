@@ -77,6 +77,10 @@ static const Entry CATALOG[] = {
     {"manager", "manager-token <jwt|clear>","Set/clear the bearer token", true, true},
     {"manager", "manager-forget",           "Wipe endpoint+token; back to idle", true, true},
     {"manager", "manager-discover",         "mDNS _espdisp-mgmt._tcp probe (TBD)", true, true},
+    {"manager", "manager-layout",           "Print applied render plan summary (spec 19 D7)", true, true},
+    {"manager", "manager-widgets",          "Print applied widget definitions (spec 19 D7)", true, true},
+    {"manager", "manager-config-dump",      "JSON-dump applied config summary (spec 19 D7)", true, true},
+    {"manager", "font-dump",                "List compiled font sizes + sample resolves (spec 19 D7)", true, true},
 
     // --- layout ---
     {"layout", "layout-show",               "Dump current loaded layout (JSON)", true, true},

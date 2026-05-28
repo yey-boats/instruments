@@ -15,7 +15,10 @@
 
 #include "app_events.h"
 #include "beeper.h"
+#include "board.h"
 #include "device_identity.h"
+#include "font_resolver.h"
+#include "manager_config.h"
 #include "net.h"
 #include "signalk.h"
 
@@ -38,6 +41,11 @@ uint32_t s_command_poll_interval_ms = DEFAULT_COMMAND_POLL_MS;
 // the worker fetches /devices/:id/config and applies it.
 String s_applied_config_version = "v0";
 String s_applied_config_hash = "";
+// Parsed RenderPlan from the last successfully-validated config.
+// Read by D7 diagnostic commands and (future D5) by the screen
+// builder. Holds zeroed defaults until first valid config lands.
+manager_config::RenderPlan s_render_plan;
+bool s_render_plan_valid = false;
 String s_desired_config_version = "";
 String s_desired_config_hash = "";
 volatile bool s_config_fetch_pending = false;
@@ -679,6 +687,30 @@ int fetch_config() {
             if (cfg_src) {
                 JsonDocument cfg;
                 cfg.set(cfg_src);
+                // Spec 19 D2 -> D5: build a RenderPlan from the
+                // config so diagnostics can show it. Failures don't
+                // block the legacy apply path below; the device
+                // continues to honor ui/sk/network blocks even when
+                // the spec-19 layout/widgets are malformed.
+                board::Geometry g = board::geometry();
+                manager_config::RenderPlan plan;
+                manager_config::ParseError perr;
+                if (manager_config::parse(cfg.as<JsonObjectConst>(),
+                                          g.width_px, g.height_px,
+                                          plan, perr)) {
+                    s_render_plan = plan;
+                    s_render_plan_valid = true;
+                    net::logf("[mgr] render plan: widgets=%u screens=%u "
+                              "variant=%s",
+                              (unsigned)plan.widget_count,
+                              (unsigned)plan.screen_count,
+                              plan.layout_variant[0] ? plan.layout_variant
+                                                     : "(none)");
+                } else {
+                    net::logf("[mgr] render plan parse failed: %s at %s",
+                              manager_config::parse_code_to_string(perr.code),
+                              perr.path[0] ? perr.path : "(root)");
+                }
                 bool ok = apply_config(cfg);
                 if (ok) {
                     lock_state();
@@ -972,8 +1004,86 @@ bool handleSerialCommand(const String &line) {
         net::logf("[mgr] mDNS discovery TBD (use manager-register <url>)");
         return true;
     }
+    // ---- spec 19 D7 diagnostic commands -------------------------------
+    if (line == "manager-layout") {
+        if (!s_render_plan_valid) {
+            net::logf("[mgr] no render plan applied yet");
+            return true;
+        }
+        net::logf("[mgr] layout variant=%s widgets=%u screens=%u "
+                  "(%ux%u) hash=%s",
+                  s_render_plan.layout_variant[0] ? s_render_plan.layout_variant
+                                                  : "(none)",
+                  (unsigned)s_render_plan.widget_count,
+                  (unsigned)s_render_plan.screen_count,
+                  (unsigned)s_render_plan.display_width,
+                  (unsigned)s_render_plan.display_height,
+                  s_applied_config_hash.length() ?
+                      s_applied_config_hash.c_str() : "(none)");
+        for (uint8_t i = 0; i < s_render_plan.screen_count; ++i) {
+            const auto &sc = s_render_plan.screens[i];
+            net::logf("[mgr]   screen[%u] id=%s tiles=%u",
+                      (unsigned)i, sc.id, (unsigned)sc.tile_count);
+        }
+        return true;
+    }
+    if (line == "manager-widgets") {
+        if (!s_render_plan_valid) {
+            net::logf("[mgr] no render plan applied yet");
+            return true;
+        }
+        for (uint8_t i = 0; i < s_render_plan.widget_count; ++i) {
+            const auto &w = s_render_plan.widgets[i];
+            net::logf("[mgr] widget[%u] id=%s type=%s path=%s "
+                      "title=%s unit=%s prec=%u fs=%u",
+                      (unsigned)i, w.id,
+                      manager_config::widget_type_to_string(w.type),
+                      w.path, w.title, w.unit,
+                      (unsigned)w.precision,
+                      (unsigned)(w.style.font_size ? w.style.font_size
+                                                  : w.style.value_font_size));
+        }
+        return true;
+    }
+    if (line == "manager-config-dump") {
+        if (!s_render_plan_valid) {
+            net::logf("[mgr] no render plan applied yet");
+            return true;
+        }
+        JsonDocument out;
+        out["layout_variant"] = s_render_plan.layout_variant;
+        out["widget_variant"] = s_render_plan.widget_variant;
+        out["display"]["width"] = s_render_plan.display_width;
+        out["display"]["height"] = s_render_plan.display_height;
+        out["widget_count"] = s_render_plan.widget_count;
+        out["screen_count"] = s_render_plan.screen_count;
+        out["config_version"] = s_applied_config_version;
+        out["config_hash"] = s_applied_config_hash;
+        String s;
+        serializeJson(out, s);
+        net::logf("[mgr] config: %s", s.c_str());
+        return true;
+    }
+    if (line == "font-dump") {
+        net::logf("[font] compiled sizes:");
+        for (size_t i = 0; i < font_resolver::DEFAULT_COUNT; ++i) {
+            net::logf("[font]   [%u] = %u",
+                      (unsigned)i,
+                      (unsigned)font_resolver::DEFAULT_SIZES[i]);
+        }
+        // Demo a few resolve calls.
+        uint16_t probes[] = {10, 16, 22, 30, 42, 80};
+        for (uint16_t p : probes) {
+            net::logf("[font]   resolve(%u) -> %u",
+                      (unsigned)p,
+                      (unsigned)font_resolver::resolve_default(p));
+        }
+        return true;
+    }
     net::logf("[mgr] usage: manager-status | manager-register <url> | "
-              "manager-token <jwt|clear> | manager-forget | manager-discover");
+              "manager-token <jwt|clear> | manager-forget | manager-discover "
+              "| manager-layout | manager-widgets | manager-config-dump "
+              "| font-dump");
     return true;
 }
 
