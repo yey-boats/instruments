@@ -22,6 +22,7 @@
 #include "input_test.h"
 #include "manager.h"
 #include "beeper.h"
+#include "autopilot.h"
 
 namespace net {
 
@@ -318,6 +319,7 @@ bool dispatchCommand(const String &line) {
     if (input_test::handleConsoleCommand(line)) return true;
     if (manager::handleSerialCommand(line)) return true;
     if (beeper::handleSerialCommand(line)) return true;
+    if (autopilot::handleSerialCommand(line)) return true;
     if (layout::handleSerialCommand(line)) return true;
     if (s_extra && s_extra(line)) return true;
     return false;

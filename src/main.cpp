@@ -22,6 +22,7 @@
 #include "device_identity.h"
 #include "manager.h"
 #include "beeper.h"
+#include "autopilot.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -1805,6 +1806,7 @@ void setup() {
     nmea2000::setup();
     device_identity::setup();
     beeper::setup();
+    autopilot::setup();
     manager::setup();
 
     lv_timer_create(ui_refresh, 200, NULL);

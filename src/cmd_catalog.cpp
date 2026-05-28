@@ -91,6 +91,14 @@ static const Entry CATALOG[] = {
     {"input-test", "gesture <left|right|up|down>",
                                             "Post ShowScreen directly to action queue", false, true},
 
+    // --- autopilot backend (spec 12 §4) ---
+    {"autopilot", "autopilot",              "Show current backend, mode, heading, target", true, true},
+    {"autopilot", "autopilot status",       "Same as above", true, true},
+    {"autopilot", "autopilot mode <m>",     "Set mode: standby|auto|wind|pretrack|track", true, true},
+    {"autopilot", "autopilot heading <n>",  "Adjust target heading by N degrees (-90..+90)", true, true},
+    {"autopilot", "autopilot silence",      "Silence the currently-sounding alarm", true, true},
+    {"autopilot", "autopilot backend <b>",  "Set backend: signalk | nmea2000", true, true},
+
     // --- beeper (spec 12 §5) ---
     {"beeper", "beep",                      "Short tap (50 ms default)", true, true},
     {"beeper", "beep <ms>",                 "Short beep of N ms", true, true},
