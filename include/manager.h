@@ -50,6 +50,10 @@ struct Status {
     String last_cmd_id;
     String last_cmd_type;
     String last_cmd_result;
+    // Spec 17 §11 firmware-update state
+    bool ota_in_flight;
+    bool ota_confirm_pending;
+    String ota_job_id;
 };
 
 void setup();

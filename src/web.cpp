@@ -178,6 +178,10 @@ static void handle_state() {
         if (st.last_cmd_ms) {
             mgr["lastCmdAgeMs"] = (uint32_t)(millis() - st.last_cmd_ms);
         }
+        // Spec 17 §11 firmware update state
+        mgr["otaInFlight"] = st.ota_in_flight;
+        mgr["otaConfirmPending"] = st.ota_confirm_pending;
+        if (st.ota_job_id.length()) mgr["otaJobId"] = st.ota_job_id;
     }
 
     JsonObject screen = doc["screen"].to<JsonObject>();
@@ -1198,6 +1202,7 @@ setInterval(refreshLogs, 1000);
 )HTML";
 
 static void handle_root() {
+    if (!require_api_auth()) return;
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "text/html", FPSTR(INDEX_HTML));
 }

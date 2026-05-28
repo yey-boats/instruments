@@ -1272,6 +1272,9 @@ Status status() {
     s.last_cmd_id = s_last_cmd_id;
     s.last_cmd_type = s_last_cmd_type;
     s.last_cmd_result = s_last_cmd_result;
+    s.ota_in_flight = s_ota_in_flight;
+    s.ota_confirm_pending = s_ota_confirm_pending;
+    s.ota_job_id = s_ota_job_id;
     unlock_state();
     return s;
 }
@@ -1306,6 +1309,10 @@ bool handleSerialCommand(const String &line) {
                   st.last_cmd_type.length() ? st.last_cmd_type.c_str() : "-",
                   st.last_cmd_result.length() ? st.last_cmd_result.c_str() : "-",
                   st.last_cmd_ms ? (unsigned long)(millis() - st.last_cmd_ms) : 0UL);
+        net::logf("[mgr] ota in_flight=%d job=%s confirm_pending=%d",
+                  (int)st.ota_in_flight,
+                  st.ota_job_id.length() ? st.ota_job_id.c_str() : "-",
+                  (int)st.ota_confirm_pending);
         return true;
     }
     if (line.startsWith("manager-register ")) {
