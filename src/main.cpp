@@ -21,6 +21,7 @@
 #include "source_nmea2000.h"
 #include "device_identity.h"
 #include "manager.h"
+#include "beeper.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -1803,6 +1804,7 @@ void setup() {
     nmea_wifi::setup();
     nmea2000::setup();
     device_identity::setup();
+    beeper::setup();
     manager::setup();
 
     lv_timer_create(ui_refresh, 200, NULL);

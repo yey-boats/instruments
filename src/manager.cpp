@@ -14,6 +14,7 @@
 #include <mbedtls/sha256.h>
 
 #include "app_events.h"
+#include "beeper.h"
 #include "device_identity.h"
 #include "net.h"
 #include "signalk.h"
@@ -520,10 +521,8 @@ const char *execute_command(const char *type, JsonObject payload) {
         return "ok";
     }
     if (strcmp(type, "beep") == 0) {
-        // No beeper on this board; log and ack ok per spec.
         uint32_t ms = payload["duration_ms"] | 50;
-        net::logf("[mgr] beep %lu ms (no hardware - logged only)",
-                  (unsigned long)ms);
+        beeper::beep_short(ms);
         return "ok";
     }
     return "unsupported_command";

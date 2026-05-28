@@ -21,6 +21,7 @@
 #include "board.h"
 #include "input_test.h"
 #include "manager.h"
+#include "beeper.h"
 
 namespace net {
 
@@ -316,6 +317,7 @@ bool dispatchCommand(const String &line) {
     if (board::handleSerialCommand(line)) return true;
     if (input_test::handleConsoleCommand(line)) return true;
     if (manager::handleSerialCommand(line)) return true;
+    if (beeper::handleSerialCommand(line)) return true;
     if (layout::handleSerialCommand(line)) return true;
     if (s_extra && s_extra(line)) return true;
     return false;

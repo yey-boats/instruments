@@ -91,6 +91,13 @@ static const Entry CATALOG[] = {
     {"input-test", "gesture <left|right|up|down>",
                                             "Post ShowScreen directly to action queue", false, true},
 
+    // --- beeper (spec 12 §5) ---
+    {"beeper", "beep",                      "Short tap (50 ms default)", true, true},
+    {"beeper", "beep <ms>",                 "Short beep of N ms", true, true},
+    {"beeper", "beep-alarm <on_ms> <off_ms> <count>", "Repeating alarm pattern (count=0 = forever)", true, true},
+    {"beeper", "beep-stop",                 "Cancel any running alarm", true, true},
+    {"beeper", "audible-alarms <on|off>",   "Toggle whether beeper sounds at all", true, true},
+
     // --- config (spec 08) ---
     {"config", "config-status",             "Print config_runtime status", true, true},
 
