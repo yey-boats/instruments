@@ -7,7 +7,11 @@ import pytest
 def test_state_endpoint(device):
     s = device.state()
     assert "device" in s and "wifi" in s and "sk" in s and "screen" in s
-    assert s["device"]["heap_free"] > 50_000, f"heap suspiciously low: {s['device']['heap_free']}"
+    # Threshold relaxed from 50 KB to 30 KB now that the manager
+    # subsystem (F1-F6), beeper, autopilot, and device_identity all
+    # ship in the default build. The device still has ~7 MB PSRAM and
+    # the LVGL renderer lives there; internal heap >= 30 KB is healthy.
+    assert s["device"]["heap_free"] > 30_000, f"heap suspiciously low: {s['device']['heap_free']}"
     assert s["wifi"]["state"] in ("sta", "ap"), s["wifi"]["state"]
 
 
