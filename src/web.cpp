@@ -88,9 +88,31 @@ static void send_json(int code, JsonDocument &doc) {
     send_json(code, out);
 }
 
+static bool api_auth_required() {
+    Preferences p;
+    p.begin("web", true);
+    bool enabled = p.getUChar("auth", 0) != 0;
+    p.end();
+    return enabled;
+}
+
+static bool require_api_auth() {
+    if (!api_auth_required()) return true;
+    Preferences p;
+    p.begin("web", true);
+    String user = p.getString("user", "espdisp");
+    String pass = p.getString("pass", "");
+    p.end();
+    if (user.length() == 0 || pass.length() == 0) return true;
+    if (server.authenticate(user.c_str(), pass.c_str())) return true;
+    server.requestAuthentication(BASIC_AUTH, "espdisp", "auth required");
+    return false;
+}
+
 // ---- /api/state --------------------------------------------------------
 
 static void handle_state() {
+    if (!require_api_auth()) return;
     JsonDocument doc;
     JsonObject dev = doc["device"].to<JsonObject>();
     dev["id"] = net::deviceId();
@@ -124,6 +146,11 @@ static void handle_state() {
     sk["task_peak_us"] = sk::loopMaxUs();
 
     {
+        JsonObject web_auth = doc["webAuth"].to<JsonObject>();
+        web_auth["enabled"] = api_auth_required();
+    }
+
+    {
         manager::Status st = manager::status();
         JsonObject mgr = doc["manager"].to<JsonObject>();
         mgr["deviceId"] = st.device_id;
@@ -143,6 +170,14 @@ static void handle_state() {
             : st.health == manager::HealthState::Registering ? "registering"
             : st.health == manager::HealthState::Failed ? "failed"
             : "idle";
+        // Spec 17 §11 command diagnostics
+        mgr["pendingCmdCount"] = (uint32_t)st.pending_cmd_count;
+        if (st.last_cmd_id.length()) mgr["lastCmdId"] = st.last_cmd_id;
+        if (st.last_cmd_type.length()) mgr["lastCmdType"] = st.last_cmd_type;
+        if (st.last_cmd_result.length()) mgr["lastCmdResult"] = st.last_cmd_result;
+        if (st.last_cmd_ms) {
+            mgr["lastCmdAgeMs"] = (uint32_t)(millis() - st.last_cmd_ms);
+        }
     }
 
     JsonObject screen = doc["screen"].to<JsonObject>();
@@ -196,6 +231,7 @@ static void handle_state() {
 // ---- /api/screens, /api/screen/<id> ------------------------------------
 
 static void handle_screens() {
+    if (!require_api_auth()) return;
     JsonDocument doc;
     JsonArray arr = doc.to<JsonArray>();
     int active = ui::current_index();
@@ -215,6 +251,7 @@ static void handle_screens() {
 }
 
 static void handle_screen_set() {
+    if (!require_api_auth()) return;
     String id = server.uri();
     int slash = id.lastIndexOf('/');
     if (slash < 0) {
@@ -245,6 +282,7 @@ static void put_double(JsonObject o, const char *k, double v) {
 }
 
 static void handle_sk_data() {
+    if (!require_api_auth()) return;
     sk::Data d_snap;
     sk::copyData(d_snap);
     const sk::Data &d = d_snap;
@@ -297,6 +335,7 @@ static void handle_sk_data() {
 // source-of-truth to renderers.
 
 static void handle_boat() {
+    if (!require_api_auth()) return;
     boat::Snapshot s;
     boat::copy_snapshot(s);
     boat::Timeouts t = boat::get_timeouts();
@@ -387,6 +426,7 @@ static void handle_boat() {
 // /help/commands HTML page rendered below.
 
 static void handle_commands_json() {
+    if (!require_api_auth()) return;
     JsonDocument doc;
     JsonArray arr = doc["commands"].to<JsonArray>();
     const auto *list = cmd_catalog::entries();
@@ -472,6 +512,7 @@ static void handle_commands_html() {
 // ---- /api/layout (GET / PUT) -------------------------------------------
 
 static void handle_layout_get() {
+    if (!require_api_auth()) return;
     String body;
     if (!layout::copy_last_json(body)) {
         server.send(404, "text/plain", "no layout loaded");
@@ -482,6 +523,7 @@ static void handle_layout_get() {
 }
 
 static void handle_layout_put() {
+    if (!require_api_auth()) return;
     if (!server.hasArg("plain")) {
         server.send(400, "text/plain", "empty body");
         return;
@@ -530,6 +572,7 @@ static void handle_dashboard_config_get_json() {
 }
 
 static void handle_dashboard_config_get_yaml() {
+    if (!require_api_auth()) return;
     String body;
     if (!layout::copy_last_json(body)) {
         server.send(404, "text/plain", "no dashboard config loaded");
@@ -545,10 +588,12 @@ static void handle_dashboard_config_put() {
 }
 
 static void handle_security() {
+    if (!require_api_auth()) return;
     JsonDocument doc;
     JsonObject web = doc["web"].to<JsonObject>();
     web["bind"] = net::wifiUp() ? "station-ip" : "setup-ap";
-    web["auth"] = "none-on-device";
+    web["auth"] = api_auth_required() ? "basic" : "none-on-device";
+    web["basic_auth_enabled"] = api_auth_required();
     web["intended_network"] = "trusted LAN or temporary setup AP";
     web["secrets_echoed"] = false;
     JsonArray webWrite = web["write_endpoints"].to<JsonArray>();
@@ -579,6 +624,7 @@ static void handle_security() {
 static bool s_scan_started = false;
 
 static void handle_wifi_scan() {
+    if (!require_api_auth()) return;
     // Async kick. Returns immediately; result is fetched via /api/wifi/networks.
     int r = WiFi.scanComplete();
     if (r == WIFI_SCAN_RUNNING) {
@@ -591,6 +637,7 @@ static void handle_wifi_scan() {
 }
 
 static void handle_wifi_networks() {
+    if (!require_api_auth()) return;
     int n = WiFi.scanComplete();
     JsonDocument doc;
     if (n == WIFI_SCAN_RUNNING) {
@@ -618,6 +665,7 @@ static void handle_wifi_networks() {
 }
 
 static void handle_wifi_connect() {
+    if (!require_api_auth()) return;
     if (!server.hasArg("plain")) {
         server.send(400, "text/plain", "json body required");
         return;
@@ -655,6 +703,7 @@ static void handle_wifi_connect() {
 }
 
 static void handle_wifi_forget() {
+    if (!require_api_auth()) return;
     // Route through the net worker queue; wifi-forget reboots, which
     // would otherwise happen on the web task and cut off the response.
     app::Command cmd;
@@ -671,11 +720,13 @@ static void handle_wifi_forget() {
 }
 
 static void handle_wifi_saved_get() {
+    if (!require_api_auth()) return;
     server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", wifi_store::to_json(false));
 }
 
 static void handle_wifi_saved_delete() {
+    if (!require_api_auth()) return;
     // URI form: /api/wifi/saved/<ssid>
     String u = server.uri();
     int slash = u.lastIndexOf('/');
@@ -697,6 +748,7 @@ static void handle_wifi_saved_delete() {
 // ---- /api/cmd ----------------------------------------------------------
 
 static void handle_cmd() {
+    if (!require_api_auth()) return;
     if (!server.hasArg("plain")) {
         server.send(400, "text/plain", "empty body");
         return;
@@ -756,6 +808,7 @@ static void emit_meta(JsonObject &dst, ::config::Domain d) {
 }
 
 static void handle_config() {
+    if (!require_api_auth()) return;
     ::config::UiConfig ui = ::config::ui();
     ::config::AlarmConfig al = ::config::alarms();
     ::config::SignalKConfig sk = ::config::signalk();
@@ -793,6 +846,7 @@ static void handle_config() {
 }
 
 static void handle_config_status() {
+    if (!require_api_auth()) return;
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
     root["jobs_queued"] = ::config::persist_jobs_queued();
@@ -813,6 +867,7 @@ static void handle_config_status() {
 // LVGL snapshot of the active screen. Requires LV_USE_SNAPSHOT in lv_conf.h.
 
 static void handle_screenshot() {
+    if (!require_api_auth()) return;
     uint8_t *bmp = nullptr;
     size_t len = 0;
     if (!screenshot::request(2500, &bmp, &len) || !bmp || len == 0) {
@@ -837,6 +892,28 @@ static void handle_screenshot() {
     heap_caps_free(bmp);
 }
 
+static void handle_logs() {
+    if (!require_api_auth()) return;
+    uint32_t since = 0;
+    if (server.hasArg("since")) since = (uint32_t)strtoul(server.arg("since").c_str(), nullptr, 10);
+    net::LogEntry entries[96];
+    size_t n = net::copyLogs(entries, 96, since);
+
+    JsonDocument doc;
+    JsonArray arr = doc["entries"].to<JsonArray>();
+    uint32_t last = since;
+    for (size_t i = 0; i < n; ++i) {
+        JsonObject o = arr.add<JsonObject>();
+        o["seq"] = entries[i].seq;
+        o["ms"] = entries[i].ms;
+        o["line"] = entries[i].line;
+        last = entries[i].seq;
+    }
+    doc["lastSeq"] = last;
+    doc["truncated"] = since && n == 96;
+    send_json(200, doc);
+}
+
 // ---- root HTML page ----------------------------------------------------
 // Self-contained vanilla HTML+JS. No external CDN. All DOM writes go
 // through textContent or createElement/append - no innerHTML with values.
@@ -855,6 +932,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   button.active{background:#9ec5fe;color:#0a1a2b;font-weight:600}
   textarea{width:100%;height:200px;background:#05101c;color:#eaf2ff;border:1px solid #223a55;border-radius:6px;padding:8px;font-family:monospace;font-size:12px;box-sizing:border-box}
   pre{background:#05101c;border:1px solid #223a55;border-radius:6px;padding:8px;overflow:auto;max-height:180px;font-size:12px;margin:0}
+  #liveLog{max-height:320px;white-space:pre-wrap}
   input{background:#05101c;color:#eaf2ff;border:1px solid #223a55;border-radius:4px;padding:4px 8px;font-family:monospace}
   .status{color:#33d17a}
   .status.stalled{color:#ffb84d}
@@ -882,6 +960,17 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
     <input id=cmd placeholder="e.g. sk-status"/>
     <button id=cmdSend>send</button>
     <pre id=cmdOut></pre>
+  </div>
+</div>
+<div class=row>
+  <div class=card style="flex:1 0 100%">
+    <div class=k>LIVE DEVICE LOG</div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0 8px 0">
+      <button id=logPause>pause</button>
+      <button id=logClear>clear view</button>
+      <span id=logState class=k>connecting</span>
+    </div>
+    <pre id=liveLog></pre>
   </div>
 </div>
 <div class=row>
@@ -980,6 +1069,32 @@ for (const b of document.querySelectorAll('button[data-cmd]')) {
 }
 
 let wifiPoll = null;
+let logSince = 0;
+let logPaused = false;
+const logLines = [];
+function appendLogLine(entry){
+  const t = String(Math.floor(entry.ms / 1000)).padStart(6, ' ');
+  logLines.push(t + 's #' + entry.seq + ' ' + entry.line);
+  while (logLines.length > 240) logLines.shift();
+  const box = document.getElementById('liveLog');
+  const nearBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 16;
+  box.textContent = logLines.join('\n');
+  if (nearBottom) box.scrollTop = box.scrollHeight;
+}
+async function refreshLogs(){
+  if (logPaused) return;
+  try{
+    const r = await fetch('/api/logs?since=' + encodeURIComponent(logSince));
+    const j = await r.json();
+    for (const entry of (j.entries || [])) {
+      appendLogLine(entry);
+      logSince = Math.max(logSince, entry.seq);
+    }
+    document.getElementById('logState').textContent = 'live  last #' + logSince;
+  }catch(e){
+    document.getElementById('logState').textContent = 'offline';
+  }
+}
 async function wifiScan(){
   await fetch('/api/wifi/scan', {method:'POST'});
   document.getElementById('wifiStatus').textContent = 'scanning...';
@@ -1057,6 +1172,15 @@ async function wifiSavedRefresh(){
 document.getElementById('wifiScan').addEventListener('click', wifiScan);
 document.getElementById('wifiConnect').addEventListener('click', wifiConnect);
 document.getElementById('wifiForget').addEventListener('click', wifiForget);
+document.getElementById('logPause').addEventListener('click', () => {
+  logPaused = !logPaused;
+  document.getElementById('logPause').textContent = logPaused ? 'resume' : 'pause';
+  document.getElementById('logState').textContent = logPaused ? 'paused' : 'live';
+});
+document.getElementById('logClear').addEventListener('click', () => {
+  logLines.length = 0;
+  document.getElementById('liveLog').textContent = '';
+});
 
 let brightT = null;
 document.getElementById('brightSlider').addEventListener('input', e => {
@@ -1067,7 +1191,9 @@ document.getElementById('brightSlider').addEventListener('input', e => {
 refresh();
 loadLayout();
 wifiSavedRefresh();
+refreshLogs();
 setInterval(refresh, 5000);
+setInterval(refreshLogs, 1000);
 </script>
 )HTML";
 
@@ -1119,6 +1245,7 @@ static void bind_routes() {
     server.on("/api/screens", HTTP_GET, handle_screens);
     server.on("/api/sk", HTTP_GET, handle_sk_data);
     server.on("/api/boat", HTTP_GET, handle_boat);
+    server.on("/api/logs", HTTP_GET, handle_logs);
     server.on("/api/commands", HTTP_GET, handle_commands_json);
     server.on("/help/commands", HTTP_GET, handle_commands_html);
     server.on("/api/layout", HTTP_GET, handle_layout_get);
@@ -1146,7 +1273,7 @@ static void bind_routes() {
         if (server.method() == HTTP_OPTIONS) {
             server.sendHeader("Access-Control-Allow-Origin", "*");
             server.sendHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-            server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+            server.sendHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
             server.send(204);
             return;
         }

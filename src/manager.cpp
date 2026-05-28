@@ -22,6 +22,10 @@
 #include "manager_screens.h"
 #include "net.h"
 #include "signalk.h"
+#include "source_nmea2000.h"
+#include "source_nmea_wifi.h"
+#include "ui_data.h"
+#include "ui_screens.h"
 
 namespace manager {
 
@@ -55,6 +59,13 @@ volatile uint32_t s_last_register_ms = 0;
 volatile int s_last_register_code = 0;
 volatile uint32_t s_last_heartbeat_ms = 0;
 volatile int s_last_heartbeat_code = 0;
+// Spec 17 §11 local diagnostics: surface command queue health so the
+// operator can see whether the device is processing or stuck.
+volatile uint8_t s_pending_cmd_count = 0;
+volatile uint32_t s_last_cmd_ms = 0;
+String s_last_cmd_id;
+String s_last_cmd_type;
+String s_last_cmd_result;
 TaskHandle_t s_task = nullptr;
 volatile bool s_force_register = false;
 
@@ -137,7 +148,7 @@ void add_auth_headers(HTTPClient &http) {
     if (s_sk_token.length()) {
         http.addHeader("Authorization", String("Bearer ") + s_sk_token);
     } else if (s_token.length()) {
-        add_auth_headers(http);
+        http.addHeader("Authorization", String("Bearer ") + s_token);
     }
     if (s_token.length()) {
         http.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
@@ -307,6 +318,14 @@ int do_register() {
 void build_status_body(JsonDocument &doc) {
     const auto &id = device_identity::get();
     doc["deviceId"] = id.device_id;
+    doc["device_id"] = id.device_id;
+
+    board::Geometry g = board::geometry();
+    Preferences ui_prefs;
+    ui_prefs.begin("ui", true);
+    String theme_name = ui_prefs.getString("theme", "night");
+    ui_prefs.end();
+
     JsonObject net_o = doc["network"].to<JsonObject>();
     net_o["wifi_up"] = net::wifiUp();
     net_o["state"] = net::wifiStateName();
@@ -315,14 +334,36 @@ void build_status_body(JsonDocument &doc) {
     // F5: current FQDN + OTA address derived from device id.
     String hostname = net::deviceId();
     net_o["hostname"] = hostname;
+    net_o["domain"] = "local";
     net_o["fqdn"] = hostname + ".local";
     net_o["ota_address"] = hostname + ".local:3232";
+    JsonObject mdns = net_o["mdns"].to<JsonObject>();
+    mdns["enabled"] = true;
+    JsonArray services = mdns["services"].to<JsonArray>();
+    services.add("_espdisp._tcp");
+    services.add("_arduino._tcp");
 
     JsonObject sk_o = doc["sk"].to<JsonObject>();
-    sk_o["state"] = sk::connectionStatus();
+    String sk_state = sk::connectionStatus();
+    sk_o["state"] = sk_state;
+    JsonObject signalk_o = doc["signalk"].to<JsonObject>();
+    signalk_o["connected"] = sk_state == "live";
+    signalk_o["state"] = sk_state;
 
     JsonObject ui_o = doc["ui"].to<JsonObject>();
     ui_o["uptime_ms"] = millis();
+    ui_o["screen"] = ui::current_id();
+    ui_o["theme"] = theme_name;
+    ui_o["brightness"] = ui::brightness();
+    ui_o["layoutVariant"] = s_render_plan.layout_variant;
+    ui_o["widgetVariant"] = s_render_plan.widget_variant;
+    ui_o["widgetConfigHash"] = s_applied_config_hash;
+
+    JsonObject display_o = doc["display"].to<JsonObject>();
+    display_o["width"] = g.width_px;
+    display_o["height"] = g.height_px;
+    display_o["rotation"] = g.rotation;
+    display_o["brightness"] = ui::brightness();
 
     JsonObject mem = doc["memory"].to<JsonObject>();
     mem["heap_free_kb"] = (uint32_t)(ESP.getFreeHeap() / 1024);
@@ -337,9 +378,49 @@ void build_status_body(JsonDocument &doc) {
     JsonObject touch = doc["touch"].to<JsonObject>();
     touch["mode"] = "poll";  // 4848s040 board
 
+    nmea_wifi::Status nw = nmea_wifi::status();
+    JsonObject n0183 = doc["nmea0183Wifi"].to<JsonObject>();
+    n0183["enabled"] = nw.enabled;
+    n0183["mode"] = nw.proto == nmea_wifi::Protocol::Udp ? "udp" : "tcp";
+    n0183["host"] = nw.host;
+    n0183["port"] = nw.port;
+    n0183["connected"] = nw.connected;
+    n0183["bytesIn"] = nw.bytes_in;
+    n0183["sentencesOk"] = nw.sentences_ok;
+    n0183["sentencesBad"] = nw.sentences_bad;
+    n0183["lastRxMs"] = nw.last_rx_ms;
+
+    nmea2000::Status n2k = nmea2000::status();
+    JsonObject n2k_o = doc["nmea2000"].to<JsonObject>();
+    n2k_o["compiledIn"] = n2k.compiled_in;
+    n2k_o["enabled"] = n2k.enabled;
+    n2k_o["framesRx"] = n2k.frames_rx;
+    n2k_o["pgnsDecoded"] = n2k.pgns_decoded;
+    n2k_o["lastRxMs"] = n2k.last_rx_ms;
+
+    JsonObject ota = doc["ota"].to<JsonObject>();
+    ota["enabled"] = true;
+    ota["mode"] = "arduino-ota";
+    ota["address"] = hostname + ".local";
+    ota["port"] = 3232;
+    ota["passwordSet"] = false;
+    ota["pullInFlight"] = s_ota_in_flight;
+    ota["pendingConfirm"] = s_ota_confirm_pending;
+
+    Preferences web_prefs;
+    web_prefs.begin("web", true);
+    JsonObject web_auth = doc["webAuth"].to<JsonObject>();
+    web_auth["enabled"] = web_prefs.getUChar("auth", 0) != 0;
+    web_auth["username"] = web_prefs.getString("user", "espdisp");
+    web_auth["passwordSet"] = web_prefs.getString("pass", "").length() > 0;
+    web_prefs.end();
+
     JsonObject cfg = doc["config"].to<JsonObject>();
     cfg["version"] = s_applied_config_version;
     cfg["hash"] = s_applied_config_hash;
+    cfg["applied"] = s_applied_config_hash.length() > 0;
+
+    doc["errors"].to<JsonArray>();
 }
 
 // Apply a single config blob. Returns true on success, false if any
@@ -410,28 +491,98 @@ bool apply_config(JsonDocument &cfg) {
 
     if (cfg["signalk"].is<JsonObject>()) {
         JsonObject sk = cfg["signalk"].as<JsonObject>();
+        bool changed = false;
+        bool reset_to_auto = false;
         Preferences p;
         p.begin("sk", false);
         if (sk["host"].is<const char *>()) {
             const char *host = sk["host"].as<const char *>();
-            p.putString("host", host);
-            net::logf("[mgr] applied sk.host=%s", host);
+            bool use_mdns = sk["useMdns"] | false;
+            bool manager_default =
+                use_mdns && strcmp(host, "signalk.local") == 0;
+            if (manager_default) {
+                // The SignalK plugin advertises signalk.local as a service
+                // discovery hint. Persisting it as a manual target disables
+                // the firmware's mDNS discovery path and can overwrite a
+                // working local IP configured after flashing.
+                String current_host = p.getString("host", "");
+                if (current_host == "signalk.local") {
+                    p.remove("host");
+                    p.remove("port");
+                    reset_to_auto = true;
+                    net::logf("[mgr] cleared persisted sk.host=%s; use mDNS",
+                              host);
+                } else {
+                    net::logf("[mgr] ignored default sk.host=%s (useMdns=true)",
+                              host);
+                }
+            } else {
+                p.putString("host", host);
+                changed = true;
+                net::logf("[mgr] applied sk.host=%s", host);
+            }
         }
         if (sk["port"].is<unsigned int>()) {
             uint16_t port = sk["port"].as<unsigned int>();
-            p.putUInt("port", port);
-            net::logf("[mgr] applied sk.port=%u", port);
+            if (changed || !sk["host"].is<const char *>()) {
+                p.putUInt("port", port);
+                changed = true;
+                net::logf("[mgr] applied sk.port=%u", port);
+            }
         }
         if (sk["token"].is<const char *>()) {
             const char *tok = sk["token"].as<const char *>();
             p.putString("token", tok);
+            changed = true;
             net::logf("[mgr] applied sk.token (len=%u)",
                       (unsigned)strlen(tok));
         }
         p.end();
         // SK reconnect picks up changes on next ws.begin via the
         // existing sk-reconnect path - schedule it.
-        net::dispatchCommand("sk-reconnect");
+        if (reset_to_auto) {
+            net::dispatchCommand("sk-host auto");
+        } else if (changed) {
+            net::dispatchCommand("sk-reconnect");
+        }
+    }
+
+    if (cfg["webAuth"].is<JsonObject>()) {
+        JsonObject web_auth = cfg["webAuth"].as<JsonObject>();
+        Preferences p;
+        p.begin("web", false);
+        bool changed = false;
+        if (web_auth["enabled"].is<bool>()) {
+            bool enabled = web_auth["enabled"].as<bool>();
+            p.putUChar("auth", enabled ? 1 : 0);
+            changed = true;
+            net::logf("[mgr] applied webAuth.enabled=%d", enabled ? 1 : 0);
+        }
+        if (web_auth["username"].is<const char *>()) {
+            const char *user = web_auth["username"].as<const char *>();
+            if (strlen(user) > 0 && strlen(user) <= 31) {
+                p.putString("user", user);
+                changed = true;
+                net::logf("[mgr] applied webAuth.username=%s", user);
+            } else {
+                net::logf("[mgr] reject webAuth.username (invalid length)");
+                ok = false;
+            }
+        }
+        if (web_auth["password"].is<const char *>()) {
+            const char *pass = web_auth["password"].as<const char *>();
+            if (strlen(pass) > 0 && strlen(pass) <= 63) {
+                p.putString("pass", pass);
+                changed = true;
+                net::logf("[mgr] applied webAuth.password (len=%u)",
+                          (unsigned)strlen(pass));
+            } else {
+                net::logf("[mgr] reject webAuth.password (invalid length)");
+                ok = false;
+            }
+        }
+        p.end();
+        if (changed) net::logf("[mgr] web API auth updated");
     }
 
     return ok;
@@ -505,11 +656,12 @@ void ota_task(void *) {
         }
     }
     {
-        size_t actual_size = (size_t)http.getSize();
-        if (actual_size == 0 || (want_size && actual_size != want_size)) {
+        int actual_size = http.getSize();
+        if (actual_size == 0 ||
+            (actual_size > 0 && want_size && (size_t)actual_size != want_size)) {
             // Length-unknown servers return -1; only reject if known
             // and mismatching.
-            if (actual_size && want_size && actual_size != want_size) {
+            if (actual_size > 0 && want_size && (size_t)actual_size != want_size) {
                 failure_detail = "size mismatch";
                 http.end();
                 goto fail;
@@ -734,6 +886,8 @@ int poll_commands() {
         JsonDocument r;
         if (deserializeJson(r, resp) != DeserializationError::Ok) return code;
         JsonArray cmds = r["commands"].as<JsonArray>();
+        size_t n = cmds.size();
+        s_pending_cmd_count = n > 255 ? 255 : (uint8_t)n;
         for (JsonObject cmd : cmds) {
             String cid = cmd["id"] | "";
             const char *type = cmd["type"] | "";
@@ -741,8 +895,17 @@ int poll_commands() {
             const char *result = execute_command(type, payload);
             net::logf("[mgr] cmd %s type=%s -> %s",
                       cid.c_str(), type, result);
+            lock_state();
+            s_last_cmd_id = cid;
+            s_last_cmd_type = type;
+            s_last_cmd_result = result ? result : "";
+            s_last_cmd_ms = millis();
+            unlock_state();
             if (cid.length()) ack_command(cid, result);
         }
+        // After acking, pending drops to zero from our POV - the plugin
+        // will repopulate on the next poll if new commands arrived.
+        s_pending_cmd_count = 0;
         return 200;
     }
     http.end();
@@ -919,6 +1082,12 @@ int do_heartbeat() {
     http.end();
     s_last_heartbeat_ms = millis();
     s_last_heartbeat_code = code;
+    // do_register sets s_health on register success/failure, but until
+    // now the heartbeat path never wrote it. That left already-
+    // provisioned boots reporting health=idle indefinitely even though
+    // 200s were flowing in. Mirror the same rule here.
+    s_health = (code >= 200 && code < 300) ? HealthState::Heartbeating
+                                            : HealthState::Failed;
 
     // Spec 17 §10 / 18 §11: after a post-OTA boot, the first successful
     // heartbeat triggers a /firmware/confirm POST so the plugin can
@@ -1054,6 +1223,13 @@ Status status() {
     s.device_id = device_identity::get().device_id;
     s.config_version = s_applied_config_version;
     s.config_hash = s_applied_config_hash;
+    lock_state();
+    s.pending_cmd_count = s_pending_cmd_count;
+    s.last_cmd_ms = s_last_cmd_ms;
+    s.last_cmd_id = s_last_cmd_id;
+    s.last_cmd_type = s_last_cmd_type;
+    s.last_cmd_result = s_last_cmd_result;
+    unlock_state();
     return s;
 }
 
@@ -1078,6 +1254,15 @@ bool handleSerialCommand(const String &line) {
                   st.last_register_code,
                   (int)(millis() - st.last_heartbeat_ms),
                   st.last_heartbeat_code);
+        net::logf("[mgr] cfg ver=%s hash=%s  pending_cmds=%u  "
+                  "last_cmd=%s/%s -> %s (%lums ago)",
+                  st.config_version.length() ? st.config_version.c_str() : "-",
+                  st.config_hash.length() ? st.config_hash.c_str() : "-",
+                  (unsigned)st.pending_cmd_count,
+                  st.last_cmd_id.length() ? st.last_cmd_id.c_str() : "-",
+                  st.last_cmd_type.length() ? st.last_cmd_type.c_str() : "-",
+                  st.last_cmd_result.length() ? st.last_cmd_result.c_str() : "-",
+                  st.last_cmd_ms ? (unsigned long)(millis() - st.last_cmd_ms) : 0UL);
         return true;
     }
     if (line.startsWith("manager-register ")) {

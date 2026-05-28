@@ -44,6 +44,12 @@ struct Status {
     String device_id;
     String config_version;
     String config_hash;
+    // Spec 17 §11 command diagnostics
+    uint8_t pending_cmd_count;
+    uint32_t last_cmd_ms;
+    String last_cmd_id;
+    String last_cmd_type;
+    String last_cmd_result;
 };
 
 void setup();
