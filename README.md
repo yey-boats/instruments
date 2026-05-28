@@ -113,9 +113,12 @@ Operators use structured pages:
   day/night theme, brightness, NMEA WiFi source, autopilot widgets, widget font
   sizes, touch/debug mode, and per-device overrides.
 - `Presets` manages reusable dashboard configurations so several panels of the
-  same size or role can share a common setup.
+  same size or role can share a common setup. Presets can be imported/exported
+  as JSON or YAML for review and version control.
 - `Preset detail` applies one dashboard preset to selected devices and can
   queue `config.reload` so the devices pull the new generated dashboard config.
+- The device web UI exposes matching dashboard config import/export endpoints:
+  `/api/dashboard/config.json` and `/api/dashboard/config.yaml`.
 - `Firmware` tracks plugin-side firmware artifacts and OTA jobs; firmware
   application on the device is still being integrated.
 

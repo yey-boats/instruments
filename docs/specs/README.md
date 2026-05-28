@@ -40,6 +40,8 @@ Files:
   registry, auth, profiles, commands, firmware catalog, and admin UI.
 - `19-device-display-widget-management.md` - device-side display geometry,
   layout variant, widget, and font-size management contract.
+- `20-dashboard-config-import-export-security.md` - dashboard JSON/YAML
+  import/export and device web/BLE access security contract.
 
 Use these specs when implementing the data-driven renderer, refining individual
 screens, or adding Signal K plugin/device-management features.

@@ -154,6 +154,8 @@ The operator UI is intentionally structured, not a raw JSON editor:
 - `Save and send to device` saves the generated config inputs and queues a
   `config.reload` command for the device to poll
 - `Save as preset` stores the same settings as a reusable profile/preset
+- preset rows export dashboard configs as JSON or YAML
+- the preset import form accepts `espdisp.dashboard.v1` JSON/YAML
 - the preset detail page applies one preset to multiple selected devices and
   can clear device overrides before queuing reload commands
 
@@ -167,6 +169,18 @@ selected preset/profile
   + unsupported widget filtering
   + font-size resolution against device capabilities
 ```
+
+Device-local dashboard config endpoints are available on the ESP web UI for
+bench work:
+
+```text
+GET/PUT /api/dashboard/config.json
+GET/PUT /api/dashboard/config.yaml
+GET     /api/security
+```
+
+The device `.yaml` endpoint intentionally uses JSON-compatible YAML syntax.
+Full block-style YAML import/export is handled by the SignalK plugin.
 
 Implemented v1 endpoints:
 
@@ -189,6 +203,9 @@ POST /plugins/espdisp-manager/devices/:id/status
 GET  /plugins/espdisp-manager/devices/:id/config
 GET  /plugins/espdisp-manager/profiles
 POST /plugins/espdisp-manager/profiles
+GET  /plugins/espdisp-manager/profiles/:id/dashboard.json
+GET  /plugins/espdisp-manager/profiles/:id/dashboard.yaml
+POST /plugins/espdisp-manager/profiles/import-dashboard
 POST /plugins/espdisp-manager/devices/:id/command
 GET  /plugins/espdisp-manager/devices/:id/commands
 GET  /plugins/espdisp-manager/devices/:id/commands/:commandId

@@ -83,6 +83,11 @@ pages render structured sections for dashboard theme, default screen, network,
 SignalK/NMEA, OTA, autopilot widgets, debug/touch mode, widget font sizes, and
 screens.
 
+Dashboard presets can be exported from SignalK as JSON or YAML, committed for
+review, and imported back into the manager. Devices expose matching local web
+endpoints for dashboard config import/export when direct bench configuration is
+needed.
+
 ## Screenshots
 
 Manager overview:
@@ -201,6 +206,9 @@ Profiles and groups:
 ```text
 GET  /profiles
 POST /profiles
+GET  /profiles/:id/dashboard.json
+GET  /profiles/:id/dashboard.yaml
+POST /profiles/import-dashboard
 POST /devices/:id/profile
 GET  /groups
 POST /groups/:groupId/command
@@ -338,6 +346,62 @@ same size or role converge on the same configuration.
 
 Generated config is deterministic apart from `generatedAt`. The config hash is
 computed without `generatedAt`, so devices can compare hashes to detect drift.
+
+## Dashboard Import/Export
+
+SignalK preset export:
+
+```text
+GET /plugins/espdisp-manager/profiles/:id/dashboard.json
+GET /plugins/espdisp-manager/profiles/:id/dashboard.yaml
+```
+
+SignalK preset import:
+
+```text
+POST /plugins/espdisp-manager/profiles/import-dashboard
+```
+
+The imported document kind is `espdisp.dashboard.v1`. The `dashboard` object is
+stored as the preset/profile config:
+
+```yaml
+kind: espdisp.dashboard.v1
+preset:
+  id: helm-day
+  name: Helm Day
+dashboard:
+  settings:
+    defaultScreen: dashboard
+    theme: day
+    brightness: 0.85
+  widgets:
+    defaults:
+      valueFontSize: 48
+```
+
+Device-local import/export aliases:
+
+```text
+GET /api/dashboard/config.json
+PUT /api/dashboard/config.json
+GET /api/dashboard/config.yaml
+PUT /api/dashboard/config.yaml
+```
+
+JSON is canonical. SignalK emits block-style YAML and imports that constrained
+profile. The device `.yaml` endpoint uses JSON-compatible YAML syntax to avoid a
+large YAML parser in firmware.
+
+Device access security is intentionally explicit:
+
+- SignalK operator routes use SignalK bearer auth.
+- Device config pulls use `X-EspDisp-Authorization`.
+- Device web endpoints currently have no local HTTP auth and are intended for
+  trusted LAN or temporary setup AP use.
+- Device BLE configuration currently has no pairing/application auth and is
+  intended for local physical proximity setup.
+- `/api/security` reports the active device web/BLE access model.
 
 ## Command Flow
 

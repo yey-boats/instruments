@@ -319,6 +319,26 @@ function registerRoutes (router, getManager) {
     res.json(manager.listProfiles())
   }))
 
+  router.get('/profiles/:id/dashboard.json', wrap(getManager, (manager, req, res) => {
+    res.json(dashboardPresetDocument(manager, req.params.id))
+  }))
+
+  router.get('/profiles/:id/dashboard.yaml', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'application/yaml; charset=utf-8')
+    res.end(toYaml(dashboardPresetDocument(manager, req.params.id)))
+  }))
+
+  router.post('/profiles/import-dashboard', wrap(getManager, (manager, req, res) => {
+    const imported = importDashboardPreset(manager, req.body || {}, req.headers || {})
+    if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+      res.statusCode = 303
+      res.setHeader('location', `/plugins/espdisp-manager/ui/profiles/${encodeURIComponent(imported.id)}`)
+      res.end()
+      return
+    }
+    res.json(imported)
+  }))
+
   router.post('/profiles', wrap(getManager, (manager, req, res) => {
     res.json(manager.upsertProfile(req.body || {}))
   }))
@@ -449,6 +469,8 @@ function jsonBody (req, res, next) {
         const contentType = req.headers['content-type'] || ''
         if (contentType.includes('application/x-www-form-urlencoded')) {
           req.body = parseUrlEncodedForm(body)
+        } else if (contentType.includes('yaml') || contentType.includes('text/plain')) {
+          req.body = { raw: body }
         } else {
           req.body = JSON.parse(body)
         }
@@ -473,6 +495,57 @@ function parseUrlEncodedForm (body) {
     }
   }
   return parsed
+}
+
+function dashboardPresetDocument (manager, profileId) {
+  const profile = manager.store.profiles.profiles[profileId]
+  if (!profile) throw statusError(404, 'preset not found')
+  return {
+    kind: 'espdisp.dashboard.v1',
+    preset: {
+      id: profile.id,
+      name: profile.name || profile.id,
+      version: Number(profile.version || 1),
+      updatedAt: profile.updatedAt || null
+    },
+    dashboard: profile.config || {}
+  }
+}
+
+function importDashboardPreset (manager, body, headers) {
+  const contentType = String(headers['content-type'] || '')
+  const doc = body.raw
+    ? parseDashboardImport(body.raw, body.format === 'json' ? 'application/json' : contentType)
+    : (body.dashboard || body.preset ? body : { dashboard: body })
+  if (doc.kind && doc.kind !== 'espdisp.dashboard.v1') {
+    throw statusError(400, 'unsupported dashboard config kind')
+  }
+  const preset = doc.preset || {}
+  const id = sanitizePresetId(body.presetId || doc.presetId || preset.id || preset.name)
+  if (!id) throw statusError(400, 'preset id is required')
+  const config = doc.dashboard || doc.config
+  if (!config || typeof config !== 'object' || Array.isArray(config)) {
+    throw statusError(400, 'dashboard object is required')
+  }
+  return manager.upsertProfile({
+    id,
+    name: preset.name || doc.name || id,
+    version: Number(preset.version || doc.version || 1),
+    config
+  })
+}
+
+function parseDashboardImport (raw, contentType) {
+  const text = String(raw || '').trim()
+  if (!text) throw statusError(400, 'empty dashboard import')
+  if (contentType.includes('json') || text.startsWith('{') || text.startsWith('[')) {
+    try {
+      return JSON.parse(text)
+    } catch (err) {
+      throw statusError(400, 'invalid dashboard JSON')
+    }
+  }
+  return fromYaml(text)
 }
 
 function renderUi (manager, page, req) {
@@ -522,7 +595,8 @@ function renderUi (manager, page, req) {
     .config-form { background: white; border: 1px solid #d9e0e3; border-radius: 6px; padding: 14px; margin-bottom: 20px; }
     .form-grid { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
     label { display: block; color: #40515a; font-size: 12px; font-weight: 600; }
-    input, select { box-sizing: border-box; width: 100%; min-height: 34px; margin-top: 4px; border: 1px solid #c6d0d5; border-radius: 4px; padding: 6px 8px; background: white; color: #172026; }
+    input, select, textarea { box-sizing: border-box; width: 100%; min-height: 34px; margin-top: 4px; border: 1px solid #c6d0d5; border-radius: 4px; padding: 6px 8px; background: white; color: #172026; }
+    textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
     input[type="checkbox"] { width: auto; min-height: auto; margin-right: 6px; }
     fieldset { border: 1px solid #d9e0e3; border-radius: 6px; margin: 0 0 14px; padding: 12px; }
     legend { color: #40515a; font-size: 13px; font-weight: 700; padding: 0 4px; }
@@ -858,6 +932,112 @@ function statusError (status, message) {
   return err
 }
 
+function toYaml (value, indent = 0) {
+  const pad = ' '.repeat(indent)
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]\n'
+    return value.map((item) => {
+      if (item && typeof item === 'object') {
+        return `${pad}-\n${toYaml(item, indent + 2)}`
+      }
+      return `${pad}- ${yamlScalar(item)}\n`
+    }).join('')
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value)
+    if (keys.length === 0) return '{}\n'
+    return keys.map((key) => {
+      const item = value[key]
+      if (item && typeof item === 'object') {
+        return `${pad}${key}:\n${toYaml(item, indent + 2)}`
+      }
+      return `${pad}${key}: ${yamlScalar(item)}\n`
+    }).join('')
+  }
+  return `${pad}${yamlScalar(value)}\n`
+}
+
+function yamlScalar (value) {
+  if (value == null) return 'null'
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  const s = String(value)
+  if (/^[A-Za-z0-9_.:/@-]+$/.test(s) && !['true', 'false', 'null'].includes(s)) return s
+  return JSON.stringify(s)
+}
+
+function fromYaml (text) {
+  const lines = text.split(/\r?\n/)
+    .map((raw) => ({ raw, indent: raw.match(/^ */)[0].length, text: raw.trim() }))
+    .filter((line) => line.text && !line.text.startsWith('#'))
+  const [value] = parseYamlBlock(lines, 0, 0)
+  return value
+}
+
+function parseYamlBlock (lines, index, indent) {
+  if (index >= lines.length) return [{}, index]
+  if (lines[index].text.startsWith('-')) return parseYamlArray(lines, index, indent)
+  return parseYamlObject(lines, index, indent)
+}
+
+function parseYamlObject (lines, index, indent) {
+  const out = {}
+  while (index < lines.length) {
+    const line = lines[index]
+    if (line.indent < indent || line.text.startsWith('-')) break
+    if (line.indent > indent) throw statusError(400, 'invalid dashboard YAML indentation')
+    const split = line.text.indexOf(':')
+    if (split <= 0) throw statusError(400, 'invalid dashboard YAML mapping')
+    const key = line.text.slice(0, split).trim()
+    const rest = line.text.slice(split + 1).trim()
+    if (rest) {
+      out[key] = parseYamlScalar(rest)
+      index++
+    } else {
+      const parsed = parseYamlBlock(lines, index + 1, indent + 2)
+      out[key] = parsed[0]
+      index = parsed[1]
+    }
+  }
+  return [out, index]
+}
+
+function parseYamlArray (lines, index, indent) {
+  const out = []
+  while (index < lines.length) {
+    const line = lines[index]
+    if (line.indent < indent || !line.text.startsWith('-')) break
+    if (line.indent > indent) throw statusError(400, 'invalid dashboard YAML indentation')
+    const rest = line.text.slice(1).trim()
+    if (rest) {
+      out.push(parseYamlScalar(rest))
+      index++
+    } else {
+      const parsed = parseYamlBlock(lines, index + 1, indent + 2)
+      out.push(parsed[0])
+      index = parsed[1]
+    }
+  }
+  return [out, index]
+}
+
+function parseYamlScalar (value) {
+  if (value === 'null') return null
+  if (value === 'true') return true
+  if (value === 'false') return false
+  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value)
+  if ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith('\'') && value.endsWith('\''))) {
+    try {
+      return JSON.parse(value.startsWith('"') ? value : JSON.stringify(value.slice(1, -1)))
+    } catch (err) {
+      return value.slice(1, -1)
+    }
+  }
+  if (value === '[]') return []
+  if (value === '{}') return {}
+  return value
+}
+
 function renderDeviceConfigWidget (config) {
   const services = (((config.network || {}).mdns || {}).services || [])
     .map((service) => `${service.type}:${service.port}`)
@@ -1026,12 +1206,21 @@ function renderProfilesPage (profiles, devices) {
           <td>${escapeHtml(profile.updatedAt || '')}</td>
           <td>${escapeHtml(devices.filter((device) => device.profile === profile.id).length)}</td>
           <td>${escapeHtml(configSummary(profile.config || {}))}</td>
-          <td><code>${escapeHtml(profile.hash || '')}</code></td>
+          <td><code>${escapeHtml(profile.hash || '')}</code><br><span><a href="/plugins/espdisp-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.json">json</a> · <a href="/plugins/espdisp-manager/profiles/${encodeURIComponent(profile.id)}/dashboard.yaml">yaml</a></span></td>
         </tr>`).join('')
   return `
     <section class="panel">
       <h2>Device presets</h2>
       <p class="muted">Presets are shared profiles. Assign them from a device config page, then save per-device overrides or save changes back as a new preset.</p>
+      <form class="config-form" method="post" action="/plugins/espdisp-manager/profiles/import-dashboard">
+        <h2>Import dashboard preset</h2>
+        <div class="form-grid">
+          ${field('Preset id', input('presetId', 'imported-dashboard'))}
+          ${field('Format', select('format', 'json', [['json', 'JSON'], ['yaml', 'YAML']]))}
+        </div>
+        <textarea name="raw" rows="10" placeholder="Paste espdisp.dashboard.v1 JSON or YAML here"></textarea>
+        <div class="actions"><button type="submit">Import preset</button></div>
+      </form>
       <table>
         <thead><tr><th>Preset</th><th>Version</th><th>Updated</th><th>Devices</th><th>Summary</th><th>Hash</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="6">No presets configured.</td></tr>'}</tbody>
@@ -1200,4 +1389,9 @@ function escapeHtml (value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+module.exports._test = {
+  toYaml,
+  fromYaml
 }
