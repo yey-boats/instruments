@@ -105,6 +105,29 @@ void save_prefs() {
     p.end();
 }
 
+// Hard caps on response bodies we'll accept from the plugin. A hostile
+// or buggy server could return arbitrarily large payloads; reading
+// everything into a String would OOM the device. These are generous
+// for legitimate payloads but bounded.
+constexpr int MAX_DISCOVERY_BYTES = 4 * 1024;
+constexpr int MAX_HEARTBEAT_RESP_BYTES = 4 * 1024;
+constexpr int MAX_CONFIG_BYTES = 32 * 1024;
+constexpr int MAX_COMMANDS_BYTES = 8 * 1024;
+
+// Returns true iff the Content-Length header (if any) is within `cap`.
+// HTTPClient::getSize() returns -1 when the server omits Content-Length;
+// in that case we accept the read but rely on the small timeouts to
+// bound it.
+bool resp_within_cap(HTTPClient &http, int cap, const char *who) {
+    int sz = http.getSize();
+    if (sz > cap) {
+        net::logf("[mgr] %s response too large (%d > %d) - dropping",
+                  who, sz, cap);
+        return false;
+    }
+    return true;
+}
+
 // Compose Authorization (SK security) + X-EspDisp-Authorization (plugin auth)
 // for any plugin HTTP request. SK security needs a server-issued token in the
 // standard Authorization header; the plugin itself reads X-EspDisp-Authorization
@@ -159,7 +182,7 @@ int fetch_discovery(const String &base, String *out_base_path = nullptr) {
     http.setTimeout(3000);
     add_auth_headers(http);
     int code = http.GET();
-    if (code == 200) {
+    if (code == 200 && resp_within_cap(http, MAX_DISCOVERY_BYTES, "discovery")) {
         String body = http.getString();
         JsonDocument d;
         if (deserializeJson(d, body) == DeserializationError::Ok) {
@@ -230,8 +253,10 @@ int do_register() {
         add_auth_headers(http);
         code = http.POST(payload);
         if (code == 200 || code == 201) {
-            resp = http.getString();
-            successful_base = bases[i];
+            if (resp_within_cap(http, MAX_HEARTBEAT_RESP_BYTES, "register")) {
+                resp = http.getString();
+                successful_base = bases[i];
+            }
             http.end();
             break;
         }
@@ -700,6 +725,10 @@ int poll_commands() {
     add_auth_headers(http);
     int code = http.GET();
     if (code == 200) {
+        if (!resp_within_cap(http, MAX_COMMANDS_BYTES, "commands")) {
+            http.end();
+            return code;
+        }
         String resp = http.getString();
         http.end();  // close before any nested HTTP calls (acks)
         JsonDocument r;
@@ -736,6 +765,10 @@ int fetch_config() {
     add_auth_headers(http);
     int code = http.GET();
     if (code == 200) {
+        if (!resp_within_cap(http, MAX_CONFIG_BYTES, "config")) {
+            http.end();
+            return code;
+        }
         String resp = http.getString();
         JsonDocument r;
         if (deserializeJson(r, resp) == DeserializationError::Ok) {
@@ -844,7 +877,8 @@ int do_heartbeat() {
         // the new id; keep the token in place since auth itself is fine.
         net::logf("[mgr] heartbeat 404 - re-registering");
         s_force_register = true;
-    } else if (code == 200) {
+    } else if (code == 200 &&
+               resp_within_cap(http, MAX_HEARTBEAT_RESP_BYTES, "heartbeat")) {
         // F3: check if the server wants a config update.
         String resp = http.getString();
         JsonDocument r;

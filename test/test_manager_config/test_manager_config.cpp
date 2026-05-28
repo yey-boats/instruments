@@ -173,6 +173,115 @@ static void test_too_many_widgets_rejected() {
                           static_cast<int>(err.code));
 }
 
+static void test_oversized_widget_id_truncates_safely() {
+    // 100-char widget id - well above MAX_WIDGET_ID=31. Must not
+    // overflow the destination buffer, must not crash; truncation is
+    // acceptable.
+    std::string id(100, 'a');
+    std::string body = "{\"widgets\":{\"items\":{\"" + id +
+                       "\":{\"type\":\"numeric\"}}}}";
+    auto cfg = parse_json(body.c_str());
+    RenderPlan plan;
+    ParseError err;
+    bool ok = parse(cfg, 480, 480, plan, err);
+    // Either accepted with truncated id, or rejected gracefully - never
+    // a crash and never writes past the buffer.
+    if (ok) {
+        TEST_ASSERT_EQUAL_UINT8(1, plan.widget_count);
+        TEST_ASSERT_TRUE(strlen(plan.widgets[0].id) <= MAX_WIDGET_ID);
+    } else {
+        TEST_ASSERT_NOT_EQUAL(static_cast<int>(ParseCode::Ok),
+                              static_cast<int>(err.code));
+    }
+}
+
+static void test_oversized_path_truncates_safely() {
+    std::string path(300, 'p');
+    std::string body = "{\"widgets\":{\"items\":{\"w\":{\"type\":\"numeric\",\"path\":\""
+                       + path + "\"}}}}";
+    auto cfg = parse_json(body.c_str());
+    RenderPlan plan;
+    ParseError err;
+    bool ok = parse(cfg, 480, 480, plan, err);
+    if (ok) {
+        TEST_ASSERT_TRUE(strlen(plan.widgets[0].path) <= MAX_PATH);
+    }
+}
+
+static void test_wrong_type_for_widgets_block_rejected() {
+    // widgets must be object - sending an array shouldn't crash.
+    auto cfg = parse_json(R"({"widgets": [1,2,3]})");
+    RenderPlan plan;
+    ParseError err;
+    // Either silently empty (treated as no widgets) or rejected; both
+    // are acceptable. Just verify no crash and plan stays empty.
+    parse(cfg, 480, 480, plan, err);
+    TEST_ASSERT_EQUAL_UINT8(0, plan.widget_count);
+}
+
+static void test_widget_with_non_string_type_rejected() {
+    auto cfg = parse_json(R"({"widgets":{"items":{"w":{"type": 42}}}})");
+    RenderPlan plan;
+    ParseError err;
+    TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
+}
+
+static void test_too_many_screens_rejected() {
+    std::string body = "{\"widgets\":{\"items\":{\"x\":{\"type\":\"numeric\"}}},"
+                       "\"layout\":{\"screens\":[";
+    for (int i = 0; i < MAX_SCREENS + 1; ++i) {
+        if (i) body += ",";
+        body += "{\"id\":\"s";
+        body += std::to_string(i);
+        body += "\",\"type\":\"grid\",\"tiles\":[]}";
+    }
+    body += "]}}";
+    auto cfg = parse_json(body.c_str());
+    RenderPlan plan;
+    ParseError err;
+    TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyScreens),
+                          static_cast<int>(err.code));
+}
+
+static void test_too_many_tiles_per_screen_rejected() {
+    std::string body = "{\"widgets\":{\"items\":{\"x\":{\"type\":\"numeric\"}}},"
+                       "\"layout\":{\"screens\":[{\"id\":\"s\",\"type\":\"grid\",\"tiles\":[";
+    for (int i = 0; i < MAX_TILES_PER_SCREEN + 1; ++i) {
+        if (i) body += ",";
+        body += "{\"widget\":\"x\",\"area\":{\"col\":";
+        body += std::to_string(i);
+        body += ",\"row\":0}}";
+    }
+    body += "]}]}}";
+    auto cfg = parse_json(body.c_str());
+    RenderPlan plan;
+    ParseError err;
+    TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyTiles),
+                          static_cast<int>(err.code));
+}
+
+static void test_null_and_empty_strings_safe() {
+    auto cfg = parse_json(R"({"widgets":{"items":{"w":{
+        "type": "numeric", "title": "", "path": "", "unit": ""
+    }}}})");
+    RenderPlan plan;
+    ParseError err;
+    TEST_ASSERT_TRUE(parse(cfg, 480, 480, plan, err));
+    TEST_ASSERT_EQUAL_UINT8(1, plan.widget_count);
+}
+
+static void test_negative_precision_clamped() {
+    auto cfg = parse_json(R"({"widgets":{"items":{"w":{
+        "type":"numeric","precision":-5
+    }}}})");
+    RenderPlan plan;
+    ParseError err;
+    // Either accepted with precision clamped, or rejected. No crash.
+    parse(cfg, 480, 480, plan, err);
+}
+
 static void test_empty_config_is_valid_empty_plan() {
     auto cfg = parse_json("{}");
     RenderPlan plan;
@@ -193,6 +302,14 @@ int main(int, char **) {
     RUN_TEST(test_unsupported_layout_type_rejected);
     RUN_TEST(test_variant_matching_picks_compatible);
     RUN_TEST(test_too_many_widgets_rejected);
+    RUN_TEST(test_oversized_widget_id_truncates_safely);
+    RUN_TEST(test_oversized_path_truncates_safely);
+    RUN_TEST(test_wrong_type_for_widgets_block_rejected);
+    RUN_TEST(test_widget_with_non_string_type_rejected);
+    RUN_TEST(test_too_many_screens_rejected);
+    RUN_TEST(test_too_many_tiles_per_screen_rejected);
+    RUN_TEST(test_null_and_empty_strings_safe);
+    RUN_TEST(test_negative_precision_clamped);
     RUN_TEST(test_empty_config_is_valid_empty_plan);
     return UNITY_END();
 }

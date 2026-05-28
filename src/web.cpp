@@ -620,6 +620,10 @@ static void handle_wifi_connect() {
         server.send(400, "text/plain", "json body required");
         return;
     }
+    if (server.arg("plain").length() > 1024) {
+        server.send(413, "text/plain", "body too large (1 KB max)");
+        return;
+    }
     JsonDocument doc;
     if (deserializeJson(doc, server.arg("plain"))) {
         server.send(400, "text/plain", "bad json");
@@ -696,6 +700,13 @@ static void handle_cmd() {
         return;
     }
     String line = server.arg("plain");
+    // Hard cap: command lines are routed through app::Command.a (256 B).
+    // Reject oversized bodies before allocating the queue slot so a
+    // hostile client can't flood the heap.
+    if (line.length() > 512) {
+        server.send(413, "text/plain", "command too long (512 B max)");
+        return;
+    }
     line.trim();
     if (line.length() == 0) {
         server.send(400, "text/plain", "empty command");
