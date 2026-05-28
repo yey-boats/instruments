@@ -155,6 +155,29 @@ static void format_metric(const MetricBinding &m, const sk::Data &d,
     }
 }
 
+// Numeric value for chart-able metrics, in display units. Returns NaN
+// for non-scalar bindings (Position, APState, etc).
+static double metric_scalar(const MetricBinding &m, const sk::Data &d) {
+    switch (m.source) {
+    case MetricSource::AWS_kn:         return isnan(d.aws)        ? NAN : mps_to_kn(d.aws);
+    case MetricSource::TWS_kn:         return isnan(d.tws)        ? NAN : mps_to_kn(d.tws);
+    case MetricSource::SOG_kn:         return isnan(d.sog)        ? NAN : mps_to_kn(d.sog);
+    case MetricSource::Depth_m:        return d.depth;
+    case MetricSource::WaterTemp_C:    return isnan(d.waterTemp)  ? NAN : k_to_c(d.waterTemp);
+    case MetricSource::BatteryV:       return d.battVoltage;
+    case MetricSource::BatterySOC_pct: return isnan(d.battSoc)    ? NAN : d.battSoc * 100.0;
+    case MetricSource::VMG_kn:         return isnan(d.vmg)        ? NAN : mps_to_kn(d.vmg);
+    case MetricSource::COG_deg:        return isnan(d.cogTrue)    ? NAN : rad_to_deg_pos(d.cogTrue);
+    case MetricSource::HDG_deg:        return isnan(d.headingTrue)? NAN : rad_to_deg_pos(d.headingTrue);
+    case MetricSource::AWA_deg:        return isnan(d.awa)        ? NAN : rad_to_deg_pos(d.awa);
+    case MetricSource::TWA_deg:        return isnan(d.twa)        ? NAN : rad_to_deg_pos(d.twa);
+    case MetricSource::BTW_deg:        return isnan(d.btw)        ? NAN : rad_to_deg_pos(d.btw);
+    case MetricSource::XTE:            return d.xte;
+    case MetricSource::DTW:            return d.dtw;
+    default: return NAN;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // quad_grid template - 2x2 tile dashboard
 //
@@ -825,6 +848,169 @@ static void update_split_pair(lv_obj_t *root, const ScreenVariantSpec &spec,
 }
 
 // ---------------------------------------------------------------------------
+// trend_chart template - large primary value + rolling N-sample chart.
+// Auto-scales the Y axis to the running min/max of the visible window
+// so the trace stays useful across very different metrics (depth 0.5..40
+// vs battery 11..14 vs SOG 0..10).
+//
+// Single MetricBinding[0]. If metric.unit is set, shown next to value.
+// Skips inserting a new sample when the scalar hasn't moved by more
+// than 1 % of the visible range (keeps the trace from drawing a flat
+// line of N identical points and forcing redraws).
+
+struct TrendChartState {
+    lv_obj_t *value;
+    lv_obj_t *unit;
+    lv_obj_t *secondary;
+    lv_obj_t *chart;
+    lv_chart_series_t *series;
+    char last_value[24];
+    char last_secondary[24];
+    MetricBinding metric;
+    static constexpr int POINTS = 60;
+    double samples[POINTS];
+    int next_idx = 0;
+    int filled = 0;
+    double last_sample = NAN;
+};
+
+static lv_obj_t *create_trend_chart(lv_obj_t *parent,
+                                     const ScreenVariantSpec &spec) {
+    if (spec.metric_count < 1) return nullptr;
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_set_size(root, LCD_W, LCD_H);
+    if (parent) lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    TrendChartState *st = (TrendChartState *)heap_caps_calloc(
+        1, sizeof(TrendChartState), MALLOC_CAP_INTERNAL);
+    if (!st) { net::logf("[layout] trend_chart alloc failed"); return root; }
+    st->metric = spec.metrics[0];
+    strncpy(st->last_value, "\xFF", sizeof(st->last_value));
+    strncpy(st->last_secondary, "\xFF", sizeof(st->last_secondary));
+
+    // Title (caption) top-left.
+    lv_obj_t *cap = lv_label_create(root);
+    lv_label_set_text(cap, st->metric.label ? st->metric.label : "");
+    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 16, 16);
+
+    st->value = lv_label_create(root);
+    lv_label_set_text(st->value, "--");
+    lv_obj_set_style_text_font(st->value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
+    lv_obj_align(st->value, LV_ALIGN_TOP_LEFT, 16, 40);
+
+    if (st->metric.unit && st->metric.unit[0]) {
+        st->unit = lv_label_create(root);
+        lv_label_set_text(st->unit, st->metric.unit);
+        lv_obj_set_style_text_font(st->unit, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_align(st->unit, LV_ALIGN_TOP_LEFT, 180, 56);
+    }
+
+    st->secondary = lv_label_create(root);
+    lv_label_set_text(st->secondary, "");
+    lv_obj_set_style_text_font(st->secondary, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(st->secondary, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(st->secondary, LV_ALIGN_TOP_RIGHT, -16, 16);
+
+    // Chart fills the lower 240 px.
+    st->chart = lv_chart_create(root);
+    lv_obj_set_size(st->chart, LCD_W - 32, 240);
+    lv_obj_align(st->chart, LV_ALIGN_BOTTOM_MID, 0, -16);
+    lv_chart_set_type(st->chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_point_count(st->chart, TrendChartState::POINTS);
+    lv_chart_set_div_line_count(st->chart, 4, 6);
+    lv_chart_set_range(st->chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_obj_set_style_bg_color(st->chart, lv_color_hex(theme.panel), 0);
+    lv_obj_set_style_bg_opa(st->chart, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(st->chart, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(st->chart, 1, 0);
+    lv_obj_set_style_radius(st->chart, 8, 0);
+    lv_obj_set_style_line_color(st->chart, lv_color_hex(theme.grid), LV_PART_MAIN);
+    lv_obj_set_style_line_color(st->chart, lv_color_hex(theme.grid), LV_PART_ITEMS);
+    st->series = lv_chart_add_series(st->chart, lv_color_hex(st->metric.accent),
+                                     LV_CHART_AXIS_PRIMARY_Y);
+    for (int i = 0; i < TrendChartState::POINTS; ++i) {
+        st->samples[i] = NAN;
+    }
+    lv_obj_set_user_data(root, st);
+    return root;
+}
+
+static void update_trend_chart(lv_obj_t *root, const ScreenVariantSpec &spec,
+                                const sk::Data &data) {
+    (void)spec;
+    if (!root) return;
+    auto *st = (TrendChartState *)lv_obj_get_user_data(root);
+    if (!st) return;
+
+    // Text update (primary + secondary) always.
+    char pri[24], sec[24];
+    format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
+    ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
+    if (st->secondary) {
+        ui::set_text_if_changed(st->secondary, st->last_secondary,
+                                sizeof(st->last_secondary), sec);
+    }
+
+    // Insert a new sample only when the value changed.
+    double v = metric_scalar(st->metric, data);
+    if (isnan(v)) return;
+    if (!isnan(st->last_sample) && fabs(v - st->last_sample) < 1e-3) return;
+    st->last_sample = v;
+    st->samples[st->next_idx] = v;
+    st->next_idx = (st->next_idx + 1) % TrendChartState::POINTS;
+    if (st->filled < TrendChartState::POINTS) st->filled++;
+
+    // Recompute min/max over the filled window.
+    double lo = INFINITY, hi = -INFINITY;
+    for (int i = 0; i < st->filled; ++i) {
+        double s = st->samples[i];
+        if (isnan(s)) continue;
+        if (s < lo) lo = s;
+        if (s > hi) hi = s;
+    }
+    if (!isfinite(lo) || !isfinite(hi)) return;
+    if (fabs(hi - lo) < 1e-3) { hi += 0.5; lo -= 0.5; }
+    // Pad 10 % so the trace doesn't kiss the bezel.
+    double pad = (hi - lo) * 0.1;
+    lo -= pad; hi += pad;
+    // lv_chart works in integer coords; scale to fixed-point x10.
+    int32_t y_min = (int32_t)(lo * 10);
+    int32_t y_max = (int32_t)(hi * 10);
+    if (y_min == y_max) y_max = y_min + 1;
+    lv_chart_set_range(st->chart, LV_CHART_AXIS_PRIMARY_Y, y_min, y_max);
+
+    // Walk the rolling buffer chronologically into the chart series.
+    int p = (st->next_idx + TrendChartState::POINTS - st->filled)
+            % TrendChartState::POINTS;
+    for (int i = 0; i < TrendChartState::POINTS; ++i) {
+        if (i < TrendChartState::POINTS - st->filled) {
+            lv_chart_set_value_by_id(st->chart, st->series, i,
+                                     LV_CHART_POINT_NONE);
+        } else {
+            double s = st->samples[p];
+            p = (p + 1) % TrendChartState::POINTS;
+            if (isnan(s)) {
+                lv_chart_set_value_by_id(st->chart, st->series, i,
+                                         LV_CHART_POINT_NONE);
+            } else {
+                lv_chart_set_value_by_id(st->chart, st->series, i,
+                                         (int32_t)(s * 10));
+            }
+        }
+    }
+    lv_chart_refresh(st->chart);
+}
+
+// ---------------------------------------------------------------------------
 // Public factory entry points
 
 lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
@@ -834,6 +1020,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
     case TemplateId::StatusList:      return create_status_list(parent, spec);
     case TemplateId::RoundInstrument: return create_round_instrument(parent, spec);
     case TemplateId::SplitPair:       return create_split_pair(parent, spec);
+    case TemplateId::TrendChart:      return create_trend_chart(parent, spec);
     default:
         net::logf("[layout] template %d not implemented yet", (int)spec.template_id);
         return nullptr;
@@ -847,6 +1034,7 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
     case TemplateId::StatusList:      update_status_list(root, spec, data); break;
     case TemplateId::RoundInstrument: update_round_instrument(root, spec, data); break;
     case TemplateId::SplitPair:       update_split_pair(root, spec, data); break;
+    case TemplateId::TrendChart:      update_trend_chart(root, spec, data); break;
     default: break;
     }
 }
