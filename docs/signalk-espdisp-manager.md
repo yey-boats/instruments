@@ -1,14 +1,16 @@
 # SignalK ESP Display Manager
 
-The `espdisp-manager` plugin is the SignalK-side control plane for ESP display
-devices. It manages device registration, configuration, command delivery,
-display/layout variants, widget settings, firmware metadata, and OTA jobs.
+The `espdisp-manager` plugin is the SignalK-side control plane for configuring
+ESP display dashboards. It manages device registration, dashboard presets,
+per-device configuration, display/layout variants, widget settings, command
+delivery, firmware metadata, and OTA jobs.
 
 At a high level this plugin lets a SignalK server act as the fleet manager for
 small ESP displays. Operators register panels, group similar panels around
-shared presets, tune per-device overrides, and then queue commands that cause
-devices to pull the latest generated configuration. Firmware update metadata
-and OTA jobs use the same registry/command/status model.
+shared dashboard presets, tune the widgets/theme/font sizes from SignalK, and
+then queue commands that cause devices to pull the latest generated dashboard
+configuration. Firmware update metadata and OTA jobs use the same
+registry/command/status model.
 
 ## Concepts
 
@@ -18,9 +20,9 @@ Device
   touch support, widget support, font support, current UI state, and health.
 
 Preset / Profile
-  A reusable configuration bundle. The UI calls these presets; the API and
-  store call them profiles. Presets can match a device by board, display size,
-  role, location, or capability flags.
+  A reusable dashboard configuration bundle. The UI calls these presets; the
+  API and store call them profiles. Presets can match a device by board,
+  display size, role, location, or capability flags.
 
 Device Override
   Per-device settings layered on top of the assigned preset. Overrides are used
@@ -28,9 +30,9 @@ Device Override
   host without cloning the entire preset.
 
 Generated Config
-  The per-device config emitted by the plugin after merging profile defaults,
-  per-device overrides, display variant selection, widget filtering, and font
-  size resolution.
+  The per-device dashboard config emitted by the plugin after merging profile
+  defaults, per-device overrides, display variant selection, widget filtering,
+  and font size resolution.
 
 Command
   A queued action for one device. Devices poll, execute, then acknowledge.
@@ -66,17 +68,20 @@ Typical workflow:
 2. Register or discover one or more ESP displays.
 3. Open Devices and inspect health, display geometry, config drift, and
    pending commands.
-4. Open a device config page to assign a preset and edit structured settings.
+4. Open a device config page to assign a dashboard preset and edit structured
+   settings.
 5. Save per-device overrides or save the same settings as a reusable preset.
 6. Use "Save and send" or preset "Apply" to queue config.reload.
 7. Device polls commands, sees config.reload, fetches /devices/:id/config,
-   applies the generated config, and reports the applied hash in status.
+   applies the generated dashboard config, and reports the applied hash in
+   status.
 ```
 
 The UI does not expose a raw JSON editor for generated config. Generated config
 is still available to firmware through the authenticated JSON API, but operator
-pages render structured sections for display, network, SignalK/NMEA, OTA,
-autopilot, debug, widgets, and screens.
+pages render structured sections for dashboard theme, default screen, network,
+SignalK/NMEA, OTA, autopilot widgets, debug/touch mode, widget font sizes, and
+screens.
 
 ## Screenshots
 
@@ -84,9 +89,13 @@ Manager overview:
 
 ![ESP Display Manager overview](images/signalk-manager-overview.png)
 
-Device configuration:
+Device dashboard configuration:
 
 ![ESP Display Manager device configuration](images/signalk-manager-device-config.png)
+
+Day dashboard preset:
+
+![ESP Display Manager day dashboard configuration](images/signalk-manager-device-config-day.png)
 
 Presets:
 
@@ -95,6 +104,10 @@ Presets:
 Preset apply:
 
 ![ESP Display Manager preset apply](images/signalk-manager-preset-apply.png)
+
+Day preset apply:
+
+![ESP Display Manager day preset apply](images/signalk-manager-preset-apply-day.png)
 
 ## Device Lifecycle
 

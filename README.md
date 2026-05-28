@@ -88,15 +88,16 @@ The project has two cooperating halves:
   emulator, and the repo-owned `espdisp-manager` plugin for fleet-style display
   management.
 
-The manager plugin is the control plane for multiple ESP displays:
+The manager plugin is the control plane for configuring ESP display dashboards
+from SignalK:
 
 ```text
 SignalK server
   espdisp-manager plugin
     registry          known devices, status, display geometry, capabilities
-    presets           reusable profile/config bundles for similar devices
-    generated config  per-device merge of preset + overrides + variants
-    commands          reload config, screen actions, firmware actions
+    dashboard presets reusable screen/theme/widget configs for similar devices
+    generated config  per-device dashboard merge of preset + overrides
+    commands          reload dashboard config, screen actions, firmware actions
     firmware catalog  vendor/product/version metadata and OTA jobs
 
 ESP display firmware
@@ -106,23 +107,26 @@ ESP display firmware
 Devices are not expected to receive arbitrary JSON from the operator UI.
 Operators use structured pages:
 
-- `Devices` lists registered panels, health, selected preset, display size,
-  config drift, and pending commands.
-- `Device config` edits a single panel: preset assignment, theme, brightness,
-  NMEA WiFi, autopilot settings, widget font sizes, debug/touch mode, and
-  per-device overrides.
-- `Presets` manages reusable configurations so several panels of the same
-  size/role can share a common setup.
-- `Preset detail` applies a preset to selected devices and can queue
-  `config.reload` so the devices pull the new generated config.
+- `Devices` lists registered panels, health, selected dashboard preset,
+  display size, config drift, and pending commands.
+- `Device config` edits a single dashboard from SignalK: preset assignment,
+  day/night theme, brightness, NMEA WiFi source, autopilot widgets, widget font
+  sizes, touch/debug mode, and per-device overrides.
+- `Presets` manages reusable dashboard configurations so several panels of the
+  same size or role can share a common setup.
+- `Preset detail` applies one dashboard preset to selected devices and can
+  queue `config.reload` so the devices pull the new generated dashboard config.
 - `Firmware` tracks plugin-side firmware artifacts and OTA jobs; firmware
   application on the device is still being integrated.
 
-Current manager UI screenshots:
+Current SignalK dashboard-configuration screenshots:
 
 <p align="center">
   <img src="docs/images/signalk-manager-overview.png" alt="ESP Display Manager overview" width="420">
   <img src="docs/images/signalk-manager-device-config.png" alt="ESP Display Manager device configuration" width="420">
+  <br>
+  <img src="docs/images/signalk-manager-device-config-day.png" alt="ESP Display Manager day dashboard configuration" width="420">
+  <img src="docs/images/signalk-manager-preset-apply-day.png" alt="ESP Display Manager day preset apply page" width="420">
   <br>
   <img src="docs/images/signalk-manager-presets.png" alt="ESP Display Manager presets" width="420">
   <img src="docs/images/signalk-manager-preset-apply.png" alt="ESP Display Manager preset apply page" width="420">
