@@ -149,4 +149,205 @@ void reset_all() {
     g_timeouts = Timeouts{};
 }
 
+// ---- spec 12 §3 smoothing ----------------------------------------------
+
+namespace {
+
+constexpr uint32_t TAU_FAST_MS   =  300;
+constexpr uint32_t TAU_NORMAL_MS = 1500;
+constexpr uint32_t TAU_SMOOTH_MS = 5000;
+
+uint32_t tau_for(Response r) {
+    switch (r) {
+        case Response::Fast:   return TAU_FAST_MS;
+        case Response::Normal: return TAU_NORMAL_MS;
+        case Response::Smooth: return TAU_SMOOTH_MS;
+    }
+    return TAU_NORMAL_MS;
+}
+
+Response g_resp_wind = Response::Normal;
+Response g_resp_heading = Response::Normal;
+Response g_resp_speed = Response::Normal;
+
+// Per-channel smoothing state. Scalars carry (value, last_input_ms);
+// angles carry an AngleEma state + last_input_ms. The "last_input_ms"
+// is the publish timestamp of the most recent SAMPLE we've consumed,
+// so we only advance the filter on truly new samples.
+struct ScalarState {
+    double y = NAN;
+    uint32_t last_sample_ms = 0;
+    bool init = false;
+};
+struct AngleState {
+    AngleEma ema;
+    uint32_t last_sample_ms = 0;
+};
+
+ScalarState st_aws;
+ScalarState st_tws;
+ScalarState st_sog;
+ScalarState st_stw;
+ScalarState st_depth;
+AngleState st_awa;
+AngleState st_twa;
+AngleState st_hdg;
+AngleState st_cog;
+
+// Pull a current sample out of the snapshot under the lock. We do not
+// step the filter while holding the lock - just copy out value+ms.
+void copy_field(double Snapshot::*invalid, // unused (workaround); see below
+                const Field &f, double &out_value, uint32_t &out_ms) {
+    (void)invalid;
+    out_value = f.value;
+    out_ms = f.updated_ms;
+}
+
+double step_scalar(ScalarState &s, const Field &f, Response r) {
+    double sample;
+    uint32_t sample_ms;
+    {
+        Lock _;
+        sample = f.value;
+        sample_ms = f.updated_ms;
+    }
+    if (sample_ms == s.last_sample_ms) {
+        // No new input; return last smoothed (or NaN if never seen).
+        return s.y;
+    }
+    uint32_t dt_ms = s.init ? (sample_ms - s.last_sample_ms) : 0;
+    s.y = ema_step(s.y, sample, dt_ms, tau_for(r));
+    s.last_sample_ms = sample_ms;
+    s.init = true;
+    return s.y;
+}
+
+double step_angle(AngleState &s, const Field &f, Response r) {
+    double sample_rad;
+    uint32_t sample_ms;
+    {
+        Lock _;
+        sample_rad = f.value;
+        sample_ms = f.updated_ms;
+    }
+    if (sample_ms == s.last_sample_ms) {
+        if (!s.ema.init) return NAN;
+        return atan2(s.ema.s, s.ema.c);
+    }
+    uint32_t dt_ms = s.ema.init ? (sample_ms - s.last_sample_ms) : 0;
+    double out = angle_ema_step(s.ema, sample_rad, dt_ms, tau_for(r));
+    s.last_sample_ms = sample_ms;
+    return out;
+}
+
+}  // namespace
+
+void set_wind_response(Response r) { g_resp_wind = r; }
+void set_heading_response(Response r) { g_resp_heading = r; }
+void set_speed_response(Response r) { g_resp_speed = r; }
+Response wind_response() { return g_resp_wind; }
+Response heading_response() { return g_resp_heading; }
+Response speed_response() { return g_resp_speed; }
+
+double ema_step(double prev, double sample, uint32_t dt_ms, uint32_t tau_ms) {
+    if (isnan(sample)) return prev;
+    if (isnan(prev)) return sample;
+    if (dt_ms == 0 || tau_ms == 0) return sample;
+    // First-order IIR: alpha = 1 - exp(-dt/tau). For tiny dt/tau this
+    // is roughly dt/tau; we use expm1 for precision near zero.
+    double alpha = 1.0 - exp(-((double)dt_ms / (double)tau_ms));
+    if (alpha < 0.0) alpha = 0.0;
+    if (alpha > 1.0) alpha = 1.0;
+    return prev + alpha * (sample - prev);
+}
+
+double angle_ema_step(AngleEma &state, double sample_rad,
+                      uint32_t dt_ms, uint32_t tau_ms) {
+    if (isnan(sample_rad)) {
+        if (!state.init) return NAN;
+        return atan2(state.s, state.c);
+    }
+    double sx = sin(sample_rad);
+    double cx = cos(sample_rad);
+    if (!state.init) {
+        state.s = sx;
+        state.c = cx;
+        state.init = true;
+        return sample_rad;
+    }
+    double alpha = (dt_ms == 0 || tau_ms == 0)
+        ? 1.0
+        : 1.0 - exp(-((double)dt_ms / (double)tau_ms));
+    if (alpha < 0.0) alpha = 0.0;
+    if (alpha > 1.0) alpha = 1.0;
+    state.s += alpha * (sx - state.s);
+    state.c += alpha * (cx - state.c);
+    return atan2(state.s, state.c);
+}
+
+// Unit-converted public accessors.
+
+double aws_smoothed_kn() {
+    Snapshot s;
+    copy_snapshot(s);
+    double v = step_scalar(st_aws, s.aws_mps, g_resp_wind);
+    return isnan(v) ? NAN : v * 1.943844;
+}
+double tws_smoothed_kn() {
+    Snapshot s;
+    copy_snapshot(s);
+    double v = step_scalar(st_tws, s.tws_mps, g_resp_wind);
+    return isnan(v) ? NAN : v * 1.943844;
+}
+double sog_smoothed_kn() {
+    Snapshot s;
+    copy_snapshot(s);
+    double v = step_scalar(st_sog, s.sog_mps, g_resp_speed);
+    return isnan(v) ? NAN : v * 1.943844;
+}
+double stw_smoothed_kn() {
+    Snapshot s;
+    copy_snapshot(s);
+    double v = step_scalar(st_stw, s.stw_mps, g_resp_speed);
+    return isnan(v) ? NAN : v * 1.943844;
+}
+double depth_smoothed_m() {
+    Snapshot s;
+    copy_snapshot(s);
+    return step_scalar(st_depth, s.depth_m, g_resp_speed);
+}
+
+static double rad_to_deg_0_360(double r) {
+    if (isnan(r)) return NAN;
+    double d = r * (180.0 / M_PI);
+    while (d < 0) d += 360.0;
+    while (d >= 360.0) d -= 360.0;
+    return d;
+}
+static double rad_to_deg_signed(double r) {
+    if (isnan(r)) return NAN;
+    return r * (180.0 / M_PI);
+}
+
+double heading_smoothed_deg() {
+    Snapshot s;
+    copy_snapshot(s);
+    return rad_to_deg_0_360(step_angle(st_hdg, s.heading_true_rad, g_resp_heading));
+}
+double cog_smoothed_deg() {
+    Snapshot s;
+    copy_snapshot(s);
+    return rad_to_deg_0_360(step_angle(st_cog, s.cog_true_rad, g_resp_heading));
+}
+double awa_smoothed_deg() {
+    Snapshot s;
+    copy_snapshot(s);
+    return rad_to_deg_signed(step_angle(st_awa, s.awa_rad, g_resp_wind));
+}
+double twa_smoothed_deg() {
+    Snapshot s;
+    copy_snapshot(s);
+    return rad_to_deg_signed(step_angle(st_twa, s.twa_rad, g_resp_wind));
+}
+
 }  // namespace boat

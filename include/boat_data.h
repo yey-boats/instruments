@@ -142,4 +142,55 @@ bool should_accept(SourceKind incoming, SourceKind current,
 // Const-ref helpers for the human-readable source name (for logs/CLI).
 const char *source_name(SourceKind s);
 
+// ---- spec 12 §3 freshness + smoothing -----------------------------------
+//
+// EMA filters for scalars + sin/cos filters for angles. The instrument
+// channels (wind, heading, speed) each have a response setting that
+// translates to a time-constant tau:
+//
+//   fast    -> tau =  300 ms   (raw sensor follow)
+//   normal  -> tau = 1500 ms
+//   smooth  -> tau = 5000 ms   (heavy damping, marine instrument feel)
+//
+// All accessors are pure read-throughs; the smoothing state advances
+// only when the underlying field updates (i.e. publish() lands a fresh
+// value). NaN inputs preserve the last good output, so a stale source
+// doesn't snap the gauge to zero.
+
+enum class Response : uint8_t { Fast = 0, Normal, Smooth };
+
+void set_wind_response(Response r);
+void set_heading_response(Response r);
+void set_speed_response(Response r);
+Response wind_response();
+Response heading_response();
+Response speed_response();
+
+// Smoothed accessors, in human-display units.
+double heading_smoothed_deg();   // 0..360
+double cog_smoothed_deg();       // 0..360
+double awa_smoothed_deg();       // -180..180 (port negative, stbd positive)
+double aws_smoothed_kn();
+double twa_smoothed_deg();
+double tws_smoothed_kn();
+double sog_smoothed_kn();
+double stw_smoothed_kn();
+double depth_smoothed_m();
+
+// Pure helpers (for host tests). Returns the new smoothed scalar
+// given previous output, new sample, dt (ms), and tau (ms). NaN-safe:
+// if `prev` is NaN, returns `sample`; if `sample` is NaN, returns
+// `prev` unchanged.
+double ema_step(double prev, double sample, uint32_t dt_ms, uint32_t tau_ms);
+
+// Pure helper: smooth an angle (radians) using sin/cos EMAs. `prev_sin`
+// / `prev_cos` are kept by the caller. Result rad in (-pi, pi].
+struct AngleEma {
+    double s = 0.0;  // smoothed sin
+    double c = 0.0;  // smoothed cos
+    bool init = false;
+};
+double angle_ema_step(AngleEma &state, double sample_rad,
+                      uint32_t dt_ms, uint32_t tau_ms);
+
 }  // namespace boat
