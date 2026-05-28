@@ -12,7 +12,13 @@
 // channel reserved yet). Until we move LEDC ownership here, set_backlight
 // just toggles full on/off above/below 32 so the API contract holds.
 
-#if defined(BOARD_ID_SUNTON_4848S040) || !defined(BOARD_ID_DEFINED)
+// Default-on for the standalone (no board id supplied) build path: if
+// nothing else has been selected, fall back to Sunton so existing
+// users without an explicit -D in platformio.ini still get a working
+// firmware. Once BOARD_ID_DEFINED is set anywhere in the build, this
+// file only compiles when the matching id is also set.
+#if defined(BOARD_ID_SUNTON_4848S040) || \
+    (!defined(BOARD_ID_DEFINED) && !defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4) && !defined(BOARD_ID_NATIVE_FAKE))
 
 namespace board {
 
