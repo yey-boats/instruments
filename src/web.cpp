@@ -368,6 +368,8 @@ static void handle_boat() {
         JsonObject n2 = sources["nmea2000"].to<JsonObject>();
         n2["compiled_in"] = st.compiled_in;
         n2["enabled"] = st.enabled;
+        n2["sniff"] = st.sniff;
+        n2["tx_enabled"] = st.tx_enabled;
         n2["rx_pin"] = st.rx_pin;
         n2["tx_pin"] = st.tx_pin;
         n2["frames_rx"] = st.frames_rx;

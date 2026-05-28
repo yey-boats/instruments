@@ -19,6 +19,15 @@ namespace {
 constexpr const char *NS = "n2k";
 
 bool s_enabled = false;
+// Spec 12 §4 safety scaffold:
+//   sniff       -> log every received frame's PGN + raw bytes (off by
+//                  default to keep UDP/serial quiet).
+//   tx_enabled  -> explicit gate that any future transmit path MUST
+//                  consult before queuing a frame. Hardware is held in
+//                  TWAI_MODE_LISTEN_ONLY when this is false, so we can
+//                  guarantee no bus traffic regardless of code paths.
+bool s_sniff = false;
+bool s_tx_enabled = false;
 int8_t s_rx_pin = -1;
 int8_t s_tx_pin = -1;
 volatile uint32_t s_frames_rx = 0;
@@ -31,6 +40,8 @@ void load_prefs() {
     Preferences p;
     p.begin(NS, true);
     s_enabled = p.getUChar("enabled", 0) != 0;
+    s_sniff = p.getUChar("sniff", 0) != 0;
+    s_tx_enabled = p.getUChar("tx_en", 0) != 0;
     s_rx_pin = (int8_t)p.getChar("rx_pin", -1);
     s_tx_pin = (int8_t)p.getChar("tx_pin", -1);
     p.end();
@@ -40,6 +51,8 @@ void save_prefs() {
     Preferences p;
     p.begin(NS, false);
     p.putUChar("enabled", s_enabled ? 1 : 0);
+    p.putUChar("sniff", s_sniff ? 1 : 0);
+    p.putUChar("tx_en", s_tx_enabled ? 1 : 0);
     p.putChar("rx_pin", s_rx_pin);
     p.putChar("tx_pin", s_tx_pin);
     p.end();
@@ -288,6 +301,22 @@ void worker(void *) {
             s_frames_rx++;
             if (msg.extd) {
                 J1939Id id = decode_id(msg.identifier);
+                if (s_sniff) {
+                    // Dump frame as hex. Keep one log line so UDP
+                    // listeners can grep. Compact format: pgn, src,
+                    // prio, dlc, bytes.
+                    char hex[3 * 8 + 1];  // up to 8 bytes -> "XX XX ..."
+                    int hp = 0;
+                    for (int i = 0; i < msg.data_length_code && i < 8; ++i) {
+                        hp += snprintf(hex + hp, sizeof(hex) - hp,
+                                       "%02X%s", msg.data[i],
+                                       i + 1 < msg.data_length_code ? " " : "");
+                    }
+                    hex[sizeof(hex) - 1] = '\0';
+                    net::logf("[n2k-sniff] pgn=%lu src=%u prio=%u dlc=%u %s",
+                              (unsigned long)id.pgn, id.source, id.priority,
+                              msg.data_length_code, hex);
+                }
                 decode_pgn(id.pgn, msg.data, msg.data_length_code);
             }
         }
@@ -327,6 +356,8 @@ Status status() {
     s.compiled_in = false;
 #endif
     s.enabled = s_enabled;
+    s.sniff = s_sniff;
+    s.tx_enabled = s_tx_enabled;
     s.rx_pin = s_rx_pin;
     s.tx_pin = s_tx_pin;
     s.frames_rx = s_frames_rx;
@@ -342,11 +373,15 @@ bool handleSerialCommand(const String &line) {
     rest.trim();
     if (rest.length() == 0 || rest == "status") {
         Status st = status();
-        net::logf("[n2k] compiled=%d enabled=%d rx=%d tx=%d "
-                  "frames=%lu decoded=%lu unknown=%lu last_rx_ago=%lums",
-                  st.compiled_in, st.enabled, st.rx_pin, st.tx_pin,
-                  st.frames_rx, st.pgns_decoded, st.pgns_unknown,
-                  st.last_rx_ms ? (millis() - st.last_rx_ms) : 0);
+        net::logf("[n2k] compiled=%d enabled=%d sniff=%d tx_enabled=%d "
+                  "rx=%d tx=%d frames=%lu decoded=%lu unknown=%lu "
+                  "last_rx_ago=%lums",
+                  st.compiled_in, st.enabled, st.sniff, st.tx_enabled,
+                  st.rx_pin, st.tx_pin,
+                  (unsigned long)st.frames_rx,
+                  (unsigned long)st.pgns_decoded,
+                  (unsigned long)st.pgns_unknown,
+                  st.last_rx_ms ? (unsigned long)(millis() - st.last_rx_ms) : 0UL);
         return true;
     }
     if (rest == "enable") {
@@ -357,6 +392,32 @@ bool handleSerialCommand(const String &line) {
     if (rest == "disable") {
         s_enabled = false; save_prefs();
         net::logf("[n2k] disabled");
+        return true;
+    }
+    if (rest == "sniff on" || rest == "sniff") {
+        s_sniff = true; save_prefs();
+        net::logf("[n2k] sniff on - logging every received frame");
+        return true;
+    }
+    if (rest == "sniff off") {
+        s_sniff = false; save_prefs();
+        net::logf("[n2k] sniff off");
+        return true;
+    }
+    if (rest == "tx on") {
+        // Spec 12 §4 transmit gate. We never wire TX in code today; the
+        // gate exists so a future autopilot/NMEA transmit backend can
+        // refuse to send until the operator opts in explicitly. The
+        // hardware is still held in LISTEN_ONLY by the worker - the
+        // gate doesn't bypass that.
+        s_tx_enabled = true; save_prefs();
+        net::logf("[n2k] tx gate OPEN (hardware still listen-only; "
+                  "transmit code path will honor this flag)");
+        return true;
+    }
+    if (rest == "tx off") {
+        s_tx_enabled = false; save_prefs();
+        net::logf("[n2k] tx gate closed");
         return true;
     }
     if (rest.startsWith("pins ")) {
@@ -373,7 +434,8 @@ bool handleSerialCommand(const String &line) {
         net::logf("[n2k] rx=%d tx=%d (save)", s_rx_pin, s_tx_pin);
         return true;
     }
-    net::logf("[n2k] usage: n2k [status|enable|disable|pins <rx> <tx>]");
+    net::logf("[n2k] usage: n2k [status|enable|disable|sniff on|sniff off|"
+              "tx on|tx off|pins <rx> <tx>]");
     return true;
 }
 
