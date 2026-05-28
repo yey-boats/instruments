@@ -145,6 +145,11 @@ void build_status_body(JsonDocument &doc) {
     net_o["state"] = net::wifiStateName();
     net_o["ip"] = net::ipString();
     net_o["rssi"] = net::rssi();
+    // F5: current FQDN + OTA address derived from device id.
+    String hostname = net::deviceId();
+    net_o["hostname"] = hostname;
+    net_o["fqdn"] = hostname + ".local";
+    net_o["ota_address"] = hostname + ".local:3232";
 
     JsonObject sk_o = doc["sk"].to<JsonObject>();
     sk_o["state"] = sk::connectionStatus();
@@ -202,6 +207,36 @@ bool apply_config(JsonDocument &cfg) {
             } else {
                 net::logf("[mgr] reject ui.theme=%s (unknown)", t);
                 ok = false;
+            }
+        }
+    }
+
+    if (cfg["network"].is<JsonObject>()) {
+        JsonObject n = cfg["network"].as<JsonObject>();
+        // F5: hostname / device_id. Validation: must be non-empty, 1-31
+        // chars, alnum + '-'. Apply via the existing `id` console
+        // command path so all of BLE/mDNS/OTA hostname stay in sync.
+        if (n["hostname"].is<const char *>()) {
+            const char *hn = n["hostname"].as<const char *>();
+            size_t len = strlen(hn);
+            bool valid = len > 0 && len <= 31;
+            for (size_t i = 0; valid && i < len; ++i) {
+                char c = hn[i];
+                valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                        (c >= '0' && c <= '9') || c == '-';
+            }
+            if (!valid) {
+                net::logf("[mgr] reject network.hostname=%s (invalid)", hn);
+                ok = false;
+            } else if (n["hostname"] != device_identity::get().device_id) {
+                // `id <name>` persists + reboots. We dispatch through
+                // the existing handler so behavior is identical to a
+                // user-issued change.
+                String cmd = String("id ") + hn;
+                net::dispatchCommand(cmd);
+                net::logf("[mgr] applied network.hostname=%s (rebooting)", hn);
+                // Reboot is handled by the id handler; no further work.
+                return ok;
             }
         }
     }

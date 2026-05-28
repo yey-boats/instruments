@@ -268,7 +268,16 @@ static void wifi_manager_task(void *) {
                       WiFi.SSID().c_str(), WiFi.RSSI());
         if (MDNS.begin(s_device_id.c_str())) {
             MDNS.addService("arduino", "tcp", 3232);
-            Serial.printf("[mdns] %s.local\n", s_device_id.c_str());
+            // F5: advertise the manager service so the plugin can
+            // auto-discover this device. The port reports the local
+            // web API where /api/state and /api/cmd live (80 for now).
+            MDNS.addService("espdisp", "tcp", 80);
+            MDNS.addServiceTxt("espdisp", "tcp", "proto", "1");
+            MDNS.addServiceTxt("espdisp", "tcp", "device_id",
+                               s_device_id.c_str());
+            MDNS.addServiceTxt("espdisp", "tcp", "path", "/");
+            Serial.printf("[mdns] %s.local (espdisp + arduino)\n",
+                          s_device_id.c_str());
         }
         otaSetup();
         udp.begin(UDP_LOG_PORT);
