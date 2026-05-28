@@ -11,6 +11,12 @@ A source-available marine multi-function display (MFD) firmware for the
 ESP32-S3 family of touch panels. Acts as a [SignalK](https://signalk.org)
 WebSocket client and renders live navigation data on an LVGL dashboard.
 
+The current development line also includes a repo-owned SignalK lab stack and
+an experimental SignalK plugin for centralized ESP display registration,
+profiles, widget layout, commands, and firmware update orchestration. The
+plugin side is test-covered; the firmware-side manager client is the next
+integration milestone.
+
 Licensed under [PolyForm Noncommercial 1.0.0](LICENSE) — free for
 personal, research, educational, and other noncommercial use.
 **Commercial use requires a separate license** (see [Commercial use](#commercial-use)).
@@ -23,6 +29,20 @@ personal, research, educational, and other noncommercial use.
   <em>Live SignalK data — wind, navigation, depth, position, battery. Click for full-quality MP4.</em>
 </p>
 
+<p align="center">
+  <img src="docs/images/screen-dashboard.png" alt="Dashboard test screenshot" width="150">
+  <img src="docs/images/screen-wind.png" alt="Wind screen test screenshot" width="150">
+  <img src="docs/images/screen-nav.png" alt="Navigation screen test screenshot" width="150">
+  <img src="docs/images/screen-route.png" alt="Route screen test screenshot" width="150">
+  <br>
+  <img src="docs/images/screen-depth.png" alt="Depth screen test screenshot" width="150">
+  <img src="docs/images/screen-settings.png" alt="Settings screen test screenshot" width="150">
+  <img src="docs/images/screen-wifi.png" alt="WiFi setup screen test screenshot" width="150">
+  <img src="docs/images/screen-touch-grid.png" alt="Touch grid test screenshot" width="150">
+  <br>
+  <em>System-test screenshots captured from the device/test harness artifacts.</em>
+</p>
+
 ## Features
 
 - **SignalK over WebSocket** — subscribes to navigation, wind, depth, water temp, battery, tanks, route, and autopilot state
@@ -31,11 +51,29 @@ personal, research, educational, and other noncommercial use.
 - **Day / night theme** — `theme day|night` console command, persisted in NVS
 - **On-screen WiFi setup** — touch-keyboard SSID scan + password entry, no cable needed
 - **MOB + alarms** — global overlays available from every screen
+- **Touch diagnostics** — touch calibration/grid screens and GT911 interrupt/config-dump validation specs
 - **Over-the-air updates** — ArduinoOTA on port 3232 (no USB cable for iteration)
 - **BLE diagnostics + config** — Nordic UART service for logs + a structured Connection/Configuration GATT for companion apps
+- **SignalK lab stack** — Dockerized SignalK server with official NMEA 0183 TCP and autopilot emulator plugins for repeatable testing
+- **Experimental ESP display manager** — local SignalK plugin for device registry, provisioning, profiles, widget configs, command queues, firmware catalog/jobs, and a dashboard UI
 - **Multi-target logging** — Serial / UDP broadcast / BLE notify, the same `logf()` writes to all three
 - **Host-portable parser** — SignalK delta logic builds and tests on macOS / Linux as well as the device
 - **CI + release automation** — GitHub Actions builds firmware on every push and attaches binaries to tagged releases
+
+## Project status
+
+This repository is suitable for lab testing and firmware/plugin development.
+It is not yet a production navigation instrument.
+
+| Area | Status |
+|------|--------|
+| ESP32 display firmware | Active; core screens, touch UI, WiFi, BLE, OTA, SignalK ingest, and diagnostics exist |
+| SignalK local test stack | Active; `make demo-up` starts the configured SignalK container |
+| NMEA 0183 over WiFi | Configured through the official `@signalk/signalk-to-nmea0183` plugin on TCP `10110` |
+| Autopilot simulator | Configured through the official `@signalk/signalk-autopilot` emulator backend |
+| ESP display manager plugin | Experimental but implemented and covered by local plugin tests |
+| Firmware manager client | In progress; specs and opt-in contract tests exist |
+| OTA fleet management | Planned; plugin-side artifact/job model exists, firmware apply path still pending |
 
 ## Hardware
 

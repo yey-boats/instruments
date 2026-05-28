@@ -73,6 +73,13 @@ GET  /.well-known/espdisp-management
 GET  /capabilities
 GET  /dashboard
 GET  /ui
+GET  /ui/devices
+GET  /ui/devices/:id
+GET  /ui/discovery
+GET  /ui/profiles
+GET  /ui/firmware
+GET  /discovery/devices
+POST /discovery/devices
 ```
 
 Registry:
@@ -86,6 +93,29 @@ POST   /devices/:id/status
 GET    /devices/:id/config
 GET    /devices/:id/auth/status
 ```
+
+Device discovery is separate from registration. A device, scanner, or fixture
+can announce an address and capabilities before the panel has been claimed:
+
+```json
+{
+  "device": {
+    "id": "espdisp-aabbccddeeff",
+    "name": "Helm Display",
+    "address": "192.168.50.42",
+    "port": 80,
+    "services": [
+      { "type": "_espdisp._tcp", "port": 80 },
+      { "type": "_arduino._tcp", "port": 3232 }
+    ],
+    "display": { "width": 480, "height": 480, "shape": "square" },
+    "firmware": { "version": "0.2.0-alpha" }
+  }
+}
+```
+
+`GET /discovery/devices` returns announced devices with `registered` and
+`stale` flags. Registration still goes through `POST /devices/register`.
 
 Profiles and groups:
 
@@ -223,9 +253,10 @@ config uses `48`.
 }
 ```
 
-`GET /ui` renders a lightweight HTML operator view backed by the same dashboard
-data. It is intentionally simple and server-rendered; a richer SignalK webapp
-can replace it later without changing the API.
+`GET /ui` renders a lightweight HTML operator console backed by the same JSON
+APIs. It has server-rendered pages for overview, registered devices, device
+detail, discovery, profiles, and firmware jobs. A richer SignalK webapp can
+replace it later without changing the API.
 
 ## Test Commands
 

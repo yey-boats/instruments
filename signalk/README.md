@@ -104,11 +104,31 @@ curl -s -X POST \
   http://localhost:3000/plugins/espdisp-manager/devices/register
 ```
 
+The built-in operator UI is available at:
+
+```text
+http://localhost:3000/plugins/espdisp-manager/ui
+```
+
+UI pages:
+
+```text
+/plugins/espdisp-manager/ui
+/plugins/espdisp-manager/ui/devices
+/plugins/espdisp-manager/ui/devices/:id
+/plugins/espdisp-manager/ui/discovery
+/plugins/espdisp-manager/ui/profiles
+/plugins/espdisp-manager/ui/firmware
+```
+
 Implemented v1 endpoints:
 
 ```text
 GET  /plugins/espdisp-manager/.well-known/espdisp-management
 GET  /plugins/espdisp-manager/capabilities
+GET  /plugins/espdisp-manager/dashboard
+GET  /plugins/espdisp-manager/discovery/devices
+POST /plugins/espdisp-manager/discovery/devices
 GET  /plugins/espdisp-manager/devices
 GET  /plugins/espdisp-manager/groups
 GET  /plugins/espdisp-manager/provisioning/tokens
@@ -141,6 +161,11 @@ GET  /plugins/espdisp-manager/devices/:id/firmware/jobs/:jobId
 POST /plugins/espdisp-manager/devices/:id/firmware/jobs/:jobId/progress
 POST /plugins/espdisp-manager/devices/:id/firmware/confirm
 ```
+
+Discovery announcements are a lightweight bridge for mDNS scanners, future
+firmware provisioning, or test fixtures. They do not claim/register the device;
+they only populate the Discovery UI and mark whether the same device id is
+already in the registry.
 
 Device registration may include display geometry and widget capabilities. The
 plugin uses those fields to select layout and widget variants:

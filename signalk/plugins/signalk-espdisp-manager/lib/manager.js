@@ -35,6 +35,7 @@ class EspDispManager {
       },
       features: {
         registry: true,
+        discovery: true,
         config: true,
         commands: true,
         firmware: true,
@@ -113,10 +114,86 @@ class EspDispManager {
   }
 
   listDevices () {
+    const filter = arguments[0] || {}
+    const nowMs = Date.now()
+    const onlineWindowMs = Math.max(this.options.heartbeatMs * 3, 15000)
+    const values = Object.values(this.store.registry.devices)
+      .map((device) => {
+        const summary = summarizeDevice(device)
+        const lastSeenMs = summary.lastSeen ? Date.parse(summary.lastSeen) : 0
+        summary.online = lastSeenMs > 0 && nowMs - lastSeenMs <= onlineWindowMs
+        summary.pendingCommands = this.pendingCommands(summary.id).length
+        summary.health = this.deviceHealth(device, summary.online, summary.pendingCommands)
+        return summary
+      })
+      .filter((device) => {
+        if (filter.health && device.health !== filter.health) return false
+        if (filter.profile && device.assignedProfile !== filter.profile && device.profile !== filter.profile) return false
+        if (filter.role && device.role !== filter.role) return false
+        if (filter.location && device.location !== filter.location) return false
+        return true
+      })
     return {
-      devices: Object.values(this.store.registry.devices)
-        .map((device) => summarizeDevice(device))
-        .sort((a, b) => a.id.localeCompare(b.id))
+      devices: values.sort((a, b) => a.id.localeCompare(b.id))
+    }
+  }
+
+  listDiscoveredDevices () {
+    const registered = this.store.registry.devices
+    return {
+      devices: Object.values(this.store.discovery.devices || {})
+        .map((device) => ({
+          ...device,
+          registered: Boolean(registered[device.deviceId]),
+          stale: device.lastSeen ? Date.now() - Date.parse(device.lastSeen) > 60000 : true
+        }))
+        .sort((a, b) => {
+          const aTime = Date.parse(a.lastSeen || 0)
+          const bTime = Date.parse(b.lastSeen || 0)
+          return bTime - aTime || a.deviceId.localeCompare(b.deviceId)
+        })
+    }
+  }
+
+  announceDiscoveredDevice (body, auth) {
+    const incoming = body.device || body
+    const id = sanitizeDeviceId(incoming.id || incoming.deviceId)
+    if (!id) throw httpError(400, 'invalid_request', 'device.id is required')
+    if (this.options.auth.mode !== 'disabled') {
+      const ok = auth && (
+        auth.bearer === this.options.auth.devToken ||
+        auth.provision === this.options.auth.provisionToken
+      )
+      if (!ok) throw httpError(401, 'unauthorized', 'discovery announcement requires manager token')
+    }
+
+    const record = {
+      deviceId: id,
+      name: incoming.name || id,
+      role: incoming.role || 'display',
+      location: incoming.location || null,
+      firstSeen: this.store.discovery.devices[id]
+        ? this.store.discovery.devices[id].firstSeen
+        : now(),
+      lastSeen: now(),
+      address: incoming.address || incoming.ip || null,
+      port: Number(incoming.port || 80),
+      transport: incoming.transport || 'http',
+      services: incoming.services || [],
+      mdns: incoming.mdns || null,
+      display: incoming.display || null,
+      firmware: incoming.firmware || null,
+      board: incoming.board || null,
+      capabilities: incoming.capabilities || {}
+    }
+    this.store.discovery.devices[id] = record
+    this.store.saveDiscovery()
+    this.store.audit('device.discovered', id, { address: record.address, port: record.port })
+    return {
+      status: 'discovered',
+      device: record,
+      registered: Boolean(this.store.registry.devices[id]),
+      registerUrl: `/plugins/espdisp-manager/devices/register`
     }
   }
 

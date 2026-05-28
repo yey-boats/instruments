@@ -32,6 +32,7 @@ class JsonStore {
     this.registryFile = path.join(dataDir, 'registry.json')
     this.profilesFile = path.join(dataDir, 'profiles.json')
     this.commandsFile = path.join(dataDir, 'commands.json')
+    this.discoveryFile = path.join(dataDir, 'discovery.json')
     this.firmwareFile = path.join(dataDir, 'firmware-catalog.json')
     this.jobsFile = path.join(dataDir, 'firmware-jobs.json')
     this.provisioningFile = path.join(dataDir, 'provisioning.json')
@@ -43,6 +44,7 @@ class JsonStore {
     this.registry = readJson(this.registryFile, { devices: {} })
     this.profiles = readJson(this.profilesFile, defaultProfiles())
     this.commands = readJson(this.commandsFile, { commands: [] })
+    this.discovery = readJson(this.discoveryFile, { devices: {} })
     this.firmware = readJson(this.firmwareFile, { artifacts: [] })
     this.jobs = readJson(this.jobsFile, { jobs: [] })
     this.provisioning = readJson(this.provisioningFile, { tokens: [] })
@@ -51,6 +53,7 @@ class JsonStore {
   saveRegistry () { writeJson(this.registryFile, this.registry) }
   saveProfiles () { writeJson(this.profilesFile, this.profiles) }
   saveCommands () { writeJson(this.commandsFile, this.commands) }
+  saveDiscovery () { writeJson(this.discoveryFile, this.discovery) }
   saveFirmware () { writeJson(this.firmwareFile, this.firmware) }
   saveJobs () { writeJson(this.jobsFile, this.jobs) }
   saveProvisioning () { writeJson(this.provisioningFile, this.provisioning) }

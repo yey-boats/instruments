@@ -106,6 +106,10 @@ module.exports = function espdispManagerPlugin (app) {
         '/plugins/espdisp-manager/devices/register': {
           post: { summary: 'Register or refresh an ESP display device' }
         },
+        '/plugins/espdisp-manager/discovery/devices': {
+          get: { summary: 'List discovered ESP display devices' },
+          post: { summary: 'Announce a discovered ESP display device' }
+        },
         '/plugins/espdisp-manager/capabilities': {
           get: { summary: 'Describe manager protocol capabilities' }
         },
@@ -163,7 +167,15 @@ function registerRoutes (router, getManager) {
   }))
 
   router.get('/devices', wrap(getManager, (manager, req, res) => {
-    res.json(manager.listDevices())
+    res.json(manager.listDevices(req.query || {}))
+  }))
+
+  router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
+    res.json(manager.listDiscoveredDevices())
+  }))
+
+  router.post('/discovery/devices', wrap(getManager, (manager, req, res) => {
+    res.json(manager.announceDiscoveredDevice(req.body || {}, authFrom(req)))
   }))
 
   router.get('/capabilities', wrap(getManager, (manager, req, res) => {
@@ -176,7 +188,32 @@ function registerRoutes (router, getManager) {
 
   router.get('/ui', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(renderUi(manager.dashboard()))
+    res.end(renderUi(manager, 'overview', req))
+  }))
+
+  router.get('/ui/devices', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUi(manager, 'devices', req))
+  }))
+
+  router.get('/ui/devices/:id', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUi(manager, 'device', req))
+  }))
+
+  router.get('/ui/discovery', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUi(manager, 'discovery', req))
+  }))
+
+  router.get('/ui/profiles', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUi(manager, 'profiles', req))
+  }))
+
+  router.get('/ui/firmware', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    res.end(renderUi(manager, 'firmware', req))
   }))
 
   router.get('/groups', wrap(getManager, (manager, req, res) => {
@@ -361,39 +398,46 @@ function jsonBody (req, res, next) {
   })
 }
 
-function renderUi (dashboard) {
-  const counts = dashboard.counts
-  const rows = dashboard.devices.map((device) => `
-        <tr>
-          <td><strong>${escapeHtml(device.name || device.id)}</strong><br><span>${escapeHtml(device.id)}</span></td>
-          <td>${escapeHtml(device.health)}</td>
-          <td>${escapeHtml(device.profile)}</td>
-          <td>${escapeHtml(`${device.display.width}x${device.display.height}`)}</td>
-          <td>${escapeHtml(device.desiredConfig.layoutVariant || '')}</td>
-          <td>${escapeHtml(device.desiredConfig.widgetVariant || '')}</td>
-          <td>${device.configDrift ? 'yes' : 'no'}</td>
-          <td>${device.pendingCommands}</td>
-        </tr>`).join('')
+function renderUi (manager, page, req) {
+  const dashboard = manager.dashboard()
+  const title = {
+    overview: 'Overview',
+    devices: 'Devices',
+    device: 'Device detail',
+    discovery: 'Discovery',
+    profiles: 'Profiles',
+    firmware: 'Firmware'
+  }[page] || 'Overview'
   return `<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
-  <title>ESP Display Manager</title>
+  <title>ESP Display Manager · ${escapeHtml(title)}</title>
   <style>
     :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
     body { margin: 0; background: #f5f7f8; color: #172026; }
-    header { padding: 20px 28px; background: #15323b; color: white; }
+    header { padding: 18px 28px 0; background: #15323b; color: white; }
     main { padding: 24px 28px; }
     h1 { margin: 0; font-size: 24px; }
-    .sub { color: #d6e2e6; margin-top: 4px; }
+    h2 { margin: 0 0 12px; font-size: 18px; }
+    .sub { color: #d6e2e6; margin-top: 4px; padding-bottom: 14px; }
+    nav { display: flex; gap: 4px; flex-wrap: wrap; }
+    nav a { color: #d6e2e6; text-decoration: none; padding: 10px 12px; border-radius: 6px 6px 0 0; font-size: 14px; }
+    nav a.active { color: #172026; background: #f5f7f8; }
     .grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 12px; margin-bottom: 24px; }
-    .metric { background: white; border: 1px solid #d9e0e3; border-radius: 6px; padding: 14px; }
+    .metric, .panel { background: white; border: 1px solid #d9e0e3; border-radius: 6px; padding: 14px; }
     .metric b { display: block; font-size: 28px; line-height: 1; }
-    .metric span { color: #60717a; font-size: 13px; }
-    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #d9e0e3; }
+    .metric span, .muted { color: #60717a; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #d9e0e3; margin-bottom: 20px; }
     th, td { text-align: left; border-bottom: 1px solid #e5eaed; padding: 10px 12px; font-size: 14px; vertical-align: top; }
     th { background: #eef3f5; color: #40515a; }
     td span { color: #60717a; font-size: 12px; }
+    a { color: #116078; }
+    code { background: #eef3f5; padding: 1px 4px; border-radius: 3px; }
+    pre { overflow: auto; background: #172026; color: #e8f1f4; padding: 14px; border-radius: 6px; }
+    .status { display: inline-block; min-width: 64px; padding: 2px 7px; border-radius: 999px; background: #eef3f5; text-align: center; }
+    .ok { background: #d9f2e3; color: #145d32; }
+    .bad { background: #ffe0df; color: #8a1f18; }
     @media (max-width: 850px) { .grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); } table { font-size: 12px; } }
   </style>
 </head>
@@ -401,8 +445,27 @@ function renderUi (dashboard) {
   <header>
     <h1>ESP Display Manager</h1>
     <div class="sub">${escapeHtml(dashboard.serverId)} · ${escapeHtml(dashboard.generatedAt)}</div>
+    ${nav(page)}
   </header>
   <main>
+    ${renderPage(manager, dashboard, page, req)}
+  </main>
+</body>
+</html>`
+}
+
+function renderPage (manager, dashboard, page, req) {
+  if (page === 'devices') return renderDevicesPage(dashboard.devices)
+  if (page === 'device') return renderDevicePage(manager, req.params.id)
+  if (page === 'discovery') return renderDiscoveryPage(manager.listDiscoveredDevices().devices)
+  if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles)
+  if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs)
+  return renderOverviewPage(dashboard)
+}
+
+function renderOverviewPage (dashboard) {
+  const counts = dashboard.counts
+  return `
     <section class="grid">
       ${metric(counts.devices, 'Devices')}
       ${metric(counts.online, 'Online')}
@@ -410,6 +473,127 @@ function renderUi (dashboard) {
       ${metric(counts.pendingCommands, 'Pending commands')}
       ${metric(counts.firmwareJobs, 'Firmware jobs')}
     </section>
+    <section class="panel">
+      <h2>Recent devices</h2>
+      ${deviceTable(dashboard.devices.slice(0, 8))}
+    </section>`
+}
+
+function renderDevicesPage (devices) {
+  return `
+    <section class="panel">
+      <h2>Registered devices</h2>
+      ${deviceTable(devices)}
+    </section>`
+}
+
+function renderDevicePage (manager, id) {
+  const device = manager.getDevice(id)
+  const config = manager.generateConfig(id)
+  const commands = manager.store.commands.commands
+    .filter((command) => command.deviceId === id)
+    .slice(-10)
+    .reverse()
+  const jobs = manager.store.jobs.jobs
+    .filter((job) => job.deviceId === id)
+    .slice(-10)
+    .reverse()
+  return `
+    <section class="panel">
+      <h2>${escapeHtml(device.name || device.id)}</h2>
+      <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
+      <table>
+        <tbody>
+          <tr><th>Profile</th><td>${escapeHtml(device.assignedProfile || 'default')}</td></tr>
+          <tr><th>Last seen</th><td>${escapeHtml(device.lastSeen || 'never')}</td></tr>
+          <tr><th>Display</th><td>${escapeHtml(displayLabel(manager.resolveDisplay(device)))}</td></tr>
+          <tr><th>Firmware</th><td>${escapeHtml(firmwareLabel(device.firmware))}</td></tr>
+          <tr><th>Desired hostname</th><td>${escapeHtml(device.networkIdentity && device.networkIdentity.desiredFqdn)}</td></tr>
+          <tr><th>Config hash</th><td><code>${escapeHtml(config.hash)}</code></td></tr>
+        </tbody>
+      </table>
+      <h2>Recent commands</h2>
+      ${commandTable(commands)}
+      <h2>Firmware jobs</h2>
+      ${firmwareJobTable(jobs)}
+      <h2>Generated config preview</h2>
+      <pre>${escapeHtml(JSON.stringify(config, null, 2))}</pre>
+    </section>`
+}
+
+function renderDiscoveryPage (devices) {
+  const rows = devices.map((device) => `
+        <tr>
+          <td><strong>${escapeHtml(device.name || device.deviceId)}</strong><br><span>${escapeHtml(device.deviceId)}</span></td>
+          <td>${escapeHtml(device.address || '')}:${escapeHtml(device.port || '')}</td>
+          <td>${escapeHtml(displayLabel(device.display))}</td>
+          <td>${escapeHtml(firmwareLabel(device.firmware))}</td>
+          <td>${device.registered ? '<span class="status ok">yes</span>' : '<span class="status">no</span>'}</td>
+          <td>${device.stale ? '<span class="status bad">stale</span>' : '<span class="status ok">fresh</span>'}</td>
+          <td>${escapeHtml(device.lastSeen || '')}</td>
+        </tr>`).join('')
+  return `
+    <section class="panel">
+      <h2>Discovered devices</h2>
+      <p class="muted">Devices appear here after an mDNS/provisioning announcement posts to <code>/discovery/devices</code>.</p>
+      <table>
+        <thead><tr><th>Device</th><th>Address</th><th>Display</th><th>Firmware</th><th>Registered</th><th>Freshness</th><th>Last seen</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="7">No discovered devices.</td></tr>'}</tbody>
+      </table>
+    </section>`
+}
+
+function renderProfilesPage (profiles) {
+  const rows = profiles.map((profile) => `
+        <tr>
+          <td><strong>${escapeHtml(profile.name || profile.id)}</strong><br><span>${escapeHtml(profile.id)}</span></td>
+          <td>${escapeHtml(profile.version)}</td>
+          <td>${escapeHtml(profile.updatedAt || '')}</td>
+          <td><code>${escapeHtml(profile.hash || '')}</code></td>
+        </tr>`).join('')
+  return `
+    <section class="panel">
+      <h2>Profiles</h2>
+      <table>
+        <thead><tr><th>Profile</th><th>Version</th><th>Updated</th><th>Hash</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="4">No profiles configured.</td></tr>'}</tbody>
+      </table>
+    </section>`
+}
+
+function renderFirmwarePage (catalog, jobs) {
+  const artifactRows = (catalog.artifacts || []).map((artifact) => `
+        <tr>
+          <td><strong>${escapeHtml(artifact.firmware && artifact.firmware.version)}</strong><br><span>${escapeHtml(artifact.artifactId)}</span></td>
+          <td>${escapeHtml(artifact.vendor && artifact.vendor.id)}</td>
+          <td>${escapeHtml(artifact.product && artifact.product.id)}</td>
+          <td><code>${escapeHtml(artifact.file && artifact.file.sha256)}</code></td>
+        </tr>`).join('')
+  return `
+    <section class="panel">
+      <h2>Firmware artifacts</h2>
+      <table>
+        <thead><tr><th>Firmware</th><th>Vendor</th><th>Product</th><th>SHA-256</th></tr></thead>
+        <tbody>${artifactRows || '<tr><td colspan="4">No firmware artifacts.</td></tr>'}</tbody>
+      </table>
+      <h2>Recent jobs</h2>
+      ${firmwareJobTable(jobs || [])}
+    </section>`
+}
+
+function deviceTable (devices) {
+  const rows = devices.map((device) => `
+        <tr>
+          <td><strong><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}">${escapeHtml(device.name || device.id)}</a></strong><br><span>${escapeHtml(device.id)}</span></td>
+          <td><span class="status ${device.online ? 'ok' : 'bad'}">${escapeHtml(device.health)}</span></td>
+          <td>${escapeHtml(device.profile)}</td>
+          <td>${escapeHtml(`${device.display.width}x${device.display.height}`)}</td>
+          <td>${escapeHtml(device.desiredConfig.layoutVariant || '')}</td>
+          <td>${escapeHtml(device.desiredConfig.widgetVariant || '')}</td>
+          <td>${device.configDrift ? 'yes' : 'no'}</td>
+          <td>${device.pendingCommands}</td>
+        </tr>`).join('')
+  return `
     <table>
       <thead>
         <tr>
@@ -424,10 +608,51 @@ function renderUi (dashboard) {
         </tr>
       </thead>
       <tbody>${rows || '<tr><td colspan="8">No devices registered.</td></tr>'}</tbody>
-    </table>
-  </main>
-</body>
-</html>`
+    </table>`
+}
+
+function commandTable (commands) {
+  const rows = commands.map((command) => `
+        <tr>
+          <td><code>${escapeHtml(command.id)}</code></td>
+          <td>${escapeHtml(command.type)}</td>
+          <td>${escapeHtml(command.status)}</td>
+          <td>${escapeHtml(command.createdAt)}</td>
+        </tr>`).join('')
+  return `<table><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No commands.</td></tr>'}</tbody></table>`
+}
+
+function firmwareJobTable (jobs) {
+  const rows = jobs.map((job) => `
+        <tr>
+          <td><code>${escapeHtml(job.jobId)}</code></td>
+          <td>${escapeHtml(job.deviceId)}</td>
+          <td>${escapeHtml(job.artifactId)}</td>
+          <td>${escapeHtml(job.status)}</td>
+          <td>${escapeHtml(job.createdAt)}</td>
+        </tr>`).join('')
+  return `<table><thead><tr><th>Job</th><th>Device</th><th>Artifact</th><th>Status</th><th>Created</th></tr></thead><tbody>${rows || '<tr><td colspan="5">No firmware jobs.</td></tr>'}</tbody></table>`
+}
+
+function nav (active) {
+  const items = [
+    ['overview', '/plugins/espdisp-manager/ui', 'Overview'],
+    ['devices', '/plugins/espdisp-manager/ui/devices', 'Devices'],
+    ['discovery', '/plugins/espdisp-manager/ui/discovery', 'Discovery'],
+    ['profiles', '/plugins/espdisp-manager/ui/profiles', 'Profiles'],
+    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware']
+  ]
+  return `<nav>${items.map(([id, href, label]) => `<a class="${active === id ? 'active' : ''}" href="${href}">${label}</a>`).join('')}</nav>`
+}
+
+function displayLabel (display) {
+  if (!display) return ''
+  return `${display.width || '?'}x${display.height || '?'}${display.shape ? ` ${display.shape}` : ''}`
+}
+
+function firmwareLabel (firmware) {
+  if (!firmware) return ''
+  return firmware.version || firmware.name || JSON.stringify(firmware)
 }
 
 function metric (value, label) {
