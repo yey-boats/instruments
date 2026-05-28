@@ -9,7 +9,6 @@ plugin-config-data/kip.json
 plugin-config-data/kip/
 plugin-config-data/resources-provider.json
 plugin-config-data/resources-provider/
-plugin-config-data/signalk-app-dock.json
 plugin-config-data/espdisp-manager/
 plugin-config-data/udp-nmea-sender.json
 plugin-config-data/set-system-time.json

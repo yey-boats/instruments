@@ -66,6 +66,17 @@ Base path:
 /plugins/espdisp-manager
 ```
 
+The package also declares `signalk-webapp` metadata so SignalK/App Dock can
+discover it as an installed app. The webapp entrypoint redirects to the plugin
+UI:
+
+```text
+/signalk-espdisp-manager/
+```
+
+The repo-owned SignalK lab config adds this app to `@signalk/app-dock` as the
+`ESP Displays` tile.
+
 Discovery and capabilities:
 
 ```text

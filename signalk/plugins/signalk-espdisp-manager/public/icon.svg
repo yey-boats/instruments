@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" role="img" aria-label="ESP Display Manager">
+  <rect width="72" height="72" rx="16" fill="#15323b"/>
+  <rect x="13" y="14" width="46" height="34" rx="5" fill="#e8f1f4"/>
+  <rect x="17" y="18" width="38" height="26" rx="3" fill="#1eb2a8"/>
+  <path d="M22 34h8l4-9 6 17 4-8h6" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M27 56h18" stroke="#e8f1f4" stroke-width="5" stroke-linecap="round"/>
+  <path d="M36 48v8" stroke="#e8f1f4" stroke-width="5" stroke-linecap="round"/>
+</svg>

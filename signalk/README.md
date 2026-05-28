@@ -110,6 +110,14 @@ The built-in operator UI is available at:
 http://localhost:3000/plugins/espdisp-manager/ui
 ```
 
+It is also exposed as an installed SignalK webapp and as an App Dock tile named
+`ESP Displays`:
+
+```text
+http://localhost:3000/signalk-espdisp-manager/
+http://localhost:3000/@signalk/app-dock/
+```
+
 UI pages:
 
 ```text
