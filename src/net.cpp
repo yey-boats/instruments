@@ -20,6 +20,7 @@
 #include "boat_cli.h"
 #include "board.h"
 #include "input_test.h"
+#include "manager.h"
 
 namespace net {
 
@@ -305,6 +306,7 @@ bool dispatchCommand(const String &line) {
     if (boat::handleSerialCommand(line)) return true;
     if (board::handleSerialCommand(line)) return true;
     if (input_test::handleConsoleCommand(line)) return true;
+    if (manager::handleSerialCommand(line)) return true;
     if (layout::handleSerialCommand(line)) return true;
     if (s_extra && s_extra(line)) return true;
     return false;

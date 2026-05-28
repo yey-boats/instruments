@@ -14,8 +14,6 @@ pytestmark = pytest.mark.skipif(
     not ENABLED, reason="ESPDISP_MANAGER_CONTRACT=1 not set; future contract test")
 
 
-@pytest.mark.xfail(reason="firmware F1 (device_identity + manager-register CLI) not yet implemented",
-                   strict=False)
 def test_manual_register(device, manager):
     """Device receives `manager-register http://host:port` via BLE/serial
     console, then registers within ~5 s. Mock should see the request
@@ -44,7 +42,6 @@ def test_mdns_discovery(device, manager):
     assert manager.devices, "device should have discovered via mDNS"
 
 
-@pytest.mark.xfail(reason="firmware F1 not yet implemented", strict=False)
 def test_register_identity_payload(device, manager):
     device.post_cmd(f"manager-register {manager.base_url}")
     deadline = time.time() + 10

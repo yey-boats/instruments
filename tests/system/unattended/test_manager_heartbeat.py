@@ -5,12 +5,8 @@ import time
 import pytest
 
 ENABLED = os.environ.get("ESPDISP_MANAGER_CONTRACT") == "1"
-pytestmark = [
-    pytest.mark.skipif(not ENABLED,
-                       reason="ESPDISP_MANAGER_CONTRACT=1 not set"),
-    pytest.mark.xfail(reason="firmware F2 heartbeat task not yet implemented",
-                      strict=False),
-]
+pytestmark = pytest.mark.skipif(
+    not ENABLED, reason="ESPDISP_MANAGER_CONTRACT=1 not set")
 
 
 def _register(device, manager):
@@ -47,6 +43,8 @@ def test_heartbeat_payload_groups(device, manager):
         assert group in status, f"missing status.{group}"
 
 
+@pytest.mark.xfail(reason="firmware F3 config drift detection not yet implemented",
+                   strict=False)
 def test_heartbeat_acks_config_drift(device, manager):
     dev = _register(device, manager)
     manager.set_config(dev.id, {"theme": "night", "brightness": 64})

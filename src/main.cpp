@@ -19,6 +19,8 @@
 #include "latency.h"
 #include "source_nmea_wifi.h"
 #include "source_nmea2000.h"
+#include "device_identity.h"
+#include "manager.h"
 
 #include <Preferences.h>
 #include <math.h>
@@ -1800,6 +1802,8 @@ void setup() {
     sk::setup("", 3000);
     nmea_wifi::setup();
     nmea2000::setup();
+    device_identity::setup();
+    manager::setup();
 
     lv_timer_create(ui_refresh, 200, NULL);
     lv_timer_create(fps_tick, 1000, NULL);
