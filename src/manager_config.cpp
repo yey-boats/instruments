@@ -99,8 +99,11 @@ const char *parse_code_to_string(ParseCode c) {
 
 bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
            RenderPlan &out, ParseError &err) {
-    out = RenderPlan{};
-    err = ParseError{};
+    // CLAUDE.md memory trap: `out = RenderPlan{}` creates a ~12 KB
+    // temporary on the stack which overflows the FreeRTOS worker stack
+    // (canary trips, device reboots). memset clears in place.
+    memset(&out, 0, sizeof(out));
+    memset(&err, 0, sizeof(err));
     out.display_width = device_width;
     out.display_height = device_height;
 

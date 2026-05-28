@@ -20,6 +20,7 @@
 #include "source_nmea2000.h"
 #include "input_test.h"
 #include "cmd_catalog.h"
+#include "manager.h"
 #include "ui_data.h"
 #include "screenshot.h"
 #include "app_events.h"
@@ -121,6 +122,28 @@ static void handle_state() {
     // peak here is fine - it's on core 0, not on the LVGL task.
     sk["task_iters"] = sk::loopIters();
     sk["task_peak_us"] = sk::loopMaxUs();
+
+    {
+        manager::Status st = manager::status();
+        JsonObject mgr = doc["manager"].to<JsonObject>();
+        mgr["deviceId"] = st.device_id;
+        mgr["registered"] = st.has_token && st.endpoint.length() > 0;
+        mgr["lastHeartbeatOk"] = st.last_heartbeat_code >= 200 &&
+                                 st.last_heartbeat_code < 300;
+        mgr["endpoint"] = st.endpoint;
+        mgr["hasToken"] = st.has_token;
+        mgr["hasSkToken"] = st.has_sk_token;
+        mgr["lastRegisterCode"] = st.last_register_code;
+        mgr["lastHeartbeatCode"] = st.last_heartbeat_code;
+        mgr["heartbeatIntervalMs"] = st.heartbeat_interval_ms;
+        mgr["commandPollIntervalMs"] = st.command_poll_interval_ms;
+        mgr["configVersion"] = st.config_version;
+        mgr["configHash"] = st.config_hash;
+        mgr["health"] = st.health == manager::HealthState::Heartbeating ? "heartbeating"
+            : st.health == manager::HealthState::Registering ? "registering"
+            : st.health == manager::HealthState::Failed ? "failed"
+            : "idle";
+    }
 
     JsonObject screen = doc["screen"].to<JsonObject>();
     screen["index"] = ui::current_index();
@@ -494,6 +517,61 @@ static void handle_layout_put() {
     send_json(202, doc);
 }
 
+// ---- /api/dashboard/config.{json,yaml} --------------------------------
+// Dashboard config is the operator-facing name for the same layout document
+// consumed by /api/layout. JSON is canonical on-device. The .yaml endpoint
+// serves and accepts JSON-compatible YAML (JSON syntax is valid YAML 1.2),
+// keeping the ESP32 parser small and deterministic.
+
+static void handle_dashboard_config_get_json() {
+    handle_layout_get();
+}
+
+static void handle_dashboard_config_get_yaml() {
+    String body;
+    if (!layout::copy_last_json(body)) {
+        server.send(404, "text/plain", "no dashboard config loaded");
+        return;
+    }
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/yaml", body);
+}
+
+static void handle_dashboard_config_put() {
+    handle_layout_put();
+}
+
+static void handle_security() {
+    JsonDocument doc;
+    JsonObject web = doc["web"].to<JsonObject>();
+    web["bind"] = net::wifiUp() ? "station-ip" : "setup-ap";
+    web["auth"] = "none-on-device";
+    web["intended_network"] = "trusted LAN or temporary setup AP";
+    web["secrets_echoed"] = false;
+    JsonArray webWrite = web["write_endpoints"].to<JsonArray>();
+    webWrite.add("/api/dashboard/config.json");
+    webWrite.add("/api/dashboard/config.yaml");
+    webWrite.add("/api/layout");
+    webWrite.add("/api/wifi/connect");
+    webWrite.add("/api/cmd");
+    web["touch_injection_over_http"] = false;
+
+    JsonObject ble = doc["ble"].to<JsonObject>();
+    ble["pairing_required"] = false;
+    ble["auth"] = "none-in-current-firmware";
+    ble["intended_range"] = "local physical proximity";
+    ble["configuration_characteristic"] = "boat-mfd CONFIGURATION";
+    ble["max_single_write_bytes"] = 512;
+    ble["large_dashboard_import"] = "use web or SignalK manager";
+
+    JsonObject signalk = doc["signalk"].to<JsonObject>();
+    signalk["manager_auth"] = "SignalK bearer token plus device token";
+    signalk["device_pull_header"] = "X-EspDisp-Authorization";
+    signalk["dashboard_config_command"] = "config.reload";
+    send_json(200, doc);
+}
+
 // ---- /api/wifi/scan, /networks, /connect -------------------------------
 
 static bool s_scan_started = false;
@@ -812,9 +890,14 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 </div>
 <div class=row>
   <div class=card style="flex:1 0 100%">
-    <div class=k>LAYOUT JSON</div>
+    <div class=k>DASHBOARD CONFIG</div>
+    <div style="margin:4px 0 8px 0">
+      <button id=dashboardJson>export json</button>
+      <button id=dashboardYaml>export yaml</button>
+      <span class=k>YAML on-device uses JSON-compatible YAML syntax.</span>
+    </div>
     <textarea id=layout></textarea>
-    <button id=layoutApply>apply</button>
+    <button id=layoutApply>import/apply</button>
     <button id=layoutLoad>refresh</button>
     <span id=layoutMsg></span>
   </div>
@@ -845,7 +928,7 @@ async function refresh(){
 }
 async function loadLayout(){
   try{
-    const r = await fetch('/api/layout');
+    const r = await fetch('/api/dashboard/config.json');
     if (!r.ok) { document.getElementById('layoutMsg').textContent = 'no layout'; return; }
     const t = await r.text();
     document.getElementById('layout').value = JSON.stringify(JSON.parse(t), null, 2);
@@ -854,8 +937,14 @@ async function loadLayout(){
 }
 async function saveLayout(){
   const t = document.getElementById('layout').value;
-  const r = await fetch('/api/layout', {method:'PUT', headers:{'Content-Type':'application/json'}, body:t});
+  const r = await fetch('/api/dashboard/config.json', {method:'PUT', headers:{'Content-Type':'application/json'}, body:t});
   document.getElementById('layoutMsg').textContent = (r.ok?'ok ':'fail ') + r.status;
+}
+async function exportDashboard(kind){
+  const url = kind === 'yaml' ? '/api/dashboard/config.yaml' : '/api/dashboard/config.json';
+  const r = await fetch(url);
+  document.getElementById('layout').value = await r.text();
+  document.getElementById('layoutMsg').textContent = kind + ' export loaded';
 }
 async function runCmd(){
   const c = document.getElementById('cmd').value;
@@ -871,6 +960,8 @@ document.getElementById('cmdSend').addEventListener('click', runCmd);
 document.getElementById('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') runCmd(); });
 document.getElementById('layoutApply').addEventListener('click', saveLayout);
 document.getElementById('layoutLoad').addEventListener('click', loadLayout);
+document.getElementById('dashboardJson').addEventListener('click', () => exportDashboard('json'));
+document.getElementById('dashboardYaml').addEventListener('click', () => exportDashboard('yaml'));
 for (const b of document.querySelectorAll('button[data-cmd]')) {
   b.addEventListener('click', () => sendCmd(b.getAttribute('data-cmd')));
 }
@@ -1011,6 +1102,7 @@ static void bind_routes() {
     server.on("/api/state", HTTP_GET, handle_state);
     server.on("/api/config", HTTP_GET, handle_config);
     server.on("/api/config/status", HTTP_GET, handle_config_status);
+    server.on("/api/security", HTTP_GET, handle_security);
     server.on("/api/screens", HTTP_GET, handle_screens);
     server.on("/api/sk", HTTP_GET, handle_sk_data);
     server.on("/api/boat", HTTP_GET, handle_boat);
@@ -1018,6 +1110,10 @@ static void bind_routes() {
     server.on("/help/commands", HTTP_GET, handle_commands_html);
     server.on("/api/layout", HTTP_GET, handle_layout_get);
     server.on("/api/layout", HTTP_PUT, handle_layout_put);
+    server.on("/api/dashboard/config.json", HTTP_GET, handle_dashboard_config_get_json);
+    server.on("/api/dashboard/config.json", HTTP_PUT, handle_dashboard_config_put);
+    server.on("/api/dashboard/config.yaml", HTTP_GET, handle_dashboard_config_get_yaml);
+    server.on("/api/dashboard/config.yaml", HTTP_PUT, handle_dashboard_config_put);
     server.on("/api/cmd", HTTP_POST, handle_cmd);
     server.on("/api/wifi/scan", HTTP_POST, handle_wifi_scan);
     server.on("/api/wifi/networks", HTTP_GET, handle_wifi_networks);

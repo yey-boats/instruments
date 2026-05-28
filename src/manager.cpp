@@ -32,7 +32,8 @@ constexpr uint32_t DEFAULT_HEARTBEAT_MS = 30000;
 constexpr uint32_t DEFAULT_COMMAND_POLL_MS = 10000;
 
 String s_endpoint;
-String s_token;
+String s_token;       // device/dev/provision token sent as X-EspDisp-Authorization
+String s_sk_token;    // SignalK server bearer token used to pass SK security
 AuthState s_auth = AuthState::Unprovisioned;
 HealthState s_health = HealthState::Idle;
 uint32_t s_heartbeat_interval_ms = DEFAULT_HEARTBEAT_MS;
@@ -85,6 +86,7 @@ void load_prefs() {
     p.begin(NS, true);
     s_endpoint = p.getString("endpoint", "");
     s_token = p.getString("token", "");
+    s_sk_token = p.getString("sk_token", "");
     s_applied_config_version = p.getString("cfg_ver", "v0");
     s_applied_config_hash = p.getString("cfg_hash", "");
     p.end();
@@ -97,9 +99,26 @@ void save_prefs() {
     p.begin(NS, false);
     p.putString("endpoint", s_endpoint);
     p.putString("token", s_token);
+    p.putString("sk_token", s_sk_token);
     p.putString("cfg_ver", s_applied_config_version);
     p.putString("cfg_hash", s_applied_config_hash);
     p.end();
+}
+
+// Compose Authorization (SK security) + X-EspDisp-Authorization (plugin auth)
+// for any plugin HTTP request. SK security needs a server-issued token in the
+// standard Authorization header; the plugin itself reads X-EspDisp-Authorization
+// first (see signalk-espdisp-manager index.js authFrom). When the device only
+// has one token (e.g. talking to the standalone mock), both headers carry it.
+void add_auth_headers(HTTPClient &http) {
+    if (s_sk_token.length()) {
+        http.addHeader("Authorization", String("Bearer ") + s_sk_token);
+    } else if (s_token.length()) {
+        add_auth_headers(http);
+    }
+    if (s_token.length()) {
+        http.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
+    }
 }
 
 String build_url(const char *path) {
@@ -127,6 +146,41 @@ bool endpoint_has_path(const String &endpoint) {
     int scheme = endpoint.indexOf("://");
     int start = scheme >= 0 ? scheme + 3 : 0;
     return endpoint.indexOf('/', start) >= 0;
+}
+
+// GET /.well-known/espdisp-management for a given base. Best-effort: if
+// the plugin advertises intervals or a basePath override, apply them.
+// Returns the HTTP code (or negative on transport error).
+int fetch_discovery(const String &base, String *out_base_path = nullptr) {
+    HTTPClient http;
+    String url = build_url_from_base(base, "/.well-known/espdisp-management");
+    if (!http.begin(url)) return -3;
+    http.setConnectTimeout(3000);
+    http.setTimeout(3000);
+    add_auth_headers(http);
+    int code = http.GET();
+    if (code == 200) {
+        String body = http.getString();
+        JsonDocument d;
+        if (deserializeJson(d, body) == DeserializationError::Ok) {
+            if (d["intervals"]["heartbeatMs"].is<uint32_t>()) {
+                s_heartbeat_interval_ms =
+                    d["intervals"]["heartbeatMs"].as<uint32_t>();
+            }
+            if (d["intervals"]["commandPollMs"].is<uint32_t>()) {
+                s_command_poll_interval_ms =
+                    d["intervals"]["commandPollMs"].as<uint32_t>();
+            }
+            if (out_base_path && d["basePath"].is<const char *>()) {
+                *out_base_path = d["basePath"].as<const char *>();
+            }
+            net::logf("[mgr] discovery: hb=%ums poll=%ums",
+                      (unsigned)s_heartbeat_interval_ms,
+                      (unsigned)s_command_poll_interval_ms);
+        }
+    }
+    http.end();
+    return code;
 }
 
 // POST /devices/register. On 200, store the returned bearer token +
@@ -157,6 +211,11 @@ int do_register() {
     String resp;
     String successful_base;
     for (int i = 0; i < base_count; ++i) {
+        // Probe discovery first - if it 200s, pull intervals + confirm
+        // the base. We still try POST register even on non-200 (some
+        // deployments lock the well-known endpoint).
+        fetch_discovery(bases[i]);
+
         HTTPClient http;
         String url = build_url_from_base(bases[i], "/devices/register");
         if (!http.begin(url)) {
@@ -168,10 +227,7 @@ int do_register() {
         http.setConnectTimeout(3000);
         http.setTimeout(3000);
         http.addHeader("Content-Type", "application/json");
-        if (s_token.length()) {
-            http.addHeader("Authorization", String("Bearer ") + s_token);
-            http.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
-        }
+        add_auth_headers(http);
         code = http.POST(payload);
         if (code == 200 || code == 201) {
             resp = http.getString();
@@ -369,7 +425,7 @@ void post_ota_progress(const String &job_id, const char *state,
     http.setConnectTimeout(3000);
     http.setTimeout(3000);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + s_token);
+    add_auth_headers(http);
     JsonDocument body;
     body["state"] = state;
     if (progress_pct >= 0) body["progress_pct"] = progress_pct;
@@ -619,7 +675,7 @@ void ack_command(const String &cmd_id, const char *result) {
     http.setConnectTimeout(3000);
     http.setTimeout(3000);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + s_token);
+    add_auth_headers(http);
     JsonDocument body;
     body["result"] = result;
     String payload;
@@ -641,7 +697,7 @@ int poll_commands() {
     if (!http.begin(url)) return -3;
     http.setConnectTimeout(3000);
     http.setTimeout(3000);
-    http.addHeader("Authorization", String("Bearer ") + s_token);
+    add_auth_headers(http);
     int code = http.GET();
     if (code == 200) {
         String resp = http.getString();
@@ -677,7 +733,7 @@ int fetch_config() {
     if (!http.begin(url)) return -3;
     http.setConnectTimeout(3000);
     http.setTimeout(3000);
-    http.addHeader("Authorization", String("Bearer ") + s_token);
+    add_auth_headers(http);
     int code = http.GET();
     if (code == 200) {
         String resp = http.getString();
@@ -703,29 +759,36 @@ int fetch_config() {
                 // continues to honor ui/sk/network blocks even when
                 // the spec-19 layout/widgets are malformed.
                 board::Geometry g = board::geometry();
-                manager_config::RenderPlan plan;
-                manager_config::ParseError perr;
-                if (manager_config::parse(cfg.as<JsonObjectConst>(),
-                                          g.width_px, g.height_px,
-                                          plan, perr)) {
-                    s_render_plan = plan;
-                    s_render_plan_valid = true;
-                    net::logf("[mgr] render plan: widgets=%u screens=%u "
-                              "variant=%s",
-                              (unsigned)plan.widget_count,
-                              (unsigned)plan.screen_count,
-                              plan.layout_variant[0] ? plan.layout_variant
-                                                     : "(none)");
-                    // Spec 19 D5: build LVGL screens from the plan.
-                    // Idempotent - apply() logs "already applied" on
-                    // subsequent calls.
-                    if (plan.screen_count > 0) {
-                        manager_screens::apply(plan);
-                    }
+                // RenderPlan is ~12 KB - too big for the worker stack,
+                // so we heap-allocate it. PSRAM keeps internal SRAM
+                // available for LVGL and the network drivers.
+                auto *plan_p = (manager_config::RenderPlan *)heap_caps_calloc(
+                    1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
+                if (!plan_p) {
+                    net::logf("[mgr] render plan alloc failed");
                 } else {
-                    net::logf("[mgr] render plan parse failed: %s at %s",
-                              manager_config::parse_code_to_string(perr.code),
-                              perr.path[0] ? perr.path : "(root)");
+                    manager_config::ParseError perr;
+                    if (manager_config::parse(cfg.as<JsonObjectConst>(),
+                                              g.width_px, g.height_px,
+                                              *plan_p, perr)) {
+                        s_render_plan = *plan_p;
+                        s_render_plan_valid = true;
+                        net::logf("[mgr] render plan: widgets=%u screens=%u "
+                                  "variant=%s",
+                                  (unsigned)plan_p->widget_count,
+                                  (unsigned)plan_p->screen_count,
+                                  plan_p->layout_variant[0]
+                                      ? plan_p->layout_variant
+                                      : "(none)");
+                        if (plan_p->screen_count > 0) {
+                            manager_screens::apply(*plan_p);
+                        }
+                    } else {
+                        net::logf("[mgr] render plan parse failed: %s at %s",
+                                  manager_config::parse_code_to_string(perr.code),
+                                  perr.path[0] ? perr.path : "(root)");
+                    }
+                    heap_caps_free(plan_p);
                 }
                 bool ok = apply_config(cfg);
                 if (ok) {
@@ -766,7 +829,7 @@ int do_heartbeat() {
     http.setConnectTimeout(3000);
     http.setTimeout(3000);
     http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", String("Bearer ") + s_token);
+    add_auth_headers(http);
     int code = http.POST(payload);
     if (code == 401 || code == 403) {
         net::logf("[mgr] heartbeat auth failed (%d) - will re-register", code);
@@ -775,6 +838,12 @@ int do_heartbeat() {
         s_auth = AuthState::Unprovisioned;
         s_force_register = true;
         unlock_state();
+    } else if (code == 404) {
+        // Device id changed (e.g. via network.hostname config) or the
+        // plugin record was deleted. Re-register so the plugin learns
+        // the new id; keep the token in place since auth itself is fine.
+        net::logf("[mgr] heartbeat 404 - re-registering");
+        s_force_register = true;
     } else if (code == 200) {
         // F3: check if the server wants a config update.
         String resp = http.getString();
@@ -817,7 +886,8 @@ int do_heartbeat() {
             hc.setConnectTimeout(3000);
             hc.setTimeout(3000);
             hc.addHeader("Content-Type", "application/json");
-            hc.addHeader("Authorization", String("Bearer ") + s_token);
+            if (s_sk_token.length()) hc.addHeader("Authorization", String("Bearer ") + s_sk_token); else hc.addHeader("Authorization", String("Bearer ") + s_token);
+            if (s_token.length()) hc.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
             JsonDocument cbody;
             const auto &id = device_identity::get();
             cbody["version"] = id.firmware_version;
@@ -912,7 +982,7 @@ void setup() {
               s_endpoint.c_str(),
               s_token.length() ? "set" : "none");
     if (!s_task) {
-        xTaskCreatePinnedToCore(worker, "mgr", 6144, nullptr, 1, &s_task, 0);
+        xTaskCreatePinnedToCore(worker, "mgr", 16384, nullptr, 1, &s_task, 0);
     }
 }
 
@@ -926,6 +996,7 @@ Status status() {
     s.health = s_health;
     s.endpoint = s_endpoint;
     s.has_token = s_token.length() > 0;
+    s.has_sk_token = s_sk_token.length() > 0;
     s.last_register_ms = s_last_register_ms;
     s.last_register_code = s_last_register_code;
     s.last_heartbeat_ms = s_last_heartbeat_ms;
@@ -945,13 +1016,14 @@ bool handleSerialCommand(const String &line) {
 
     if (line == "manager-status" || line == "manager") {
         Status st = status();
-        net::logf("[mgr] auth=%s health=%s endpoint=%s token=%s",
+        net::logf("[mgr] auth=%s health=%s endpoint=%s token=%s sk_token=%s",
                   st.auth == AuthState::Provisioned ? "provisioned" : "unprov",
                   st.health == HealthState::Heartbeating ? "hb"
                     : st.health == HealthState::Registering ? "reg"
                     : st.health == HealthState::Failed ? "failed" : "idle",
                   st.endpoint.length() ? st.endpoint.c_str() : "(none)",
-                  st.has_token ? "set" : "none");
+                  st.has_token ? "set" : "none",
+                  st.has_sk_token ? "set" : "none");
         net::logf("[mgr] last_register=%dms ago code=%d  "
                   "last_hb=%dms ago code=%d",
                   (int)(millis() - st.last_register_ms),
@@ -1003,10 +1075,26 @@ bool handleSerialCommand(const String &line) {
                   s_token.length() ? "saved" : "cleared");
         return true;
     }
+    if (line.startsWith("manager-sk-token ")) {
+        String tok = line.substring(17);
+        tok.trim();
+        if (tok == "clear") {
+            s_sk_token = "";
+        } else {
+            s_sk_token = tok;
+        }
+        save_prefs();
+        net::logf("[mgr] sk_token %s (len=%u)",
+                  s_sk_token.length() ? "saved" : "cleared",
+                  (unsigned)s_sk_token.length());
+        s_force_register = true;
+        return true;
+    }
     if (line == "manager-forget") {
         lock_state();
         s_endpoint = "";
         s_token = "";
+        s_sk_token = "";
         s_auth = AuthState::Unprovisioned;
         save_prefs();
         unlock_state();
@@ -1097,9 +1185,9 @@ bool handleSerialCommand(const String &line) {
         return true;
     }
     net::logf("[mgr] usage: manager-status | manager-register <url> | "
-              "manager-token <jwt|clear> | manager-forget | manager-discover "
-              "| manager-layout | manager-widgets | manager-config-dump "
-              "| font-dump");
+              "manager-token <jwt|clear> | manager-sk-token <jwt|clear> | "
+              "manager-forget | manager-discover | manager-layout | "
+              "manager-widgets | manager-config-dump | font-dump");
     return true;
 }
 

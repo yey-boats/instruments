@@ -5,8 +5,8 @@
 // Talks to the SignalK ESP Display Manager plugin (spec 18) over HTTP:
 //   POST /devices/register  - obtain a device token
 //   POST /devices/:id/status - 30 s heartbeat
-//   GET  /devices/:id/config - (F3 future)
-//   GET  /devices/:id/commands - (F4 future)
+//   GET  /devices/:id/config - apply central config
+//   GET  /devices/:id/commands - poll and ack queued commands
 //
 // Lives on its own FreeRTOS task pinned to core 0 so blocking HTTPClient
 // connects can't stall LVGL. NVS-persistent endpoint + bearer token
@@ -34,12 +34,16 @@ struct Status {
     HealthState health;
     String endpoint;          // "http://host:port" or ""
     bool has_token;
+    bool has_sk_token;        // server-issued SK bearer for auth header
     uint32_t last_register_ms;
     int last_register_code;   // HTTP status, negative on transport error
     uint32_t last_heartbeat_ms;
     int last_heartbeat_code;
     uint32_t heartbeat_interval_ms;
     uint32_t command_poll_interval_ms;
+    String device_id;
+    String config_version;
+    String config_hash;
 };
 
 void setup();
