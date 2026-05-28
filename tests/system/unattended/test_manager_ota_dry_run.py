@@ -9,12 +9,8 @@ import time
 import pytest
 
 ENABLED = os.environ.get("ESPDISP_MANAGER_CONTRACT") == "1"
-pytestmark = [
-    pytest.mark.skipif(not ENABLED,
-                       reason="ESPDISP_MANAGER_CONTRACT=1 not set"),
-    pytest.mark.xfail(reason="firmware F6 pull-OTA not yet implemented",
-                      strict=False),
-]
+pytestmark = pytest.mark.skipif(
+    not ENABLED, reason="ESPDISP_MANAGER_CONTRACT=1 not set")
 
 
 def _register(device, manager):
@@ -29,25 +25,45 @@ def _register(device, manager):
 
 def test_firmware_update_state_progression(device, manager):
     """Queue a firmware.update command pointing at a known artifact.
-    Device should advance through accepted -> downloading -> verifying
-    -> installing -> rebooting -> booted -> confirmed."""
+    Mock serves a 1 KB blob that is NOT a valid ESP image, so the
+    install will fail at Update.end. We assert the launch command
+    acked "ok" and at least the "accepted" + "downloading" progress
+    events arrived at the mock - i.e. the state machine started even
+    if the image was invalid (we never want a test to actually swap
+    the device's firmware partition)."""
     dev = _register(device, manager)
+    # Register a dummy artifact (1 KB of zeros). The known sha lets us
+    # exercise verify too, but install will fail (intentional).
+    url, sha = manager.serve_artifact("test-artifact.bin", b"\x00" * 4096)
     cid = manager.queue_command(dev.id, "firmware.update", {
-        "url": f"{manager.base_url}/firmware/test-artifact.bin",
-        "sha256": "0" * 64,
-        "size": 1024,
+        "url": url,
+        "sha256": sha,
+        "size": 4096,
         "version": "v0.0.99-test",
+        "job_id": "job-state-progression",
     })
-    # We don't enforce all transitions inline (some happen after reboot),
-    # but the ack result for the launch command should be "ok" within
-    # ~30 s and the audit log should record at least 2 progress events.
-    deadline = time.time() + 60
+    deadline = time.time() + 30
     while time.time() < deadline:
         cmd = next((c for c in dev.commands if c.id == cid), None)
         if cmd and cmd.state in ("acknowledged", "failed"):
             break
         time.sleep(1)
-    assert cmd is not None and cmd.ack_result in ("ok", "accepted")
+    assert cmd is not None, "command never appeared"
+    assert cmd.ack_result in ("ok", "accepted"), (
+        f"expected ack ok/accepted, got {cmd.ack_result}")
+    # Wait for progress events from the device side.
+    deadline = time.time() + 15
+    progress_states = set()
+    while time.time() < deadline:
+        events = manager.firmware_progress.get("job-state-progression", [])
+        for e in events:
+            progress_states.add(e.get("state"))
+        if "accepted" in progress_states and (
+                "downloading" in progress_states or
+                "failed" in progress_states):
+            return
+        time.sleep(1)
+    pytest.fail(f"expected accepted + downloading/failed, got {progress_states}")
 
 
 def test_firmware_update_with_bad_sha_is_rejected(device, manager):

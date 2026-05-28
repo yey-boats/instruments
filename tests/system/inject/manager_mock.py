@@ -134,7 +134,20 @@ class ManagerMock:
     # --- helpers -------------------------------------------------------
     @property
     def base_url(self) -> str:
-        return f"http://{self._host}:{self._port}"
+        # When bound to 0.0.0.0 we have to advertise a routable IP so
+        # the device can dial back. Pick whichever interface would be
+        # used to reach the loopback target as a proxy for "our LAN IP".
+        host = self._host
+        if host in ("0.0.0.0", "::"):
+            import socket as _s
+            try:
+                s = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                host = s.getsockname()[0]
+                s.close()
+            except OSError:
+                host = "127.0.0.1"
+        return f"http://{host}:{self._port}"
 
     def _log(self, event: str, **extra) -> None:
         self.audit.append({
@@ -188,18 +201,25 @@ class ManagerMock:
             return web.json_response({"error": "missing deviceId"},
                                      status=400)
         # Allow re-registration: keep token if device exists.
+        # Identity may come as a nested object OR as top-level fields
+        # (the current firmware uses the flat form). Capture both.
+        if "identity" in body:
+            identity_blob = body["identity"]
+        else:
+            identity_blob = {k: v for k, v in body.items()
+                             if k != "capabilities"}
         existing = self.devices.get(device_id)
         if existing is None:
             existing = Device(
                 id=device_id,
                 token=pysecrets.token_urlsafe(24),
-                identity=body.get("identity", {}),
+                identity=identity_blob,
                 capabilities=body.get("capabilities", {}),
             )
             self.devices[device_id] = existing
             self._log("device.registered", device_id=device_id)
         else:
-            existing.identity = body.get("identity", existing.identity)
+            existing.identity = identity_blob
             existing.capabilities = body.get("capabilities",
                                              existing.capabilities)
             self._log("device.reregistered", device_id=device_id)

@@ -5,12 +5,8 @@ import time
 import pytest
 
 ENABLED = os.environ.get("ESPDISP_MANAGER_CONTRACT") == "1"
-pytestmark = [
-    pytest.mark.skipif(not ENABLED,
-                       reason="ESPDISP_MANAGER_CONTRACT=1 not set"),
-    pytest.mark.xfail(reason="firmware F3 config-apply not yet implemented",
-                      strict=False),
-]
+pytestmark = pytest.mark.skipif(
+    not ENABLED, reason="ESPDISP_MANAGER_CONTRACT=1 not set")
 
 
 def _register(device, manager):

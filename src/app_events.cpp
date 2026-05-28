@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "net.h"
+#include "ui_data.h"
 #include "signalk.h"
 #include "ui_screens.h"
 #include "ui_theme.h"
@@ -208,14 +209,12 @@ void pump() {
             break;
         }
         case CommandType::SetBrightness: {
-            int v = cmd.i;
-            if (v < 0) v = 0;
-            if (v > 255) v = 255;
-            ledcWrite(0, v);
-            Preferences p;
-            p.begin("ui", false);
-            p.putUChar("bright", (uint8_t)v);
-            p.end();
+            // Route through ui::set_brightness so the config_runtime
+            // cache + the LEDC pin + the persisted NVS all stay in
+            // sync. Reading via ui::brightness() will then reflect
+            // the new value immediately (used by /api/state.display
+            // and manager F4 brightness.set tests).
+            ui::set_brightness(cmd.i);
             break;
         }
         case CommandType::RunCommand: {

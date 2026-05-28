@@ -20,6 +20,7 @@
 #include "source_nmea2000.h"
 #include "input_test.h"
 #include "cmd_catalog.h"
+#include "ui_data.h"
 #include "screenshot.h"
 #include "app_events.h"
 #include "config_runtime.h"
@@ -126,6 +127,19 @@ static void handle_state() {
     screen["id"] = ui::current_id();
     screen["title"] = ui::current_title();
     screen["count"] = (uint32_t)ui::screen_count();
+
+    // Display state: brightness + theme. Consumed by spec 17 F4 tests
+    // (manager.brightness.set/theme.set commands assert /api/state.display
+    // reflects the new value).
+    JsonObject display = doc["display"].to<JsonObject>();
+    display["brightness"] = (uint32_t)ui::brightness();
+    JsonObject ui_o = doc["ui"].to<JsonObject>();
+    {
+        Preferences pu;
+        pu.begin("ui", true);
+        ui_o["theme"] = pu.getString("theme", "night");
+        pu.end();
+    }
 
     JsonObject queues = doc["queues"].to<JsonObject>();
     queues["ui_depth"] = (uint32_t)app::ui_queue_depth();

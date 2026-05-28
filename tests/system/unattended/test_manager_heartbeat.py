@@ -43,8 +43,6 @@ def test_heartbeat_payload_groups(device, manager):
         assert group in status, f"missing status.{group}"
 
 
-@pytest.mark.xfail(reason="firmware F3 config drift detection not yet implemented",
-                   strict=False)
 def test_heartbeat_acks_config_drift(device, manager):
     dev = _register(device, manager)
     manager.set_config(dev.id, {"theme": "night", "brightness": 64})

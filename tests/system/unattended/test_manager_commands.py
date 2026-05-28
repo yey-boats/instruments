@@ -5,12 +5,8 @@ import time
 import pytest
 
 ENABLED = os.environ.get("ESPDISP_MANAGER_CONTRACT") == "1"
-pytestmark = [
-    pytest.mark.skipif(not ENABLED,
-                       reason="ESPDISP_MANAGER_CONTRACT=1 not set"),
-    pytest.mark.xfail(reason="firmware F4 command-poll not yet implemented",
-                      strict=False),
-]
+pytestmark = pytest.mark.skipif(
+    not ENABLED, reason="ESPDISP_MANAGER_CONTRACT=1 not set")
 
 
 def _register(device, manager):
@@ -47,7 +43,17 @@ def test_brightness_set_command(device, manager):
     cid = manager.queue_command(dev.id, "brightness.set", {"value": 32})
     cmd = _wait_ack(manager, dev, cid)
     assert cmd.ack_result == "ok"
-    assert device.state()["display"]["brightness"] == 32
+    # SetBrightness ack fires when manager queues the app::Command;
+    # actual apply happens on the LVGL task. Allow a short window
+    # for the drain.
+    deadline = time.time() + 5
+    last = None
+    while time.time() < deadline:
+        last = device.state()["display"]["brightness"]
+        if last == 32:
+            return
+        time.sleep(0.5)
+    pytest.fail(f"brightness never reached 32 (last={last})")
 
 
 def test_beep_command(device, manager):
