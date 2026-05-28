@@ -8,6 +8,9 @@
 #include "app_events.h"
 #include "net.h"
 #include "autopilot.h"
+#include "beeper.h"
+
+#include <Preferences.h>
 
 #include <math.h>
 #include <stdio.h>
@@ -1503,6 +1506,203 @@ static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
 }
 
 // ---------------------------------------------------------------------------
+// setup_form template - scrollable list of settings rows.
+//
+// MVP: hardcoded set of common settings (theme, brightness, audible
+// alarms). Each row has a caption + a control widget:
+//   theme            -> segmented (day / night / auto)
+//   brightness       -> -/+ pair around the current value
+//   audible alarms   -> toggle
+//   reboot           -> action button
+//
+// Descriptor-driven schema (SettingKind / SettingSpec per spec 13)
+// is a follow-up - this template's contract is "show the settings
+// that exist today" so screens can adopt it without their authors
+// needing to re-wire every preference.
+
+struct SetupFormState {
+    lv_obj_t *theme_btns[3];
+    lv_obj_t *brightness_lbl;
+    lv_obj_t *audible_btn;
+    char last_theme[8];
+    uint8_t last_brightness;
+    bool last_audible;
+};
+
+static void sf_theme_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const char *t = (const char *)lv_event_get_user_data(e);
+    app::Command c;
+    c.type = app::CommandType::SetTheme;
+    strncpy(c.a, t, sizeof(c.a) - 1);
+    app::post(c, 100);
+}
+
+static void sf_bright_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    int now = (int)ui::brightness() + delta;
+    if (now < 20) now = 20;
+    if (now > 255) now = 255;
+    app::Command c;
+    c.type = app::CommandType::SetBrightness;
+    c.i = now;
+    app::post(c, 100);
+}
+
+static void sf_audible_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    beeper::set_audible_alarms(!beeper::audible_alarms_enabled());
+}
+
+static void sf_reboot_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    app::Command c;
+    c.type = app::CommandType::Reboot;
+    app::post(c, 100);
+}
+
+static lv_obj_t *sf_make_row(lv_obj_t *parent, int y, const char *label,
+                              lv_obj_t **out_panel) {
+    lv_obj_t *row = lv_obj_create(parent);
+    lv_obj_set_size(row, LCD_W - 16, 56);
+    lv_obj_set_pos(row, 8, y);
+    lv_obj_set_style_bg_color(row, lv_color_hex(theme.panel), 0);
+    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(row, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(row, 1, 0);
+    lv_obj_set_style_radius(row, 6, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_t *cap = lv_label_create(row);
+    lv_label_set_text(cap, label);
+    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg), 0);
+    lv_obj_align(cap, LV_ALIGN_LEFT_MID, 12, 0);
+    if (out_panel) *out_panel = row;
+    return row;
+}
+
+static lv_obj_t *create_setup_form(lv_obj_t *parent,
+                                    const ScreenVariantSpec &spec) {
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_set_size(root, LCD_W, LCD_H);
+    if (parent) lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    SetupFormState *st = (SetupFormState *)heap_caps_calloc(
+        1, sizeof(SetupFormState), MALLOC_CAP_INTERNAL);
+    if (!st) { net::logf("[layout] setup_form alloc failed"); return root; }
+    strncpy(st->last_theme, "?", sizeof(st->last_theme));
+    st->last_brightness = 0;
+    st->last_audible = false;
+
+    lv_obj_t *title = lv_label_create(root);
+    lv_label_set_text(title, spec.title ? spec.title : "SETTINGS");
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+
+    int y = 60;
+
+    // Theme: 3 segmented buttons inside the row, right-aligned.
+    lv_obj_t *theme_row;
+    sf_make_row(root, y, "THEME", &theme_row);
+    static const char *theme_names[3] = {"DAY", "NIGHT", "AUTO"};
+    static const char *theme_vals[3] = {"day", "night", "auto"};
+    int seg_w = 70;
+    int seg_h = 36;
+    for (int i = 0; i < 3; ++i) {
+        st->theme_btns[i] = cc_make_button(
+            theme_row, LCD_W - 16 - 12 - (3 - i) * (seg_w + 4),
+            (56 - seg_h) / 2, seg_w, seg_h, theme_names[i],
+            theme.panel_edge, theme.fg, sf_theme_cb,
+            (void *)theme_vals[i]);
+    }
+    y += 68;
+
+    // Brightness: -/+ buttons around current value label.
+    lv_obj_t *bright_row;
+    sf_make_row(root, y, "BRIGHTNESS", &bright_row);
+    cc_make_button(bright_row, LCD_W - 16 - 12 - 200, 8, 60, 40, "-",
+                   theme.accent, 0x05101c, sf_bright_cb,
+                   (void *)(intptr_t)-16);
+    st->brightness_lbl = lv_label_create(bright_row);
+    lv_label_set_text(st->brightness_lbl, "---");
+    lv_obj_set_style_text_font(st->brightness_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(st->brightness_lbl, lv_color_hex(theme.fg), 0);
+    lv_obj_align(st->brightness_lbl, LV_ALIGN_RIGHT_MID, -80, 0);
+    cc_make_button(bright_row, LCD_W - 16 - 12 - 60, 8, 60, 40, "+",
+                   theme.accent, 0x05101c, sf_bright_cb,
+                   (void *)(intptr_t)16);
+    y += 68;
+
+    // Audible alarms: toggle.
+    lv_obj_t *aud_row;
+    sf_make_row(root, y, "AUDIBLE ALARMS", &aud_row);
+    st->audible_btn = cc_make_button(
+        aud_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "OFF",
+        theme.panel_edge, theme.fg, sf_audible_cb, nullptr);
+    y += 68;
+
+    // Reboot action.
+    lv_obj_t *rb_row;
+    sf_make_row(root, y, "REBOOT", &rb_row);
+    cc_make_button(rb_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "REBOOT",
+                   theme.alarm, 0xffffff, sf_reboot_cb, nullptr);
+
+    lv_obj_set_user_data(root, st);
+    return root;
+}
+
+static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
+                               const sk::Data &data) {
+    (void)spec; (void)data;
+    if (!root) return;
+    auto *st = (SetupFormState *)lv_obj_get_user_data(root);
+    if (!st) return;
+
+    // Read current theme from prefs (cheap; happens at ~5 Hz).
+    Preferences pu;
+    pu.begin("ui", true);
+    String cur_theme = pu.getString("theme", "night");
+    pu.end();
+    if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
+        strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
+        static const char *vals[3] = {"day", "night", "auto"};
+        for (int i = 0; i < 3; ++i) {
+            bool active = strcmp(cur_theme.c_str(), vals[i]) == 0;
+            uint32_t bg = active ? theme.accent : theme.panel_edge;
+            uint32_t fg = active ? 0x05101c : theme.fg;
+            lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);
+            lv_obj_t *lbl = lv_obj_get_child(st->theme_btns[i], 0);
+            if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
+        }
+    }
+
+    uint8_t b = ui::brightness();
+    if (b != st->last_brightness) {
+        st->last_brightness = b;
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%u", (unsigned)b);
+        lv_label_set_text(st->brightness_lbl, buf);
+    }
+
+    bool aud = beeper::audible_alarms_enabled();
+    if (aud != st->last_audible) {
+        st->last_audible = aud;
+        lv_obj_t *lbl = lv_obj_get_child(st->audible_btn, 0);
+        if (lbl) lv_label_set_text(lbl, aud ? "ON" : "OFF");
+        uint32_t bg = aud ? theme.good : theme.panel_edge;
+        lv_obj_set_style_bg_color(st->audible_btn, lv_color_hex(bg), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Public factory entry points
 
 lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
@@ -1516,6 +1716,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
     case TemplateId::AlertFocus:      return create_alert_focus(parent, spec);
     case TemplateId::ControlConsole:  return create_control_console(parent, spec);
     case TemplateId::RouteProgress:   return create_route_progress(parent, spec);
+    case TemplateId::SetupForm:       return create_setup_form(parent, spec);
     default:
         net::logf("[layout] template %d not implemented yet", (int)spec.template_id);
         return nullptr;
@@ -1533,6 +1734,7 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
     case TemplateId::AlertFocus:      update_alert_focus(root, spec, data); break;
     case TemplateId::ControlConsole:  update_control_console(root, spec, data); break;
     case TemplateId::RouteProgress:   update_route_progress(root, spec, data); break;
+    case TemplateId::SetupForm:       update_setup_form(root, spec, data); break;
     default: break;
     }
 }
