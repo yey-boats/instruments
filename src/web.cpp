@@ -20,6 +20,7 @@
 #include "source_nmea2000.h"
 #include "input_test.h"
 #include "cmd_catalog.h"
+#include "error_log.h"
 #include "manager.h"
 #include "ui_data.h"
 #include "screenshot.h"
@@ -182,6 +183,15 @@ static void handle_state() {
         mgr["otaInFlight"] = st.ota_in_flight;
         mgr["otaConfirmPending"] = st.ota_confirm_pending;
         if (st.ota_job_id.length()) mgr["otaJobId"] = st.ota_job_id;
+        // Spec 17 §5 recent errors
+        JsonArray errs = mgr["recentErrors"].to<JsonArray>();
+        error_log::Entry buf[error_log::MAX_ENTRIES];
+        size_t n = error_log::copy(buf, error_log::MAX_ENTRIES);
+        for (size_t i = 0; i < n; ++i) {
+            JsonObject e = errs.add<JsonObject>();
+            e["t_ms"] = buf[i].timestamp_ms;
+            e["msg"] = buf[i].message;
+        }
     }
 
     JsonObject screen = doc["screen"].to<JsonObject>();

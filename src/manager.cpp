@@ -14,12 +14,15 @@
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <mbedtls/sha256.h>
+#include <stdarg.h>
+#include <stdio.h>
 
 #include "app_events.h"
 #include "beeper.h"
 #include "board.h"
 #include "device_identity.h"
 #include "font_resolver.h"
+#include "error_log.h"
 #include "manager_config.h"
 #include "manager_screens.h"
 #include "manager_url.h"
@@ -140,6 +143,20 @@ bool resp_within_cap(HTTPClient &http, int cap, const char *who) {
         return false;
     }
     return true;
+}
+
+// Spec 17 §5 helper: logf an error AND drop it into the recent-errors
+// ring so the next heartbeat surfaces it. Identical signature to
+// net::logf; format result is bounded by error_log::MAX_MESSAGE.
+void record_error(const char *fmt, ...) {
+    char buf[error_log::MAX_MESSAGE];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    buf[sizeof(buf) - 1] = '\0';
+    net::logf("%s", buf);
+    error_log::push((uint32_t)millis(), buf);
 }
 
 // Compose Authorization (SK security) + X-EspDisp-Authorization (plugin auth)
@@ -302,7 +319,7 @@ int do_register() {
             }
         }
     } else {
-        net::logf("[mgr] register -> %d", code);
+        record_error("[mgr] register -> %d", code);
     }
     s_last_register_ms = millis();
     s_last_register_code = code;
@@ -416,7 +433,17 @@ void build_status_body(JsonDocument &doc) {
     cfg["hash"] = s_applied_config_hash;
     cfg["applied"] = s_applied_config_hash.length() > 0;
 
-    doc["errors"].to<JsonArray>();
+    // Spec 17 §5 recent errors. The ring is populated by callers
+    // logging via net::push_error (or directly in tests). We emit in
+    // chronological order; oldest first.
+    JsonArray errs = doc["errors"].to<JsonArray>();
+    error_log::Entry buf[error_log::MAX_ENTRIES];
+    size_t n = error_log::copy(buf, error_log::MAX_ENTRIES);
+    for (size_t i = 0; i < n; ++i) {
+        JsonObject e = errs.add<JsonObject>();
+        e["t_ms"] = buf[i].timestamp_ms;
+        e["msg"] = buf[i].message;
+    }
 }
 
 // Apply a single config blob. Returns true on success, false if any
@@ -953,7 +980,7 @@ int poll_commands() {
     }
     http.end();
     if (code < 200 || code >= 300) {
-        net::logf("[mgr] commands fetch -> %d", code);
+        record_error("[mgr] commands fetch -> %d", code);
     }
     return code;
 }
@@ -1120,7 +1147,7 @@ int do_heartbeat() {
             }
         }
     } else if (code < 200 || code >= 300) {
-        net::logf("[mgr] heartbeat -> %d", code);
+        record_error("[mgr] heartbeat -> %d", code);
     }
     http.end();
     s_last_heartbeat_ms = millis();
