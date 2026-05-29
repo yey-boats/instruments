@@ -602,6 +602,47 @@ bool apply_config(JsonDocument &cfg) {
         }
     }
 
+    // ---- 3b. NMEA0183-over-WiFi -------------------------------------------
+    // Spec 17 §6 "NMEA 0183 WiFi" config section. Routes through the
+    // existing nmea-wifi CLI verbs so the apply path stays in sync
+    // with operator commands and NVS persistence.
+    if (cfg["nmea0183Wifi"].is<JsonObject>()) {
+        JsonObject nw = cfg["nmea0183Wifi"].as<JsonObject>();
+        const char *mode = nw["mode"] | "";
+        const char *host = nw["host"] | "";
+        uint32_t port = nw["port"] | 0;
+
+        if (strcmp(mode, "tcp") == 0) {
+            // tcp also flips the worker to enabled (see CLI handler).
+            // Host is required; empty would be silently parsed as
+            // "" by the CLI which never resolves.
+            if (!host || !*host) {
+                record_error("[mgr] reject nmea0183Wifi.mode=tcp (host missing)");
+                ok = false;
+            } else {
+                String cmd = "nmea-wifi tcp ";
+                cmd += host;
+                if (port) { cmd += " "; cmd += String(port); }
+                net::dispatchCommand(cmd);
+            }
+        } else if (strcmp(mode, "udp") == 0) {
+            String cmd = "nmea-wifi udp";
+            if (port) { cmd += " "; cmd += String(port); }
+            net::dispatchCommand(cmd);
+        } else if (*mode) {
+            record_error("[mgr] reject nmea0183Wifi.mode=%s (want tcp/udp)",
+                         mode);
+            ok = false;
+        }
+
+        if (nw["enabled"].is<bool>()) {
+            bool en = nw["enabled"].as<bool>();
+            // tcp/udp blocks already set enabled=true. Only dispatch
+            // disable explicitly; "enabled: true" is the no-op path.
+            if (!en) net::dispatchCommand("nmea-wifi disable");
+        }
+    }
+
     // ---- 4. UI (theme/brightness) -----------------------------------------
     if (cfg["ui"].is<JsonObject>()) {
         JsonObject ui = cfg["ui"].as<JsonObject>();
