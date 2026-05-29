@@ -23,6 +23,7 @@
 #include "device_identity.h"
 #include "font_resolver.h"
 #include "error_log.h"
+#include "hostname_check.h"
 #include "manager_config.h"
 #include "manager_screens.h"
 #include "manager_url.h"
@@ -494,14 +495,7 @@ bool apply_config(JsonDocument &cfg) {
         // command path so all of BLE/mDNS/OTA hostname stay in sync.
         if (n["hostname"].is<const char *>()) {
             const char *hn = n["hostname"].as<const char *>();
-            size_t len = strlen(hn);
-            bool valid = len > 0 && len <= 31;
-            for (size_t i = 0; valid && i < len; ++i) {
-                char c = hn[i];
-                valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                        (c >= '0' && c <= '9') || c == '-';
-            }
-            if (!valid) {
+            if (!hostname_check::is_valid(hn)) {
                 record_error("[mgr] reject network.hostname=%s (invalid)", hn);
                 ok = false;
             } else if (n["hostname"] != device_identity::get().device_id) {
