@@ -643,6 +643,47 @@ bool apply_config(JsonDocument &cfg) {
         }
     }
 
+    // ---- 3c. NMEA2000 (CAN listen-only) -----------------------------------
+    // Spec 17 §6 "NMEA 2000" config section. Routed via the existing
+    // n2k CLI so the apply path matches operator commands. The board's
+    // capability flag (board::capabilities().nmea2000_can) decides
+    // whether enabling makes sense; if the board has no transceiver we
+    // accept the config but warn so the operator can spot the mismatch.
+    if (cfg["nmea2000"].is<JsonObject>()) {
+        JsonObject n2 = cfg["nmea2000"].as<JsonObject>();
+        if (n2["pins"].is<JsonObject>()) {
+            JsonObject p = n2["pins"].as<JsonObject>();
+            int rx = p["rx"] | -1;
+            int tx = p["tx"] | -1;
+            if (rx >= 0 && tx >= 0) {
+                String cmd = "n2k pins ";
+                cmd += String(rx);
+                cmd += " ";
+                cmd += String(tx);
+                net::dispatchCommand(cmd);
+            }
+        }
+        if (n2["sniff"].is<bool>()) {
+            net::dispatchCommand(n2["sniff"].as<bool>()
+                                 ? "n2k sniff on" : "n2k sniff off");
+        }
+        if (n2["txEnabled"].is<bool>()) {
+            net::dispatchCommand(n2["txEnabled"].as<bool>()
+                                 ? "n2k tx on" : "n2k tx off");
+        }
+        if (n2["enabled"].is<bool>()) {
+            bool want_en = n2["enabled"].as<bool>();
+            if (want_en && !board::capabilities().nmea2000_can) {
+                record_error("[mgr] nmea2000.enabled=true but board has no "
+                             "CAN transceiver (n2k will start listening but "
+                             "see no frames)");
+                // Don't fail the apply - the operator may be wiring an
+                // external transceiver and wants the worker up regardless.
+            }
+            net::dispatchCommand(want_en ? "n2k enable" : "n2k disable");
+        }
+    }
+
     // ---- 4. UI (theme/brightness) -----------------------------------------
     if (cfg["ui"].is<JsonObject>()) {
         JsonObject ui = cfg["ui"].as<JsonObject>();
