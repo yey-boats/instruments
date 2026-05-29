@@ -1,10 +1,11 @@
 #include "wifi_store.h"
 
-#include <Preferences.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include <string.h>
 
 #include "net.h"
+#include "storage.h"
 
 namespace wifi_store {
 
@@ -21,21 +22,17 @@ static void save_to_nvs() {
     }
     String out;
     serializeJson(doc, out);
-    Preferences p;
-    p.begin("wifi", false);
-    p.putString("nets", out);
-    p.end();
+    storage::Namespace p("wifi", false);
+    p.put_string("nets", out.c_str());
 }
 
 static void load_from_nvs() {
     s_count = 0;
-    Preferences p;
-    p.begin("wifi", true);
-    String raw = p.getString("nets", "");
-    p.end();
-    if (raw.length() == 0) return;
+    storage::Namespace p("wifi", true);
+    std::string raw = p.get_string("nets", "");
+    if (raw.empty()) return;
     JsonDocument doc;
-    if (deserializeJson(doc, raw)) return;
+    if (deserializeJson(doc, raw.c_str(), raw.size())) return;
     for (JsonObject o : doc.as<JsonArray>()) {
         if (s_count >= MAX_NETWORKS) break;
         const char *s = o["s"];
@@ -51,11 +48,9 @@ static void load_from_nvs() {
 
 void migrate_legacy_if_any() {
     // Legacy: net::wifiStart used Preferences("net") with keys "ssid"/"pass"
-    Preferences p;
-    p.begin("net", true);
-    String ssid = p.getString("ssid", "");
-    String pass = p.getString("pass", "");
-    p.end();
+    storage::Namespace p("net", true);
+    String ssid = String(p.get_string("ssid", "").c_str());
+    String pass = String(p.get_string("pass", "").c_str());
     if (ssid.length() == 0) return;
     // Only migrate if we don't already have this one in the list.
     for (size_t i = 0; i < s_count; ++i) {

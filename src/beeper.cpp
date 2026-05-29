@@ -1,11 +1,11 @@
 #include "beeper.h"
 
-#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 #include "board.h"
 #include "net.h"
+#include "storage.h"
 
 namespace beeper {
 
@@ -64,17 +64,13 @@ void worker(void *) {
 }
 
 void load_prefs() {
-    Preferences p;
-    p.begin(NS, true);
-    s_audible = p.getUChar("audible", 1) != 0;
-    p.end();
+    storage::Namespace p(NS, true);
+    s_audible = p.get_u8("audible", 1) != 0;
 }
 
 void save_prefs() {
-    Preferences p;
-    p.begin(NS, false);
-    p.putUChar("audible", s_audible ? 1 : 0);
-    p.end();
+    storage::Namespace p(NS, false);
+    p.put_u8("audible", s_audible ? 1 : 0);
 }
 
 }  // namespace
