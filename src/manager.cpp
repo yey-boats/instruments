@@ -1400,11 +1400,20 @@ int do_heartbeat() {
             s_desired_config_hash = want_hash;
             bool drift = (want_hash.length() && want_hash != s_applied_config_hash) ||
                          (want_ver.length() && want_ver != s_applied_config_version);
+            // Spec 17 §5 response handling: the plugin can ask the
+            // device to re-register (e.g. after admin reset or token
+            // rotation). Accept both camelCase and snake_case keys.
+            bool reregister = (r["requestedReregister"] | false) ||
+                              (r["requested_reregister"] | false);
             unlock_state();
             if (drift) {
                 net::logf("[mgr] config drift: have=%s want=%s -> fetching",
                           s_applied_config_version.c_str(), want_ver.c_str());
                 s_config_fetch_pending = true;
+            }
+            if (reregister) {
+                net::logf("[mgr] plugin requested re-register");
+                s_force_register = true;
             }
         }
     } else if (code < 200 || code >= 300) {
