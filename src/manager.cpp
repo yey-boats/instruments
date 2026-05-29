@@ -463,7 +463,7 @@ bool apply_config(JsonDocument &cfg) {
         if (ui["brightness"].is<int>()) {
             int b = ui["brightness"].as<int>();
             if (b < 0 || b > 255) {
-                net::logf("[mgr] reject ui.brightness=%d (out of 0..255)", b);
+                record_error("[mgr] reject ui.brightness=%d (out of 0..255)", b);
                 ok = false;
             } else {
                 app::Command c;
@@ -481,7 +481,7 @@ bool apply_config(JsonDocument &cfg) {
                 strncpy(c.a, t, sizeof(c.a) - 1);
                 app::post(c, 100);
             } else {
-                net::logf("[mgr] reject ui.theme=%s (unknown)", t);
+                record_error("[mgr] reject ui.theme=%s (unknown)", t);
                 ok = false;
             }
         }
@@ -502,7 +502,7 @@ bool apply_config(JsonDocument &cfg) {
                         (c >= '0' && c <= '9') || c == '-';
             }
             if (!valid) {
-                net::logf("[mgr] reject network.hostname=%s (invalid)", hn);
+                record_error("[mgr] reject network.hostname=%s (invalid)", hn);
                 ok = false;
             } else if (n["hostname"] != device_identity::get().device_id) {
                 // `id <name>` persists + reboots. We dispatch through
@@ -593,7 +593,7 @@ bool apply_config(JsonDocument &cfg) {
                 changed = true;
                 net::logf("[mgr] applied webAuth.username=%s", user);
             } else {
-                net::logf("[mgr] reject webAuth.username (invalid length)");
+                record_error("[mgr] reject webAuth.username (invalid length)");
                 ok = false;
             }
         }
@@ -605,7 +605,7 @@ bool apply_config(JsonDocument &cfg) {
                 net::logf("[mgr] applied webAuth.password (len=%u)",
                           (unsigned)strlen(pass));
             } else {
-                net::logf("[mgr] reject webAuth.password (invalid length)");
+                record_error("[mgr] reject webAuth.password (invalid length)");
                 ok = false;
             }
         }
@@ -748,7 +748,7 @@ void ota_task(void *) {
             String w(want_sha);
             w.toLowerCase();
             if (w != String(got_sha)) {
-                net::logf("[mgr-ota] sha mismatch want=%s got=%s",
+                record_error("[mgr-ota] sha mismatch want=%s got=%s",
                           w.c_str(), got_sha);
                 failure_detail = "sha256 mismatch";
                 Update.abort();
@@ -777,7 +777,7 @@ void ota_task(void *) {
     return;
 
 fail:
-    net::logf("[mgr-ota] FAILED job=%s detail=%s code=%d",
+    record_error("[mgr-ota] FAILED job=%s detail=%s code=%d",
               job_id.c_str(),
               failure_detail ? failure_detail : "?",
               outcome_code);
@@ -1047,7 +1047,7 @@ int fetch_config() {
                 auto *plan_p = (manager_config::RenderPlan *)heap_caps_calloc(
                     1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
                 if (!plan_p) {
-                    net::logf("[mgr] render plan alloc failed");
+                    record_error("[mgr] render plan alloc failed");
                 } else {
                     manager_config::ParseError perr;
                     bool parsed = manager_config::parse(
@@ -1064,7 +1064,7 @@ int fetch_config() {
                                       ? plan_p->layout_variant
                                       : "(none)");
                     } else {
-                        net::logf("[mgr] render plan parse failed: %s at %s",
+                        record_error("[mgr] render plan parse failed: %s at %s",
                                   manager_config::parse_code_to_string(perr.code),
                                   perr.path[0] ? perr.path : "(root)");
                     }
@@ -1466,6 +1466,29 @@ bool handleSerialCommand(const String &line) {
         }
         return true;
     }
+    // ---- spec 17 §5 recent errors -------------------------------------
+    if (line == "manager-errors") {
+        size_t n = error_log::size();
+        if (n == 0) {
+            net::logf("[mgr] no recent errors");
+            return true;
+        }
+        error_log::Entry buf[error_log::MAX_ENTRIES];
+        size_t got = error_log::copy(buf, error_log::MAX_ENTRIES);
+        net::logf("[mgr] recent errors (%u, oldest first):", (unsigned)got);
+        for (size_t i = 0; i < got; ++i) {
+            net::logf("[mgr]   [%u] t=%lums %s",
+                      (unsigned)i,
+                      (unsigned long)buf[i].timestamp_ms,
+                      buf[i].message);
+        }
+        return true;
+    }
+    if (line == "manager-errors clear") {
+        error_log::clear();
+        net::logf("[mgr] errors cleared");
+        return true;
+    }
     // ---- spec 19 D7 diagnostic commands -------------------------------
     if (line == "manager-layout") {
         if (!s_render_plan_valid) {
@@ -1545,7 +1568,8 @@ bool handleSerialCommand(const String &line) {
     }
     net::logf("[mgr] usage: manager-status | manager-register <url> | "
               "manager-token <jwt|clear> | manager-sk-token <jwt|clear> | "
-              "manager-forget | manager-discover | manager-layout | "
+              "manager-forget | manager-discover | manager-errors[ clear] | "
+              "manager-layout | "
               "manager-widgets | manager-config-dump | font-dump");
     return true;
 }
