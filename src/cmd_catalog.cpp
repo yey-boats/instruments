@@ -58,6 +58,8 @@ static const Entry CATALOG[] = {
     {"n2k", "n2k enable",                   "Enable (requires -DENABLE_NMEA2000 + transceiver)", true, true},
     {"n2k", "n2k disable",                  "Disable", true, true},
     {"n2k", "n2k pins <rx> <tx>",           "Set TWAI rx/tx GPIOs", true, true},
+    {"n2k", "n2k sniff on|off",             "Dump every received frame as hex (spec 12 §4)", true, true},
+    {"n2k", "n2k tx on|off",                "Transmit gate; hardware stays listen-only (spec 12 §4)", true, true},
 
     // --- boat::Snapshot ---
     {"boat", "boat",                        "Dump fused snapshot with per-field source + age", true, true},
@@ -74,7 +76,8 @@ static const Entry CATALOG[] = {
     {"manager", "manager",                  "Print current manager state", true, true},
     {"manager", "manager-status",           "Same as above", true, true},
     {"manager", "manager-register <url>",   "Set the manager endpoint and re-register", true, true},
-    {"manager", "manager-token <jwt|clear>","Set/clear the bearer token", true, true},
+    {"manager", "manager-token <jwt|clear>","Set/clear the plugin/device bearer (X-EspDisp-Authorization)", true, true},
+    {"manager", "manager-sk-token <jwt|clear>","Set/clear the SK-level bearer used to pass SK security", true, true},
     {"manager", "manager-forget",           "Wipe endpoint+token; back to idle", true, true},
     {"manager", "manager-discover",         "mDNS _espdisp-mgmt._tcp probe (spec 18 §4)", true, true},
     {"manager", "manager-errors",           "Dump recent errors ring buffer (spec 17 §5)", true, true},
