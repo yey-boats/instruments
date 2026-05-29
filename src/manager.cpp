@@ -26,6 +26,7 @@
 #include "font_resolver.h"
 #include "error_log.h"
 #include "hostname_check.h"
+#include "log_level_check.h"
 #include "sources_check.h"
 #include "ui_config_check.h"
 #include "manager_config.h"
@@ -740,7 +741,35 @@ bool apply_config(JsonDocument &cfg) {
         }
     }
 
-    // ---- 5. debug (webAuth as a proxy) ------------------------------------
+    // ---- 5. debug ---------------------------------------------------------
+    // Spec 17 §6 "debug" config section. logLevel accepts the same
+    // string ("trace"|"verbose"|"debug"|"info"|"warn"|"error"|"none")
+    // OR numeric (0..5) shapes as the spec 17 §8 log.level command,
+    // via the shared log_level_check parser.
+    if (cfg["debug"].is<JsonObject>()) {
+        JsonObject dbg = cfg["debug"].as<JsonObject>();
+        if (dbg["logLevel"].is<const char *>()) {
+            const char *s = dbg["logLevel"].as<const char *>();
+            int n = -1;
+            if (log_level_check::from_string(s, &n)) {
+                esp_log_level_set("*", (esp_log_level_t)n);
+                net::logf("[mgr] applied debug.logLevel=%s (%d)", s, n);
+            } else {
+                record_error("[mgr] reject debug.logLevel=%s (unknown)", s);
+                ok = false;
+            }
+        } else if (dbg["logLevel"].is<int>()) {
+            int n = dbg["logLevel"].as<int>();
+            if (log_level_check::is_valid_int(n)) {
+                esp_log_level_set("*", (esp_log_level_t)n);
+                net::logf("[mgr] applied debug.logLevel=%d", n);
+            } else {
+                record_error("[mgr] reject debug.logLevel=%d (out of 0..5)", n);
+                ok = false;
+            }
+        }
+    }
+
     if (cfg["webAuth"].is<JsonObject>()) {
         JsonObject web_auth = cfg["webAuth"].as<JsonObject>();
         Preferences p;
@@ -1064,33 +1093,23 @@ const char *execute_command(const char *type, JsonObject payload) {
         return main_set_touch_mode(mode) ? "ok" : "invalid_payload";
     }
     if (strcmp(type, "log.level") == 0) {
-        // Spec 17 §8 log.level. Accepts a string ("trace"|"debug"|
-        // "info"|"warn"|"error"|"none") or a numeric ESP_LOG_* enum
-        // value (0..5). Applied globally via esp_log_level_set("*").
-        // We log a confirmation at INFO so the operator sees the
-        // change even when the new level silences themselves.
+        // Spec 17 §8 log.level. Payload parser lives in
+        // log_level_check::* so the spec 17 §6 cfg["debug"] path can
+        // share the same rules. Always logs a confirmation at INFO so
+        // the operator sees the change even when the new level would
+        // silence the confirmation.
         const char *lvl_s = payload["level"] | "";
-        esp_log_level_t lvl = ESP_LOG_INFO;
-        bool ok = true;
+        int n = -1;
         if (*lvl_s) {
-            if      (!strcmp(lvl_s, "none"))    lvl = ESP_LOG_NONE;
-            else if (!strcmp(lvl_s, "error"))   lvl = ESP_LOG_ERROR;
-            else if (!strcmp(lvl_s, "warn"))    lvl = ESP_LOG_WARN;
-            else if (!strcmp(lvl_s, "info"))    lvl = ESP_LOG_INFO;
-            else if (!strcmp(lvl_s, "debug"))   lvl = ESP_LOG_DEBUG;
-            else if (!strcmp(lvl_s, "trace") ||
-                     !strcmp(lvl_s, "verbose")) lvl = ESP_LOG_VERBOSE;
-            else ok = false;
+            if (!log_level_check::from_string(lvl_s, &n)) return "invalid_payload";
         } else if (payload["level"].is<int>()) {
-            int n = payload["level"].as<int>();
-            if (n < ESP_LOG_NONE || n > ESP_LOG_VERBOSE) ok = false;
-            else lvl = (esp_log_level_t)n;
+            n = payload["level"].as<int>();
+            if (!log_level_check::is_valid_int(n)) return "invalid_payload";
         } else {
-            ok = false;
+            return "invalid_payload";
         }
-        if (!ok) return "invalid_payload";
-        esp_log_level_set("*", lvl);
-        net::logf("[mgr] log.level -> %d", (int)lvl);
+        esp_log_level_set("*", (esp_log_level_t)n);
+        net::logf("[mgr] log.level -> %d", n);
         return "ok";
     }
     return "unsupported_command";
