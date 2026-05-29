@@ -20,10 +20,12 @@
 #include "app_events.h"
 #include "beeper.h"
 #include "board.h"
+#include "boat_data.h"
 #include "device_identity.h"
 #include "font_resolver.h"
 #include "error_log.h"
 #include "hostname_check.h"
+#include "sources_check.h"
 #include "ui_config_check.h"
 #include "manager_config.h"
 #include "manager_screens.h"
@@ -546,6 +548,57 @@ bool apply_config(JsonDocument &cfg) {
             net::dispatchCommand("sk-host auto");
         } else if (changed) {
             net::dispatchCommand("sk-reconnect");
+        }
+    }
+
+    // ---- 3. source priority / freshness windows ---------------------------
+    if (cfg["sources"].is<JsonObject>()) {
+        JsonObject src = cfg["sources"].as<JsonObject>();
+        if (src["priority"].is<JsonArrayConst>()) {
+            JsonArrayConst arr = src["priority"].as<JsonArrayConst>();
+            boat::Priority p{};
+            // Clear out the default order; whatever we set below wins.
+            for (auto &slot : p.order) slot = boat::SourceKind::None;
+            uint8_t i = 0;
+            bool any_rejected = false;
+            for (JsonVariantConst v : arr) {
+                if (i >= sizeof(p.order) / sizeof(p.order[0])) break;
+                const char *name = v.as<const char *>();
+                boat::SourceKind k = sources_check::from_string(name);
+                if (k == boat::SourceKind::None && name && *name) {
+                    record_error("[mgr] reject sources.priority entry %s "
+                                 "(unknown source)", name);
+                    any_rejected = true;
+                    continue;
+                }
+                p.order[i++] = k;
+            }
+            if (any_rejected) {
+                ok = false;
+            } else if (i > 0) {
+                boat::set_priority(p);
+                net::logf("[mgr] applied sources.priority (%u entries)",
+                          (unsigned)i);
+            }
+        }
+        if (src["timeoutsMs"].is<JsonObject>()) {
+            JsonObject t = src["timeoutsMs"].as<JsonObject>();
+            boat::Timeouts to = boat::get_timeouts();
+            bool any = false;
+            if (t["nmea2000"].is<uint32_t>())    { to.nmea2000_ms = t["nmea2000"].as<uint32_t>(); any = true; }
+            if (t["nmea0183Wifi"].is<uint32_t>()) { to.nmea_wifi_ms = t["nmea0183Wifi"].as<uint32_t>(); any = true; }
+            if (t["nmeaWifi"].is<uint32_t>())     { to.nmea_wifi_ms = t["nmeaWifi"].as<uint32_t>(); any = true; }
+            if (t["signalk"].is<uint32_t>())      { to.signalk_ms = t["signalk"].as<uint32_t>(); any = true; }
+            if (t["demo"].is<uint32_t>())         { to.demo_ms = t["demo"].as<uint32_t>(); any = true; }
+            if (any) {
+                boat::set_timeouts(to);
+                net::logf("[mgr] applied sources.timeoutsMs (n2k=%lu wifi=%lu "
+                          "sk=%lu demo=%lu)",
+                          (unsigned long)to.nmea2000_ms,
+                          (unsigned long)to.nmea_wifi_ms,
+                          (unsigned long)to.signalk_ms,
+                          (unsigned long)to.demo_ms);
+            }
         }
     }
 
