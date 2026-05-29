@@ -457,60 +457,39 @@ void build_status_body(JsonDocument &doc) {
 // state (theme, brightness) goes via app::post so the LVGL task owns
 // the mutation.
 bool apply_config(JsonDocument &cfg) {
+    // Spec 17 §6 dependency order:
+    //   1. network hostname/domain   (may reboot - terminal)
+    //   2. SignalK target
+    //   3. source settings           (TBD; not implemented yet)
+    //   4. UI (theme/brightness/layout)
+    //   5. debug                      (webAuth here as a proxy)
     bool ok = true;
 
-    if (cfg["ui"].is<JsonObject>()) {
-        JsonObject ui = cfg["ui"].as<JsonObject>();
-        if (ui["brightness"].is<int>()) {
-            int b = ui["brightness"].as<int>();
-            if (b < 0 || b > 255) {
-                record_error("[mgr] reject ui.brightness=%d (out of 0..255)", b);
-                ok = false;
-            } else {
-                app::Command c;
-                c.type = app::CommandType::SetBrightness;
-                c.i = b;
-                app::post(c, 100);
-            }
-        }
-        if (ui["theme"].is<const char *>()) {
-            const char *t = ui["theme"].as<const char *>();
-            if (strcmp(t, "day") == 0 || strcmp(t, "night") == 0 ||
-                strcmp(t, "auto") == 0) {
-                app::Command c;
-                c.type = app::CommandType::SetTheme;
-                strncpy(c.a, t, sizeof(c.a) - 1);
-                app::post(c, 100);
-            } else {
-                record_error("[mgr] reject ui.theme=%s (unknown)", t);
-                ok = false;
-            }
-        }
-    }
-
+    // ---- 1. network -------------------------------------------------------
     if (cfg["network"].is<JsonObject>()) {
         JsonObject n = cfg["network"].as<JsonObject>();
-        // F5: hostname / device_id. Validation: must be non-empty, 1-31
-        // chars, alnum + '-'. Apply via the existing `id` console
-        // command path so all of BLE/mDNS/OTA hostname stay in sync.
+        // F5: hostname / device_id. Validation in hostname_check::is_valid.
+        // Apply via the existing `id` console command so BLE/mDNS/OTA
+        // hostname stay in sync.
         if (n["hostname"].is<const char *>()) {
             const char *hn = n["hostname"].as<const char *>();
             if (!hostname_check::is_valid(hn)) {
                 record_error("[mgr] reject network.hostname=%s (invalid)", hn);
                 ok = false;
             } else if (n["hostname"] != device_identity::get().device_id) {
-                // `id <name>` persists + reboots. We dispatch through
-                // the existing handler so behavior is identical to a
-                // user-issued change.
                 String cmd = String("id ") + hn;
                 net::dispatchCommand(cmd);
                 net::logf("[mgr] applied network.hostname=%s (rebooting)", hn);
-                // Reboot is handled by the id handler; no further work.
+                // Reboot is handled by the `id` dispatcher; further blocks
+                // can't matter because we won't outlive the reboot. Return
+                // early so we don't enqueue ui/sk work that the reboot
+                // would only kill.
                 return ok;
             }
         }
     }
 
+    // ---- 2. SignalK target ------------------------------------------------
     if (cfg["signalk"].is<JsonObject>()) {
         JsonObject sk = cfg["signalk"].as<JsonObject>();
         bool changed = false;
@@ -569,6 +548,37 @@ bool apply_config(JsonDocument &cfg) {
         }
     }
 
+    // ---- 4. UI (theme/brightness) -----------------------------------------
+    if (cfg["ui"].is<JsonObject>()) {
+        JsonObject ui = cfg["ui"].as<JsonObject>();
+        if (ui["brightness"].is<int>()) {
+            int b = ui["brightness"].as<int>();
+            if (b < 0 || b > 255) {
+                record_error("[mgr] reject ui.brightness=%d (out of 0..255)", b);
+                ok = false;
+            } else {
+                app::Command c;
+                c.type = app::CommandType::SetBrightness;
+                c.i = b;
+                app::post(c, 100);
+            }
+        }
+        if (ui["theme"].is<const char *>()) {
+            const char *t = ui["theme"].as<const char *>();
+            if (strcmp(t, "day") == 0 || strcmp(t, "night") == 0 ||
+                strcmp(t, "auto") == 0) {
+                app::Command c;
+                c.type = app::CommandType::SetTheme;
+                strncpy(c.a, t, sizeof(c.a) - 1);
+                app::post(c, 100);
+            } else {
+                record_error("[mgr] reject ui.theme=%s (unknown)", t);
+                ok = false;
+            }
+        }
+    }
+
+    // ---- 5. debug (webAuth as a proxy) ------------------------------------
     if (cfg["webAuth"].is<JsonObject>()) {
         JsonObject web_auth = cfg["webAuth"].as<JsonObject>();
         Preferences p;
