@@ -27,6 +27,11 @@
 #include "manager_screens.h"
 #include "manager_url.h"
 #include "net.h"
+
+// Spec 17 §8 touch.mode: the toggle lives in main.cpp because that's
+// where the GT911 worker + INT pin are owned. Forward-declared with C
+// linkage to match main.cpp's extern "C" block.
+extern "C" bool main_set_touch_mode(const char *mode);
 #include "signalk.h"
 #include "source_nmea2000.h"
 #include "source_nmea_wifi.h"
@@ -880,6 +885,17 @@ const char *execute_command(const char *type, JsonObject payload) {
         app::Command c;
         c.type = app::CommandType::ClearOverlay;
         return app::post(c, 100) ? "ok" : "busy";
+    }
+    if (strcmp(type, "touch.mode") == 0) {
+        // Spec 17 §8 touch.mode. Payload: {"mode": "poll"|"irq"}.
+        // Switching to "irq" requires the board's TOUCH_INT pin to be
+        // wired AND the GT911 worker task to be running; on boards
+        // where either is missing main_set_touch_mode returns false
+        // and we map that to invalid_payload (caller can retry with
+        // "poll" which always works).
+        const char *mode = payload["mode"] | "";
+        if (!*mode) return "invalid_payload";
+        return main_set_touch_mode(mode) ? "ok" : "invalid_payload";
     }
     if (strcmp(type, "log.level") == 0) {
         // Spec 17 §8 log.level. Accepts a string ("trace"|"debug"|

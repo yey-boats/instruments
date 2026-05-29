@@ -197,6 +197,13 @@ uint32_t main_gt_ready_count() { return g_gt_ready_count; }
 uint32_t main_gt_points_count() { return g_gt_points_count; }
 uint32_t main_touch_irq_count() { return g_touch_irq_count; }
 const char *main_touch_mode() { return g_touch_irq_enabled ? "irq" : "poll"; }
+
+// Spec 17 §8 touch.mode runtime switch. Returns true on a successful
+// transition (including "already there"). "irq" requires both a valid
+// TOUCH_INT pin AND the touch task running so the ISR has somewhere to
+// notify; otherwise it returns false and the caller surfaces
+// `invalid_payload` / `failed`. "poll" is always accepted.
+bool main_set_touch_mode(const char *mode);
 }
 
 static void IRAM_ATTR touch_irq_isr() {
@@ -1012,6 +1019,35 @@ static void alarm_check() {
 // app::Command pump path); calling from any worker task corrupts LVGL
 // state - see CLAUDE.md memory traps. Posting the matching app::Command
 // is the only safe entry point.
+bool main_set_touch_mode(const char *mode) {
+    if (!mode || !*mode) return false;
+    bool want_irq = false;
+    if      (!strcmp(mode, "poll")) want_irq = false;
+    else if (!strcmp(mode, "irq"))  want_irq = true;
+    else return false;
+
+    if (want_irq == g_touch_irq_enabled) return true;  // already there
+
+    if (want_irq) {
+        // Can only enable IRQ if hardware + worker task are both ready.
+        if (TOUCH_INT < 0 || !g_touch_task) return false;
+#if TOUCH_INT_ACTIVE_LOW
+        pinMode(TOUCH_INT, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(TOUCH_INT), touch_irq_isr, FALLING);
+#else
+        pinMode(TOUCH_INT, INPUT_PULLDOWN);
+        attachInterrupt(digitalPinToInterrupt(TOUCH_INT), touch_irq_isr, RISING);
+#endif
+        g_touch_irq_enabled = true;
+        net::logf("[touch] mode -> irq (gpio %d)", TOUCH_INT);
+    } else {
+        if (TOUCH_INT >= 0) detachInterrupt(digitalPinToInterrupt(TOUCH_INT));
+        g_touch_irq_enabled = false;
+        net::logf("[touch] mode -> poll");
+    }
+    return true;
+}
+
 namespace ui {
 
 void overlay_show(const char *message) {
