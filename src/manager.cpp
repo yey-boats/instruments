@@ -3,7 +3,6 @@
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
-#include <Preferences.h>
 #include <Update.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
@@ -368,10 +367,11 @@ void build_status_body(JsonDocument &doc) {
     doc["device_id"] = id.device_id;
 
     board::Geometry g = board::geometry();
-    Preferences ui_prefs;
-    ui_prefs.begin("ui", true);
-    String theme_name = ui_prefs.getString("theme", "night");
-    ui_prefs.end();
+    String theme_name;
+    {
+        storage::Namespace ui_prefs("ui", true);
+        theme_name = String(ui_prefs.get_string("theme", "night").c_str());
+    }
 
     JsonObject net_o = doc["network"].to<JsonObject>();
     net_o["wifi_up"] = net::wifiUp();
@@ -460,13 +460,13 @@ void build_status_body(JsonDocument &doc) {
     otaPolicy["requireSha256"] = s_ota_require_sha;
     otaPolicy["maxSizeBytes"] = s_ota_max_size;
 
-    Preferences web_prefs;
-    web_prefs.begin("web", true);
     JsonObject web_auth = doc["webAuth"].to<JsonObject>();
-    web_auth["enabled"] = web_prefs.getUChar("auth", 0) != 0;
-    web_auth["username"] = web_prefs.getString("user", "espdisp");
-    web_auth["passwordSet"] = web_prefs.getString("pass", "").length() > 0;
-    web_prefs.end();
+    {
+        storage::Namespace web_prefs("web", true);
+        web_auth["enabled"] = web_prefs.get_u8("auth", 0) != 0;
+        web_auth["username"] = web_prefs.get_string("user", "espdisp");
+        web_auth["passwordSet"] = !web_prefs.get_string("pass", "").empty();
+    }
 
     JsonObject cfg = doc["config"].to<JsonObject>();
     cfg["version"] = s_applied_config_version;
@@ -528,51 +528,51 @@ bool apply_config(JsonDocument &cfg) {
         JsonObject sk = cfg["signalk"].as<JsonObject>();
         bool changed = false;
         bool reset_to_auto = false;
-        Preferences p;
-        p.begin("sk", false);
-        if (sk["host"].is<const char *>()) {
-            const char *host = sk["host"].as<const char *>();
-            bool use_mdns = sk["useMdns"] | false;
-            bool manager_default =
-                use_mdns && strcmp(host, "signalk.local") == 0;
-            if (manager_default) {
-                // The SignalK plugin advertises signalk.local as a service
-                // discovery hint. Persisting it as a manual target disables
-                // the firmware's mDNS discovery path and can overwrite a
-                // working local IP configured after flashing.
-                String current_host = p.getString("host", "");
-                if (current_host == "signalk.local") {
-                    p.remove("host");
-                    p.remove("port");
-                    reset_to_auto = true;
-                    net::logf("[mgr] cleared persisted sk.host=%s; use mDNS",
-                              host);
+        {
+            storage::Namespace p("sk", false);
+            if (sk["host"].is<const char *>()) {
+                const char *host = sk["host"].as<const char *>();
+                bool use_mdns = sk["useMdns"] | false;
+                bool manager_default =
+                    use_mdns && strcmp(host, "signalk.local") == 0;
+                if (manager_default) {
+                    // The SignalK plugin advertises signalk.local as a service
+                    // discovery hint. Persisting it as a manual target disables
+                    // the firmware's mDNS discovery path and can overwrite a
+                    // working local IP configured after flashing.
+                    std::string current_host = p.get_string("host", "");
+                    if (current_host == "signalk.local") {
+                        p.remove("host");
+                        p.remove("port");
+                        reset_to_auto = true;
+                        net::logf("[mgr] cleared persisted sk.host=%s; use mDNS",
+                                  host);
+                    } else {
+                        net::logf("[mgr] ignored default sk.host=%s (useMdns=true)",
+                                  host);
+                    }
                 } else {
-                    net::logf("[mgr] ignored default sk.host=%s (useMdns=true)",
-                              host);
+                    p.put_string("host", host);
+                    changed = true;
+                    net::logf("[mgr] applied sk.host=%s", host);
                 }
-            } else {
-                p.putString("host", host);
+            }
+            if (sk["port"].is<unsigned int>()) {
+                uint16_t port = sk["port"].as<unsigned int>();
+                if (changed || !sk["host"].is<const char *>()) {
+                    p.put_u32("port", port);
+                    changed = true;
+                    net::logf("[mgr] applied sk.port=%u", port);
+                }
+            }
+            if (sk["token"].is<const char *>()) {
+                const char *tok = sk["token"].as<const char *>();
+                p.put_string("token", tok);
                 changed = true;
-                net::logf("[mgr] applied sk.host=%s", host);
+                net::logf("[mgr] applied sk.token (len=%u)",
+                          (unsigned)strlen(tok));
             }
         }
-        if (sk["port"].is<unsigned int>()) {
-            uint16_t port = sk["port"].as<unsigned int>();
-            if (changed || !sk["host"].is<const char *>()) {
-                p.putUInt("port", port);
-                changed = true;
-                net::logf("[mgr] applied sk.port=%u", port);
-            }
-        }
-        if (sk["token"].is<const char *>()) {
-            const char *tok = sk["token"].as<const char *>();
-            p.putString("token", tok);
-            changed = true;
-            net::logf("[mgr] applied sk.token (len=%u)",
-                      (unsigned)strlen(tok));
-        }
-        p.end();
         // SK reconnect picks up changes on next ws.begin via the
         // existing sk-reconnect path - schedule it.
         if (reset_to_auto) {
@@ -829,39 +829,39 @@ bool apply_config(JsonDocument &cfg) {
 
     if (cfg["webAuth"].is<JsonObject>()) {
         JsonObject web_auth = cfg["webAuth"].as<JsonObject>();
-        Preferences p;
-        p.begin("web", false);
         bool changed = false;
-        if (web_auth["enabled"].is<bool>()) {
-            bool enabled = web_auth["enabled"].as<bool>();
-            p.putUChar("auth", enabled ? 1 : 0);
-            changed = true;
-            net::logf("[mgr] applied webAuth.enabled=%d", enabled ? 1 : 0);
-        }
-        if (web_auth["username"].is<const char *>()) {
-            const char *user = web_auth["username"].as<const char *>();
-            if (strlen(user) > 0 && strlen(user) <= 31) {
-                p.putString("user", user);
+        {
+            storage::Namespace p("web", false);
+            if (web_auth["enabled"].is<bool>()) {
+                bool enabled = web_auth["enabled"].as<bool>();
+                p.put_u8("auth", enabled ? 1 : 0);
                 changed = true;
-                net::logf("[mgr] applied webAuth.username=%s", user);
-            } else {
-                record_error("[mgr] reject webAuth.username (invalid length)");
-                ok = false;
+                net::logf("[mgr] applied webAuth.enabled=%d", enabled ? 1 : 0);
+            }
+            if (web_auth["username"].is<const char *>()) {
+                const char *user = web_auth["username"].as<const char *>();
+                if (strlen(user) > 0 && strlen(user) <= 31) {
+                    p.put_string("user", user);
+                    changed = true;
+                    net::logf("[mgr] applied webAuth.username=%s", user);
+                } else {
+                    record_error("[mgr] reject webAuth.username (invalid length)");
+                    ok = false;
+                }
+            }
+            if (web_auth["password"].is<const char *>()) {
+                const char *pass = web_auth["password"].as<const char *>();
+                if (strlen(pass) > 0 && strlen(pass) <= 63) {
+                    p.put_string("pass", pass);
+                    changed = true;
+                    net::logf("[mgr] applied webAuth.password (len=%u)",
+                              (unsigned)strlen(pass));
+                } else {
+                    record_error("[mgr] reject webAuth.password (invalid length)");
+                    ok = false;
+                }
             }
         }
-        if (web_auth["password"].is<const char *>()) {
-            const char *pass = web_auth["password"].as<const char *>();
-            if (strlen(pass) > 0 && strlen(pass) <= 63) {
-                p.putString("pass", pass);
-                changed = true;
-                net::logf("[mgr] applied webAuth.password (len=%u)",
-                          (unsigned)strlen(pass));
-            } else {
-                record_error("[mgr] reject webAuth.password (invalid length)");
-                ok = false;
-            }
-        }
-        p.end();
         if (changed) {
             net::logf("[mgr] web API auth updated");
             net::requestMdnsAdvertise();

@@ -6,9 +6,10 @@
 #include "net.h"
 #include "board_pins.h"
 
-#include <Preferences.h>
 #include <math.h>
 #include <stdio.h>
+
+#include "storage.h"
 
 // Trip / log screen: locally-integrated odometer + stats. Persists trip
 // state to NVS so it survives reboots. SignalK only provides instantaneous
@@ -30,24 +31,20 @@ static uint32_t s_last_sample_ms = 0;
 static const double UNDERWAY_THRESHOLD = 0.5;  // m/s ~= 1 kn
 
 static void load_from_nvs() {
-    Preferences p;
-    p.begin("trip", true);
-    s_dist_m = p.getDouble("dist", 0);
-    s_underway_s = p.getUInt("under", 0);
-    s_max_sog = p.getDouble("maxsog", 0);
-    s_started_at_ms = p.getUInt("start", 0);
-    p.end();
+    storage::Namespace p("trip", true);
+    s_dist_m = p.get_double("dist", 0);
+    s_underway_s = p.get_u32("under", 0);
+    s_max_sog = p.get_double("maxsog", 0);
+    s_started_at_ms = p.get_u32("start", 0);
     if (s_started_at_ms == 0) s_started_at_ms = millis();
 }
 
 static void save_to_nvs() {
-    Preferences p;
-    p.begin("trip", false);
-    p.putDouble("dist", s_dist_m);
-    p.putUInt("under", s_underway_s);
-    p.putDouble("maxsog", s_max_sog);
-    p.putUInt("start", s_started_at_ms);
-    p.end();
+    storage::Namespace p("trip", false);
+    p.put_double("dist", s_dist_m);
+    p.put_u32("under", s_underway_s);
+    p.put_double("maxsog", s_max_sog);
+    p.put_u32("start", s_started_at_ms);
 }
 
 void reset() {

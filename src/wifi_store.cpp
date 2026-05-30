@@ -1,7 +1,6 @@
 #include "wifi_store.h"
 
 #include <ArduinoJson.h>
-#include <Preferences.h>
 #include <string.h>
 
 #include "net.h"

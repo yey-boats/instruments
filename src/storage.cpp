@@ -31,6 +31,24 @@ Namespace::~Namespace() {
     nvs_close(handle_);
 }
 
+// ---- key probe ---------------------------------------------------------
+
+bool Namespace::is_key(const char *key) {
+    if (!ok_) return false;
+    // IDF 4.4 doesn't expose nvs_find_key (added in 5.0). Probe via a
+    // type-agnostic blob length query: nvs_get_blob with cap=0 returns
+    // ESP_OK + sets `sz`, BUF_TOO_SMALL (key exists but caller asked
+    // for zero bytes), or NOT_FOUND. If the stored value is a scalar,
+    // we get TYPE_MISMATCH (the key still exists). NOT_FOUND is the
+    // only "absent" answer.
+    size_t sz = 0;
+    esp_err_t e = nvs_get_blob(handle_, key, nullptr, &sz);
+    if (e == ESP_ERR_NVS_NOT_FOUND) return false;
+    // Anything else (ESP_OK / BUF_TOO_SMALL / type-mismatch errors)
+    // means the key is present.
+    return true;
+}
+
 // ---- get helpers --------------------------------------------------------
 
 std::string Namespace::get_string(const char *key, const char *default_) {
@@ -79,6 +97,28 @@ uint32_t Namespace::get_u32(const char *key, uint32_t default_) {
     return v;
 }
 
+bool Namespace::get_bool(const char *key, bool default_) {
+    return get_u8(key, default_ ? 1 : 0) != 0;
+}
+
+float Namespace::get_float(const char *key, float default_) {
+    if (!ok_) return default_;
+    float v = default_;
+    size_t sz = sizeof(v);
+    esp_err_t e = nvs_get_blob(handle_, key, &v, &sz);
+    if (e != ESP_OK || sz != sizeof(float)) return default_;
+    return v;
+}
+
+double Namespace::get_double(const char *key, double default_) {
+    if (!ok_) return default_;
+    double v = default_;
+    size_t sz = sizeof(v);
+    esp_err_t e = nvs_get_blob(handle_, key, &v, &sz);
+    if (e != ESP_OK || sz != sizeof(double)) return default_;
+    return v;
+}
+
 // ---- put helpers --------------------------------------------------------
 
 bool Namespace::put_string(const char *key, const char *value) {
@@ -116,12 +156,37 @@ bool Namespace::put_u32(const char *key, uint32_t value) {
     return e == ESP_OK;
 }
 
+bool Namespace::put_bool(const char *key, bool value) {
+    return put_u8(key, value ? 1 : 0);
+}
+
+bool Namespace::put_float(const char *key, float value) {
+    if (!ok_ || readonly_) return false;
+    esp_err_t e = nvs_set_blob(handle_, key, &value, sizeof(value));
+    if (e == ESP_OK) dirty_ = true;
+    return e == ESP_OK;
+}
+
+bool Namespace::put_double(const char *key, double value) {
+    if (!ok_ || readonly_) return false;
+    esp_err_t e = nvs_set_blob(handle_, key, &value, sizeof(value));
+    if (e == ESP_OK) dirty_ = true;
+    return e == ESP_OK;
+}
+
 bool Namespace::remove(const char *key) {
     if (!ok_ || readonly_) return false;
     esp_err_t e = nvs_erase_key(handle_, key);
     if (e == ESP_OK) dirty_ = true;
     // NOT_FOUND on remove is a success-equivalent.
     return e == ESP_OK || err_is_missing(e);
+}
+
+bool Namespace::erase_all() {
+    if (!ok_ || readonly_) return false;
+    esp_err_t e = nvs_erase_all(handle_);
+    if (e == ESP_OK) dirty_ = true;
+    return e == ESP_OK;
 }
 
 }  // namespace storage

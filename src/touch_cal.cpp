@@ -1,9 +1,9 @@
 #include "touch_cal.h"
 
-#include <Preferences.h>
 #include <math.h>
 
 #include "net.h"
+#include "storage.h"
 
 namespace touch_cal {
 
@@ -13,22 +13,20 @@ static bool s_default = true;
 static const char *NS = "touch_cal";
 
 void setup() {
-    Preferences p;
-    p.begin(NS, true);
-    if (p.isKey("a")) {
-        s_m.a = p.getFloat("a", 1.0f);
-        s_m.b = p.getFloat("b", 0.0f);
-        s_m.c = p.getFloat("c", 0.0f);
-        s_m.d = p.getFloat("d", 0.0f);
-        s_m.e = p.getFloat("e", 1.0f);
-        s_m.f = p.getFloat("f", 0.0f);
+    storage::Namespace p(NS, true);
+    if (p.is_key("a")) {
+        s_m.a = p.get_float("a", 1.0f);
+        s_m.b = p.get_float("b", 0.0f);
+        s_m.c = p.get_float("c", 0.0f);
+        s_m.d = p.get_float("d", 0.0f);
+        s_m.e = p.get_float("e", 1.0f);
+        s_m.f = p.get_float("f", 0.0f);
         s_default = false;
         net::logf("[cal] loaded a=%.4f b=%.4f c=%.2f d=%.4f e=%.4f f=%.2f",
                   s_m.a, s_m.b, s_m.c, s_m.d, s_m.e, s_m.f);
     } else {
         net::logf("[cal] no saved calibration - using identity");
     }
-    p.end();
 }
 
 void apply(int16_t *x, int16_t *y) {
@@ -49,15 +47,13 @@ void apply(int16_t *x, int16_t *y) {
 void set(const Matrix &m) {
     s_m = m;
     s_default = false;
-    Preferences p;
-    p.begin(NS, false);
-    p.putFloat("a", m.a);
-    p.putFloat("b", m.b);
-    p.putFloat("c", m.c);
-    p.putFloat("d", m.d);
-    p.putFloat("e", m.e);
-    p.putFloat("f", m.f);
-    p.end();
+    storage::Namespace p(NS, false);
+    p.put_float("a", m.a);
+    p.put_float("b", m.b);
+    p.put_float("c", m.c);
+    p.put_float("d", m.d);
+    p.put_float("e", m.e);
+    p.put_float("f", m.f);
     net::logf("[cal] saved a=%.4f b=%.4f c=%.2f d=%.4f e=%.4f f=%.2f",
               m.a, m.b, m.c, m.d, m.e, m.f);
 }
@@ -69,10 +65,8 @@ bool is_default() { return s_default; }
 void reset() {
     s_m = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
     s_default = true;
-    Preferences p;
-    p.begin(NS, false);
-    p.clear();
-    p.end();
+    storage::Namespace p(NS, false);
+    p.erase_all();
     net::logf("[cal] reset to identity (effective immediately)");
 }
 

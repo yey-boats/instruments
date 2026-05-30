@@ -1,13 +1,13 @@
 #include "config_runtime.h"
 
 #include <Arduino.h>
-#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <string.h>
 
 #include "net.h"
+#include "storage.h"
 
 namespace config {
 
@@ -48,155 +48,142 @@ static const char *NS_ALARMS = "cfg_alarm";
 static const char *NS_SK = "cfg_sk";
 
 static void persist_ui(const UiConfig &c, DomainMeta &meta) {
-    Preferences p;
-    if (!p.begin(NS_UI, false)) {
+    storage::Namespace p(NS_UI, false);
+    if (!p.ok()) {
         meta.persist_error = true;
         strncpy(meta.last_error, "nvs begin failed", sizeof(meta.last_error) - 1);
         s_jobs_failed++;
         return;
     }
-    p.putUShort("schema", meta.schema);
-    p.putUInt("rev", meta.revision);
-    p.putUChar("theme", (uint8_t)c.theme);
-    p.putUChar("bright", c.brightness);
-    p.putUChar("pos_fmt", (uint8_t)c.pos_format);
-    p.putString("default", c.default_screen);
-    p.end();
+    p.put_u16("schema", meta.schema);
+    p.put_u32("rev", meta.revision);
+    p.put_u8("theme", (uint8_t)c.theme);
+    p.put_u8("bright", c.brightness);
+    p.put_u8("pos_fmt", (uint8_t)c.pos_format);
+    p.put_string("default", c.default_screen);
     meta.persist_error = false;
     meta.last_error[0] = 0;
     s_jobs_completed++;
 }
 
 static void load_ui(UiConfig &c, DomainMeta &meta) {
-    Preferences p;
-    p.begin(NS_UI, true);
-    if (p.isKey("rev")) {
-        c.theme = (Theme)p.getUChar("theme", (uint8_t)Theme::Night);
-        c.brightness = p.getUChar("bright", 200);
-        c.pos_format = (PosFormat)p.getUChar("pos_fmt", (uint8_t)PosFormat::DDM);
-        String dft = p.getString("default", "dashboard");
-        strncpy(c.default_screen, dft.c_str(), sizeof(c.default_screen) - 1);
-        meta.source = Source::Storage;
-        meta.revision = p.getUInt("rev", 0);
-        meta.schema = p.getUShort("schema", 1);
-    } else {
-        // Legacy compatibility: read old "ui" namespace if present.
-        p.end();
-        Preferences legacy;
-        legacy.begin("ui", true);
-        if (legacy.isKey("bright")) {
-            c.brightness = legacy.getUChar("bright", 200);
+    {
+        storage::Namespace p(NS_UI, true);
+        if (p.is_key("rev")) {
+            c.theme = (Theme)p.get_u8("theme", (uint8_t)Theme::Night);
+            c.brightness = p.get_u8("bright", 200);
+            c.pos_format = (PosFormat)p.get_u8("pos_fmt", (uint8_t)PosFormat::DDM);
+            std::string dft = p.get_string("default", "dashboard");
+            strncpy(c.default_screen, dft.c_str(), sizeof(c.default_screen) - 1);
+            meta.source = Source::Storage;
+            meta.revision = p.get_u32("rev", 0);
+            meta.schema = p.get_u16("schema", 1);
+            return;
         }
-        if (legacy.isKey("theme")) {
-            String t = legacy.getString("theme", "night");
-            c.theme = parse_theme(t.c_str(), Theme::Night);
-        }
-        if (legacy.isKey("pos_fmt")) {
-            c.pos_format = (PosFormat)legacy.getUChar("pos_fmt", (uint8_t)PosFormat::DDM);
-        }
-        legacy.end();
-        meta.source = Source::Storage;
-        meta.revision = 0;
-        meta.schema = 1;
-        return;
     }
-    p.end();
+    // Legacy compatibility: read old "ui" namespace if present.
+    storage::Namespace legacy("ui", true);
+    if (legacy.is_key("bright")) {
+        c.brightness = legacy.get_u8("bright", 200);
+    }
+    if (legacy.is_key("theme")) {
+        std::string t = legacy.get_string("theme", "night");
+        c.theme = parse_theme(t.c_str(), Theme::Night);
+    }
+    if (legacy.is_key("pos_fmt")) {
+        c.pos_format = (PosFormat)legacy.get_u8("pos_fmt", (uint8_t)PosFormat::DDM);
+    }
+    meta.source = Source::Storage;
+    meta.revision = 0;
+    meta.schema = 1;
 }
 
 static void persist_alarms(const AlarmConfig &c, DomainMeta &meta) {
-    Preferences p;
-    if (!p.begin(NS_ALARMS, false)) {
+    storage::Namespace p(NS_ALARMS, false);
+    if (!p.ok()) {
         meta.persist_error = true;
         strncpy(meta.last_error, "nvs begin failed", sizeof(meta.last_error) - 1);
         s_jobs_failed++;
         return;
     }
-    p.putUShort("schema", meta.schema);
-    p.putUInt("rev", meta.revision);
-    p.putDouble("depth_m", c.depth_alarm_m);
-    p.putDouble("batt_v", c.battery_alarm_v);
-    p.putBool("audible", c.audible);
-    p.end();
+    p.put_u16("schema", meta.schema);
+    p.put_u32("rev", meta.revision);
+    p.put_double("depth_m", c.depth_alarm_m);
+    p.put_double("batt_v", c.battery_alarm_v);
+    p.put_bool("audible", c.audible);
     meta.persist_error = false;
     meta.last_error[0] = 0;
     s_jobs_completed++;
 }
 
 static void load_alarms(AlarmConfig &c, DomainMeta &meta) {
-    Preferences p;
-    p.begin(NS_ALARMS, true);
-    if (p.isKey("rev")) {
-        c.depth_alarm_m = p.getDouble("depth_m", 3.0);
-        c.battery_alarm_v = p.getDouble("batt_v", 11.5);
-        c.audible = p.getBool("audible", false);
-        meta.source = Source::Storage;
-        meta.revision = p.getUInt("rev", 0);
-        meta.schema = p.getUShort("schema", 1);
-        p.end();
-        return;
+    {
+        storage::Namespace p(NS_ALARMS, true);
+        if (p.is_key("rev")) {
+            c.depth_alarm_m = p.get_double("depth_m", 3.0);
+            c.battery_alarm_v = p.get_double("batt_v", 11.5);
+            c.audible = p.get_bool("audible", false);
+            meta.source = Source::Storage;
+            meta.revision = p.get_u32("rev", 0);
+            meta.schema = p.get_u16("schema", 1);
+            return;
+        }
     }
-    p.end();
     // Legacy compatibility: old "ui" namespace stored depth_alarm_m / batt_alarm_v.
-    Preferences legacy;
-    legacy.begin("ui", true);
-    if (legacy.isKey("depth_alarm_m")) {
-        c.depth_alarm_m = legacy.getDouble("depth_alarm_m", 3.0);
+    storage::Namespace legacy("ui", true);
+    if (legacy.is_key("depth_alarm_m")) {
+        c.depth_alarm_m = legacy.get_double("depth_alarm_m", 3.0);
     }
-    if (legacy.isKey("batt_alarm_v")) {
-        c.battery_alarm_v = legacy.getDouble("batt_alarm_v", 11.5);
+    if (legacy.is_key("batt_alarm_v")) {
+        c.battery_alarm_v = legacy.get_double("batt_alarm_v", 11.5);
     }
-    legacy.end();
     meta.source = Source::Storage;
 }
 
 static void persist_signalk(const SignalKConfig &c, DomainMeta &meta) {
-    Preferences p;
-    if (!p.begin(NS_SK, false)) {
+    storage::Namespace p(NS_SK, false);
+    if (!p.ok()) {
         meta.persist_error = true;
         strncpy(meta.last_error, "nvs begin failed", sizeof(meta.last_error) - 1);
         s_jobs_failed++;
         return;
     }
-    p.putUShort("schema", meta.schema);
-    p.putUInt("rev", meta.revision);
-    p.putString("host", c.host);
-    p.putUShort("port", c.port);
-    if (c.token[0]) p.putString("token", c.token);
-    p.end();
+    p.put_u16("schema", meta.schema);
+    p.put_u32("rev", meta.revision);
+    p.put_string("host", c.host);
+    p.put_u16("port", c.port);
+    if (c.token[0]) p.put_string("token", c.token);
     meta.persist_error = false;
     meta.last_error[0] = 0;
     s_jobs_completed++;
 }
 
 static void load_signalk(SignalKConfig &c, DomainMeta &meta) {
-    Preferences p;
-    p.begin(NS_SK, true);
-    if (p.isKey("rev")) {
-        String h = p.getString("host", "");
-        strncpy(c.host, h.c_str(), sizeof(c.host) - 1);
-        c.port = p.getUShort("port", 3000);
-        String t = p.getString("token", "");
-        strncpy(c.token, t.c_str(), sizeof(c.token) - 1);
-        meta.source = Source::Storage;
-        meta.revision = p.getUInt("rev", 0);
-        meta.schema = p.getUShort("schema", 1);
-        p.end();
-        return;
+    {
+        storage::Namespace p(NS_SK, true);
+        if (p.is_key("rev")) {
+            std::string h = p.get_string("host", "");
+            strncpy(c.host, h.c_str(), sizeof(c.host) - 1);
+            c.port = p.get_u16("port", 3000);
+            std::string t = p.get_string("token", "");
+            strncpy(c.token, t.c_str(), sizeof(c.token) - 1);
+            meta.source = Source::Storage;
+            meta.revision = p.get_u32("rev", 0);
+            meta.schema = p.get_u16("schema", 1);
+            return;
+        }
     }
-    p.end();
     // Legacy: old "sk" namespace.
-    Preferences legacy;
-    legacy.begin("sk", true);
-    if (legacy.isKey("host")) {
-        String h = legacy.getString("host", "");
+    storage::Namespace legacy("sk", true);
+    if (legacy.is_key("host")) {
+        std::string h = legacy.get_string("host", "");
         strncpy(c.host, h.c_str(), sizeof(c.host) - 1);
-        c.port = (uint16_t)legacy.getUInt("port", 3000);
+        c.port = (uint16_t)legacy.get_u32("port", 3000);
     }
-    if (legacy.isKey("token")) {
-        String t = legacy.getString("token", "");
+    if (legacy.is_key("token")) {
+        std::string t = legacy.get_string("token", "");
         strncpy(c.token, t.c_str(), sizeof(c.token) - 1);
     }
-    legacy.end();
     meta.source = Source::Storage;
 }
 
