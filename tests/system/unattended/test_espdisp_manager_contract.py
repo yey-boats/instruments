@@ -80,7 +80,7 @@ def test_firmware_registers_with_espdisp_manager(device, console):
 
     # Future firmware commands. These intentionally define the firmware-side
     # contract that will be implemented next.
-    device.cmd_via_console(console, f"sk-token {token}", wait_for="[sk] token saved", timeout_s=5)
+    device.cmd_via_console(console, f"manager-sk-token {token}", wait_for="[mgr] sk_token saved", timeout_s=5)
     device.cmd_via_console(console, "manager-token espdisp-dev", wait_for="[mgr] token saved", timeout_s=5)
     device.cmd_via_console(
         console,

@@ -32,15 +32,46 @@ make flash
 # 2. Bring up demo SignalK server in docker
 make demo-up
 
-# 3. Run unattended suite (point at device by IP or .local hostname)
+# 3. Run unattended suite. By default pytest discovers every
+#    _espdisp._tcp device on the LAN and runs device tests against each one.
+pytest tests/system/unattended
+
+# Or pin a specific device by IP / .local hostname for deterministic runs.
 ESPDISP_HOST=esp32-boat-mfd.local pytest tests/system/unattended
 
 # 4. Step through attended checklists
 open tests/system/attended/README.md
 ```
 
-Set `ESPDISP_HOST` to either an IP or a `.local` mDNS name (the latter
-requires Bonjour / Avahi on the host). Optional:
+Device selection:
+
+- default — discover all `_espdisp._tcp.local` devices with mDNS and listen
+  for `espdisp.device.announce.v1` UDP announcements on port `34301`
+- `ESPDISP_HOST=host` — legacy single-device override
+- `ESPDISP_DEVICES="host1,host2:8080"` — explicit multi-device list
+- `pytest ... --espdisp-device host` — repeatable explicit device option
+- `pytest ... --espdisp-devices "host1 host2"` — explicit list option
+- `pytest ... --espdisp-no-discovery` — disable mDNS and use only explicit devices
+- `pytest ... --espdisp-no-udp-discovery` — disable UDP announcement discovery
+- `ESPDISP_DISCOVERY_CIDRS=192.168.1.0/24` or
+  `--espdisp-scan-cidr 192.168.1.0/24` — actively probe a subnet when mDNS is
+  blocked
+
+The generic discovery tool is also available:
+
+```sh
+python3 -m tests.system.discovery --json
+python3 -m tests.system.discovery --json --listen-udp
+python3 -m tests.system.discovery --device esp32-boat-mfd.local --no-mdns
+python3 -m tests.system.discovery --scan-cidr 192.168.1.0/24
+```
+
+If device web Basic Auth is enabled, set:
+
+- `ESPDISP_WEB_USERNAME`
+- `ESPDISP_WEB_PASSWORD`
+
+Optional:
 
 - `ESPDISP_SK_HOST` — SignalK server (default: `localhost`)
 - `ESPDISP_NMEA_WIFI_PORT` — default `10110`
@@ -55,6 +86,34 @@ requires Bonjour / Avahi on the host). Optional:
 Every unattended test that visits a screen writes `tests/system/artifacts/<test-name>.bmp`.
 Re-run with `--keep-artifacts` to retain across runs (default overwrites).
 The CI workflow uploads the directory as a build artifact.
+
+## Discovery troubleshooting
+
+Use the discovery tool before running hardware tests:
+
+```sh
+python3 -m tests.system.discovery --json --listen-udp --timeout 5
+```
+
+Expected working paths:
+
+- mDNS: firmware advertises `_espdisp._tcp.local` with `device_id`, `board`,
+  `firmware`, `version`, `display`, and `auth` TXT fields.
+- UDP device announcements: firmware broadcasts `espdisp.device.announce.v1`
+  to UDP `34301` every 5 seconds after WiFi joins.
+- Explicit host fallback: `--device <ip-or-hostname>` or `ESPDISP_HOST`.
+- CIDR scan fallback: `--scan-cidr 192.168.1.0/24`, unauthenticated only.
+
+If no devices are found:
+
+- Confirm the display is in STA mode, not setup AP mode, on the same LAN.
+- Check the device screen or serial/BLE log for `[wifi] up`, `[mdns] service`,
+  and `[discovery] announce` lines.
+- Confirm the host firewall allows inbound UDP `34301` and mDNS multicast.
+- If Basic Auth is enabled, use explicit host plus `ESPDISP_WEB_USERNAME` and
+  `ESPDISP_WEB_PASSWORD`; do not credential-scan a subnet.
+- For Docker SignalK, expose both UDP ports: `34300/udp` for SignalK discovery
+  replies and `34301/udp` for device presence announcements.
 
 ## NMEA2000 expectations
 

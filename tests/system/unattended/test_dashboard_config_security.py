@@ -15,14 +15,16 @@ import requests
 
 
 def _get(device, path, **kw):
+    kw.setdefault("auth", device.auth)
     r = requests.get(f"{device.base}{path}", timeout=10, **kw)
     r.raise_for_status()
     return r
 
 
 def _put(device, path, body, *, content_type="application/json"):
+    auth_kw = {"auth": device.auth} if device.auth else {}
     return requests.put(f"{device.base}{path}", data=body, timeout=10,
-                        headers={"Content-Type": content_type})
+                        headers={"Content-Type": content_type}, **auth_kw)
 
 
 MINIMAL_LAYOUT = {

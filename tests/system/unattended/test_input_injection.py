@@ -33,9 +33,11 @@ def test_http_rejects_injection_words(device, line):
     one place HTTP touches the injection surface (only to refuse it).
     """
     import requests
+    auth_kw = {"auth": device.auth} if device.auth else {}
     r = requests.post(f"{device.base}/api/cmd",
                       data=line, timeout=5,
-                      headers={"Content-Type": "text/plain"})
+                      headers={"Content-Type": "text/plain"},
+                      **auth_kw)
     assert r.status_code == 403, f"expected 403 for {line!r}, got {r.status_code} {r.text!r}"
 
 

@@ -17,37 +17,51 @@ from queue import Queue, Empty
 import pytest
 import requests
 
+from tests.system.discovery import (
+    DiscoveredDevice,
+    discover_devices,
+    split_device_specs,
+)
+
 ROOT = Path(__file__).resolve().parent
 ARTIFACTS = Path(os.environ.get("ARTIFACTS_DIR", ROOT / "artifacts"))
 ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
 
-def _host() -> str:
-    h = os.environ.get("ESPDISP_HOST")
-    if not h:
-        pytest.skip("ESPDISP_HOST not set; skipping system test")
-    return h
+def _web_auth() -> tuple[str, str] | None:
+    username = os.environ.get("ESPDISP_WEB_USERNAME")
+    password = os.environ.get("ESPDISP_WEB_PASSWORD")
+    if username and password:
+        return username, password
+    return None
 
 
 @dataclass
 class Device:
     host: str
+    port: int = 80
+    discovered: DiscoveredDevice | None = None
     base: str = field(init=False)
+    auth: tuple[str, str] | None = field(default_factory=_web_auth)
 
     def __post_init__(self):
-        self.base = f"http://{self.host}"
+        suffix = "" if self.port == 80 else f":{self.port}"
+        self.base = f"http://{self.host}{suffix}"
 
     # ---- HTTP helpers ----
     def get(self, path: str, **kw):
+        kw.setdefault("auth", self.auth)
         r = requests.get(f"{self.base}{path}", timeout=10, **kw)
         r.raise_for_status()
         return r
 
     def post_cmd(self, line: str) -> None:
         """Queue a console command. Returns when accepted (202)."""
+        auth_kw = {"auth": self.auth} if self.auth else {}
         r = requests.post(f"{self.base}/api/cmd",
                           data=line, timeout=10,
-                          headers={"Content-Type": "text/plain"})
+                          headers={"Content-Type": "text/plain"},
+                          **auth_kw)
         assert r.status_code == 202, f"cmd {line!r} -> {r.status_code} {r.text}"
 
     def state(self) -> dict:
@@ -64,12 +78,16 @@ class Device:
 
     def show_screen(self, screen_id: str) -> None:
         # /api/screen/<id> POST switches; queued, eventual consistency.
-        r = requests.post(f"{self.base}/api/screen/{screen_id}", timeout=10)
+        auth_kw = {"auth": self.auth} if self.auth else {}
+        r = requests.post(f"{self.base}/api/screen/{screen_id}",
+                          timeout=10, **auth_kw)
         assert r.status_code in (200, 202), f"show_screen {screen_id}: {r.status_code}"
 
     # ---- Screenshot ----
     def screenshot(self, label: str) -> Path:
-        r = requests.get(f"{self.base}/api/screenshot.bmp", timeout=10)
+        auth_kw = {"auth": self.auth} if self.auth else {}
+        r = requests.get(f"{self.base}/api/screenshot.bmp",
+                         timeout=10, **auth_kw)
         r.raise_for_status()
         path = ARTIFACTS / f"{label}.bmp"
         path.write_bytes(r.content)
@@ -139,15 +157,87 @@ class Device:
         pytest.fail(f"{name} never reached source={expected_source}; last={last}")
 
 
+def pytest_addoption(parser):
+    group = parser.getgroup("espdisp")
+    group.addoption("--espdisp-device", action="append", default=[],
+                    help="Explicit espdisp host, host:port, or URL. "
+                         "Can be repeated.")
+    group.addoption("--espdisp-devices", default=None,
+                    help="Comma/space-separated espdisp host list.")
+    group.addoption("--espdisp-no-discovery", action="store_true",
+                    help="Disable mDNS discovery and use explicit devices only.")
+    group.addoption("--espdisp-no-udp-discovery", action="store_true",
+                    help="Disable UDP device announcement discovery.")
+    group.addoption("--espdisp-scan-cidr", action="append", default=[],
+                    help="Actively probe a CIDR for devices.")
+    group.addoption("--espdisp-discovery-timeout", type=float, default=2.5,
+                    help="mDNS discovery timeout in seconds.")
+    group.addoption("--espdisp-udp-timeout", type=float, default=5.5,
+                    help="UDP announcement listen timeout in seconds.")
+
+
+def _configured_device_specs(config) -> list[str]:
+    specs: list[str] = []
+    specs.extend(config.getoption("--espdisp-device") or [])
+    specs.extend(split_device_specs(config.getoption("--espdisp-devices")))
+    specs.extend(split_device_specs(os.environ.get("ESPDISP_DEVICES")))
+    specs.extend(split_device_specs(os.environ.get("ESPDISP_HOST")))
+    return specs
+
+
+def _configured_scan_cidrs(config) -> list[str]:
+    cidrs: list[str] = []
+    cidrs.extend(config.getoption("--espdisp-scan-cidr") or [])
+    cidrs.extend(split_device_specs(os.environ.get("ESPDISP_DISCOVERY_CIDRS")))
+    return cidrs
+
+
+def _collect_test_devices(config) -> list[DiscoveredDevice]:
+    cached = getattr(config, "_espdisp_test_devices", None)
+    if cached is not None:
+        return cached
+    explicit = _configured_device_specs(config)
+    no_discovery = bool(config.getoption("--espdisp-no-discovery"))
+    udp_listen = not no_discovery and not bool(
+        config.getoption("--espdisp-no-udp-discovery"))
+    devices = discover_devices(
+        explicit=explicit,
+        mdns=not no_discovery,
+        cidrs=_configured_scan_cidrs(config),
+        udp_listen=udp_listen,
+        udp_timeout=config.getoption("--espdisp-udp-timeout"),
+        auth=_web_auth(),
+        mdns_timeout=config.getoption("--espdisp-discovery-timeout"),
+    )
+    config._espdisp_test_devices = devices
+    return devices
+
+
+def pytest_generate_tests(metafunc):
+    if "device" not in metafunc.fixturenames:
+        return
+    devices = _collect_test_devices(metafunc.config)
+    if not devices:
+        metafunc.parametrize("device", [None], ids=["no-espdisp-device"],
+                             indirect=True)
+        return
+    metafunc.parametrize("device", devices,
+                         ids=[device.pytest_id for device in devices],
+                         indirect=True)
+
+
 @pytest.fixture(scope="session")
-def device() -> Device:
-    h = _host()
-    d = Device(h)
+def device(request) -> Device:
+    target = getattr(request, "param", None)
+    if target is None:
+        pytest.skip("no espdisp devices discovered; set ESPDISP_HOST, "
+                    "ESPDISP_DEVICES, or --espdisp-device")
+    d = Device(target.host, port=target.port, discovered=target)
     # Sanity probe.
     try:
         d.state()
     except Exception as e:
-        pytest.skip(f"device {h} unreachable: {e}")
+        pytest.skip(f"device {target.host} unreachable: {e}")
     return d
 
 
