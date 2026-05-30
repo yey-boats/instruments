@@ -73,10 +73,45 @@ or directly:
 
 ## Install ESP Display Manager From This Repo
 
-For a normal SignalK server, install a packed plugin tarball built from this
-repository.
+For a normal SignalK server, install the packed plugin tarball attached to the
+matching GitHub release. Releases include firmware binaries and:
 
-From the repo checkout:
+```text
+signalk-espdisp-manager-<version>.tgz
+SHA256SUMS
+```
+
+Download both files from the release page. On the SignalK host, optional
+checksum verification from the download directory is:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Install the release asset into the SignalK home directory:
+
+```sh
+cd ~/.signalk
+npm install /path/to/signalk-espdisp-manager-<version>.tgz
+```
+
+Then restart SignalK and enable/configure `ESP Display Manager` in the SignalK
+admin plugin UI. The plugin UI is served at:
+
+```text
+/plugins/espdisp-manager/ui
+/signalk-espdisp-manager/
+```
+
+The release package is the recommended install path because it is built by CI
+from the tagged source and published alongside the matching firmware artifacts.
+Every push/PR also uploads a `signalk-espdisp-manager-<sha>` workflow artifact
+for branch testing, but those artifacts are not release-pinned.
+
+### Build A Local Plugin Package
+
+For development, build a local tarball from the repo checkout:
+
 
 ```sh
 cd signalk/plugins/signalk-espdisp-manager
@@ -97,18 +132,6 @@ Install it into the SignalK home directory on the target server:
 cd ~/.signalk
 npm install /path/to/espdisp/signalk/plugins/signalk-espdisp-manager/signalk-espdisp-manager-<version>.tgz
 ```
-
-Then restart SignalK and enable/configure `ESP Display Manager` in the SignalK
-admin plugin UI. The plugin UI is served at:
-
-```text
-/plugins/espdisp-manager/ui
-/signalk-espdisp-manager/
-```
-
-CI also builds this tarball on every push/PR and uploads it as the
-`signalk-espdisp-manager-<sha>` workflow artifact. Tagged releases attach the
-same package alongside firmware binaries.
 
 ## Verify SignalK
 

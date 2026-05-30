@@ -223,9 +223,10 @@ make build PROJECT_VERSION=0.1.1-dev
 Release tags must match the `VERSION` file, for example `v0.1.0`. Tagged
 GitHub releases build the production `esp32-4848s040` firmware, package the
 matching `signalk-espdisp-manager-<version>.tgz` plugin, and publish checksums
-for all release artifacts.
+for all release artifacts. Use that release asset for normal SignalK installs.
 
-To install the SignalK plugin from this repository, see
+To install the SignalK plugin from the release asset or build a local package,
+see
 [SignalK plugin install](signalk/README.md#install-esp-display-manager-from-this-repo).
 
 ## Console commands

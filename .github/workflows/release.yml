@@ -81,6 +81,8 @@ jobs:
         run: |
           npm ci
           npm test
+          npx playwright install --with-deps chromium
+          npm run test:playwright
           npm pack --pack-destination ../../../release-staging
 
       - name: Generate checksums
@@ -117,9 +119,18 @@ jobs:
             echo ""
             echo "## SignalK plugin"
             echo ""
-            echo "Install the matching plugin package from:"
+            echo "Download the matching plugin package release asset:"
             echo ""
             echo '- `signalk-espdisp-manager-${TAG_NAME#v}.tgz`'
+            echo ""
+            echo 'Install it on the SignalK server:'
+            echo ""
+            echo '```sh'
+            echo "cd ~/.signalk"
+            echo "npm install /path/to/signalk-espdisp-manager-${TAG_NAME#v}.tgz"
+            echo '```'
+            echo ""
+            echo "Then restart SignalK and enable ESP Display Manager in the admin plugin UI."
           } > release_notes.md
           cat release_notes.md
 
