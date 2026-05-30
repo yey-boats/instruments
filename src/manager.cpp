@@ -28,6 +28,7 @@
 #include "hostname_check.h"
 #include "log_level_check.h"
 #include "sources_check.h"
+#include "storage.h"
 #include "ui_config_check.h"
 #include "manager_config.h"
 #include "manager_screens.h"
@@ -51,6 +52,11 @@ namespace {
 constexpr const char *NS = "mgr";
 constexpr uint32_t DEFAULT_HEARTBEAT_MS = 30000;
 constexpr uint32_t DEFAULT_COMMAND_POLL_MS = 10000;
+constexpr uint32_t MIN_HEARTBEAT_MS = 30000;
+constexpr uint32_t MIN_COMMAND_POLL_MS = 15000;
+constexpr uint32_t TRANSPORT_FAILURE_BACKOFF_MS = 60000;
+constexpr uint16_t HTTP_CONNECT_TIMEOUT_MS = 1000;
+constexpr uint16_t HTTP_READ_TIMEOUT_MS = 1500;
 
 String s_endpoint;
 String s_token;       // device/dev/provision token sent as X-EspDisp-Authorization
@@ -117,33 +123,29 @@ void unlock_state() {
 }
 
 void load_prefs() {
-    Preferences p;
-    p.begin(NS, true);
-    s_endpoint = p.getString("endpoint", "");
-    s_token = p.getString("token", "");
-    s_sk_token = p.getString("sk_token", "");
-    s_applied_config_version = p.getString("cfg_ver", "v0");
-    s_applied_config_hash = p.getString("cfg_hash", "");
-    s_ota_enabled = p.getUChar("ota_en", 1) != 0;
-    s_ota_max_size = p.getUInt("ota_max", 0);
-    s_ota_require_sha = p.getUChar("ota_sha", 1) != 0;
-    p.end();
+    storage::Namespace p(NS, true);
+    s_endpoint = String(p.get_string("endpoint", "").c_str());
+    s_token = String(p.get_string("token", "").c_str());
+    s_sk_token = String(p.get_string("sk_token", "").c_str());
+    s_applied_config_version = String(p.get_string("cfg_ver", "v0").c_str());
+    s_applied_config_hash = String(p.get_string("cfg_hash", "").c_str());
+    s_ota_enabled = p.get_u8("ota_en", 1) != 0;
+    s_ota_max_size = p.get_u32("ota_max", 0);
+    s_ota_require_sha = p.get_u8("ota_sha", 1) != 0;
     s_auth = s_token.length() ? AuthState::Provisioned
                               : AuthState::Unprovisioned;
 }
 
 void save_prefs() {
-    Preferences p;
-    p.begin(NS, false);
-    p.putString("endpoint", s_endpoint);
-    p.putString("token", s_token);
-    p.putString("sk_token", s_sk_token);
-    p.putString("cfg_ver", s_applied_config_version);
-    p.putString("cfg_hash", s_applied_config_hash);
-    p.putUChar("ota_en", s_ota_enabled ? 1 : 0);
-    p.putUInt("ota_max", s_ota_max_size);
-    p.putUChar("ota_sha", s_ota_require_sha ? 1 : 0);
-    p.end();
+    storage::Namespace p(NS, false);
+    p.put_string("endpoint", s_endpoint.c_str());
+    p.put_string("token", s_token.c_str());
+    p.put_string("sk_token", s_sk_token.c_str());
+    p.put_string("cfg_ver", s_applied_config_version.c_str());
+    p.put_string("cfg_hash", s_applied_config_hash.c_str());
+    p.put_u8("ota_en", s_ota_enabled ? 1 : 0);
+    p.put_u32("ota_max", s_ota_max_size);
+    p.put_u8("ota_sha", s_ota_require_sha ? 1 : 0);
 }
 
 // Hard caps on response bodies we'll accept from the plugin. A hostile
@@ -199,6 +201,34 @@ void add_auth_headers(HTTPClient &http) {
     }
 }
 
+void prepare_http(HTTPClient &http, bool json = false) {
+    http.setConnectTimeout(HTTP_CONNECT_TIMEOUT_MS);
+    http.setTimeout(HTTP_READ_TIMEOUT_MS);
+    http.setReuse(false);
+    http.addHeader("Connection", "close");
+    if (json) http.addHeader("Content-Type", "application/json");
+    add_auth_headers(http);
+}
+
+uint32_t clamped_interval(uint32_t value, uint32_t fallback,
+                          uint32_t minimum) {
+    if (value == 0) return fallback;
+    return value < minimum ? minimum : value;
+}
+
+void apply_manager_intervals(uint32_t heartbeat_ms, uint32_t command_poll_ms) {
+    if (heartbeat_ms) {
+        s_heartbeat_interval_ms =
+            clamped_interval(heartbeat_ms, DEFAULT_HEARTBEAT_MS,
+                             MIN_HEARTBEAT_MS);
+    }
+    if (command_poll_ms) {
+        s_command_poll_interval_ms =
+            clamped_interval(command_poll_ms, DEFAULT_COMMAND_POLL_MS,
+                             MIN_COMMAND_POLL_MS);
+    }
+}
+
 // Firmware-facing wrappers around manager_url::* (which are pure
 // std::string and host-tested in test/test_manager_url). Keeping the
 // Arduino String signatures here means callers don't have to convert
@@ -226,22 +256,14 @@ int fetch_discovery(const String &base, String *out_base_path = nullptr) {
     HTTPClient http;
     String url = build_url_from_base(base, "/.well-known/espdisp-management");
     if (!http.begin(url)) return -3;
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    add_auth_headers(http);
+    prepare_http(http);
     int code = http.GET();
     if (code == 200 && resp_within_cap(http, MAX_DISCOVERY_BYTES, "discovery")) {
         String body = http.getString();
         JsonDocument d;
         if (deserializeJson(d, body) == DeserializationError::Ok) {
-            if (d["intervals"]["heartbeatMs"].is<uint32_t>()) {
-                s_heartbeat_interval_ms =
-                    d["intervals"]["heartbeatMs"].as<uint32_t>();
-            }
-            if (d["intervals"]["commandPollMs"].is<uint32_t>()) {
-                s_command_poll_interval_ms =
-                    d["intervals"]["commandPollMs"].as<uint32_t>();
-            }
+            apply_manager_intervals(d["intervals"]["heartbeatMs"] | 0,
+                                    d["intervals"]["commandPollMs"] | 0);
             if (out_base_path && d["basePath"].is<const char *>()) {
                 *out_base_path = d["basePath"].as<const char *>();
             }
@@ -295,10 +317,7 @@ int do_register() {
         }
         // Short timeouts: HTTPClient defaults to ~10 s which trips the ESP32
         // task watchdog (5 s) and can brick the device on a slow/down manager.
-        http.setConnectTimeout(3000);
-        http.setTimeout(3000);
-        http.addHeader("Content-Type", "application/json");
-        add_auth_headers(http);
+        prepare_http(http, true);
         code = http.POST(payload);
         if (code == 200 || code == 201) {
             if (resp_within_cap(http, MAX_HEARTBEAT_RESP_BYTES, "register")) {
@@ -327,20 +346,11 @@ int do_register() {
                 net::logf("[mgr] registered ok (token_len=%u)",
                           (unsigned)s_token.length());
             }
-            if (r["heartbeat"]["intervalMs"].is<uint32_t>()) {
-                s_heartbeat_interval_ms =
-                    r["heartbeat"]["intervalMs"].as<uint32_t>();
-            } else if (r["heartbeat_interval_ms"].is<uint32_t>()) {
-                s_heartbeat_interval_ms =
-                    r["heartbeat_interval_ms"].as<uint32_t>();
-            }
-            if (r["commands"]["pollMs"].is<uint32_t>()) {
-                s_command_poll_interval_ms =
-                    r["commands"]["pollMs"].as<uint32_t>();
-            } else if (r["command_poll_interval_ms"].is<uint32_t>()) {
-                s_command_poll_interval_ms =
-                    r["command_poll_interval_ms"].as<uint32_t>();
-            }
+            uint32_t hb = r["heartbeat"]["intervalMs"] | 0;
+            if (!hb) hb = r["heartbeat_interval_ms"] | 0;
+            uint32_t poll = r["commands"]["pollMs"] | 0;
+            if (!poll) poll = r["command_poll_interval_ms"] | 0;
+            apply_manager_intervals(hb, poll);
         }
     } else {
         record_error("[mgr] register -> %d", code);
@@ -852,7 +862,10 @@ bool apply_config(JsonDocument &cfg) {
             }
         }
         p.end();
-        if (changed) net::logf("[mgr] web API auth updated");
+        if (changed) {
+            net::logf("[mgr] web API auth updated");
+            net::requestMdnsAdvertise();
+        }
     }
 
     return ok;
@@ -868,10 +881,7 @@ void post_ota_progress(const String &job_id, const char *state,
     String url = build_url("/devices/") + device_identity::get().device_id +
                  "/firmware/jobs/" + job_id + "/progress";
     if (!http.begin(url)) return;
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    http.addHeader("Content-Type", "application/json");
-    add_auth_headers(http);
+    prepare_http(http, true);
     JsonDocument body;
     body["state"] = state;
     if (progress_pct >= 0) body["progress_pct"] = progress_pct;
@@ -1180,10 +1190,7 @@ void ack_command(const String &cmd_id, const char *result) {
     String url = build_url("/devices/") + device_identity::get().device_id +
                  "/commands/" + cmd_id + "/ack";
     if (!http.begin(url)) return;
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    http.addHeader("Content-Type", "application/json");
-    add_auth_headers(http);
+    prepare_http(http, true);
     JsonDocument body;
     body["result"] = result;
     String payload;
@@ -1203,9 +1210,7 @@ int poll_commands() {
     String url = build_url("/devices/") + device_identity::get().device_id +
                  "/commands";
     if (!http.begin(url)) return -3;
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    add_auth_headers(http);
+    prepare_http(http);
     int code = http.GET();
     if (code == 200) {
         if (!resp_within_cap(http, MAX_COMMANDS_BYTES, "commands")) {
@@ -1254,9 +1259,7 @@ int fetch_config() {
     String url = build_url("/devices/") + device_identity::get().device_id +
                  "/config";
     if (!http.begin(url)) return -3;
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    add_auth_headers(http);
+    prepare_http(http);
     int code = http.GET();
     if (code == 200) {
         if (!resp_within_cap(http, MAX_CONFIG_BYTES, "config")) {
@@ -1340,6 +1343,7 @@ int fetch_config() {
                     unlock_state();
                     net::logf("[mgr] config applied: version=%s hash=%s",
                               new_version.c_str(), new_hash.c_str());
+                    net::requestMdnsAdvertise();
                 } else {
                     net::logf("[mgr] config %s had invalid fields; "
                               "applied valid subset only (not persisted)",
@@ -1367,10 +1371,7 @@ int do_heartbeat() {
     String url = build_url("/devices/") + device_identity::get().device_id +
                  "/status";
     if (!http.begin(url)) return -3;
-    http.setConnectTimeout(3000);
-    http.setTimeout(3000);
-    http.addHeader("Content-Type", "application/json");
-    add_auth_headers(http);
+    prepare_http(http, true);
     int code = http.POST(payload);
     if (code == 401 || code == 403) {
         net::logf("[mgr] heartbeat auth failed (%d) - will re-register", code);
@@ -1440,11 +1441,7 @@ int do_heartbeat() {
                              device_identity::get().device_id +
                              "/firmware/confirm";
         if (hc.begin(confirm_url)) {
-            hc.setConnectTimeout(3000);
-            hc.setTimeout(3000);
-            hc.addHeader("Content-Type", "application/json");
-            if (s_sk_token.length()) hc.addHeader("Authorization", String("Bearer ") + s_sk_token); else hc.addHeader("Authorization", String("Bearer ") + s_token);
-            if (s_token.length()) hc.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
+            prepare_http(hc, true);
             JsonDocument cbody;
             const auto &id = device_identity::get();
             cbody["version"] = id.firmware_version;
@@ -1469,6 +1466,7 @@ void worker(void *) {
     uint32_t next_register_attempt_ms = 0;
     uint32_t next_heartbeat_ms = 0;
     uint32_t next_command_poll_ms = 0;
+    uint32_t next_manager_http_ms = 0;
     for (;;) {
         // Snapshot mutable state under the mutex so CLI updates can't
         // race the HTTP path mid-call.
@@ -1484,31 +1482,58 @@ void worker(void *) {
             continue;
         }
         uint32_t now = millis();
+        if (now < next_manager_http_ms) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
         if (force || !prov) {
             if (now >= next_register_attempt_ms) {
                 int rc = do_register();
                 if (rc >= 200 && rc < 300) {
                     s_force_register = false;
                     next_heartbeat_ms = now + 1000;
+                    next_manager_http_ms = 0;
                 } else {
                     // Back off: longer delay on transport errors to
                     // avoid pounding an unreachable peer.
                     next_register_attempt_ms = now +
                         (rc < 0 ? 10000 : 5000);
+                    if (rc < 0) {
+                        next_manager_http_ms =
+                            millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                    }
                 }
             }
         }
         if (prov && now >= next_heartbeat_ms) {
-            do_heartbeat();
+            int rc = do_heartbeat();
             next_heartbeat_ms = millis() + s_heartbeat_interval_ms;
+            if (rc < 0) {
+                next_manager_http_ms =
+                    millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
         }
         if (prov && s_config_fetch_pending) {
             s_config_fetch_pending = false;
-            fetch_config();
+            int rc = fetch_config();
+            if (rc < 0) {
+                next_manager_http_ms =
+                    millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
         }
         if (prov && now >= next_command_poll_ms) {
-            poll_commands();
+            int rc = poll_commands();
             next_command_poll_ms = millis() + s_command_poll_interval_ms;
+            if (rc < 0) {
+                next_manager_http_ms =
+                    millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                vTaskDelay(pdMS_TO_TICKS(500));
+                continue;
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(500));
     }

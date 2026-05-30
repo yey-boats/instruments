@@ -5,7 +5,6 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <Preferences.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -223,7 +222,8 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     btn_scan = lv_button_create(list_view);
     lv_obj_set_size(btn_scan, 120, 44);
-    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, -8, 4);
+    // Top-right reserved for global MOB pill - drop scan below it.
+    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, -8, 72);
     lv_obj_set_style_bg_color(btn_scan, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_radius(btn_scan, 8, 0);
     lv_obj_add_event_cb(btn_scan, on_scan_clicked, LV_EVENT_CLICKED, NULL);

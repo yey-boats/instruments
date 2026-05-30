@@ -25,7 +25,7 @@
 #include "autopilot.h"
 #include "board.h"
 
-#include <Preferences.h>
+#include "storage.h"
 #include <math.h>
 #include <string.h>
 
@@ -1550,10 +1550,10 @@ static bool handleMainCommand(const String &line) {
         } else {
             net::logf("usage: theme day|night");
         }
-        Preferences p;
-        p.begin("ui", false);
-        p.putString("theme", v);
-        p.end();
+        {
+            storage::Namespace p("ui", false);
+            p.put_string("theme", v.c_str());
+        }
         return true;
     }
     return false;
@@ -1791,11 +1791,9 @@ void setup() {
 
     // Load theme + position format prefs
     {
-        Preferences p;
-        p.begin("ui", true);
-        String themePref = p.getString("theme", "night");
-        ui::set_pos_format((ui::PosFormat)p.getUChar("pos_fmt", (uint8_t)ui::PosFormat::DDM));
-        p.end();
+        storage::Namespace p("ui", true);
+        String themePref = String(p.get_string("theme", "night").c_str());
+        ui::set_pos_format((ui::PosFormat)p.get_u8("pos_fmt", (uint8_t)ui::PosFormat::DDM));
         if (themePref == "day") ui::use_day();
         else ui::use_night();
     }

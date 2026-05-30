@@ -6,7 +6,7 @@
 
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
-#include <Preferences.h>
+#include "storage.h"
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 
@@ -25,11 +25,11 @@ static String connectionJson() {
     wifi["rssi"] = net::rssi();
 
     JsonObject sk = doc["sk"].to<JsonObject>();
-    Preferences prefs;
-    prefs.begin("sk", true);
-    sk["host"] = prefs.getString("host", "");
-    sk["port"] = prefs.getUInt("port", 3000);
-    prefs.end();
+    {
+        storage::Namespace prefs("sk", true);
+        sk["host"] = prefs.get_string("host", "");
+        sk["port"] = prefs.get_u32("port", 3000);
+    }
     sk["state"] = sk::connectionStatus();
 
     JsonObject dev = doc["device"].to<JsonObject>();
