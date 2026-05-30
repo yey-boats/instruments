@@ -198,7 +198,7 @@ static void bleSetup() {
     adv->addServiceUUID(NUS_SERVICE);
     adv->setScanResponse(true);
     NimBLEDevice::startAdvertising();
-    Serial.printf("[ble] advertising as %s\n", s_device_id.c_str());
+    printf("[ble] advertising as %s\n", s_device_id.c_str());
     xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1,
                             &s_ble_adv_task, 0);
 }
@@ -208,31 +208,30 @@ static void otaSetup() {
     ArduinoOTA.setHostname(s_device_id.c_str());
     if (strlen(OTA_PASSWORD) > 0) ArduinoOTA.setPassword(OTA_PASSWORD);
     ArduinoOTA.onStart([]() {
-        Serial.printf("[ota] start (%s)\n", ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs");
+        printf("[ota] start (%s)\n", ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs");
     });
-    ArduinoOTA.onEnd([]() { Serial.println("[ota] end"); });
+    ArduinoOTA.onEnd([]() { puts("[ota] end"); });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
         static unsigned int last = 0;
         unsigned int pct = (p * 100) / t;
         if (pct != last) {
-            Serial.printf("[ota] %u%%\n", pct);
+            printf("[ota] %u%%\n", pct);
             last = pct;
         }
     });
-    ArduinoOTA.onError([](ota_error_t e) { Serial.printf("[ota] error %d\n", e); });
+    ArduinoOTA.onError([](ota_error_t e) { printf("[ota] error %d\n", e); });
     ArduinoOTA.begin();
     ota_started = true;
-    Serial.printf("[ota] ready at %s.local\n", s_device_id.c_str());
+    printf("[ota] ready at %s.local\n", s_device_id.c_str());
 }
 
 // Try one network with a 10s timeout. Returns true on association.
 static bool try_join(const char *ssid, const char *pass) {
     WiFi.disconnect(false, true);
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
     WiFi.setHostname(s_device_id.c_str());
-    Serial.printf("[wifi] trying '%s' (pass len %u)\n", ssid, (unsigned)strlen(pass ? pass : ""));
+    printf("[wifi] trying '%s' (pass len %u)\n", ssid, (unsigned)strlen(pass ? pass : ""));
     if (pass && *pass)
         WiFi.begin(ssid, pass);
     else
@@ -240,14 +239,14 @@ static bool try_join(const char *ssid, const char *pass) {
     uint32_t t0 = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - t0 < 10000) {
         delay(250);
-        Serial.print('.');
+        putchar('.');
     }
-    Serial.println();
+    putchar('\n');
     return WiFi.status() == WL_CONNECTED;
 }
 
 static void start_ap_mode() {
-    Serial.println("[wifi] starting AP mode (full reset)");
+    puts("[wifi] starting AP mode (full reset)");
     // Fully tear down any lingering STA state. Without this, after one or
     // more failed try_join calls the lwIP / DHCP server may not initialise
     // on the AP interface and clients get "could not obtain IP".
@@ -263,20 +262,20 @@ static void start_ap_mode() {
     IPAddress gw(192, 168, 4, 1);
     IPAddress mask(255, 255, 255, 0);
     if (!WiFi.softAPConfig(ip, gw, mask)) {
-        Serial.println("[wifi] softAPConfig FAILED");
+        puts("[wifi] softAPConfig FAILED");
     }
     // channel 1, not hidden, max 4 clients, beacon interval default.
     bool ok = WiFi.softAP("espdisp-setup", nullptr, 1, 0, 4);
     delay(500);  // allow the DHCP server task to spin up
     if (!ok) {
-        Serial.println("[wifi] softAP FAILED");
+        puts("[wifi] softAP FAILED");
     }
     broadcastAddr = WiFi.softAPIP();
     broadcastAddr[3] = 255;
     ap_mode = true;
-    Serial.printf("[wifi] AP ip=%s  mac=%s  ssid='espdisp-setup' (open)\n",
+    printf("[wifi] AP ip=%s  mac=%s  ssid='espdisp-setup' (open)\n",
                   WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
-    Serial.printf("[wifi] connected stations: %d\n", WiFi.softAPgetStationNum());
+    printf("[wifi] connected stations: %d\n", WiFi.softAPgetStationNum());
 }
 
 // Tell the UI to open the WiFi setup screen (used when we fall into AP
@@ -352,7 +351,7 @@ static void refresh_mdns_device_txt(const char *reason) {
                        String(++s_mdns_seq));
     s_mdns_last_refresh_ms = millis();
     s_mdns_refresh_due = false;
-    Serial.printf("[mdns] advertise(%s) _%s._tcp port=%u id=%s board=%s fw=%s %s display=%ux%u auth=%s seq=%lu\n",
+    printf("[mdns] advertise(%s) _%s._tcp port=%u id=%s board=%s fw=%s %s display=%ux%u auth=%s seq=%lu\n",
                   reason ? reason : "refresh",
                   device_discovery::MDNS_SERVICE, info.port, info.device_id,
                   info.board_id, info.firmware_name, info.firmware_version,
@@ -449,7 +448,7 @@ static void wifi_manager_task(void *) {
     wifi_store::migrate_legacy_if_any();
 
     if (wifi_store::count() == 0) {
-        Serial.println("[wifi] no saved networks, AP-only");
+        puts("[wifi] no saved networks, AP-only");
         start_ap_mode();
         s_wifi_state = WifiState::ApSetup;
         post_show_wifi_screen();
@@ -457,7 +456,7 @@ static void wifi_manager_task(void *) {
         return;
     }
 
-    Serial.printf("[wifi] %u saved network%s, trying in order\n",
+    printf("[wifi] %u saved network%s, trying in order\n",
                   (unsigned)wifi_store::count(), wifi_store::count() == 1 ? "" : "s");
 
     bool joined = false;
@@ -476,22 +475,21 @@ static void wifi_manager_task(void *) {
         for (uint8_t i = 0; i < 4; ++i) {
             broadcastAddr[i] = ip[i] | ~mask[i];
         }
-        Serial.printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(),
+        printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(),
                       WiFi.SSID().c_str(), WiFi.RSSI());
-        WiFi.setSleep(false);
         if (MDNS.begin(s_device_id.c_str())) {
             s_mdns_started = true;
             s_mdns_services_registered = false;
             MDNS.addService("arduino", "tcp", 3232);
             refresh_mdns_device_txt("boot");
-            Serial.printf("[mdns] host %s.local (espdisp + arduino)\n",
+            printf("[mdns] host %s.local (espdisp + arduino)\n",
                           s_device_id.c_str());
         }
         otaSetup();
         s_wifi_state = WifiState::StaUp;
         start_discovery_announcements();
     } else {
-        Serial.println("[wifi] all saved networks failed, fallback to AP");
+        puts("[wifi] all saved networks failed, fallback to AP");
         start_ap_mode();
         s_wifi_state = WifiState::ApSetup;
         post_show_wifi_screen();
@@ -511,14 +509,14 @@ void setup() {
             s_device_id = fallback_id;
             if (stored_id.length() && stored_id != fallback_id) {
                 prefs.put_string("device_id", s_device_id.c_str());
-                Serial.printf("[net] migrated legacy device id '%s' -> '%s'\n",
+                printf("[net] migrated legacy device id '%s' -> '%s'\n",
                               stored_id.c_str(), s_device_id.c_str());
             }
         } else {
             s_device_id = stored_id;
         }
     }
-    Serial.printf("[net] device id: %s\n", s_device_id.c_str());
+    printf("[net] device id: %s\n", s_device_id.c_str());
     // BLE is independent of WiFi - bring it up immediately so the BLE
     // console is responsive even if the WiFi manager is still trying.
     bleSetup();
@@ -651,8 +649,8 @@ void logf(const char *fmt, ...) {
         locked = true;
     }
     append_log_locked(buf, n);
-    Serial.write((uint8_t *)buf, n);
-    if (buf[n - 1] != '\n') Serial.println();
+    fwrite(buf, 1, n, stdout);
+    if (buf[n - 1] != '\n') putchar('\n');
 
     if (bleConnected && bleTxChar) {
         bleTxChar->setValue((uint8_t *)buf, n);

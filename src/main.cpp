@@ -1686,18 +1686,18 @@ static void ui_refresh(lv_timer_t *) {
 void setup() {
     Serial.begin(115200);
     delay(200);
-    Serial.println("\n[boot] ESP32-4848S040 hello-touch");
+    puts("\n[boot] ESP32-4848S040 hello-touch");
 
     // Backlight LEDC is owned by board::set_backlight (spec 13
     // §"Backlight"). main.cpp just asks for "off until display ready".
     board::set_backlight(0);
 
     if (!gfx->begin()) {
-        Serial.println("[gfx] begin FAILED");
+        puts("[gfx] begin FAILED");
         while (1) delay(1000);
     }
     gfx->fillScreen(BLACK);
-    Serial.println("[gfx] ST7701 RGB panel ok");
+    puts("[gfx] ST7701 RGB panel ok");
 
     Wire.begin(TOUCH_SDA, TOUCH_SCL);
     Wire.setClock(400000);
@@ -1710,7 +1710,7 @@ void setup() {
         ok = (Wire.endTransmission() == 0);
         if (ok) g_gt911_addr = 0x14;
     }
-    Serial.printf("[touch] GT911 probe: %s addr=0x%02X\n",
+    printf("[touch] GT911 probe: %s addr=0x%02X\n",
                   ok ? "ACK" : "no response", g_gt911_addr);
     touch_present = ok;
 
@@ -1735,10 +1735,10 @@ void setup() {
             attachInterrupt(digitalPinToInterrupt(TOUCH_INT), touch_irq_isr, RISING);
 #endif
             g_touch_irq_enabled = true;
-            Serial.printf("[touch] input mode: irq gpio=%d active_%s\n",
+            printf("[touch] input mode: irq gpio=%d active_%s\n",
                           TOUCH_INT, TOUCH_INT_ACTIVE_LOW ? "low" : "high");
         } else {
-            Serial.println("[touch] input mode: poll");
+            puts("[touch] input mode: poll");
         }
     }
 
@@ -1751,7 +1751,7 @@ void setup() {
     uint16_t *buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
                                                    MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     if (!buf_a || !buf_b) {
-        Serial.println("[lvgl] DMA buf alloc failed, falling back to PSRAM");
+        puts("[lvgl] DMA buf alloc failed, falling back to PSRAM");
         buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
         buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     }
@@ -1848,9 +1848,9 @@ void setup() {
     {
         uint8_t b = ui::brightness();
         board::set_backlight(b);
-        Serial.printf("[bl] brightness %u/255\n", (unsigned)b);
+        printf("[bl] brightness %u/255\n", (unsigned)b);
     }
-    Serial.println("[boot] ready");
+    puts("[boot] ready");
 
     // App event queue must exist before any task that wants to post.
     app::setup();
