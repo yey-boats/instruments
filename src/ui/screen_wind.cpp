@@ -44,18 +44,17 @@ static lv_obj_t *lbl_tide_speed;
 // Geometry
 static constexpr int CX = 240;
 static constexpr int CY = 240;
-static constexpr int R_BEZEL = 218;      // outer rim
-static constexpr int R_FACE = 190;       // dark face inside rim
+static constexpr int R_BEZEL = 218;  // outer rim
+static constexpr int R_FACE = 190;   // dark face inside rim
 static constexpr int R_CLOSEHAULED = 175;
-static constexpr int R_MARKER = 200;     // distance from center to wind marker center
+static constexpr int R_MARKER = 200;  // distance from center to wind marker center
 
 // ---- helpers -----------------------------------------------------------
 
 // Position `o` so its tail sits `distance_above_center` above (cx, cy)
 // in the PARENT'S coordinate system, with rotation pivot at the tail.
 // Rotating `o` then sweeps it around (cx, cy).
-static void apply_pivot_at(lv_obj_t *o, int cx, int cy, int half_w,
-                           int distance_above_center) {
+static void apply_pivot_at(lv_obj_t *o, int cx, int cy, int half_w, int distance_above_center) {
     lv_obj_set_pos(o, cx - half_w, cy - distance_above_center);
     lv_obj_set_style_transform_pivot_x(o, half_w, 0);
     lv_obj_set_style_transform_pivot_y(o, distance_above_center, 0);
@@ -79,15 +78,15 @@ static lv_obj_t *make_label_at_polar_at(lv_obj_t *parent, int cx, int cy, const 
     lv_obj_set_pos(l, x - hw, y - hh);
     return l;
 }
-static lv_obj_t *make_label_at_polar(lv_obj_t *parent, const char *txt, int angle_deg,
-                                     int radius, const lv_font_t *font, uint32_t color) {
+static lv_obj_t *make_label_at_polar(lv_obj_t *parent, const char *txt, int angle_deg, int radius,
+                                     const lv_font_t *font, uint32_t color) {
     return make_label_at_polar_at(parent, CX, CY, txt, angle_deg, radius, font, color);
 }
 
 // Build a "tick rectangle" sticking inward from the bezel rim, rotating
 // around (cx, cy) in the parent's coordinate system.
-static lv_obj_t *make_tick_at(lv_obj_t *parent, int cx, int cy, int angle_deg, int len,
-                               int width, uint32_t color) {
+static lv_obj_t *make_tick_at(lv_obj_t *parent, int cx, int cy, int angle_deg, int len, int width,
+                              uint32_t color) {
     lv_obj_t *t = lv_obj_create(parent);
     lv_obj_set_size(t, width, len);
     lv_obj_set_style_bg_color(t, lv_color_hex(color), 0);
@@ -102,8 +101,8 @@ static lv_obj_t *make_tick_at(lv_obj_t *parent, int cx, int cy, int angle_deg, i
     return t;
 }
 
-static lv_obj_t *make_ring_at(lv_obj_t *p, int cx, int cy, int diameter, int border,
-                              uint32_t color, int opa = LV_OPA_COVER) {
+static lv_obj_t *make_ring_at(lv_obj_t *p, int cx, int cy, int diameter, int border, uint32_t color,
+                              int opa = LV_OPA_COVER) {
     lv_obj_t *r = lv_obj_create(p);
     lv_obj_set_size(r, diameter, diameter);
     lv_obj_set_pos(r, cx - diameter / 2, cy - diameter / 2);
@@ -118,7 +117,7 @@ static lv_obj_t *make_ring_at(lv_obj_t *p, int cx, int cy, int diameter, int bor
     return r;
 }
 static lv_obj_t *make_ring(lv_obj_t *p, int diameter, int border, uint32_t color,
-                            int opa = LV_OPA_COVER) {
+                           int opa = LV_OPA_COVER) {
     return make_ring_at(p, CX, CY, diameter, border, color, opa);
 }
 
@@ -150,13 +149,20 @@ static void build_bezel(lv_obj_t *parent) {
 
     // Cardinal labels (N/E/S/W large; NE/SE/SW/NW small) - polar from bezel center
     make_label_at_polar_at(bezel, bcx, bcy, "N", 0, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar_at(bezel, bcx, bcy, "E", 90, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar_at(bezel, bcx, bcy, "S", 180, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar_at(bezel, bcx, bcy, "W", 270, R_BEZEL - 22, &lv_font_montserrat_20, theme.fg);
-    make_label_at_polar_at(bezel, bcx, bcy, "NE", 45, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
-    make_label_at_polar_at(bezel, bcx, bcy, "SE", 135, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
-    make_label_at_polar_at(bezel, bcx, bcy, "SW", 225, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
-    make_label_at_polar_at(bezel, bcx, bcy, "NW", 315, R_BEZEL - 22, &lv_font_montserrat_14, theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "E", 90, R_BEZEL - 22, &lv_font_montserrat_20,
+                           theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "S", 180, R_BEZEL - 22, &lv_font_montserrat_20,
+                           theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "W", 270, R_BEZEL - 22, &lv_font_montserrat_20,
+                           theme.fg);
+    make_label_at_polar_at(bezel, bcx, bcy, "NE", 45, R_BEZEL - 22, &lv_font_montserrat_14,
+                           theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "SE", 135, R_BEZEL - 22, &lv_font_montserrat_14,
+                           theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "SW", 225, R_BEZEL - 22, &lv_font_montserrat_14,
+                           theme.fg_dim);
+    make_label_at_polar_at(bezel, bcx, bcy, "NW", 315, R_BEZEL - 22, &lv_font_montserrat_14,
+                           theme.fg_dim);
 
     // 22.5deg tick marks (between cardinals + intercardinals)
     for (int deg = 0; deg < 360; deg += 45) {
@@ -247,13 +253,8 @@ static void build_boat(lv_obj_t *parent) {
     // (SVG center 150,150 -> dial center) and proportioned for radius.
     // Hull half-width ~28, length ~155 (relative to dial center).
     static lv_point_precise_t pts[] = {
-        {CX - 28, CY + 63},
-        {CX - 28, CY - 7},
-        {CX - 22, CY - 42},
-        {CX,      CY - 92},
-        {CX + 22, CY - 42},
-        {CX + 28, CY - 7},
-        {CX + 28, CY + 63},
+        {CX - 28, CY + 63}, {CX - 28, CY - 7}, {CX - 22, CY - 42}, {CX, CY - 92},
+        {CX + 22, CY - 42}, {CX + 28, CY - 7}, {CX + 28, CY + 63},
     };
     lv_obj_t *hull = lv_line_create(parent);
     lv_line_set_points(hull, pts, sizeof(pts) / sizeof(pts[0]));
@@ -266,8 +267,7 @@ static void build_boat(lv_obj_t *parent) {
 
 // ---- wind markers (T and A) --------------------------------------------
 
-static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t bg,
-                                   uint32_t fg) {
+static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t bg, uint32_t fg) {
     lv_obj_t *m = lv_obj_create(parent);
     lv_obj_set_size(m, 28, 32);
     lv_obj_set_style_bg_color(m, lv_color_hex(bg), 0);
@@ -347,9 +347,9 @@ static void build_waypoint(lv_obj_t *parent) {
 
 // ---- corner data boxes -------------------------------------------------
 
-static void make_data_box(lv_obj_t *parent, const char *label, const char *unit,
-                          int x, int y, int w, int h, lv_obj_t **out_value,
-                          uint32_t value_color, uint32_t accent_color) {
+static void make_data_box(lv_obj_t *parent, const char *label, const char *unit, int x, int y,
+                          int w, int h, lv_obj_t **out_value, uint32_t value_color,
+                          uint32_t accent_color) {
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_set_size(box, w, h);
     lv_obj_set_pos(box, x, y);
@@ -407,7 +407,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // Layer order: face -> close-hauled arcs -> wind-angle scale -> boat
     // -> tide -> wind markers -> bezel -> waypoint pip -> overlays
-    make_ring(s_root, R_FACE * 2, 0, theme.panel);                 // face background
+    make_ring(s_root, R_FACE * 2, 0, theme.panel);  // face background
     lv_obj_t *face = lv_obj_create(s_root);
     lv_obj_set_size(face, R_FACE * 2, R_FACE * 2);
     lv_obj_set_pos(face, CX - R_FACE, CY - R_FACE);
@@ -446,20 +446,18 @@ lv_obj_t *build(lv_obj_t *parent) {
     // (LV_ALIGN_TOP_RIGHT -6, 6, 56x56, on lv_layer_top) so TWS is
     // shifted down below the safe zone. Keep visual pairing by also
     // pushing AWS slightly so they share a baseline.
-    make_data_box(s_root, "AWS", "kn", 14, 12, 96, 58, &lbl_aws_value,
-                  theme.fg, 0xf6a21a);
-    make_data_box(s_root, "TWS", "kn", LCD_W - 110, 72, 96, 58, &lbl_tws_value,
-                  theme.fg, theme.fg_dim);
+    make_data_box(s_root, "AWS", "kn", 14, 12, 96, 58, &lbl_aws_value, theme.fg, 0xf6a21a);
+    make_data_box(s_root, "TWS", "kn", LCD_W - 110, 72, 96, 58, &lbl_tws_value, theme.fg,
+                  theme.fg_dim);
     // Mid-left: AWA  /  Mid-right: TWA
-    make_data_box(s_root, "AWA", "deg", 14, 211, 96, 58, &lbl_awa_value,
-                  0xf6a21a, 0xf6a21a);
-    make_data_box(s_root, "TWA", "deg", LCD_W - 110, 211, 96, 58, &lbl_twa_value,
-                  theme.fg, theme.fg_dim);
+    make_data_box(s_root, "AWA", "deg", 14, 211, 96, 58, &lbl_awa_value, 0xf6a21a, 0xf6a21a);
+    make_data_box(s_root, "TWA", "deg", LCD_W - 110, 211, 96, 58, &lbl_twa_value, theme.fg,
+                  theme.fg_dim);
     // Bottom-left: HDG  /  Bottom-right: COG
-    make_data_box(s_root, "HDG", "T", 14, LCD_H - 68, 96, 58, &lbl_hdg_value,
-                  theme.accent, theme.accent);
-    make_data_box(s_root, "COG", "T", LCD_W - 110, LCD_H - 68, 96, 58,
-                  &lbl_cog_value, theme.fg, theme.fg_dim);
+    make_data_box(s_root, "HDG", "T", 14, LCD_H - 68, 96, 58, &lbl_hdg_value, theme.accent,
+                  theme.accent);
+    make_data_box(s_root, "COG", "T", LCD_W - 110, LCD_H - 68, 96, 58, &lbl_cog_value, theme.fg,
+                  theme.fg_dim);
 
     return s_root;
 }
@@ -472,14 +470,20 @@ static int16_t deg_to_lvgl(double deg) {
     // re-invalidate of large transformed bounding boxes on every refresh
     // and stall the SW renderer.
     int16_t r = (int16_t)(lround(deg) * 10);
-    while (r < 0) r += 3600;
-    while (r >= 3600) r -= 3600;
+    while (r < 0)
+        r += 3600;
+    while (r >= 3600)
+        r -= 3600;
     return r;
 }
 
 static volatile bool s_refresh_enabled = true;
-void set_refresh_enabled(bool e) { s_refresh_enabled = e; }
-bool refresh_enabled() { return s_refresh_enabled; }
+void set_refresh_enabled(bool e) {
+    s_refresh_enabled = e;
+}
+bool refresh_enabled() {
+    return s_refresh_enabled;
+}
 
 // Dirty-value caches per docs/specs/09 "Implementation Improvements"
 // #1. Setters are skipped when the displayed value would not change.
@@ -503,13 +507,15 @@ static int8_t s_last_tide_hidden = -1;
 static int8_t s_last_wp_hidden = -1;
 
 // Helpers moved to include/ui_dirty.h - shared across all screens.
-using ui::set_text_if_changed;
-using ui::set_rot_if_changed;
 using ui::set_hidden_if_changed;
+using ui::set_rot_if_changed;
+using ui::set_text_if_changed;
 
 void refresh() {
     if (!s_refresh_enabled) return;
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     // --- hero speed readouts ---
@@ -577,11 +583,12 @@ void refresh() {
     }
 
     // --- tide arrow ---
-    bool show_tide = !isnan(d.currentSetTrue) && !isnan(d.currentDrift) &&
-                     d.currentDrift > 0.05 && !isnan(hdg_deg);
+    bool show_tide = !isnan(d.currentSetTrue) && !isnan(d.currentDrift) && d.currentDrift > 0.05 &&
+                     !isnan(hdg_deg);
     if (show_tide) {
         double tide_rel = rad_to_deg_pos(d.currentSetTrue) - hdg_deg;
-        while (tide_rel < 0) tide_rel += 360;
+        while (tide_rel < 0)
+            tide_rel += 360;
         set_rot_if_changed(tide_arrow, &s_last_tide_rot, deg_to_lvgl(tide_rel));
         set_hidden_if_changed(tide_arrow, &s_last_tide_hidden, false);
         snprintf(buf, sizeof(buf), "%.1f", mps_to_kn(d.currentDrift));
@@ -594,7 +601,8 @@ void refresh() {
     // --- waypoint pip ---
     if (!isnan(d.btw) && !isnan(hdg_deg)) {
         double wp_rel = rad_to_deg_pos(d.btw) - hdg_deg;
-        while (wp_rel < 0) wp_rel += 360;
+        while (wp_rel < 0)
+            wp_rel += 360;
         set_rot_if_changed(waypoint_marker, &s_last_wp_rot, deg_to_lvgl(wp_rel));
         set_hidden_if_changed(waypoint_marker, &s_last_wp_hidden, false);
     } else {

@@ -42,9 +42,9 @@ static lv_obj_t *s_root = nullptr;
 static lv_obj_t *s_cells[CELLS] = {nullptr};
 static lv_obj_t *s_lbl_status = nullptr;
 static lv_obj_t *s_lbl_help = nullptr;
-static lv_obj_t *s_btn_left = nullptr;       // "START CAL" / "APPLY"
+static lv_obj_t *s_btn_left = nullptr;  // "START CAL" / "APPLY"
 static lv_obj_t *s_btn_left_lbl = nullptr;
-static lv_obj_t *s_btn_right = nullptr;      // "CANCEL" / "BACK TO TEST"
+static lv_obj_t *s_btn_right = nullptr;  // "CANCEL" / "BACK TO TEST"
 static lv_obj_t *s_btn_right_lbl = nullptr;
 static lv_timer_t *s_timer = nullptr;
 
@@ -57,10 +57,18 @@ static bool s_last_pressed = false;
 static int16_t s_press_rx = -1, s_press_ry = -1;
 static uint32_t s_press_ms = 0;
 
-static int cell_w() { return LCD_W / N; }
-static int cell_h() { return LCD_H / N; }
-static int target_x_for_col(int c) { return c * cell_w() + cell_w() / 2; }
-static int target_y_for_row(int r) { return r * cell_h() + cell_h() / 2; }
+static int cell_w() {
+    return LCD_W / N;
+}
+static int cell_h() {
+    return LCD_H / N;
+}
+static int target_x_for_col(int c) {
+    return c * cell_w() + cell_w() / 2;
+}
+static int target_y_for_row(int r) {
+    return r * cell_h() + cell_h() / 2;
+}
 
 static int cell_for_screen(int sx, int sy) {
     if (sx < 0 || sy < 0 || sx >= LCD_W || sy >= LCD_H) return -1;
@@ -78,15 +86,15 @@ static void paint_cell(int idx) {
     uint32_t bg, border;
     int border_w;
     if (active_target) {
-        bg = 0xf6a21a;      // amber - walking target
+        bg = 0xf6a21a;  // amber - walking target
         border = 0xffffff;
         border_w = 3;
     } else if (filled) {
-        bg = 0x1b6e3a;      // dark green - captured
+        bg = 0x1b6e3a;  // dark green - captured
         border = 0x344050;
         border_w = 1;
     } else {
-        bg = 0x1c2632;      // dim - empty
+        bg = 0x1c2632;  // dim - empty
         border = 0x344050;
         border_w = 1;
     }
@@ -97,7 +105,8 @@ static void paint_cell(int idx) {
 }
 
 static void repaint_all() {
-    for (int i = 0; i < CELLS; ++i) paint_cell(i);
+    for (int i = 0; i < CELLS; ++i)
+        paint_cell(i);
 }
 
 static void set_active(int idx) {

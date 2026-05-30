@@ -79,11 +79,8 @@ struct Priority {
     // Ranked highest priority first. Entries past the first None are
     // ignored. Default: physical bus -> WiFi NMEA -> SignalK -> Demo.
     SourceKind order[5] = {
-        SourceKind::Nmea2000,
-        SourceKind::NmeaWifi,
-        SourceKind::SignalK,
-        SourceKind::Demo,
-        SourceKind::None,
+        SourceKind::Nmea2000, SourceKind::NmeaWifi, SourceKind::SignalK,
+        SourceKind::Demo,     SourceKind::None,
     };
 };
 
@@ -135,9 +132,8 @@ uint8_t rank_of(const Priority &p, SourceKind src);
 // Pure decision helper - publish() uses this internally and tests use it
 // directly. Returns true if a publish from `incoming` should overwrite a
 // field currently owned by `current` at time `now_ms`.
-bool should_accept(SourceKind incoming, SourceKind current,
-                   uint32_t current_updated_ms, uint32_t now_ms,
-                   const Priority &p, const Timeouts &t);
+bool should_accept(SourceKind incoming, SourceKind current, uint32_t current_updated_ms,
+                   uint32_t now_ms, const Priority &p, const Timeouts &t);
 
 // Const-ref helpers for the human-readable source name (for logs/CLI).
 const char *source_name(SourceKind s);
@@ -167,9 +163,9 @@ Response heading_response();
 Response speed_response();
 
 // Smoothed accessors, in human-display units.
-double heading_smoothed_deg();   // 0..360
-double cog_smoothed_deg();       // 0..360
-double awa_smoothed_deg();       // -180..180 (port negative, stbd positive)
+double heading_smoothed_deg();  // 0..360
+double cog_smoothed_deg();      // 0..360
+double awa_smoothed_deg();      // -180..180 (port negative, stbd positive)
 double aws_smoothed_kn();
 double twa_smoothed_deg();
 double tws_smoothed_kn();
@@ -190,7 +186,6 @@ struct AngleEma {
     double c = 0.0;  // smoothed cos
     bool init = false;
 };
-double angle_ema_step(AngleEma &state, double sample_rad,
-                      uint32_t dt_ms, uint32_t tau_ms);
+double angle_ema_step(AngleEma &state, double sample_rad, uint32_t dt_ms, uint32_t tau_ms);
 
 }  // namespace boat

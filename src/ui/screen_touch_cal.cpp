@@ -21,7 +21,7 @@ void main_touch_raw(int *raw_x, int *raw_y, int *pressed);
 namespace ui::touch_cal_screen {
 
 static lv_obj_t *s_root = nullptr;
-static lv_obj_t *s_target = nullptr;   // current crosshair widget
+static lv_obj_t *s_target = nullptr;  // current crosshair widget
 static lv_obj_t *s_lbl_step = nullptr;
 static lv_obj_t *s_lbl_help = nullptr;
 static lv_obj_t *s_btn_cancel = nullptr;
@@ -82,8 +82,7 @@ static void poll(lv_timer_t *) {
     // depend on LVGL hit-testing - if the panel has a coordinate shift
     // big enough to break the cancel button, this still works because
     // it reads raw GT911 coords directly.
-    if (pressed && s_last_pressed && s_press_ry >= 380 &&
-        (millis() - s_press_ms) >= 1200) {
+    if (pressed && s_last_pressed && s_press_ry >= 380 && (millis() - s_press_ms) >= 1200) {
         net::logf("[cal] emergency escape (raw bottom-zone long press)");
         s_step = N_TARGETS + 1;
         ui::show_by_id("settings");
@@ -107,8 +106,8 @@ static void poll(lv_timer_t *) {
                 s_samples[s_step].raw_y = s_press_ry;
                 s_samples[s_step].target_x = TX[s_step];
                 s_samples[s_step].target_y = TY[s_step];
-                net::logf("[cal] point %d: raw=(%d,%d) target=(%d,%d)",
-                          s_step + 1, s_press_rx, s_press_ry, TX[s_step], TY[s_step]);
+                net::logf("[cal] point %d: raw=(%d,%d) target=(%d,%d)", s_step + 1, s_press_rx,
+                          s_press_ry, TX[s_step], TY[s_step]);
                 s_step++;
                 if (s_step >= N_TARGETS) {
                     apply_and_save();

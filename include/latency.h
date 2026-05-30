@@ -21,13 +21,7 @@
 
 namespace latency {
 
-enum class Channel : uint8_t {
-    FrameInterval,
-    RenderLatency,
-    CommandRtt,
-    SkAge,
-    COUNT
-};
+enum class Channel : uint8_t { FrameInterval, RenderLatency, CommandRtt, SkAge, COUNT };
 
 struct Stats {
     uint32_t count = 0;

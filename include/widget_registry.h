@@ -33,10 +33,8 @@ struct Widget {
 
 // Build a widget under `parent` at (x, y) sized w x h. Returns nullptr
 // on alloc failure. Widget remains usable until parent is destroyed.
-Widget *create(lv_obj_t *parent,
-               int16_t x, int16_t y, int16_t w, int16_t h,
-               const manager_config::WidgetDef &def,
-               const manager_config::WidgetStyle &defaults);
+Widget *create(lv_obj_t *parent, int16_t x, int16_t y, int16_t w, int16_t h,
+               const manager_config::WidgetDef &def, const manager_config::WidgetStyle &defaults);
 
 // Free the small runtime handle allocated by create(). The LVGL object tree is
 // owned by the parent/root and should be deleted separately.

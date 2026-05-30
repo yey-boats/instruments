@@ -75,8 +75,12 @@ void save_prefs() {
 
 }  // namespace
 
-bool available() { return board::capabilities().beeper; }
-bool audible_alarms_enabled() { return s_audible; }
+bool available() {
+    return board::capabilities().beeper;
+}
+bool audible_alarms_enabled() {
+    return s_audible;
+}
 
 void set_audible_alarms(bool enabled) {
     s_audible = enabled;
@@ -96,9 +100,8 @@ void beep_short(uint32_t duration_ms) {
 void alarm_pattern(uint32_t on_ms, uint32_t off_ms, uint16_t repeat) {
     if (!s_audible) return;
     if (!available()) {
-        net::logf("[beeper] alarm on=%lu off=%lu rep=%u (no hw)",
-                  (unsigned long)on_ms, (unsigned long)off_ms,
-                  (unsigned)repeat);
+        net::logf("[beeper] alarm on=%lu off=%lu rep=%u (no hw)", (unsigned long)on_ms,
+                  (unsigned long)off_ms, (unsigned)repeat);
         return;
     }
     s_alarm.on_ms = on_ms;
@@ -113,11 +116,9 @@ void alarm_stop() {
 
 void setup() {
     load_prefs();
-    net::logf("[beeper] available=%d audible=%d",
-              available(), s_audible);
+    net::logf("[beeper] available=%d audible=%d", available(), s_audible);
     if (!s_task) {
-        xTaskCreatePinnedToCore(worker, "beeper", 2048, nullptr,
-                                tskIDLE_PRIORITY + 1, &s_task, 0);
+        xTaskCreatePinnedToCore(worker, "beeper", 2048, nullptr, tskIDLE_PRIORITY + 1, &s_task, 0);
     }
 }
 

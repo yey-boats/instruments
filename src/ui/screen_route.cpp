@@ -35,8 +35,7 @@ static lv_obj_t *make_card(lv_obj_t *parent, int x, int y, int w, int h) {
     return c;
 }
 
-static lv_obj_t *make_kv(lv_obj_t *parent, const char *cap, const lv_font_t *font,
-                          uint32_t color) {
+static lv_obj_t *make_kv(lv_obj_t *parent, const char *cap, const lv_font_t *font, uint32_t color) {
     lv_obj_t *t = lv_label_create(parent);
     lv_label_set_text(t, cap);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
@@ -151,7 +150,9 @@ static char s_last_eta[16] = {(char)0xFF};
 static int8_t s_last_no_route_hidden = -1;
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     bool have_route = !isnan(d.dtw) || !isnan(d.btw) || !isnan(d.cts) || !isnan(d.xte);
@@ -210,8 +211,10 @@ void refresh() {
     }
 
     double speed = NAN;
-    if (!isnan(d.vmg) && d.vmg > 0.05) speed = d.vmg;
-    else if (!isnan(d.sog) && d.sog > 0.05) speed = d.sog;
+    if (!isnan(d.vmg) && d.vmg > 0.05)
+        speed = d.vmg;
+    else if (!isnan(d.sog) && d.sog > 0.05)
+        speed = d.sog;
     if (!isnan(d.dtw) && !isnan(speed)) {
         double secs = d.dtw / speed;
         if (secs < 36000) {

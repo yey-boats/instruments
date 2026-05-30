@@ -23,24 +23,24 @@ struct Capabilities {
     bool touch_irq;
     bool ble_config;
     bool arduino_ota;
-    bool pull_ota;          // false until spec 17 F6 lands
+    bool pull_ota;  // false until spec 17 F6 lands
     bool nmea0183_wifi;
-    bool nmea2000;          // true only if -DENABLE_NMEA2000 + transceiver
+    bool nmea2000;  // true only if -DENABLE_NMEA2000 + transceiver
     bool autopilot_controls;
     bool beeper;
     bool local_web_ui;
 };
 
 struct Identity {
-    const char *device_id;        // user-set, via `id <name>` CLI
-    const char *mac;              // 12-char lowercase hex
-    const char *board_id;         // e.g. "sunton_4848s040"
-    const char *chip;             // e.g. "esp32-s3"
-    const char *firmware_name;    // "espdisp"
-    const char *firmware_version; // semver or 0.0.0+<short-sha>
-    const char *build_time;       // __DATE__ " " __TIME__
-    const char *git_commit;       // short SHA or "unknown"
-    const char *pio_env;          // "esp32-4848s040"
+    const char *device_id;         // user-set, via `id <name>` CLI
+    const char *mac;               // 12-char lowercase hex
+    const char *board_id;          // e.g. "sunton_4848s040"
+    const char *chip;              // e.g. "esp32-s3"
+    const char *firmware_name;     // "espdisp"
+    const char *firmware_version;  // semver or 0.0.0+<short-sha>
+    const char *build_time;        // __DATE__ " " __TIME__
+    const char *git_commit;        // short SHA or "unknown"
+    const char *pio_env;           // "esp32-4848s040"
     uint32_t flash_total_kb;
     uint32_t psram_total_kb;
 };

@@ -6,8 +6,12 @@
 
 #include "error_log.h"
 
-void setUp(void)    { error_log::clear(); }
-void tearDown(void) { error_log::clear(); }
+void setUp(void) {
+    error_log::clear();
+}
+void tearDown(void) {
+    error_log::clear();
+}
 
 static void test_starts_empty() {
     TEST_ASSERT_EQUAL_UINT(0, (unsigned)error_log::size());
@@ -50,8 +54,7 @@ static void test_drops_oldest_on_overflow() {
         snprintf(msg, sizeof(msg), "e%u", (unsigned)i);
         error_log::push(i + 1, msg);
     }
-    TEST_ASSERT_EQUAL_UINT(error_log::MAX_ENTRIES,
-                           (unsigned)error_log::size());
+    TEST_ASSERT_EQUAL_UINT(error_log::MAX_ENTRIES, (unsigned)error_log::size());
     error_log::Entry buf[error_log::MAX_ENTRIES];
     size_t n = error_log::copy(buf, error_log::MAX_ENTRIES);
     TEST_ASSERT_EQUAL_UINT(error_log::MAX_ENTRIES, (unsigned)n);
@@ -75,7 +78,8 @@ static void test_oversized_message_is_truncated_safely() {
 }
 
 static void test_copy_cap_smaller_than_size() {
-    for (uint32_t i = 0; i < 5; ++i) error_log::push(i + 1, "x");
+    for (uint32_t i = 0; i < 5; ++i)
+        error_log::push(i + 1, "x");
     error_log::Entry buf[2];
     size_t n = error_log::copy(buf, 2);
     TEST_ASSERT_EQUAL_UINT(2, (unsigned)n);

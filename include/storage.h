@@ -26,7 +26,7 @@
 namespace storage {
 
 class Namespace {
- public:
+  public:
     // Open the named NVS namespace. `readonly=true` opens for read
     // only; `false` opens read-write and writes get committed in
     // the destructor. Failure to open is non-fatal - subsequent
@@ -49,25 +49,25 @@ class Namespace {
 
     // ---- get helpers (return default on missing-or-error) -------------
     std::string get_string(const char *key, const char *default_ = "");
-    uint8_t     get_u8 (const char *key, uint8_t  default_ = 0);
-    int8_t      get_i8 (const char *key, int8_t   default_ = 0);
-    uint16_t    get_u16(const char *key, uint16_t default_ = 0);
-    uint32_t    get_u32(const char *key, uint32_t default_ = 0);
-    bool        get_bool(const char *key, bool default_ = false);
+    uint8_t get_u8(const char *key, uint8_t default_ = 0);
+    int8_t get_i8(const char *key, int8_t default_ = 0);
+    uint16_t get_u16(const char *key, uint16_t default_ = 0);
+    uint32_t get_u32(const char *key, uint32_t default_ = 0);
+    bool get_bool(const char *key, bool default_ = false);
     // float and double are stored as a 4- or 8-byte blob to match the
     // wire layout Arduino Preferences uses (Preferences::putFloat /
     // putDouble both delegate to nvs_set_blob).
-    float       get_float (const char *key, float  default_ = 0.0f);
-    double      get_double(const char *key, double default_ = 0.0);
+    float get_float(const char *key, float default_ = 0.0f);
+    double get_double(const char *key, double default_ = 0.0);
 
     // ---- put helpers (no-op when opened read-only or open failed) -----
     bool put_string(const char *key, const char *value);
-    bool put_u8 (const char *key, uint8_t  value);
-    bool put_i8 (const char *key, int8_t   value);
+    bool put_u8(const char *key, uint8_t value);
+    bool put_i8(const char *key, int8_t value);
     bool put_u16(const char *key, uint16_t value);
     bool put_u32(const char *key, uint32_t value);
     bool put_bool(const char *key, bool value);
-    bool put_float (const char *key, float  value);
+    bool put_float(const char *key, float value);
     bool put_double(const char *key, double value);
 
     // Remove the key. No-op when not found or opened read-only.
@@ -77,11 +77,11 @@ class Namespace {
     // Preferences::clear(). No-op when opened read-only or open failed.
     bool erase_all();
 
- private:
+  private:
     nvs_handle_t handle_{};
     bool readonly_{};
     bool ok_{};
-    bool dirty_{};   // tracks whether a commit is needed at close
+    bool dirty_{};  // tracks whether a commit is needed at close
 };
 
 }  // namespace storage

@@ -67,8 +67,12 @@ void ensure_backlight() {
 
 }  // namespace
 
-const char *id() { return "waveshare_touch_lcd_4"; }
-const char *display_name() { return "Waveshare ESP32-S3-Touch-LCD-4 4.0\" 480x480"; }
+const char *id() {
+    return "waveshare_touch_lcd_4";
+}
+const char *display_name() {
+    return "Waveshare ESP32-S3-Touch-LCD-4 4.0\" 480x480";
+}
 
 Geometry geometry() {
     Geometry g{};
@@ -88,7 +92,7 @@ Capabilities capabilities() {
     c.touch = TouchKind::GT911;
     c.touch_calibration = true;
     c.beeper = false;
-    c.nmea2000_can = true;   // dedicated CAN transceiver on-board
+    c.nmea2000_can = true;  // dedicated CAN transceiver on-board
     c.sd_card = true;
     return c;
 }
@@ -101,9 +105,13 @@ bool set_backlight(uint8_t value_0_255) {
     return true;
 }
 
-uint8_t backlight() { return s_backlight_value; }
+uint8_t backlight() {
+    return s_backlight_value;
+}
 
-bool set_power(bool on) { return set_backlight(on ? 255 : 0); }
+bool set_power(bool on) {
+    return set_backlight(on ? 255 : 0);
+}
 
 }  // namespace board
 

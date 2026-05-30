@@ -23,9 +23,9 @@ static lv_obj_t *lbl_time, *lbl_avg, *lbl_max;
 static lv_obj_t *lbl_sog_now;
 static lv_obj_t *lbl_tip;
 
-static double s_dist_m = 0;      // accumulated distance, meters
+static double s_dist_m = 0;        // accumulated distance, meters
 static uint32_t s_underway_s = 0;  // accumulated seconds with sog > threshold
-static double s_max_sog = 0;     // m/s
+static double s_max_sog = 0;       // m/s
 static uint32_t s_started_at_ms = 0;
 static uint32_t s_last_sample_ms = 0;
 static const double UNDERWAY_THRESHOLD = 0.5;  // m/s ~= 1 kn
@@ -58,7 +58,7 @@ void reset() {
 }
 
 static lv_obj_t *make_stat(lv_obj_t *parent, const char *cap, int x, int y, int w, int h,
-                            lv_obj_t **value_out, const lv_font_t *font, uint32_t color) {
+                           lv_obj_t **value_out, const lv_font_t *font, uint32_t color) {
     lv_obj_t *c = lv_obj_create(parent);
     lv_obj_set_size(c, w, h);
     lv_obj_set_pos(c, x, y);
@@ -135,8 +135,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     // Three stats side by side
     int row_y = 248;
     int col_w = (LCD_W - 32) / 3;
-    make_stat(s_root, "TIME UNDERWAY", 8, row_y, col_w, 100, &lbl_time,
-              &lv_font_montserrat_28, theme.fg);
+    make_stat(s_root, "TIME UNDERWAY", 8, row_y, col_w, 100, &lbl_time, &lv_font_montserrat_28,
+              theme.fg);
     make_stat(s_root, "AVG SPEED", 8 + col_w + 8, row_y, col_w, 100, &lbl_avg,
               &lv_font_montserrat_28, theme.fg);
     make_stat(s_root, "MAX SPEED", 8 + (col_w + 8) * 2, row_y, col_w - 8, 100, &lbl_max,
@@ -184,7 +184,9 @@ static char s_last_max[16] = {(char)0xFF};
 static char s_last_sog[16] = {(char)0xFF};
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     uint32_t now = millis();
@@ -201,8 +203,10 @@ void refresh() {
     }
 
     double nm = s_dist_m / 1852.0;
-    if (nm >= 10) snprintf(buf, sizeof(buf), "%.1f", nm);
-    else snprintf(buf, sizeof(buf), "%.2f", nm);
+    if (nm >= 10)
+        snprintf(buf, sizeof(buf), "%.1f", nm);
+    else
+        snprintf(buf, sizeof(buf), "%.2f", nm);
     set_text_if_changed(lbl_dist, s_last_dist, sizeof(s_last_dist), buf);
 
     uint32_t hh = s_underway_s / 3600;

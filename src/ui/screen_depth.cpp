@@ -82,7 +82,8 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // Water temp at bottom
     lbl_temp = lv_label_create(s_root);
-    lv_label_set_text(lbl_temp, "WATER --.-\xC2\xB0""C");
+    lv_label_set_text(lbl_temp, "WATER --.-\xC2\xB0"
+                                "C");
     style_value(lbl_temp, &lv_font_montserrat_28, theme.fg);
     lv_obj_align(lbl_temp, LV_ALIGN_BOTTOM_MID, 0, -8);
 
@@ -97,7 +98,9 @@ static char s_last_temp[24] = {(char)0xFF};
 static uint32_t s_last_depth_color = 0xFFFFFFFF;
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     if (!isnan(d.depth)) {
@@ -130,7 +133,10 @@ void refresh() {
     }
 
     if (!isnan(d.waterTemp)) {
-        snprintf(buf, sizeof(buf), "WATER %.1f\xC2\xB0""C", k_to_c(d.waterTemp));
+        snprintf(buf, sizeof(buf),
+                 "WATER %.1f\xC2\xB0"
+                 "C",
+                 k_to_c(d.waterTemp));
         set_text_if_changed(lbl_temp, s_last_temp, sizeof(s_last_temp), buf);
     }
 }

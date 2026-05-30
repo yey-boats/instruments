@@ -3,8 +3,10 @@
 
 #include "device_discovery.h"
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static void test_announcement_contract() {
     device_discovery::Info info;
@@ -21,8 +23,7 @@ static void test_announcement_contract() {
     JsonDocument doc;
     device_discovery::build_announcement(doc, info);
 
-    TEST_ASSERT_EQUAL_STRING(device_discovery::DEVICE_ANNOUNCE_PROTOCOL,
-                             doc["protocol"]);
+    TEST_ASSERT_EQUAL_STRING(device_discovery::DEVICE_ANNOUNCE_PROTOCOL, doc["protocol"]);
     TEST_ASSERT_EQUAL_STRING("espdisp-test", doc["deviceId"]);
     TEST_ASSERT_EQUAL_STRING("192.168.1.50", doc["address"]);
     TEST_ASSERT_EQUAL_UINT16(80, doc["port"]);

@@ -18,8 +18,9 @@
 // users without an explicit -D in platformio.ini still get a working
 // firmware. Once BOARD_ID_DEFINED is set anywhere in the build, this
 // file only compiles when the matching id is also set.
-#if defined(BOARD_ID_SUNTON_4848S040) || \
-    (!defined(BOARD_ID_DEFINED) && !defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4) && !defined(BOARD_ID_NATIVE_FAKE))
+#if defined(BOARD_ID_SUNTON_4848S040) ||                                                           \
+    (!defined(BOARD_ID_DEFINED) && !defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4) &&                     \
+     !defined(BOARD_ID_NATIVE_FAKE))
 
 namespace board {
 
@@ -61,8 +62,12 @@ void ensure_backlight() {
 
 }  // namespace
 
-const char *id() { return "sunton_4848s040"; }
-const char *display_name() { return "Sunton/Guition ESP32-4848S040 4.0\" 480x480"; }
+const char *id() {
+    return "sunton_4848s040";
+}
+const char *display_name() {
+    return "Sunton/Guition ESP32-4848S040 4.0\" 480x480";
+}
 
 Geometry geometry() {
     Geometry g{};
@@ -95,9 +100,13 @@ bool set_backlight(uint8_t value_0_255) {
     return true;
 }
 
-uint8_t backlight() { return s_backlight_value; }
+uint8_t backlight() {
+    return s_backlight_value;
+}
 
-bool set_power(bool on) { return set_backlight(on ? 255 : 0); }
+bool set_power(bool on) {
+    return set_backlight(on ? 255 : 0);
+}
 
 }  // namespace board
 

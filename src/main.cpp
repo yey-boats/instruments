@@ -186,17 +186,29 @@ static TaskHandle_t g_touch_task = nullptr;
 static uint8_t g_gt911_addr = 0x5D;
 static volatile uint32_t g_i2c_err_count = 0;
 static volatile uint32_t g_i2c_ok_count = 0;
-static volatile uint32_t g_gt_ready_count = 0;     // status had 0x80 set
-static volatile uint32_t g_gt_points_count = 0;    // status reported >=1 point
+static volatile uint32_t g_gt_ready_count = 0;   // status had 0x80 set
+static volatile uint32_t g_gt_points_count = 0;  // status reported >=1 point
 static volatile uint32_t g_touch_irq_count = 0;
 static bool g_touch_irq_enabled = false;
 extern "C" {
-uint32_t main_i2c_err_count() { return g_i2c_err_count; }
-uint32_t main_i2c_ok_count() { return g_i2c_ok_count; }
-uint32_t main_gt_ready_count() { return g_gt_ready_count; }
-uint32_t main_gt_points_count() { return g_gt_points_count; }
-uint32_t main_touch_irq_count() { return g_touch_irq_count; }
-const char *main_touch_mode() { return g_touch_irq_enabled ? "irq" : "poll"; }
+uint32_t main_i2c_err_count() {
+    return g_i2c_err_count;
+}
+uint32_t main_i2c_ok_count() {
+    return g_i2c_ok_count;
+}
+uint32_t main_gt_ready_count() {
+    return g_gt_ready_count;
+}
+uint32_t main_gt_points_count() {
+    return g_gt_points_count;
+}
+uint32_t main_touch_irq_count() {
+    return g_touch_irq_count;
+}
+const char *main_touch_mode() {
+    return g_touch_irq_enabled ? "irq" : "poll";
+}
 
 // Spec 17 §8 touch.mode runtime switch. Returns true on a successful
 // transition (including "already there"). "irq" requires both a valid
@@ -233,7 +245,8 @@ static bool gt911_read_regs_locked(uint16_t reg, uint8_t *buf, size_t len) {
             g_i2c_err_count++;
             return false;
         }
-        for (size_t i = 0; i < n; ++i) buf[off + i] = Wire.read();
+        for (size_t i = 0; i < n; ++i)
+            buf[off + i] = Wire.read();
         g_i2c_ok_count++;
         off += n;
         reg += n;
@@ -285,12 +298,10 @@ static void IRAM_ATTR isr(void *arg) {
 
 static void dump() {
     char buf[256];
-    int n = snprintf(buf, sizeof(buf), "[irq-probe] %s elapsed=%lums ",
-                     s_armed ? "armed" : "off",
+    int n = snprintf(buf, sizeof(buf), "[irq-probe] %s elapsed=%lums ", s_armed ? "armed" : "off",
                      (unsigned long)(s_arm_ms ? (millis() - s_arm_ms) : 0));
     for (int i = 0; i < N && n < (int)sizeof(buf) - 16; ++i) {
-        n += snprintf(buf + n, sizeof(buf) - n, "g%d=%lu ",
-                      s_pins[i], (unsigned long)s_counts[i]);
+        n += snprintf(buf + n, sizeof(buf) - n, "g%d=%lu ", s_pins[i], (unsigned long)s_counts[i]);
     }
     net::logf("%s", buf);
 }
@@ -310,19 +321,21 @@ static void arm() {
     for (int i = 0; i < N; ++i) {
         s_counts[i] = 0;
         pinMode(s_pins[i], INPUT_PULLUP);
-        attachInterruptArg(digitalPinToInterrupt(s_pins[i]),
-                           isr, (void *)(intptr_t)i, FALLING);
+        attachInterruptArg(digitalPinToInterrupt(s_pins[i]), isr, (void *)(intptr_t)i, FALLING);
     }
     s_armed = true;
     s_arm_ms = millis();
     net::logf("[irq-probe] armed gpios=%d active_low FALLING - "
-              "touch the panel; auto-disarms in 10s", N);
+              "touch the panel; auto-disarms in 10s",
+              N);
 }
 
 static void tick() {
     if (!s_armed) return;
-    if (millis() - s_arm_ms >= 10000) disarm();
-    else dump();
+    if (millis() - s_arm_ms >= 10000)
+        disarm();
+    else
+        dump();
 }
 }  // namespace irq_probe
 
@@ -403,24 +416,25 @@ static void gt911_dump_config() {
     uint8_t chksum = cfg[0x80FF - CFG_START];
     uint8_t fresh = cfg[0x8100 - CFG_START];
     uint8_t sum = 0;
-    for (size_t i = 0; i <= 0x80FE - CFG_START; ++i) sum += cfg[i];
+    for (size_t i = 0; i <= 0x80FE - CFG_START; ++i)
+        sum += cfg[i];
     uint8_t calc = (uint8_t)((~sum) + 1);
 
-    net::logf("[gt911] config addr=0x%02X range=0x%04X..0x%04X len=%u",
-              g_gt911_addr, CFG_START, CFG_END, (unsigned)CFG_LEN);
-    net::logf("[gt911] version=0x%02X x_max=%u y_max=%u touch_points=%u",
-              cfg[0], (unsigned)x_max, (unsigned)y_max, (unsigned)(cfg[5] & 0x0F));
-    net::logf("[gt911] module1=0x%02X int=%u axis_swap=%u sensor_rev=%u driver_rev=%u",
-              module1, (unsigned)int_mode, (unsigned)((module1 >> 3) & 1),
-              (unsigned)((module1 >> 4) & 1), (unsigned)((module1 >> 5) & 1));
+    net::logf("[gt911] config addr=0x%02X range=0x%04X..0x%04X len=%u", g_gt911_addr, CFG_START,
+              CFG_END, (unsigned)CFG_LEN);
+    net::logf("[gt911] version=0x%02X x_max=%u y_max=%u touch_points=%u", cfg[0], (unsigned)x_max,
+              (unsigned)y_max, (unsigned)(cfg[5] & 0x0F));
+    net::logf("[gt911] module1=0x%02X int=%u axis_swap=%u sensor_rev=%u driver_rev=%u", module1,
+              (unsigned)int_mode, (unsigned)((module1 >> 3) & 1), (unsigned)((module1 >> 4) & 1),
+              (unsigned)((module1 >> 5) & 1));
     net::logf("[gt911] touch_level=%u leave_level=%u refresh=%u x_th=%u y_th=%u",
               (unsigned)touch_level, (unsigned)leave_level, (unsigned)refresh,
               (unsigned)x_threshold, (unsigned)y_threshold);
     net::logf("[gt911] border top=%u bottom=%u left=%u right=%u (units=32)",
               (unsigned)((border_tb >> 4) & 0x0F), (unsigned)(border_tb & 0x0F),
               (unsigned)((border_lr >> 4) & 0x0F), (unsigned)(border_lr & 0x0F));
-    net::logf("[gt911] checksum stored=0x%02X calc=0x%02X fresh=0x%02X %s",
-              chksum, calc, fresh, chksum == calc ? "OK" : "MISMATCH");
+    net::logf("[gt911] checksum stored=0x%02X calc=0x%02X fresh=0x%02X %s", chksum, calc, fresh,
+              chksum == calc ? "OK" : "MISMATCH");
 
     for (size_t off = 0; off < CFG_LEN; off += 16) {
         char line[96];
@@ -466,14 +480,13 @@ static constexpr int16_t SWIPE_MIN_PX = 80;
 static constexpr uint32_t SWIPE_MAX_MS = 1200;
 static constexpr uint32_t DEBOUNCE_MS = 250;
 
-static void detect_swipe_release(int16_t down_x, int16_t down_y, uint32_t down_ms,
-                                 int16_t up_x, int16_t up_y) {
+static void detect_swipe_release(int16_t down_x, int16_t down_y, uint32_t down_ms, int16_t up_x,
+                                 int16_t up_y) {
     uint32_t now = millis();
     uint32_t dt = now - down_ms;
     if (dt == 0 || dt > SWIPE_MAX_MS) return;
     if (g_last_swipe_ms && (now - g_last_swipe_ms) < DEBOUNCE_MS) {
-        net::logf("[touch] swipe debounced (%u ms since last)",
-                  (unsigned)(now - g_last_swipe_ms));
+        net::logf("[touch] swipe debounced (%u ms since last)", (unsigned)(now - g_last_swipe_ms));
         return;
     }
     int32_t dx = (int32_t)up_x - down_x;
@@ -489,12 +502,22 @@ static void detect_swipe_release(int16_t down_x, int16_t down_y, uint32_t down_m
     const char *dir = nullptr;
     if (adx > ady) {
         if (ady * 100 > adx * 55) return;  // too diagonal for horizontal
-        if (dx < 0) { cmd = "next";      dir = "left";  }
-        else        { cmd = "prev";      dir = "right"; }
+        if (dx < 0) {
+            cmd = "next";
+            dir = "left";
+        } else {
+            cmd = "prev";
+            dir = "right";
+        }
     } else {
         if (adx * 100 > ady * 55) return;  // too diagonal for vertical
-        if (dy < 0) { cmd = "settings";  dir = "up";    }
-        else        { cmd = "dashboard"; dir = "down";  }
+        if (dy < 0) {
+            cmd = "settings";
+            dir = "up";
+        } else {
+            cmd = "dashboard";
+            dir = "down";
+        }
     }
 
     // Per-screen policy (docs/specs/05-gesture-subsystem-spec.md "Screen-local maps"):
@@ -525,8 +548,8 @@ static void detect_swipe_release(int16_t down_x, int16_t down_y, uint32_t down_m
         return;
     }
 
-    net::logf("[touch] swipe %s (dx=%d dy=%d dt=%u ms) -> %s",
-              dir, (int)dx, (int)dy, (unsigned)dt, cmd);
+    net::logf("[touch] swipe %s (dx=%d dy=%d dt=%u ms) -> %s", dir, (int)dx, (int)dy, (unsigned)dt,
+              cmd);
     g_last_swipe_ms = now;
     g_gesture_count++;
     snprintf(g_last_gesture, sizeof(g_last_gesture), "swipe_%s", dir);
@@ -571,10 +594,9 @@ static void touch_task(void *) {
             }
             // Coarse-grained logging so user can see in BLE/UDP that taps
             // are landing on the IC. Throttled to changes.
-            if (pressed && (!last_state || abs(x - last_logged_x) > 20 ||
-                            abs(y - last_logged_y) > 20)) {
-                net::logf("[touch] DOWN raw=(%d,%d) cal=(%d,%d)",
-                          raw_x, raw_y, x, y);
+            if (pressed &&
+                (!last_state || abs(x - last_logged_x) > 20 || abs(y - last_logged_y) > 20)) {
+                net::logf("[touch] DOWN raw=(%d,%d) cal=(%d,%d)", raw_x, raw_y, x, y);
                 last_logged_x = x;
                 last_logged_y = y;
             }
@@ -586,8 +608,7 @@ static void touch_task(void *) {
             }
             if (!pressed && last_state) {
                 net::logf("[touch] UP   raw=(%d,%d)", last_logged_x, last_logged_y);
-                detect_swipe_release(down_x, down_y, down_ms,
-                                     last_logged_x, last_logged_y);
+                detect_swipe_release(down_x, down_y, down_ms, last_logged_x, last_logged_y);
             }
             last_state = pressed;
         }
@@ -614,7 +635,9 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     }
 }
 
-static uint32_t lv_tick_cb(void) { return millis(); }
+static uint32_t lv_tick_cb(void) {
+    return millis();
+}
 
 // ----- Test injection API (see include/input_test.h) ---------------------
 // Implemented in this TU so it can reach the file-local g_touch /
@@ -643,16 +666,14 @@ bool inject_touch(int16_t x, int16_t y, bool pressed) {
 }
 
 bool inject_tap(int16_t x, int16_t y, uint32_t hold_ms) {
-    if (hold_ms < 20) hold_ms = 20;     // LVGL indev polls ~5 ms; give it time
-    if (hold_ms > 2000) hold_ms = 2000; // sanity
+    if (hold_ms < 20) hold_ms = 20;      // LVGL indev polls ~5 ms; give it time
+    if (hold_ms > 2000) hold_ms = 2000;  // sanity
     if (!inject_touch(x, y, true)) return false;
     vTaskDelay(pdMS_TO_TICKS(hold_ms));
     return inject_touch(0, 0, false);
 }
 
-bool inject_swipe(int16_t x0, int16_t y0,
-                  int16_t x1, int16_t y1,
-                  uint32_t dur_ms, uint8_t steps) {
+bool inject_swipe(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint32_t dur_ms, uint8_t steps) {
     if (steps < 2) steps = 2;
     if (steps > 32) steps = 32;
     if (dur_ms < 20) dur_ms = 20;
@@ -678,11 +699,16 @@ bool inject_swipe(int16_t x0, int16_t y0,
 bool post_gesture(const char *dir) {
     if (!dir) return false;
     const char *cmd = nullptr;
-    if      (!strcmp(dir, "left"))  cmd = "next";
-    else if (!strcmp(dir, "right")) cmd = "prev";
-    else if (!strcmp(dir, "up"))    cmd = "settings";
-    else if (!strcmp(dir, "down"))  cmd = "dashboard";
-    else return false;
+    if (!strcmp(dir, "left"))
+        cmd = "next";
+    else if (!strcmp(dir, "right"))
+        cmd = "prev";
+    else if (!strcmp(dir, "up"))
+        cmd = "settings";
+    else if (!strcmp(dir, "down"))
+        cmd = "dashboard";
+    else
+        return false;
     app::Command c;
     c.type = app::CommandType::ShowScreen;
     strncpy(c.a, cmd, sizeof(c.a) - 1);
@@ -692,10 +718,9 @@ bool post_gesture(const char *dir) {
 }
 
 bool is_injection_command(const String &line) {
-    return line == "tap" || line.startsWith("tap ")
-        || line == "swipe" || line.startsWith("swipe ")
-        || line == "gesture" || line.startsWith("gesture ")
-        || line == "touch" || line.startsWith("touch ");
+    return line == "tap" || line.startsWith("tap ") || line == "swipe" ||
+           line.startsWith("swipe ") || line == "gesture" || line.startsWith("gesture ") ||
+           line == "touch" || line.startsWith("touch ");
 }
 
 namespace {
@@ -708,12 +733,16 @@ int parse_ints(const String &s, int *out, int max_n) {
     int i = 0;
     int len = s.length();
     while (i < len && n < max_n) {
-        while (i < len && (s[i] == ' ' || s[i] == '\t')) ++i;
+        while (i < len && (s[i] == ' ' || s[i] == '\t'))
+            ++i;
         if (i >= len) break;
         int start = i;
         if (s[i] == '-' || s[i] == '+') ++i;
         bool any = false;
-        while (i < len && s[i] >= '0' && s[i] <= '9') { ++i; any = true; }
+        while (i < len && s[i] >= '0' && s[i] <= '9') {
+            ++i;
+            any = true;
+        }
         if (!any) break;
         out[n++] = s.substring(start, i).toInt();
     }
@@ -750,8 +779,7 @@ bool handleConsoleCommand(const String &line) {
         }
         uint32_t hold = n >= 3 ? (uint32_t)args[2] : 50;
         bool ok = inject_tap((int16_t)args[0], (int16_t)args[1], hold);
-        net::logf("[test] tap ok=%d x=%d y=%d hold=%lu", ok, args[0], args[1],
-                  (unsigned long)hold);
+        net::logf("[test] tap ok=%d x=%d y=%d hold=%lu", ok, args[0], args[1], (unsigned long)hold);
         return true;
     }
     if (head == "swipe") {
@@ -762,11 +790,10 @@ bool handleConsoleCommand(const String &line) {
         }
         uint32_t dur = n >= 5 ? (uint32_t)args[4] : 300;
         uint8_t steps = n >= 6 ? (uint8_t)args[5] : 8;
-        bool ok = inject_swipe((int16_t)args[0], (int16_t)args[1],
-                               (int16_t)args[2], (int16_t)args[3], dur, steps);
-        net::logf("[test] swipe ok=%d (%d,%d)->(%d,%d) dur=%lu steps=%u",
-                  ok, args[0], args[1], args[2], args[3],
-                  (unsigned long)dur, (unsigned)steps);
+        bool ok = inject_swipe((int16_t)args[0], (int16_t)args[1], (int16_t)args[2],
+                               (int16_t)args[3], dur, steps);
+        net::logf("[test] swipe ok=%d (%d,%d)->(%d,%d) dur=%lu steps=%u", ok, args[0], args[1],
+                  args[2], args[3], (unsigned long)dur, (unsigned)steps);
         return true;
     }
     if (head == "gesture") {
@@ -786,7 +813,9 @@ static struct {
     double lat = NAN, lon = NAN;
     uint32_t trigger_ms = 0;
 } g_mob;
-static bool mob_is_active() { return g_mob.active; }
+static bool mob_is_active() {
+    return g_mob.active;
+}
 static lv_obj_t *mob_button = nullptr;
 static lv_obj_t *mob_view = nullptr;
 static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
@@ -796,8 +825,13 @@ static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
 // from the manager via overlay.show. While it is active, alarm_check
 // is suppressed so a data-driven alarm doesn't overwrite the operator
 // message; overlay_clear releases the suppression.
-enum AlarmId { ALARM_NONE = 0, ALARM_DEPTH_SHALLOW, ALARM_SK_STALLED,
-               ALARM_BATT_LOW, ALARM_MGR_OVERLAY };
+enum AlarmId {
+    ALARM_NONE = 0,
+    ALARM_DEPTH_SHALLOW,
+    ALARM_SK_STALLED,
+    ALARM_BATT_LOW,
+    ALARM_MGR_OVERLAY
+};
 static AlarmId g_alarm = ALARM_NONE;
 static bool g_overlay_pinned = false;
 static lv_obj_t *alarm_banner = nullptr;
@@ -833,7 +867,8 @@ static double mob_brg_deg() {
     double y = sin(dlon) * cos(phi2);
     double x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dlon);
     double b = atan2(y, x) * 180.0 / M_PI;
-    while (b < 0) b += 360;
+    while (b < 0)
+        b += 360;
     return b;
 }
 
@@ -881,7 +916,8 @@ static void mob_refresh() {
         snprintf(buf, sizeof(buf), "BRG %03.0f\xC2\xB0", b);
         lv_label_set_text(mob_lbl_brg, buf);
         double back = b + 180.0;
-        while (back >= 360) back -= 360;
+        while (back >= 360)
+            back -= 360;
         snprintf(buf, sizeof(buf), "return %03.0f\xC2\xB0", back);
         lv_label_set_text(mob_lbl_back, buf);
     }
@@ -1022,9 +1058,12 @@ static void alarm_check() {
 bool main_set_touch_mode(const char *mode) {
     if (!mode || !*mode) return false;
     bool want_irq = false;
-    if      (!strcmp(mode, "poll")) want_irq = false;
-    else if (!strcmp(mode, "irq"))  want_irq = true;
-    else return false;
+    if (!strcmp(mode, "poll"))
+        want_irq = false;
+    else if (!strcmp(mode, "irq"))
+        want_irq = true;
+    else
+        return false;
 
     if (want_irq == g_touch_irq_enabled) return true;  // already there
 
@@ -1068,7 +1107,9 @@ void overlay_clear() {
 
 // ----- Demo / fps -------------------------------------------------------
 
-static void demo_tick(lv_timer_t *) { ui::next(); }
+static void demo_tick(lv_timer_t *) {
+    ui::next();
+}
 
 static void demo_start(uint32_t period_ms) {
     g_demo_period_ms = period_ms ? period_ms : 3000;
@@ -1167,38 +1208,31 @@ static void bench_dump() {
     net::logf("[bench] fps=%.1f Hz", g_fps);
     net::logf("[bench] flush avg=%.0f us  peak=%lu us", g_fps_avg_us, (unsigned long)g_fps_peak_us);
     net::logf("[bench] loop peak=%lu us  slow section=%s %lu us  lvgl peak=%lu us",
-              (unsigned long)g_loop_max_us, g_section_peak_name,
-              (unsigned long)g_section_max_us, (unsigned long)g_lvgl_max_us);
-    net::logf("[bench] heap free=%u KB  low-water=%u KB",
-              (unsigned)(heap_free / 1024), (unsigned)(heap_lowwater / 1024));
+              (unsigned long)g_loop_max_us, g_section_peak_name, (unsigned long)g_section_max_us,
+              (unsigned long)g_lvgl_max_us);
+    net::logf("[bench] heap free=%u KB  low-water=%u KB", (unsigned)(heap_free / 1024),
+              (unsigned)(heap_lowwater / 1024));
     net::logf("[bench] psram free=%u / %u KB", (unsigned)(psram_free / 1024),
               (unsigned)(psram_total / 1024));
-    net::logf("[bench] queues ui=%u (hi=%lu)  net=%u (hi=%lu)",
-              (unsigned)app::ui_queue_depth(), (unsigned long)app::ui_high_water(),
-              (unsigned)app::net_queue_depth(), (unsigned long)app::net_high_water());
-    net::logf("[bench] wifi: %s  sk: %s", net::wifiStateName(),
-              sk::connectionStatus().c_str());
-    net::logf("[bench] gestures: %lu (sup %lu)  last=%s",
-              (unsigned long)g_gesture_count,
-              (unsigned long)g_gesture_suppressed,
-              g_last_gesture[0] ? g_last_gesture : "-");
+    net::logf("[bench] queues ui=%u (hi=%lu)  net=%u (hi=%lu)", (unsigned)app::ui_queue_depth(),
+              (unsigned long)app::ui_high_water(), (unsigned)app::net_queue_depth(),
+              (unsigned long)app::net_high_water());
+    net::logf("[bench] wifi: %s  sk: %s", net::wifiStateName(), sk::connectionStatus().c_str());
+    net::logf("[bench] gestures: %lu (sup %lu)  last=%s", (unsigned long)g_gesture_count,
+              (unsigned long)g_gesture_suppressed, g_last_gesture[0] ? g_last_gesture : "-");
     net::logf("[bench] touch: mode=%s irq=%lu i2c ok=%lu err=%lu ready=%lu points=%lu",
-              main_touch_mode(),
-              (unsigned long)g_touch_irq_count,
-              (unsigned long)g_i2c_ok_count,
-              (unsigned long)g_i2c_err_count,
-              (unsigned long)g_gt_ready_count,
+              main_touch_mode(), (unsigned long)g_touch_irq_count, (unsigned long)g_i2c_ok_count,
+              (unsigned long)g_i2c_err_count, (unsigned long)g_gt_ready_count,
               (unsigned long)g_gt_points_count);
     // Render volume (docs/specs/09): flushed pixels since last reset
     // and largest single flush rect. 480*480 = 230400 px is a "full
     // screen" reference.
     uint64_t flushed = g_flush_px_total;
     uint32_t flush_peak = g_flush_px_peak;
-    net::logf("[bench] render: flushed=%llu px (~%llu full screens) peak_rect=%lu px (%.1f%% screen)",
-              (unsigned long long)flushed,
-              (unsigned long long)(flushed / 230400ULL),
-              (unsigned long)flush_peak,
-              flush_peak * 100.0f / 230400.0f);
+    net::logf(
+        "[bench] render: flushed=%llu px (~%llu full screens) peak_rect=%lu px (%.1f%% screen)",
+        (unsigned long long)flushed, (unsigned long long)(flushed / 230400ULL),
+        (unsigned long)flush_peak, flush_peak * 100.0f / 230400.0f);
     // Latency channels (docs/specs/09). Each line: count, min, avg, max
     // in microseconds. Persist across bench dumps so a long sample is
     // possible; use `latency-reset` to zero the histograms.
@@ -1210,11 +1244,8 @@ static void bench_dump() {
         } else {
             uint32_t avg = (uint32_t)(s.sum_us / s.count);
             net::logf("[bench] lat %-14s n=%lu  min=%lu us  avg=%lu us  max=%lu us",
-                      latency::channel_name(ch),
-                      (unsigned long)s.count,
-                      (unsigned long)s.min_us,
-                      (unsigned long)avg,
-                      (unsigned long)s.max_us);
+                      latency::channel_name(ch), (unsigned long)s.count, (unsigned long)s.min_us,
+                      (unsigned long)avg, (unsigned long)s.max_us);
         }
     }
     // Reset peak counters so next bench shows recent activity.
@@ -1237,9 +1268,15 @@ volatile uint32_t g_gesture_count = 0;
 volatile uint32_t g_gesture_suppressed = 0;
 char g_last_gesture[24] = "";
 extern "C" {
-uint32_t main_gesture_count() { return g_gesture_count; }
-uint32_t main_gesture_suppressed() { return g_gesture_suppressed; }
-const char *main_last_gesture() { return g_last_gesture; }
+uint32_t main_gesture_count() {
+    return g_gesture_count;
+}
+uint32_t main_gesture_suppressed() {
+    return g_gesture_suppressed;
+}
+const char *main_last_gesture() {
+    return g_last_gesture;
+}
 void main_touch_state(int *x, int *y, int *pressed, uint32_t *last_ms) {
     TouchSnapshot snap = {-1, -1, false, 0, -1, -1};
     if (g_touch_mtx && xSemaphoreTake(g_touch_mtx, pdMS_TO_TICKS(2))) {
@@ -1299,8 +1336,7 @@ static void screen_gesture_handler(lv_event_t *e) {
     // Per docs/specs/05: while the WiFi password keyboard is up, horizontal
     // swipes would steal touches meant for the keyboard. Allow vertical
     // (up = settings, down = dashboard) as escape paths.
-    if (cur && strcmp(cur, "wifi") == 0 &&
-        (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT)) {
+    if (cur && strcmp(cur, "wifi") == 0 && (dir == LV_DIR_LEFT || dir == LV_DIR_RIGHT)) {
         net::logf("[ui] swipe %s suppressed (wifi keyboard active)", dir_name);
         g_gesture_suppressed++;
         return;
@@ -1315,10 +1351,14 @@ static void screen_gesture_handler(lv_event_t *e) {
         return;
     }
 
-    if (dir == LV_DIR_LEFT) ui::next();
-    else if (dir == LV_DIR_RIGHT) ui::prev();
-    else if (dir == LV_DIR_TOP) ui::show_by_id("settings");
-    else if (dir == LV_DIR_BOTTOM) ui::show(0);
+    if (dir == LV_DIR_LEFT)
+        ui::next();
+    else if (dir == LV_DIR_RIGHT)
+        ui::prev();
+    else if (dir == LV_DIR_TOP)
+        ui::show_by_id("settings");
+    else if (dir == LV_DIR_BOTTOM)
+        ui::show(0);
 }
 
 // ----- Command handler --------------------------------------------------
@@ -1374,21 +1414,19 @@ static bool handleMainCommand(const String &line) {
         config::DomainMeta ma = config::meta(config::Domain::Alarms);
         config::DomainMeta ms = config::meta(config::Domain::SignalK);
         net::logf("[cfg] ui  rev=%u src=%s pending=%d  theme=%s bright=%u fmt=%s",
-                  (unsigned)mu.revision, config::source_name(mu.source),
-                  mu.persist_pending, config::theme_name(u.theme), (unsigned)u.brightness,
+                  (unsigned)mu.revision, config::source_name(mu.source), mu.persist_pending,
+                  config::theme_name(u.theme), (unsigned)u.brightness,
                   config::pos_format_name(u.pos_format));
         net::logf("[cfg] alm rev=%u src=%s pending=%d  depth=%.1fm batt=%.1fV",
-                  (unsigned)ma.revision, config::source_name(ma.source),
-                  ma.persist_pending, a.depth_alarm_m, a.battery_alarm_v);
-        net::logf("[cfg] sk  rev=%u src=%s pending=%d  host=%s:%u%s",
-                  (unsigned)ms.revision, config::source_name(ms.source),
-                  ms.persist_pending, sk.host, (unsigned)sk.port,
+                  (unsigned)ma.revision, config::source_name(ma.source), ma.persist_pending,
+                  a.depth_alarm_m, a.battery_alarm_v);
+        net::logf("[cfg] sk  rev=%u src=%s pending=%d  host=%s:%u%s", (unsigned)ms.revision,
+                  config::source_name(ms.source), ms.persist_pending, sk.host, (unsigned)sk.port,
                   sk.token[0] ? " (token)" : "");
         net::logf("[cfg] jobs queued=%u completed=%u failed=%u coalesced=%u",
                   (unsigned)config::persist_jobs_queued(),
                   (unsigned)config::persist_jobs_completed(),
-                  (unsigned)config::persist_jobs_failed(),
-                  (unsigned)config::coalesced_writes());
+                  (unsigned)config::persist_jobs_failed(), (unsigned)config::coalesced_writes());
         return true;
     }
     if (line == "config-flush") {
@@ -1435,16 +1473,20 @@ static bool handleMainCommand(const String &line) {
     if (line == "wind-refresh" || line.startsWith("wind-refresh ")) {
         String v = line.length() > 13 ? line.substring(13) : String();
         v.trim();
-        if (v == "on" || v == "1") ui::wind::set_refresh_enabled(true);
-        else if (v == "off" || v == "0") ui::wind::set_refresh_enabled(false);
+        if (v == "on" || v == "1")
+            ui::wind::set_refresh_enabled(true);
+        else if (v == "off" || v == "0")
+            ui::wind::set_refresh_enabled(false);
         net::logf("[ui] wind-refresh=%s", ui::wind::refresh_enabled() ? "on" : "off");
         return true;
     }
     if (line == "force-invalidate" || line.startsWith("force-invalidate ")) {
         String v = line.length() > 17 ? line.substring(17) : String();
         v.trim();
-        if (v == "on" || v == "1") g_force_invalidate = true;
-        else if (v == "off" || v == "0") g_force_invalidate = false;
+        if (v == "on" || v == "1")
+            g_force_invalidate = true;
+        else if (v == "off" || v == "0")
+            g_force_invalidate = false;
         net::logf("[ui] force-invalidate=%s", g_force_invalidate ? "on" : "off");
         return true;
     }
@@ -1471,7 +1513,8 @@ static bool handleMainCommand(const String &line) {
             ui::show(v.toInt());
         } else {
             if (!ui::show_by_id(v.c_str())) {
-                net::logf("usage: screen <id|next|prev|N>; ids: dashboard wind nav depth status steering trip");
+                net::logf("usage: screen <id|next|prev|N>; ids: dashboard wind nav depth status "
+                          "steering trip");
                 return true;
             }
         }
@@ -1481,12 +1524,18 @@ static bool handleMainCommand(const String &line) {
     if (line.startsWith("view ")) {
         String v = line.substring(5);
         v.trim();
-        if (v == "grid") ui::show(0);
-        else if (v == "q0") ui::show_by_id("wind");
-        else if (v == "q1") ui::show_by_id("nav");
-        else if (v == "q2") ui::show_by_id("depth");
-        else if (v == "q3") ui::show_by_id("status");
-        else net::logf("usage: screen <id|next|prev|N>");
+        if (v == "grid")
+            ui::show(0);
+        else if (v == "q0")
+            ui::show_by_id("wind");
+        else if (v == "q1")
+            ui::show_by_id("nav");
+        else if (v == "q2")
+            ui::show_by_id("depth");
+        else if (v == "q3")
+            ui::show_by_id("status");
+        else
+            net::logf("usage: screen <id|next|prev|N>");
         return true;
     }
     if (line == "pos-format") {
@@ -1496,9 +1545,12 @@ static bool handleMainCommand(const String &line) {
     if (line.startsWith("pos-format ")) {
         String fmt = line.substring(11);
         fmt.trim();
-        if (fmt == "ddm") ui::set_pos_format(ui::PosFormat::DDM);
-        else if (fmt == "dd") ui::set_pos_format(ui::PosFormat::DD);
-        else if (fmt == "dms") ui::set_pos_format(ui::PosFormat::DMS);
+        if (fmt == "ddm")
+            ui::set_pos_format(ui::PosFormat::DDM);
+        else if (fmt == "dd")
+            ui::set_pos_format(ui::PosFormat::DD);
+        else if (fmt == "dms")
+            ui::set_pos_format(ui::PosFormat::DMS);
         else {
             net::logf("usage: pos-format ddm|dd|dms");
             return true;
@@ -1589,7 +1641,8 @@ void breadcrumb_build(lv_obj_t *scr) {
     lv_obj_clear_flag(bc_pips, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_flex_flow(bc_pips, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_gap(bc_pips, 4, 0);
-    lv_obj_set_flex_align(bc_pips, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(bc_pips, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
+                          LV_FLEX_ALIGN_CENTER);
 }
 
 static void breadcrumb_refresh() {
@@ -1613,8 +1666,7 @@ static void breadcrumb_refresh() {
         lv_obj_t *p = lv_obj_create(bc_pips);
         lv_obj_set_size(p, 8, 8);
         bool active = ((int)i == idx);
-        lv_obj_set_style_bg_color(
-            p, lv_color_hex(active ? ui::theme.accent : ui::theme.fg_dim), 0);
+        lv_obj_set_style_bg_color(p, lv_color_hex(active ? ui::theme.accent : ui::theme.fg_dim), 0);
         lv_obj_set_style_bg_opa(p, active ? LV_OPA_COVER : LV_OPA_50, 0);
         lv_obj_set_style_border_width(p, 0, 0);
         lv_obj_set_style_radius(p, 4, 0);
@@ -1694,7 +1746,8 @@ void setup() {
 
     if (!gfx->begin()) {
         puts("[gfx] begin FAILED");
-        while (1) delay(1000);
+        while (1)
+            delay(1000);
     }
     gfx->fillScreen(BLACK);
     puts("[gfx] ST7701 RGB panel ok");
@@ -1710,8 +1763,7 @@ void setup() {
         ok = (Wire.endTransmission() == 0);
         if (ok) g_gt911_addr = 0x14;
     }
-    printf("[touch] GT911 probe: %s addr=0x%02X\n",
-                  ok ? "ACK" : "no response", g_gt911_addr);
+    printf("[touch] GT911 probe: %s addr=0x%02X\n", ok ? "ACK" : "no response", g_gt911_addr);
     touch_present = ok;
 
     // Load any persisted calibration before the touch task starts so
@@ -1735,8 +1787,8 @@ void setup() {
             attachInterrupt(digitalPinToInterrupt(TOUCH_INT), touch_irq_isr, RISING);
 #endif
             g_touch_irq_enabled = true;
-            printf("[touch] input mode: irq gpio=%d active_%s\n",
-                          TOUCH_INT, TOUCH_INT_ACTIVE_LOW ? "low" : "high");
+            printf("[touch] input mode: irq gpio=%d active_%s\n", TOUCH_INT,
+                   TOUCH_INT_ACTIVE_LOW ? "low" : "high");
         } else {
             puts("[touch] input mode: poll");
         }
@@ -1794,28 +1846,39 @@ void setup() {
         storage::Namespace p("ui", true);
         String themePref = String(p.get_string("theme", "night").c_str());
         ui::set_pos_format((ui::PosFormat)p.get_u8("pos_fmt", (uint8_t)ui::PosFormat::DDM));
-        if (themePref == "day") ui::use_day();
-        else ui::use_night();
+        if (themePref == "day")
+            ui::use_day();
+        else
+            ui::use_night();
     }
 
     // Each screen is a DETACHED screen object (parent = NULL). Screen
     // manager swaps via lv_screen_load, so only the active screen lives
     // in the render tree at any time. Possible now that LVGL pool sits in
     // PSRAM (8 MB) - all 10 screen trees fit with room to spare.
-    ui::register_screen({"dashboard", "Dashboard",  ui::dashboard::build(NULL),     ui::dashboard::refresh,    false});
-    ui::register_screen({"wind",      "Wind",       ui::wind::build(NULL),          ui::wind::refresh,         false});
-    ui::register_screen({"nav",       "Nav",        ui::nav::build(NULL),           ui::nav::refresh,          false});
-    ui::register_screen({"depth",     "Depth",      ui::depth::build(NULL),         ui::depth::refresh,        false});
-    ui::register_screen({"steering",  "Steering",   ui::steering::build(NULL),      ui::steering::refresh,     false});
-    ui::register_screen({"route",     "Route",      ui::route::build(NULL),         ui::route::refresh,        false});
-    ui::register_screen({"autopilot", "Autopilot",  ui::autopilot::build(NULL),     ui::autopilot::refresh,    false});
-    ui::register_screen({"trip",      "Trip",       ui::trip::build(NULL),          ui::trip::refresh,         false});
-    ui::register_screen({"status",    "System",     ui::status_panel::build(NULL),  ui::status_panel::refresh, false});
-    ui::register_screen({"wifi",      "WiFi Setup", ui::wifi_setup::build(NULL),    ui::wifi_setup::refresh,   true});
-    ui::register_screen({"settings",  "Settings",   ui::settings::build(NULL),      ui::settings::refresh,     true});
-    ui::register_screen({"touch_cal", "Touch Cal",  ui::touch_cal_screen::build(NULL), ui::touch_cal_screen::refresh, true});
-    ui::register_screen({"touch_grid","Touch Grid", ui::touch_grid_screen::build(NULL),ui::touch_grid_screen::refresh, true});
-    ui::register_screen({"demo_grid", "Demo Grid",  ui::demo_grid::build(NULL),         ui::demo_grid::refresh,         true});
+    ui::register_screen(
+        {"dashboard", "Dashboard", ui::dashboard::build(NULL), ui::dashboard::refresh, false});
+    ui::register_screen({"wind", "Wind", ui::wind::build(NULL), ui::wind::refresh, false});
+    ui::register_screen({"nav", "Nav", ui::nav::build(NULL), ui::nav::refresh, false});
+    ui::register_screen({"depth", "Depth", ui::depth::build(NULL), ui::depth::refresh, false});
+    ui::register_screen(
+        {"steering", "Steering", ui::steering::build(NULL), ui::steering::refresh, false});
+    ui::register_screen({"route", "Route", ui::route::build(NULL), ui::route::refresh, false});
+    ui::register_screen(
+        {"autopilot", "Autopilot", ui::autopilot::build(NULL), ui::autopilot::refresh, false});
+    ui::register_screen({"trip", "Trip", ui::trip::build(NULL), ui::trip::refresh, false});
+    ui::register_screen(
+        {"status", "System", ui::status_panel::build(NULL), ui::status_panel::refresh, false});
+    ui::register_screen(
+        {"wifi", "WiFi Setup", ui::wifi_setup::build(NULL), ui::wifi_setup::refresh, true});
+    ui::register_screen(
+        {"settings", "Settings", ui::settings::build(NULL), ui::settings::refresh, true});
+    ui::register_screen({"touch_cal", "Touch Cal", ui::touch_cal_screen::build(NULL),
+                         ui::touch_cal_screen::refresh, true});
+    ui::register_screen({"touch_grid", "Touch Grid", ui::touch_grid_screen::build(NULL),
+                         ui::touch_grid_screen::refresh, true});
+    ui::register_screen(
+        {"demo_grid", "Demo Grid", ui::demo_grid::build(NULL), ui::demo_grid::refresh, true});
 
     // Attach the gesture handler to EVERY screen root. LVGL routes
     // LV_EVENT_GESTURE to the currently loaded screen (or the widget

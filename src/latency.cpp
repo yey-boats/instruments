@@ -28,11 +28,16 @@ void reset_all() {
 
 const char *channel_name(Channel c) {
     switch (c) {
-    case Channel::FrameInterval: return "frame_interval";
-    case Channel::RenderLatency: return "render_latency";
-    case Channel::CommandRtt:    return "command_rtt";
-    case Channel::SkAge:         return "sk_age";
-    default: return "?";
+    case Channel::FrameInterval:
+        return "frame_interval";
+    case Channel::RenderLatency:
+        return "render_latency";
+    case Channel::CommandRtt:
+        return "command_rtt";
+    case Channel::SkAge:
+        return "sk_age";
+    default:
+        return "?";
     }
 }
 

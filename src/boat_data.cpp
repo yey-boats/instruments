@@ -25,8 +25,10 @@ void mtx_unlock() {
     if (g_mtx) xSemaphoreGive(g_mtx);
 }
 #else
-void mtx_lock() {}
-void mtx_unlock() {}
+void mtx_lock() {
+}
+void mtx_unlock() {
+}
 #endif
 
 struct Lock {
@@ -47,11 +49,16 @@ uint8_t rank_of(const Priority &p, SourceKind src) {
 
 uint32_t timeout_for(const Timeouts &t, SourceKind src) {
     switch (src) {
-        case SourceKind::Nmea2000: return t.nmea2000_ms;
-        case SourceKind::NmeaWifi: return t.nmea_wifi_ms;
-        case SourceKind::SignalK:  return t.signalk_ms;
-        case SourceKind::Demo:     return t.demo_ms;
-        default:                   return 0;
+    case SourceKind::Nmea2000:
+        return t.nmea2000_ms;
+    case SourceKind::NmeaWifi:
+        return t.nmea_wifi_ms;
+    case SourceKind::SignalK:
+        return t.signalk_ms;
+    case SourceKind::Demo:
+        return t.demo_ms;
+    default:
+        return 0;
     }
 }
 
@@ -65,9 +72,8 @@ double value_or_nan(const Field &f, uint32_t now_ms, uint32_t timeout_ms) {
     return fresh(f, now_ms, timeout_ms) ? f.value : NAN;
 }
 
-bool should_accept(SourceKind incoming, SourceKind current,
-                   uint32_t current_updated_ms, uint32_t now_ms,
-                   const Priority &p, const Timeouts &t) {
+bool should_accept(SourceKind incoming, SourceKind current, uint32_t current_updated_ms,
+                   uint32_t now_ms, const Priority &p, const Timeouts &t) {
     if (incoming == SourceKind::None) return false;
     if (current == SourceKind::None) return true;
     uint8_t r_in = rank_of(p, incoming);
@@ -81,12 +87,18 @@ bool should_accept(SourceKind incoming, SourceKind current,
 
 const char *source_name(SourceKind s) {
     switch (s) {
-        case SourceKind::None:     return "none";
-        case SourceKind::Demo:     return "demo";
-        case SourceKind::SignalK:  return "signalk";
-        case SourceKind::NmeaWifi: return "nmea-wifi";
-        case SourceKind::Nmea2000: return "nmea2000";
-        default:                   return "?";
+    case SourceKind::None:
+        return "none";
+    case SourceKind::Demo:
+        return "demo";
+    case SourceKind::SignalK:
+        return "signalk";
+    case SourceKind::NmeaWifi:
+        return "nmea-wifi";
+    case SourceKind::Nmea2000:
+        return "nmea2000";
+    default:
+        return "?";
     }
 }
 
@@ -125,9 +137,8 @@ bool publish(Field Snapshot::*field, SourceKind src, uint32_t now_ms, double val
 bool publish_autopilot_state(SourceKind src, uint32_t now_ms, const char *state) {
     if (!state) return false;
     Lock _;
-    if (!should_accept(src, g_snap.autopilot_state_source,
-                       g_snap.autopilot_state_updated_ms, now_ms,
-                       g_prio, g_timeouts)) {
+    if (!should_accept(src, g_snap.autopilot_state_source, g_snap.autopilot_state_updated_ms,
+                       now_ms, g_prio, g_timeouts)) {
         return false;
     }
     strncpy(g_snap.autopilot_state, state, sizeof(g_snap.autopilot_state) - 1);
@@ -153,15 +164,18 @@ void reset_all() {
 
 namespace {
 
-constexpr uint32_t TAU_FAST_MS   =  300;
+constexpr uint32_t TAU_FAST_MS = 300;
 constexpr uint32_t TAU_NORMAL_MS = 1500;
 constexpr uint32_t TAU_SMOOTH_MS = 5000;
 
 uint32_t tau_for(Response r) {
     switch (r) {
-        case Response::Fast:   return TAU_FAST_MS;
-        case Response::Normal: return TAU_NORMAL_MS;
-        case Response::Smooth: return TAU_SMOOTH_MS;
+    case Response::Fast:
+        return TAU_FAST_MS;
+    case Response::Normal:
+        return TAU_NORMAL_MS;
+    case Response::Smooth:
+        return TAU_SMOOTH_MS;
     }
     return TAU_NORMAL_MS;
 }
@@ -196,7 +210,7 @@ AngleState st_cog;
 
 // Pull a current sample out of the snapshot under the lock. We do not
 // step the filter while holding the lock - just copy out value+ms.
-void copy_field(double Snapshot::*invalid, // unused (workaround); see below
+void copy_field(double Snapshot::*invalid,  // unused (workaround); see below
                 const Field &f, double &out_value, uint32_t &out_ms) {
     (void)invalid;
     out_value = f.value;
@@ -242,12 +256,24 @@ double step_angle(AngleState &s, const Field &f, Response r) {
 
 }  // namespace
 
-void set_wind_response(Response r) { g_resp_wind = r; }
-void set_heading_response(Response r) { g_resp_heading = r; }
-void set_speed_response(Response r) { g_resp_speed = r; }
-Response wind_response() { return g_resp_wind; }
-Response heading_response() { return g_resp_heading; }
-Response speed_response() { return g_resp_speed; }
+void set_wind_response(Response r) {
+    g_resp_wind = r;
+}
+void set_heading_response(Response r) {
+    g_resp_heading = r;
+}
+void set_speed_response(Response r) {
+    g_resp_speed = r;
+}
+Response wind_response() {
+    return g_resp_wind;
+}
+Response heading_response() {
+    return g_resp_heading;
+}
+Response speed_response() {
+    return g_resp_speed;
+}
 
 double ema_step(double prev, double sample, uint32_t dt_ms, uint32_t tau_ms) {
     if (isnan(sample)) return prev;
@@ -261,8 +287,7 @@ double ema_step(double prev, double sample, uint32_t dt_ms, uint32_t tau_ms) {
     return prev + alpha * (sample - prev);
 }
 
-double angle_ema_step(AngleEma &state, double sample_rad,
-                      uint32_t dt_ms, uint32_t tau_ms) {
+double angle_ema_step(AngleEma &state, double sample_rad, uint32_t dt_ms, uint32_t tau_ms) {
     if (isnan(sample_rad)) {
         if (!state.init) return NAN;
         return atan2(state.s, state.c);
@@ -275,9 +300,7 @@ double angle_ema_step(AngleEma &state, double sample_rad,
         state.init = true;
         return sample_rad;
     }
-    double alpha = (dt_ms == 0 || tau_ms == 0)
-        ? 1.0
-        : 1.0 - exp(-((double)dt_ms / (double)tau_ms));
+    double alpha = (dt_ms == 0 || tau_ms == 0) ? 1.0 : 1.0 - exp(-((double)dt_ms / (double)tau_ms));
     if (alpha < 0.0) alpha = 0.0;
     if (alpha > 1.0) alpha = 1.0;
     state.s += alpha * (sx - state.s);
@@ -320,8 +343,10 @@ double depth_smoothed_m() {
 static double rad_to_deg_0_360(double r) {
     if (isnan(r)) return NAN;
     double d = r * (180.0 / M_PI);
-    while (d < 0) d += 360.0;
-    while (d >= 360.0) d -= 360.0;
+    while (d < 0)
+        d += 360.0;
+    while (d >= 360.0)
+        d -= 360.0;
     return d;
 }
 static double rad_to_deg_signed(double r) {

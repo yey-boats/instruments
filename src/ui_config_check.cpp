@@ -10,9 +10,7 @@ bool is_valid_brightness(int value) {
 
 bool is_valid_theme(const char *name) {
     if (!name) return false;
-    return strcmp(name, "day") == 0 ||
-           strcmp(name, "night") == 0 ||
-           strcmp(name, "auto") == 0;
+    return strcmp(name, "day") == 0 || strcmp(name, "night") == 0 || strcmp(name, "auto") == 0;
 }
 
 }  // namespace ui_config

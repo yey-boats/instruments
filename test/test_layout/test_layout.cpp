@@ -150,8 +150,8 @@ static void test_tile_path_count_clamps_at_max() {
                      "{\"screens\":[{\"id\":\"s\",\"type\":\"quadrants\","
                      "\"tiles\":[{\"id\":\"t\",\"type\":\"big_number\",\"paths\":{");
     for (size_t i = 0; i < MAX_PATHS_PER_OBJECT + 3; ++i) {
-        n += snprintf(buf + n, sizeof(buf) - n, "%s\"k%u\":\"p%u\"", i ? "," : "",
-                      (unsigned)i, (unsigned)i);
+        n += snprintf(buf + n, sizeof(buf) - n, "%s\"k%u\":\"p%u\"", i ? "," : "", (unsigned)i,
+                      (unsigned)i);
     }
     n += snprintf(buf + n, sizeof(buf) - n, "}}]}]}");
     Config c;
@@ -161,9 +161,8 @@ static void test_tile_path_count_clamps_at_max() {
 }
 
 static void test_alarm_gt_only() {
-    const char *j =
-        "{\"alarms\":[{\"id\":\"hot\",\"path\":\"environment.water.temperature\","
-        "\"level\":\"warn\",\"gt\":300.0,\"message\":\"HOT WATER\"}]}";
+    const char *j = "{\"alarms\":[{\"id\":\"hot\",\"path\":\"environment.water.temperature\","
+                    "\"level\":\"warn\",\"gt\":300.0,\"message\":\"HOT WATER\"}]}";
     Config c;
     int rc = parse(j, strlen(j), c);
     TEST_ASSERT_EQUAL(0, rc);
@@ -176,15 +175,12 @@ static void test_alarm_gt_only() {
 }
 
 static void test_all_screen_types() {
-    static const char *types[] = {"quadrants", "steering", "autopilot",
-                                  "route",     "trip",     "chart"};
-    static const ScreenType expected[] = {SCREEN_QUADRANTS, SCREEN_STEERING,
-                                          SCREEN_AUTOPILOT, SCREEN_ROUTE,
-                                          SCREEN_TRIP,      SCREEN_CHART};
+    static const char *types[] = {"quadrants", "steering", "autopilot", "route", "trip", "chart"};
+    static const ScreenType expected[] = {SCREEN_QUADRANTS, SCREEN_STEERING, SCREEN_AUTOPILOT,
+                                          SCREEN_ROUTE,     SCREEN_TRIP,     SCREEN_CHART};
     for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); ++i) {
         char buf[128];
-        snprintf(buf, sizeof(buf), "{\"screens\":[{\"id\":\"s\",\"type\":\"%s\"}]}",
-                 types[i]);
+        snprintf(buf, sizeof(buf), "{\"screens\":[{\"id\":\"s\",\"type\":\"%s\"}]}", types[i]);
         Config c;
         parse(buf, strlen(buf), c);
         TEST_ASSERT_EQUAL(1, c.screen_count);
@@ -224,11 +220,10 @@ static void test_too_many_alarms_are_clamped() {
 }
 
 static void test_screen_paths_are_parsed() {
-    const char *j =
-        "{\"screens\":[{\"id\":\"steer\",\"type\":\"steering\","
-        "\"paths\":{\"hdg\":\"navigation.headingTrue\","
-        "           \"cts\":\"navigation.courseRhumbline.bearingTrackTrue\","
-        "           \"xte\":\"navigation.courseRhumbline.crossTrackError\"}}]}";
+    const char *j = "{\"screens\":[{\"id\":\"steer\",\"type\":\"steering\","
+                    "\"paths\":{\"hdg\":\"navigation.headingTrue\","
+                    "           \"cts\":\"navigation.courseRhumbline.bearingTrackTrue\","
+                    "           \"xte\":\"navigation.courseRhumbline.crossTrackError\"}}]}";
     Config c;
     parse(j, strlen(j), c);
     TEST_ASSERT_EQUAL(1, c.screen_count);

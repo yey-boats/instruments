@@ -49,7 +49,7 @@ enum class Result : uint8_t {
     InvalidPayload,
     BackendUnavailable,
     Failed,
-    Forbidden,        // spec 17 §6: action gated off by permissions
+    Forbidden,  // spec 17 §6: action gated off by permissions
 };
 
 // Spec 17 §6 autopilot permissions. The plugin/operator can lock out

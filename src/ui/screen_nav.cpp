@@ -93,7 +93,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(lbl_depth_small, LV_ALIGN_LEFT_MID, 4, 0);
 
     lbl_temp_small = lv_label_create(strip);
-    lv_label_set_text(lbl_temp_small, "H2O --.-\xC2\xB0""C");
+    lv_label_set_text(lbl_temp_small, "H2O --.-\xC2\xB0"
+                                      "C");
     style_value(lbl_temp_small, &lv_font_montserrat_20, theme.fg);
     lv_obj_align(lbl_temp_small, LV_ALIGN_CENTER, 0, 0);
 
@@ -118,7 +119,9 @@ static char s_last_awa[24] = {(char)0xFF};
 static uint32_t s_last_awa_color = 0xFFFFFFFF;
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     if (!isnan(d.sog)) {
@@ -142,7 +145,10 @@ void refresh() {
         set_text_if_changed(lbl_depth_small, s_last_depth, sizeof(s_last_depth), buf);
     }
     if (!isnan(d.waterTemp)) {
-        snprintf(buf, sizeof(buf), "H2O %.1f\xC2\xB0""C", k_to_c(d.waterTemp));
+        snprintf(buf, sizeof(buf),
+                 "H2O %.1f\xC2\xB0"
+                 "C",
+                 k_to_c(d.waterTemp));
         set_text_if_changed(lbl_temp_small, s_last_temp, sizeof(s_last_temp), buf);
     }
     if (!isnan(d.awa)) {

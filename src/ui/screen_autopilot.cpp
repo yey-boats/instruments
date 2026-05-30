@@ -57,8 +57,10 @@ static void on_adjust(lv_event_t *e) {
     }
     if (isnan(target)) target = 0;
     target += delta_deg * M_PI / 180.0;
-    while (target < 0) target += 2 * M_PI;
-    while (target >= 2 * M_PI) target -= 2 * M_PI;
+    while (target < 0)
+        target += 2 * M_PI;
+    while (target >= 2 * M_PI)
+        target -= 2 * M_PI;
     s_target_local = target;
     put_heading(target);
 }
@@ -74,7 +76,7 @@ static void on_standby(lv_event_t *e) {
 }
 
 static lv_obj_t *make_button(lv_obj_t *parent, const char *txt, int x, int y, int w, int h,
-                              uint32_t color, lv_event_cb_t cb, intptr_t udata) {
+                             uint32_t color, lv_event_cb_t cb, intptr_t udata) {
     lv_obj_t *b = lv_button_create(parent);
     lv_obj_set_size(b, w, h);
     lv_obj_set_pos(b, x, y);
@@ -178,13 +180,16 @@ static char s_last_status[24] = {(char)0xFF};
 static uint32_t s_last_state_color = 0xFFFFFFFF;
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     if (d.apState[0]) {
         char up[16];
         size_t i = 0;
-        for (; d.apState[i] && i < sizeof(up) - 1; ++i) up[i] = toupper(d.apState[i]);
+        for (; d.apState[i] && i < sizeof(up) - 1; ++i)
+            up[i] = toupper(d.apState[i]);
         up[i] = 0;
         set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), up);
         bool engaged = (strcmp(d.apState, "auto") == 0 || strcmp(d.apState, "wind") == 0 ||
@@ -213,17 +218,18 @@ void refresh() {
 
     if (!isnan(target) && !isnan(d.headingTrue)) {
         double delta = (target - d.headingTrue) * 180.0 / M_PI;
-        while (delta > 180) delta -= 360;
-        while (delta < -180) delta += 360;
+        while (delta > 180)
+            delta -= 360;
+        while (delta < -180)
+            delta += 360;
         snprintf(buf, sizeof(buf), "\xCE\x94 %+.0f\xC2\xB0", delta);
         set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), buf);
     } else {
         set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "\xCE\x94 ---\xC2\xB0");
     }
 
-    const char *status = (sk::connectionStatus() == "live")
-                             ? "SignalK live"
-                             : sk::connectionStatus().c_str();
+    const char *status =
+        (sk::connectionStatus() == "live") ? "SignalK live" : sk::connectionStatus().c_str();
     set_text_if_changed(lbl_status, s_last_status, sizeof(s_last_status), status);
 }
 

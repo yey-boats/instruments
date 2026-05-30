@@ -23,7 +23,7 @@ enum class AuthState : uint8_t {
 };
 
 enum class HealthState : uint8_t {
-    Idle = 0,        // no endpoint configured
+    Idle = 0,  // no endpoint configured
     Registering,
     Heartbeating,
     Failed,
@@ -32,11 +32,11 @@ enum class HealthState : uint8_t {
 struct Status {
     AuthState auth;
     HealthState health;
-    String endpoint;          // "http://host:port" or ""
+    String endpoint;  // "http://host:port" or ""
     bool has_token;
-    bool has_sk_token;        // server-issued SK bearer for auth header
+    bool has_sk_token;  // server-issued SK bearer for auth header
     uint32_t last_register_ms;
-    int last_register_code;   // HTTP status, negative on transport error
+    int last_register_code;  // HTTP status, negative on transport error
     uint32_t last_heartbeat_ms;
     int last_heartbeat_code;
     uint32_t heartbeat_interval_ms;

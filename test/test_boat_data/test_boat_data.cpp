@@ -5,15 +5,17 @@
 
 using namespace boat;
 
-void setUp(void) { reset_all(); }
-void tearDown(void) {}
+void setUp(void) {
+    reset_all();
+}
+void tearDown(void) {
+}
 
 static void test_defaults() {
     Snapshot s;
     copy_snapshot(s);
     TEST_ASSERT_TRUE(std::isnan(s.sog_mps.value));
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::None),
-                      static_cast<int>(s.sog_mps.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::None), static_cast<int>(s.sog_mps.source));
     TEST_ASSERT_EQUAL_UINT32(0, s.sog_mps.updated_ms);
 }
 
@@ -52,8 +54,7 @@ static void test_signalk_only_publish() {
     Snapshot s;
     copy_snapshot(s);
     TEST_ASSERT_EQUAL_DOUBLE(3.5, s.sog_mps.value);
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::SignalK),
-                      static_cast<int>(s.sog_mps.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::SignalK), static_cast<int>(s.sog_mps.source));
 }
 
 static void test_priority_higher_wins_when_both_fresh() {
@@ -63,8 +64,7 @@ static void test_priority_higher_wins_when_both_fresh() {
     Snapshot s;
     copy_snapshot(s);
     TEST_ASSERT_EQUAL_DOUBLE(4.0, s.sog_mps.value);
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::NmeaWifi),
-                      static_cast<int>(s.sog_mps.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::NmeaWifi), static_cast<int>(s.sog_mps.source));
 }
 
 static void test_lower_priority_rejected_when_higher_fresh() {
@@ -74,8 +74,7 @@ static void test_lower_priority_rejected_when_higher_fresh() {
     Snapshot s;
     copy_snapshot(s);
     TEST_ASSERT_EQUAL_DOUBLE(4.0, s.sog_mps.value);
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::Nmea2000),
-                      static_cast<int>(s.sog_mps.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::Nmea2000), static_cast<int>(s.sog_mps.source));
 }
 
 static void test_lower_priority_accepted_when_higher_stale() {
@@ -86,8 +85,7 @@ static void test_lower_priority_accepted_when_higher_stale() {
     Snapshot s;
     copy_snapshot(s);
     TEST_ASSERT_EQUAL_DOUBLE(3.5, s.sog_mps.value);
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::SignalK),
-                      static_cast<int>(s.sog_mps.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::SignalK), static_cast<int>(s.sog_mps.source));
 }
 
 static void test_custom_priority_reorders() {
@@ -110,20 +108,15 @@ static void test_should_accept_pure() {
     Priority p;
     Timeouts t;
     // Same source overwriting itself is fine.
-    TEST_ASSERT_TRUE(should_accept(SourceKind::SignalK, SourceKind::SignalK,
-                                   100, 200, p, t));
+    TEST_ASSERT_TRUE(should_accept(SourceKind::SignalK, SourceKind::SignalK, 100, 200, p, t));
     // Higher priority always wins when fresh.
-    TEST_ASSERT_TRUE(should_accept(SourceKind::Nmea2000, SourceKind::SignalK,
-                                   100, 200, p, t));
+    TEST_ASSERT_TRUE(should_accept(SourceKind::Nmea2000, SourceKind::SignalK, 100, 200, p, t));
     // None never accepted.
-    TEST_ASSERT_FALSE(should_accept(SourceKind::None, SourceKind::SignalK,
-                                    100, 200, p, t));
+    TEST_ASSERT_FALSE(should_accept(SourceKind::None, SourceKind::SignalK, 100, 200, p, t));
     // Lower priority rejected when higher fresh.
-    TEST_ASSERT_FALSE(should_accept(SourceKind::SignalK, SourceKind::Nmea2000,
-                                    100, 200, p, t));
+    TEST_ASSERT_FALSE(should_accept(SourceKind::SignalK, SourceKind::Nmea2000, 100, 200, p, t));
     // Lower priority accepted when higher stale.
-    TEST_ASSERT_TRUE(should_accept(SourceKind::SignalK, SourceKind::Nmea2000,
-                                   100, 5000, p, t));
+    TEST_ASSERT_TRUE(should_accept(SourceKind::SignalK, SourceKind::Nmea2000, 100, 5000, p, t));
 }
 
 static void test_autopilot_state_publish() {
@@ -152,10 +145,8 @@ static void test_independent_fields() {
     copy_snapshot(s);
     TEST_ASSERT_EQUAL_DOUBLE(4.0, s.sog_mps.value);
     TEST_ASSERT_EQUAL_DOUBLE(12.0, s.depth_m.value);
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::Nmea2000),
-                      static_cast<int>(s.sog_mps.source));
-    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::SignalK),
-                      static_cast<int>(s.depth_m.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::Nmea2000), static_cast<int>(s.sog_mps.source));
+    TEST_ASSERT_EQUAL(static_cast<int>(SourceKind::SignalK), static_cast<int>(s.depth_m.source));
 }
 
 // --- Phase B: EMA + sin/cos smoothing --------------------------------
@@ -174,7 +165,8 @@ static void test_ema_step_converges() {
     // Target = 10, start at 0, tau=1000ms. After ~3*tau samples we
     // should be within 5% of target.
     double y = 0.0;
-    for (int i = 0; i < 30; ++i) y = ema_step(y, 10.0, 100, 1000);
+    for (int i = 0; i < 30; ++i)
+        y = ema_step(y, 10.0, 100, 1000);
     TEST_ASSERT_DOUBLE_WITHIN(0.5, 10.0, y);
 }
 
@@ -185,8 +177,7 @@ static void test_ema_step_smooth_slower() {
         y_fast = ema_step(y_fast, 10.0, 100, 300);
         y_smooth = ema_step(y_smooth, 10.0, 100, 5000);
     }
-    TEST_ASSERT_TRUE_MESSAGE(y_fast > y_smooth,
-                             "fast tau should reach target faster");
+    TEST_ASSERT_TRUE_MESSAGE(y_fast > y_smooth, "fast tau should reach target faster");
 }
 
 static void test_angle_ema_first_sample_is_input() {
@@ -207,25 +198,23 @@ static void test_angle_ema_wraparound() {
         double r = angle_ema_step(s, M_PI * (10.0 / 180.0), 100, 1000);
         // Convert to 0..360
         double d = r * (180.0 / M_PI);
-        while (d < 0) d += 360.0;
-        while (d >= 360.0) d -= 360.0;
+        while (d < 0)
+            d += 360.0;
+        while (d >= 360.0)
+            d -= 360.0;
         out_deg = d;
         // At every step, the value must be either close to 350 or
         // close to 10 (or in the short arc between them). Never near 180.
-        TEST_ASSERT_TRUE_MESSAGE(
-            d < 90 || d > 270,
-            "smoothed angle crossed the long way around");
+        TEST_ASSERT_TRUE_MESSAGE(d < 90 || d > 270, "smoothed angle crossed the long way around");
     }
     TEST_ASSERT_DOUBLE_WITHIN(2.0, 10.0, out_deg);
 }
 
 static void test_response_setting_affects_smoothing() {
     set_speed_response(Response::Fast);
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(Response::Fast),
-                          static_cast<int>(speed_response()));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(Response::Fast), static_cast<int>(speed_response()));
     set_speed_response(Response::Smooth);
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(Response::Smooth),
-                          static_cast<int>(speed_response()));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(Response::Smooth), static_cast<int>(speed_response()));
 }
 
 static void test_smoothed_accessor_returns_nan_initially() {

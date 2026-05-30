@@ -10,8 +10,10 @@
 
 using hostname_check::is_valid;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static void test_typical_names_accepted() {
     TEST_ASSERT_TRUE(is_valid("espdisp"));
@@ -49,15 +51,15 @@ static void test_leading_or_trailing_dash_rejected() {
 }
 
 static void test_disallowed_chars_rejected() {
-    TEST_ASSERT_FALSE(is_valid("foo bar"));         // space
-    TEST_ASSERT_FALSE(is_valid("foo_bar"));         // underscore
-    TEST_ASSERT_FALSE(is_valid("foo.bar"));         // dot
-    TEST_ASSERT_FALSE(is_valid("foo/bar"));         // slash
-    TEST_ASSERT_FALSE(is_valid("foo:bar"));         // colon
-    TEST_ASSERT_FALSE(is_valid("foo@bar"));         // at
-    TEST_ASSERT_FALSE(is_valid("voil\xc3\xa0"));    // utf8 (à)
-    TEST_ASSERT_FALSE(is_valid("foo\tbar"));        // tab
-    TEST_ASSERT_FALSE(is_valid("foo\nbar"));        // newline
+    TEST_ASSERT_FALSE(is_valid("foo bar"));       // space
+    TEST_ASSERT_FALSE(is_valid("foo_bar"));       // underscore
+    TEST_ASSERT_FALSE(is_valid("foo.bar"));       // dot
+    TEST_ASSERT_FALSE(is_valid("foo/bar"));       // slash
+    TEST_ASSERT_FALSE(is_valid("foo:bar"));       // colon
+    TEST_ASSERT_FALSE(is_valid("foo@bar"));       // at
+    TEST_ASSERT_FALSE(is_valid("voil\xc3\xa0"));  // utf8 (à)
+    TEST_ASSERT_FALSE(is_valid("foo\tbar"));      // tab
+    TEST_ASSERT_FALSE(is_valid("foo\nbar"));      // newline
 }
 
 static void test_mixed_case_accepted() {
@@ -76,10 +78,10 @@ static void test_digits_only_accepted() {
 static void test_known_problematic_inputs() {
     // Strings the plugin / operators have sent that must be rejected
     // before they reach the `id <name>` dispatch + reboot.
-    TEST_ASSERT_FALSE(is_valid("null!"));        // bang
-    TEST_ASSERT_FALSE(is_valid("\xff\xfe"));     // raw non-ASCII bytes
-    TEST_ASSERT_FALSE(is_valid("My Boat"));      // space
-    TEST_ASSERT_FALSE(is_valid("device.local")); // already-qualified FQDN
+    TEST_ASSERT_FALSE(is_valid("null!"));         // bang
+    TEST_ASSERT_FALSE(is_valid("\xff\xfe"));      // raw non-ASCII bytes
+    TEST_ASSERT_FALSE(is_valid("My Boat"));       // space
+    TEST_ASSERT_FALSE(is_valid("device.local"));  // already-qualified FQDN
 }
 
 int main(int, char **) {

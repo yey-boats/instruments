@@ -17,9 +17,7 @@ bool err_is_missing(esp_err_t e) {
 }  // namespace
 
 Namespace::Namespace(const char *name, bool readonly) : readonly_(readonly) {
-    esp_err_t e = nvs_open(name,
-                           readonly ? NVS_READONLY : NVS_READWRITE,
-                           &handle_);
+    esp_err_t e = nvs_open(name, readonly ? NVS_READONLY : NVS_READWRITE, &handle_);
     ok_ = (e == ESP_OK);
 }
 

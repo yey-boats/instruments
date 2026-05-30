@@ -29,14 +29,19 @@ static volatile uint32_t s_coalesced = 0;
 // Debounce windows per domain (spec 08 defaults).
 static constexpr uint32_t DEBOUNCE_UI_MS = 1500;
 static constexpr uint32_t DEBOUNCE_ALARMS_MS = 1500;
-static constexpr uint32_t DEBOUNCE_SK_MS = 500;  // signalk target rarely changes; quick save is fine
+static constexpr uint32_t DEBOUNCE_SK_MS =
+    500;  // signalk target rarely changes; quick save is fine
 
 static uint32_t debounce_for(Domain d) {
     switch (d) {
-    case Domain::Ui:      return DEBOUNCE_UI_MS;
-    case Domain::Alarms:  return DEBOUNCE_ALARMS_MS;
-    case Domain::SignalK: return DEBOUNCE_SK_MS;
-    default:              return DEBOUNCE_UI_MS;
+    case Domain::Ui:
+        return DEBOUNCE_UI_MS;
+    case Domain::Alarms:
+        return DEBOUNCE_ALARMS_MS;
+    case Domain::SignalK:
+        return DEBOUNCE_SK_MS;
+    default:
+        return DEBOUNCE_UI_MS;
     }
 }
 
@@ -198,10 +203,17 @@ static void persist_domain_locked(Domain d) {
     m.persist_pending = false;
     m.dirty = false;
     switch (d) {
-    case Domain::Ui:      persist_ui(s_cfg.ui, m); break;
-    case Domain::Alarms:  persist_alarms(s_cfg.alarms, m); break;
-    case Domain::SignalK: persist_signalk(s_cfg.signalk, m); break;
-    default: break;
+    case Domain::Ui:
+        persist_ui(s_cfg.ui, m);
+        break;
+    case Domain::Alarms:
+        persist_alarms(s_cfg.alarms, m);
+        break;
+    case Domain::SignalK:
+        persist_signalk(s_cfg.signalk, m);
+        break;
+    default:
+        break;
     }
 }
 
@@ -383,9 +395,17 @@ void flush_pending() {
     xSemaphoreGive(s_mtx);
 }
 
-uint32_t persist_jobs_queued() { return s_jobs_queued; }
-uint32_t persist_jobs_completed() { return s_jobs_completed; }
-uint32_t persist_jobs_failed() { return s_jobs_failed; }
-uint32_t coalesced_writes() { return s_coalesced; }
+uint32_t persist_jobs_queued() {
+    return s_jobs_queued;
+}
+uint32_t persist_jobs_completed() {
+    return s_jobs_completed;
+}
+uint32_t persist_jobs_failed() {
+    return s_jobs_failed;
+}
+uint32_t coalesced_writes() {
+    return s_coalesced;
+}
 
 }  // namespace config

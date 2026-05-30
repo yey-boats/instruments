@@ -4,8 +4,10 @@
 
 #include "widget_data_resolver.h"
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static sk::Data make_data() {
     sk::Data d;
@@ -32,14 +34,12 @@ static void test_local_alias_numeric() {
 
 static void test_raw_sk_path_numeric() {
     sk::Data d = make_data();
-    TEST_ASSERT_EQUAL_DOUBLE(3.5, widget_data::resolve_numeric(
-        "navigation.speedOverGround", d));
-    TEST_ASSERT_EQUAL_DOUBLE(1.60, widget_data::resolve_numeric(
-        "navigation.headingTrue", d));
-    TEST_ASSERT_EQUAL_DOUBLE(5.2, widget_data::resolve_numeric(
-        "environment.wind.speedApparent", d));
-    TEST_ASSERT_EQUAL_DOUBLE(0.82, widget_data::resolve_numeric(
-        "electrical.batteries.house.stateOfCharge", d));
+    TEST_ASSERT_EQUAL_DOUBLE(3.5, widget_data::resolve_numeric("navigation.speedOverGround", d));
+    TEST_ASSERT_EQUAL_DOUBLE(1.60, widget_data::resolve_numeric("navigation.headingTrue", d));
+    TEST_ASSERT_EQUAL_DOUBLE(5.2,
+                             widget_data::resolve_numeric("environment.wind.speedApparent", d));
+    TEST_ASSERT_EQUAL_DOUBLE(
+        0.82, widget_data::resolve_numeric("electrical.batteries.house.stateOfCharge", d));
 }
 
 static void test_unknown_path_returns_nan() {
@@ -53,20 +53,18 @@ static void test_unknown_path_returns_nan() {
 static void test_string_path_autopilot_state() {
     sk::Data d = make_data();
     char buf[24] = {0};
-    TEST_ASSERT_TRUE(widget_data::resolve_string("boat.autopilotState", d,
-                                                  buf, sizeof(buf)));
+    TEST_ASSERT_TRUE(widget_data::resolve_string("boat.autopilotState", d, buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("auto", buf);
-    buf[0] = 'X'; buf[1] = 0;
-    TEST_ASSERT_TRUE(widget_data::resolve_string("steering.autopilot.state", d,
-                                                  buf, sizeof(buf)));
+    buf[0] = 'X';
+    buf[1] = 0;
+    TEST_ASSERT_TRUE(widget_data::resolve_string("steering.autopilot.state", d, buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("auto", buf);
 }
 
 static void test_string_path_unknown_returns_empty() {
     sk::Data d = make_data();
     char buf[16] = {'X', 0};
-    TEST_ASSERT_FALSE(widget_data::resolve_string("boat.sog", d,
-                                                   buf, sizeof(buf)));
+    TEST_ASSERT_FALSE(widget_data::resolve_string("boat.sog", d, buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("", buf);
 }
 

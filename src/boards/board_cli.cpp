@@ -15,13 +15,12 @@ bool handleSerialCommand(const String &line) {
         Geometry g = geometry();
         Capabilities c = capabilities();
         net::logf("[board] id=%s name=%s", id(), display_name());
-        net::logf("[board] geom %ux%u rot=%u %.1f\" class=%d",
-                  g.width_px, g.height_px, g.rotation,
+        net::logf("[board] geom %ux%u rot=%u %.1f\" class=%d", g.width_px, g.height_px, g.rotation,
                   g.diagonal_tenths_in / 10.0f, (int)g.layout_class);
         net::logf("[board] caps psram=%d backlight=%d touch=%d cal=%d "
                   "beeper=%d can=%d sd=%d",
-                  c.psram_required, (int)c.backlight, (int)c.touch,
-                  c.touch_calibration, c.beeper, c.nmea2000_can, c.sd_card);
+                  c.psram_required, (int)c.backlight, (int)c.touch, c.touch_calibration, c.beeper,
+                  c.nmea2000_can, c.sd_card);
         net::logf("[board] backlight=%u", backlight());
         return true;
     }

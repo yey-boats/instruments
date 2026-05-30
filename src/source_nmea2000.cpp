@@ -60,7 +60,7 @@ void save_prefs() {
 // extended CAN identifier.
 struct J1939Id {
     uint8_t priority;
-    uint32_t pgn;       // 18 bits effective
+    uint32_t pgn;  // 18 bits effective
     uint8_t source;
 };
 
@@ -81,11 +81,14 @@ J1939Id decode_id(uint32_t id) {
     return r;
 }
 
-inline uint16_t u16le(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
-inline int16_t  s16le(const uint8_t *p) { return (int16_t)u16le(p); }
+inline uint16_t u16le(const uint8_t *p) {
+    return (uint16_t)(p[0] | (p[1] << 8));
+}
+inline int16_t s16le(const uint8_t *p) {
+    return (int16_t)u16le(p);
+}
 inline uint32_t u32le(const uint8_t *p) {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
-           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
 void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
@@ -97,166 +100,174 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
     bool ok = false;
 
     switch (pgn) {
-        case 127250: {  // Vessel heading
-            if (n < 4) break;
-            uint16_t hdg_raw = u16le(d + 1);
-            if (hdg_raw != 0xFFFF) {
-                double hdg = hdg_raw * 0.0001;  // rad
-                boat::publish(&Snapshot::heading_true_rad, src, now, hdg);
-                ok = true;
-            }
-            break;
+    case 127250: {  // Vessel heading
+        if (n < 4) break;
+        uint16_t hdg_raw = u16le(d + 1);
+        if (hdg_raw != 0xFFFF) {
+            double hdg = hdg_raw * 0.0001;  // rad
+            boat::publish(&Snapshot::heading_true_rad, src, now, hdg);
+            ok = true;
         }
-        case 127508: {  // Battery status
-            if (n < 5) break;
-            uint16_t v_raw = u16le(d + 1);
-            if (v_raw != 0xFFFF) {
-                double v = v_raw * 0.01;
-                boat::publish(&Snapshot::battery_v, src, now, v);
-                ok = true;
-            }
-            break;
+        break;
+    }
+    case 127508: {  // Battery status
+        if (n < 5) break;
+        uint16_t v_raw = u16le(d + 1);
+        if (v_raw != 0xFFFF) {
+            double v = v_raw * 0.01;
+            boat::publish(&Snapshot::battery_v, src, now, v);
+            ok = true;
         }
-        case 128267: {  // Depth
-            if (n < 6) break;
-            uint32_t depth_raw = u32le(d + 1);
-            if (depth_raw != 0xFFFFFFFF) {
-                double depth = depth_raw * 0.01;
-                boat::publish(&Snapshot::depth_m, src, now, depth);
-                ok = true;
-            }
-            break;
+        break;
+    }
+    case 128267: {  // Depth
+        if (n < 6) break;
+        uint32_t depth_raw = u32le(d + 1);
+        if (depth_raw != 0xFFFFFFFF) {
+            double depth = depth_raw * 0.01;
+            boat::publish(&Snapshot::depth_m, src, now, depth);
+            ok = true;
         }
-        case 129025: {  // Position rapid
-            if (n < 8) break;
-            int32_t lat_raw = (int32_t)u32le(d);
-            int32_t lon_raw = (int32_t)u32le(d + 4);
-            if (lat_raw != (int32_t)0x7FFFFFFF) {
-                double lat = lat_raw * 1e-7;
-                boat::publish(&Snapshot::lat_deg, src, now, lat);
-                ok = true;
-            }
-            if (lon_raw != (int32_t)0x7FFFFFFF) {
-                double lon = lon_raw * 1e-7;
-                boat::publish(&Snapshot::lon_deg, src, now, lon);
-                ok = true;
-            }
-            break;
+        break;
+    }
+    case 129025: {  // Position rapid
+        if (n < 8) break;
+        int32_t lat_raw = (int32_t)u32le(d);
+        int32_t lon_raw = (int32_t)u32le(d + 4);
+        if (lat_raw != (int32_t)0x7FFFFFFF) {
+            double lat = lat_raw * 1e-7;
+            boat::publish(&Snapshot::lat_deg, src, now, lat);
+            ok = true;
         }
-        case 129026: {  // COG/SOG rapid
-            if (n < 6) break;
-            uint16_t cog_raw = u16le(d + 2);
-            uint16_t sog_raw = u16le(d + 4);
-            if (cog_raw != 0xFFFF) {
-                boat::publish(&Snapshot::cog_true_rad, src, now,
-                              cog_raw * 0.0001);
-                ok = true;
-            }
-            if (sog_raw != 0xFFFF) {
-                boat::publish(&Snapshot::sog_mps, src, now, sog_raw * 0.01);
-                ok = true;
-            }
-            break;
+        if (lon_raw != (int32_t)0x7FFFFFFF) {
+            double lon = lon_raw * 1e-7;
+            boat::publish(&Snapshot::lon_deg, src, now, lon);
+            ok = true;
         }
-        case 130306: {  // Wind data
-            if (n < 6) break;
-            uint16_t ws_raw = u16le(d + 1);
-            uint16_t wa_raw = u16le(d + 3);
-            uint8_t ref = d[5] & 0x07;
-            if (ws_raw != 0xFFFF && wa_raw != 0xFFFF) {
-                double ws = ws_raw * 0.01;     // m/s
-                double wa = wa_raw * 0.0001;   // rad
-                // Wrap to signed.
-                if (wa > M_PI) wa -= 2 * M_PI;
-                bool apparent = (ref == 2);
-                boat::publish(apparent ? &Snapshot::aws_mps : &Snapshot::tws_mps,
-                              src, now, ws);
-                boat::publish(apparent ? &Snapshot::awa_rad : &Snapshot::twa_rad,
-                              src, now, wa);
-                ok = true;
-            }
-            break;
+        break;
+    }
+    case 129026: {  // COG/SOG rapid
+        if (n < 6) break;
+        uint16_t cog_raw = u16le(d + 2);
+        uint16_t sog_raw = u16le(d + 4);
+        if (cog_raw != 0xFFFF) {
+            boat::publish(&Snapshot::cog_true_rad, src, now, cog_raw * 0.0001);
+            ok = true;
         }
-
-        // --- Raymarine pilot PGNs (spec 12 §4). Decoded from public
-        // protocol references - no GPL source imported.
-        case 127237: {  // Heading/Track Control (rudder commanded + locked heading)
-            if (n < 8) break;
-            // Bytes layout (subset): byte 4-5 = heading_to_steer (rad * 1e-4)
-            uint16_t heading_raw = u16le(d + 4);
-            if (heading_raw != 0xFFFF) {
-                double hdg = heading_raw * 0.0001;
-                if (hdg > M_PI) hdg -= 2 * M_PI;
-                boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
-                ok = true;
-            }
-            break;
+        if (sog_raw != 0xFFFF) {
+            boat::publish(&Snapshot::sog_mps, src, now, sog_raw * 0.01);
+            ok = true;
         }
-        case 65360: {  // Raymarine Pilot Locked Heading
-            // Manufacturer PGN: bytes 0-1 = manufacturer id + industry
-            //                   bytes 2-3 = locked heading (rad * 1e-4)
-            if (n < 8) break;
-            uint16_t hdg_raw = u16le(d + 2);
-            if (hdg_raw != 0xFFFF) {
-                double hdg = hdg_raw * 0.0001;
-                if (hdg > M_PI) hdg -= 2 * M_PI;
-                boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
-                ok = true;
-            }
-            break;
+        break;
+    }
+    case 130306: {  // Wind data
+        if (n < 6) break;
+        uint16_t ws_raw = u16le(d + 1);
+        uint16_t wa_raw = u16le(d + 3);
+        uint8_t ref = d[5] & 0x07;
+        if (ws_raw != 0xFFFF && wa_raw != 0xFFFF) {
+            double ws = ws_raw * 0.01;    // m/s
+            double wa = wa_raw * 0.0001;  // rad
+            // Wrap to signed.
+            if (wa > M_PI) wa -= 2 * M_PI;
+            bool apparent = (ref == 2);
+            boat::publish(apparent ? &Snapshot::aws_mps : &Snapshot::tws_mps, src, now, ws);
+            boat::publish(apparent ? &Snapshot::awa_rad : &Snapshot::twa_rad, src, now, wa);
+            ok = true;
         }
-        case 65379: {  // Raymarine Pilot Mode / Submode
-            // bytes 4-5 = pilot mode enum
-            if (n < 8) break;
-            uint16_t mode_raw = u16le(d + 4);
-            const char *state = nullptr;
-            switch (mode_raw) {
-                case 0x0000: state = "standby"; break;
-                case 0x0040: state = "auto"; break;
-                case 0x0100: state = "wind"; break;
-                case 0x0180: state = "track"; break;
-                default: break;
-            }
-            if (state) {
-                boat::publish_autopilot_state(src, now, state);
-                ok = true;
-            }
-            break;
-        }
-        case 65288: {  // Raymarine Pilot Alarm State
-            // Minimal: any non-zero alarm code -> mark autopilot warning
-            // by appending "/alarm" suffix to the current state, or
-            // record the bare alarm flag in the field for now. Since we
-            // don't have a dedicated autopilot_alarm field, just log.
-            if (n < 8) break;
-            uint16_t alarm = u16le(d + 2);
-            if (alarm) {
-                net::logf("[n2k] Raymarine alarm code=0x%04x", alarm);
-                ok = true;
-            }
-            break;
-        }
-        case 65345: {  // Raymarine Pilot Wind Angle (track-wind ref)
-            // bytes 2-3 = locked wind angle (rad * 1e-4)
-            if (n < 8) break;
-            uint16_t wa_raw = u16le(d + 2);
-            if (wa_raw != 0xFFFF) {
-                double wa = wa_raw * 0.0001;
-                if (wa > M_PI) wa -= 2 * M_PI;
-                // No dedicated field; piggyback on twa_rad as
-                // "target wind angle" hint when in wind mode.
-                boat::publish(&Snapshot::twa_rad, src, now, wa);
-                ok = true;
-            }
-            break;
-        }
-
-        default:
-            break;
+        break;
     }
 
-    if (ok) s_pgns_decoded++;
-    else    s_pgns_unknown++;
+    // --- Raymarine pilot PGNs (spec 12 §4). Decoded from public
+    // protocol references - no GPL source imported.
+    case 127237: {  // Heading/Track Control (rudder commanded + locked heading)
+        if (n < 8) break;
+        // Bytes layout (subset): byte 4-5 = heading_to_steer (rad * 1e-4)
+        uint16_t heading_raw = u16le(d + 4);
+        if (heading_raw != 0xFFFF) {
+            double hdg = heading_raw * 0.0001;
+            if (hdg > M_PI) hdg -= 2 * M_PI;
+            boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
+            ok = true;
+        }
+        break;
+    }
+    case 65360: {  // Raymarine Pilot Locked Heading
+        // Manufacturer PGN: bytes 0-1 = manufacturer id + industry
+        //                   bytes 2-3 = locked heading (rad * 1e-4)
+        if (n < 8) break;
+        uint16_t hdg_raw = u16le(d + 2);
+        if (hdg_raw != 0xFFFF) {
+            double hdg = hdg_raw * 0.0001;
+            if (hdg > M_PI) hdg -= 2 * M_PI;
+            boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
+            ok = true;
+        }
+        break;
+    }
+    case 65379: {  // Raymarine Pilot Mode / Submode
+        // bytes 4-5 = pilot mode enum
+        if (n < 8) break;
+        uint16_t mode_raw = u16le(d + 4);
+        const char *state = nullptr;
+        switch (mode_raw) {
+        case 0x0000:
+            state = "standby";
+            break;
+        case 0x0040:
+            state = "auto";
+            break;
+        case 0x0100:
+            state = "wind";
+            break;
+        case 0x0180:
+            state = "track";
+            break;
+        default:
+            break;
+        }
+        if (state) {
+            boat::publish_autopilot_state(src, now, state);
+            ok = true;
+        }
+        break;
+    }
+    case 65288: {  // Raymarine Pilot Alarm State
+        // Minimal: any non-zero alarm code -> mark autopilot warning
+        // by appending "/alarm" suffix to the current state, or
+        // record the bare alarm flag in the field for now. Since we
+        // don't have a dedicated autopilot_alarm field, just log.
+        if (n < 8) break;
+        uint16_t alarm = u16le(d + 2);
+        if (alarm) {
+            net::logf("[n2k] Raymarine alarm code=0x%04x", alarm);
+            ok = true;
+        }
+        break;
+    }
+    case 65345: {  // Raymarine Pilot Wind Angle (track-wind ref)
+        // bytes 2-3 = locked wind angle (rad * 1e-4)
+        if (n < 8) break;
+        uint16_t wa_raw = u16le(d + 2);
+        if (wa_raw != 0xFFFF) {
+            double wa = wa_raw * 0.0001;
+            if (wa > M_PI) wa -= 2 * M_PI;
+            // No dedicated field; piggyback on twa_rad as
+            // "target wind angle" hint when in wind mode.
+            boat::publish(&Snapshot::twa_rad, src, now, wa);
+            ok = true;
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    if (ok)
+        s_pgns_decoded++;
+    else
+        s_pgns_unknown++;
 }
 
 void worker(void *) {
@@ -273,8 +284,7 @@ void worker(void *) {
         }
         if (!installed) {
             twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
-                (gpio_num_t)s_tx_pin, (gpio_num_t)s_rx_pin,
-                TWAI_MODE_LISTEN_ONLY);
+                (gpio_num_t)s_tx_pin, (gpio_num_t)s_rx_pin, TWAI_MODE_LISTEN_ONLY);
             twai_timing_config_t t = TWAI_TIMING_CONFIG_250KBITS();
             twai_filter_config_t f = TWAI_FILTER_CONFIG_ACCEPT_ALL();
             if (twai_driver_install(&g, &t, &f) != ESP_OK) {
@@ -304,14 +314,12 @@ void worker(void *) {
                     char hex[3 * 8 + 1];  // up to 8 bytes -> "XX XX ..."
                     int hp = 0;
                     for (int i = 0; i < msg.data_length_code && i < 8; ++i) {
-                        hp += snprintf(hex + hp, sizeof(hex) - hp,
-                                       "%02X%s", msg.data[i],
+                        hp += snprintf(hex + hp, sizeof(hex) - hp, "%02X%s", msg.data[i],
                                        i + 1 < msg.data_length_code ? " " : "");
                     }
                     hex[sizeof(hex) - 1] = '\0';
-                    net::logf("[n2k-sniff] pgn=%lu src=%u prio=%u dlc=%u %s",
-                              (unsigned long)id.pgn, id.source, id.priority,
-                              msg.data_length_code, hex);
+                    net::logf("[n2k-sniff] pgn=%lu src=%u prio=%u dlc=%u %s", (unsigned long)id.pgn,
+                              id.source, id.priority, msg.data_length_code, hex);
                 }
                 decode_pgn(id.pgn, msg.data, msg.data_length_code);
             }
@@ -337,8 +345,7 @@ void setup() {
     if (!s_task) {
         xTaskCreatePinnedToCore(worker, "n2k", 4096, nullptr, 1, &s_task, 0);
     }
-    net::logf("[n2k] %s rx=%d tx=%d",
-              s_enabled ? "enabled" : "disabled", s_rx_pin, s_tx_pin);
+    net::logf("[n2k] %s rx=%d tx=%d", s_enabled ? "enabled" : "disabled", s_rx_pin, s_tx_pin);
 #else
     net::logf("[n2k] not compiled in (build with -DENABLE_NMEA2000)");
 #endif
@@ -372,31 +379,33 @@ bool handleSerialCommand(const String &line) {
         net::logf("[n2k] compiled=%d enabled=%d sniff=%d tx_enabled=%d "
                   "rx=%d tx=%d frames=%lu decoded=%lu unknown=%lu "
                   "last_rx_ago=%lums",
-                  st.compiled_in, st.enabled, st.sniff, st.tx_enabled,
-                  st.rx_pin, st.tx_pin,
-                  (unsigned long)st.frames_rx,
-                  (unsigned long)st.pgns_decoded,
+                  st.compiled_in, st.enabled, st.sniff, st.tx_enabled, st.rx_pin, st.tx_pin,
+                  (unsigned long)st.frames_rx, (unsigned long)st.pgns_decoded,
                   (unsigned long)st.pgns_unknown,
                   st.last_rx_ms ? (unsigned long)(millis() - st.last_rx_ms) : 0UL);
         return true;
     }
     if (rest == "enable") {
-        s_enabled = true; save_prefs();
+        s_enabled = true;
+        save_prefs();
         net::logf("[n2k] enabled");
         return true;
     }
     if (rest == "disable") {
-        s_enabled = false; save_prefs();
+        s_enabled = false;
+        save_prefs();
         net::logf("[n2k] disabled");
         return true;
     }
     if (rest == "sniff on" || rest == "sniff") {
-        s_sniff = true; save_prefs();
+        s_sniff = true;
+        save_prefs();
         net::logf("[n2k] sniff on - logging every received frame");
         return true;
     }
     if (rest == "sniff off") {
-        s_sniff = false; save_prefs();
+        s_sniff = false;
+        save_prefs();
         net::logf("[n2k] sniff off");
         return true;
     }
@@ -406,13 +415,15 @@ bool handleSerialCommand(const String &line) {
         // refuse to send until the operator opts in explicitly. The
         // hardware is still held in LISTEN_ONLY by the worker - the
         // gate doesn't bypass that.
-        s_tx_enabled = true; save_prefs();
+        s_tx_enabled = true;
+        save_prefs();
         net::logf("[n2k] tx gate OPEN (hardware still listen-only; "
                   "transmit code path will honor this flag)");
         return true;
     }
     if (rest == "tx off") {
-        s_tx_enabled = false; save_prefs();
+        s_tx_enabled = false;
+        save_prefs();
         net::logf("[n2k] tx gate closed");
         return true;
     }

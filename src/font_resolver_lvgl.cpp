@@ -15,11 +15,16 @@ const lv_font_t *font_for_size(uint16_t size) {
     // enables change. The host-side DEFAULT_SIZES table must stay
     // in sync.
     switch (size) {
-        case 14: return &lv_font_montserrat_14;
-        case 20: return &lv_font_montserrat_20;
-        case 28: return &lv_font_montserrat_28;
-        case 48: return &lv_font_montserrat_48;
-        default: return &lv_font_montserrat_14;
+    case 14:
+        return &lv_font_montserrat_14;
+    case 20:
+        return &lv_font_montserrat_20;
+    case 28:
+        return &lv_font_montserrat_28;
+    case 48:
+        return &lv_font_montserrat_48;
+    default:
+        return &lv_font_montserrat_14;
     }
 }
 

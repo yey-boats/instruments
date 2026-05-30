@@ -47,8 +47,10 @@ inline void push_field(ParseResult &r, FieldKind k, double v) {
 // Wrap apparent wind angle [0..360) into signed [-180..180).
 inline double wrap_signed_deg(double a) {
     if (!isfinite(a)) return a;
-    while (a < -180.0) a += 360.0;
-    while (a >= 180.0) a -= 360.0;
+    while (a < -180.0)
+        a += 360.0;
+    while (a >= 180.0)
+        a -= 360.0;
     return a;
 }
 
@@ -119,17 +121,23 @@ void parse_mwv(char **t, int n, ParseResult &r) {
     if (isfinite(speed)) {
         // Convert to knots based on unit.
         switch (t[3][0]) {
-            case 'N': break;                  // already knots
-            case 'K': speed *= 0.539957; break;  // km/h -> kn
-            case 'M': speed *= 1.943844; break;  // m/s -> kn
-            default: speed = NAN; break;
+        case 'N':
+            break;  // already knots
+        case 'K':
+            speed *= 0.539957;
+            break;  // km/h -> kn
+        case 'M':
+            speed *= 1.943844;
+            break;  // m/s -> kn
+        default:
+            speed = NAN;
+            break;
         }
     }
     double signed_angle = wrap_signed_deg(angle);
     bool true_wind = (t[1][0] == 'T');
     if (isfinite(signed_angle)) {
-        push_field(r, true_wind ? FieldKind::TwaDeg : FieldKind::AwaDeg,
-                   signed_angle);
+        push_field(r, true_wind ? FieldKind::TwaDeg : FieldKind::AwaDeg, signed_angle);
     }
     if (isfinite(speed)) {
         push_field(r, true_wind ? FieldKind::TwsKn : FieldKind::AwsKn, speed);
@@ -185,7 +193,10 @@ size_t verify_checksum(const char *line, size_t len, uint8_t *cksum_out) {
     // Find '*'
     size_t star = (size_t)-1;
     for (size_t i = start; i < len; ++i) {
-        if (line[i] == '*') { star = i; break; }
+        if (line[i] == '*') {
+            star = i;
+            break;
+        }
     }
     if (star == (size_t)-1 || star + 2 >= len) return 0;
     int hi = hex_nibble(line[star + 1]);
@@ -193,7 +204,8 @@ size_t verify_checksum(const char *line, size_t len, uint8_t *cksum_out) {
     if (hi < 0 || lo < 0) return 0;
     uint8_t want = (uint8_t)((hi << 4) | lo);
     uint8_t have = 0;
-    for (size_t i = start; i < star; ++i) have ^= (uint8_t)line[i];
+    for (size_t i = start; i < star; ++i)
+        have ^= (uint8_t)line[i];
     if (cksum_out) *cksum_out = have;
     if (want != have) return 0;
     return star - start;
@@ -240,19 +252,32 @@ ParseResult parse_sentence(const char *line, size_t len) {
     int n = split_csv(buf, tok, 20);
 
     const char *s = r.sentence;
-    if      (!strcmp(s, "RMC")) parse_rmc(tok, n, r);
-    else if (!strcmp(s, "GGA")) parse_gga(tok, n, r);
-    else if (!strcmp(s, "VTG")) parse_vtg(tok, n, r);
-    else if (!strcmp(s, "VHW")) parse_vhw(tok, n, r);
-    else if (!strcmp(s, "HDT")) parse_hdt(tok, n, r);
-    else if (!strcmp(s, "HDG")) parse_hdg(tok, n, r);
-    else if (!strcmp(s, "MWV")) parse_mwv(tok, n, r);
-    else if (!strcmp(s, "DPT")) parse_dpt(tok, n, r);
-    else if (!strcmp(s, "DBT")) parse_dbt(tok, n, r);
-    else if (!strcmp(s, "MTW")) parse_mtw(tok, n, r);
-    else if (!strcmp(s, "XTE")) parse_xte(tok, n, r);
-    else if (!strcmp(s, "BWC")) parse_bwc(tok, n, r);
-    else return r;  // unrecognized but checksum valid
+    if (!strcmp(s, "RMC"))
+        parse_rmc(tok, n, r);
+    else if (!strcmp(s, "GGA"))
+        parse_gga(tok, n, r);
+    else if (!strcmp(s, "VTG"))
+        parse_vtg(tok, n, r);
+    else if (!strcmp(s, "VHW"))
+        parse_vhw(tok, n, r);
+    else if (!strcmp(s, "HDT"))
+        parse_hdt(tok, n, r);
+    else if (!strcmp(s, "HDG"))
+        parse_hdg(tok, n, r);
+    else if (!strcmp(s, "MWV"))
+        parse_mwv(tok, n, r);
+    else if (!strcmp(s, "DPT"))
+        parse_dpt(tok, n, r);
+    else if (!strcmp(s, "DBT"))
+        parse_dbt(tok, n, r);
+    else if (!strcmp(s, "MTW"))
+        parse_mtw(tok, n, r);
+    else if (!strcmp(s, "XTE"))
+        parse_xte(tok, n, r);
+    else if (!strcmp(s, "BWC"))
+        parse_bwc(tok, n, r);
+    else
+        return r;  // unrecognized but checksum valid
 
     r.ok = true;
     return r;

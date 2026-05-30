@@ -7,8 +7,8 @@ namespace error_log {
 namespace {
 
 Entry s_entries[MAX_ENTRIES] = {};
-size_t s_write = 0;   // index of the next slot to overwrite
-size_t s_count = 0;   // saturating count (capped at MAX_ENTRIES)
+size_t s_write = 0;  // index of the next slot to overwrite
+size_t s_count = 0;  // saturating count (capped at MAX_ENTRIES)
 
 }  // namespace
 
@@ -22,7 +22,9 @@ void push(uint32_t timestamp_ms, const char *message) {
     if (s_count < MAX_ENTRIES) s_count++;
 }
 
-size_t size() { return s_count; }
+size_t size() {
+    return s_count;
+}
 
 size_t copy(Entry *out, size_t cap) {
     if (!out || cap == 0 || s_count == 0) return 0;

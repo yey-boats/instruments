@@ -87,10 +87,18 @@ void prev() {
     }
 }
 
-int current_index() { return s_index; }
-const char *current_id() { return s_count == 0 ? "" : s_screens[s_index].id; }
-const char *current_title() { return s_count == 0 ? "" : s_screens[s_index].title; }
-size_t screen_count() { return s_count; }
+int current_index() {
+    return s_index;
+}
+const char *current_id() {
+    return s_count == 0 ? "" : s_screens[s_index].id;
+}
+const char *current_title() {
+    return s_count == 0 ? "" : s_screens[s_index].title;
+}
+size_t screen_count() {
+    return s_count;
+}
 bool is_hidden(int index) {
     if (index < 0 || index >= (int)s_count) return true;
     return s_screens[index].hidden;

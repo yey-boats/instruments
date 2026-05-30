@@ -42,14 +42,17 @@ LayoutClass classify(uint16_t w, uint16_t h) {
         return (uint32_t)w * 10 / h >= 15 ? LayoutClass::LandscapeWide
                                           : LayoutClass::LandscapeCompact;
     }
-    return (uint32_t)h * 10 / w >= 15 ? LayoutClass::PortraitTall
-                                      : LayoutClass::PortraitCompact;
+    return (uint32_t)h * 10 / w >= 15 ? LayoutClass::PortraitTall : LayoutClass::PortraitCompact;
 }
 
 }  // namespace
 
-const char *id() { return "native_fake"; }
-const char *display_name() { return "Native test fake board"; }
+const char *id() {
+    return "native_fake";
+}
+const char *display_name() {
+    return "Native test fake board";
+}
 
 Geometry geometry() {
     Geometry g{};
@@ -79,7 +82,9 @@ bool set_backlight(uint8_t value_0_255) {
     return true;
 }
 
-uint8_t backlight() { return s_backlight_value; }
+uint8_t backlight() {
+    return s_backlight_value;
+}
 
 bool set_power(bool on) {
     s_power = on;
@@ -88,9 +93,8 @@ bool set_power(bool on) {
 
 namespace native_fake {
 
-void set_geometry(uint16_t width_px, uint16_t height_px,
-                  uint16_t diagonal_tenths_in) {
-    if (width_px)  s_width  = width_px;
+void set_geometry(uint16_t width_px, uint16_t height_px, uint16_t diagonal_tenths_in) {
+    if (width_px) s_width = width_px;
     if (height_px) s_height = height_px;
     if (diagonal_tenths_in) s_diag = diagonal_tenths_in;
 }

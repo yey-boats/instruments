@@ -19,33 +19,59 @@ static lv_obj_t *s_root = nullptr;
 
 static const ui::layouts::MetricBinding s_tiles[] = {
     // WIND: AWS hero, AWA below
-    {"wind", "WIND", "kn",
-     ui::layouts::MetricSource::AWS_kn, 0xffb84d /*warn*/, "wind",
-     1, {
-        {"AWA", ui::layouts::MetricSource::AWA_deg},
-        {}, {}, {},
+    {"wind",
+     "WIND",
+     "kn",
+     ui::layouts::MetricSource::AWS_kn,
+     0xffb84d /*warn*/,
+     "wind",
+     1,
+     {
+         {"AWA", ui::layouts::MetricSource::AWA_deg},
+         {},
+         {},
+         {},
      }},
     // NAV: SOG hero, COG/HDG/position below
-    {"nav", "NAV", "kn",
-     ui::layouts::MetricSource::SOG_kn, 0x57c7d8 /*accent*/, "nav",
-     3, {
-        {"COG", ui::layouts::MetricSource::COG_deg},
-        {"HDG", ui::layouts::MetricSource::HDG_deg},
-        {"", ui::layouts::MetricSource::Position},
+    {"nav",
+     "NAV",
+     "kn",
+     ui::layouts::MetricSource::SOG_kn,
+     0x57c7d8 /*accent*/,
+     "nav",
+     3,
+     {
+         {"COG", ui::layouts::MetricSource::COG_deg},
+         {"HDG", ui::layouts::MetricSource::HDG_deg},
+         {"", ui::layouts::MetricSource::Position},
      }},
     // DEPTH: depth hero, water temp below
-    {"depth", "DEPTH", "m",
-     ui::layouts::MetricSource::Depth_m, 0x39d98a /*good*/, "depth",
-     1, {
-        {"H2O", ui::layouts::MetricSource::WaterTemp_C},
-        {}, {}, {},
+    {"depth",
+     "DEPTH",
+     "m",
+     ui::layouts::MetricSource::Depth_m,
+     0x39d98a /*good*/,
+     "depth",
+     1,
+     {
+         {"H2O", ui::layouts::MetricSource::WaterTemp_C},
+         {},
+         {},
+         {},
      }},
     // SYSTEM: battery V hero, SOC below
-    {"system", "SYSTEM", "V",
-     ui::layouts::MetricSource::BatteryV, 0x52736f /*grid*/, "status",
-     1, {
-        {"SOC", ui::layouts::MetricSource::BatterySOC_pct},
-        {}, {}, {},
+    {"system",
+     "SYSTEM",
+     "V",
+     ui::layouts::MetricSource::BatteryV,
+     0x52736f /*grid*/,
+     "status",
+     1,
+     {
+         {"SOC", ui::layouts::MetricSource::BatterySOC_pct},
+         {},
+         {},
+         {},
      }},
 };
 

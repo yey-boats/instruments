@@ -42,7 +42,8 @@ static bool build_bmp_from_snapshot(uint8_t **out, size_t *out_len) {
     }
     memset(bmp, 0, 14 + 40 + 12);
     // BMP file header
-    bmp[0] = 'B'; bmp[1] = 'M';
+    bmp[0] = 'B';
+    bmp[1] = 'M';
     bmp[2] = total & 0xff;
     bmp[3] = (total >> 8) & 0xff;
     bmp[4] = (total >> 16) & 0xff;
@@ -57,16 +58,18 @@ static bool build_bmp_from_snapshot(uint8_t **out, size_t *out_len) {
     bmp[23] = (neg_h >> 8) & 0xff;
     bmp[24] = (neg_h >> 16) & 0xff;
     bmp[25] = (neg_h >> 24) & 0xff;
-    bmp[26] = 1;             // planes
-    bmp[28] = 16;            // bpp
-    bmp[30] = 3;             // BI_BITFIELDS
+    bmp[26] = 1;   // planes
+    bmp[28] = 16;  // bpp
+    bmp[30] = 3;   // BI_BITFIELDS
     bmp[34] = pix_bytes & 0xff;
     bmp[35] = (pix_bytes >> 8) & 0xff;
     bmp[36] = (pix_bytes >> 16) & 0xff;
     bmp[37] = (pix_bytes >> 24) & 0xff;
     // RGB565 channel masks
-    bmp[54] = 0x00; bmp[55] = 0xF8;
-    bmp[58] = 0xE0; bmp[59] = 0x07;
+    bmp[54] = 0x00;
+    bmp[55] = 0xF8;
+    bmp[58] = 0xE0;
+    bmp[59] = 0x07;
     bmp[62] = 0x1F;
 
     memcpy(bmp + 14 + 40 + 12, buf->data, pix_bytes);

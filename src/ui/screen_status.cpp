@@ -127,7 +127,9 @@ static int s_last_fuel_bar = -1;
 static int s_last_water_bar = -1;
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     if (!isnan(d.battVoltage)) {
@@ -182,8 +184,10 @@ void refresh() {
     set_text_if_changed(r_ip, s_last_ip, sizeof(s_last_ip), net::ipString().c_str());
 
     int r = net::rssi();
-    if (sta) snprintf(buf, sizeof(buf), "%d dBm", r);
-    else snprintf(buf, sizeof(buf), "n/a");
+    if (sta)
+        snprintf(buf, sizeof(buf), "%d dBm", r);
+    else
+        snprintf(buf, sizeof(buf), "n/a");
     set_text_if_changed(r_rssi, s_last_rssi, sizeof(s_last_rssi), buf);
 
     set_text_if_changed(r_ble, s_last_ble, sizeof(s_last_ble), net::deviceId().c_str());

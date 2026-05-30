@@ -45,13 +45,12 @@ static bool is_exact_or_arg(const char *line, const char *cmd) {
 
 static bool is_net_command(const char *line) {
     if (!line) return false;
-    return strcmp(line, "ip") == 0 || strcmp(line, "scan") == 0 ||
-           strcmp(line, "wifi-list") == 0 || strcmp(line, "wifi-forget") == 0 ||
-           strcmp(line, "reboot") == 0 || strcmp(line, "id") == 0 ||
-           strcmp(line, "sk-status") == 0 || strcmp(line, "sk-dump") == 0 ||
-           strncmp(line, "wifi ", 5) == 0 || strncmp(line, "wifi-forget ", 12) == 0 ||
-           strncmp(line, "sk ", 3) == 0 || strncmp(line, "id ", 3) == 0 ||
-           is_exact_or_arg(line, "layout-fetch");
+    return strcmp(line, "ip") == 0 || strcmp(line, "scan") == 0 || strcmp(line, "wifi-list") == 0 ||
+           strcmp(line, "wifi-forget") == 0 || strcmp(line, "reboot") == 0 ||
+           strcmp(line, "id") == 0 || strcmp(line, "sk-status") == 0 ||
+           strcmp(line, "sk-dump") == 0 || strncmp(line, "wifi ", 5) == 0 ||
+           strncmp(line, "wifi-forget ", 12) == 0 || strncmp(line, "sk ", 3) == 0 ||
+           strncmp(line, "id ", 3) == 0 || is_exact_or_arg(line, "layout-fetch");
 }
 
 static bool forward_to_net(Command &cmd) {
@@ -78,8 +77,8 @@ static void net_task(void *) {
             break;
         }
         case CommandType::SaveWifi: {
-            net::logf("[net-worker] saveWifi ssid='%s' (pass len %u) - rebooting",
-                      cmd.a, (unsigned)strlen(cmd.b));
+            net::logf("[net-worker] saveWifi ssid='%s' (pass len %u) - rebooting", cmd.a,
+                      (unsigned)strlen(cmd.b));
             net::saveWifi(String(cmd.a), String(cmd.b));  // reboots
             break;
         }
@@ -191,8 +190,8 @@ void pump() {
         case CommandType::ApplyLayout: {
             if (cmd.blob && cmd.blob_len) {
                 bool ok = layout::apply_json((const char *)cmd.blob, cmd.blob_len);
-                net::logf("[app] apply_layout %u bytes -> %s",
-                          (unsigned)cmd.blob_len, ok ? "ok" : "fail");
+                net::logf("[app] apply_layout %u bytes -> %s", (unsigned)cmd.blob_len,
+                          ok ? "ok" : "fail");
             }
             break;
         }
@@ -230,8 +229,7 @@ void pump() {
             // worker heap-allocates a RenderPlan and posts here; we
             // hand it to manager_screens::apply() and free below.
             if (cmd.blob) {
-                const auto *plan_p =
-                    static_cast<const manager_config::RenderPlan *>(cmd.blob);
+                const auto *plan_p = static_cast<const manager_config::RenderPlan *>(cmd.blob);
                 manager_screens::apply(*plan_p);
             }
             break;
@@ -263,9 +261,17 @@ void pump() {
     }
 }
 
-size_t ui_queue_depth() { return s_ui_q ? uxQueueMessagesWaiting(s_ui_q) : 0; }
-size_t net_queue_depth() { return s_net_q ? uxQueueMessagesWaiting(s_net_q) : 0; }
-uint32_t ui_high_water() { return s_ui_hi; }
-uint32_t net_high_water() { return s_net_hi; }
+size_t ui_queue_depth() {
+    return s_ui_q ? uxQueueMessagesWaiting(s_ui_q) : 0;
+}
+size_t net_queue_depth() {
+    return s_net_q ? uxQueueMessagesWaiting(s_net_q) : 0;
+}
+uint32_t ui_high_water() {
+    return s_ui_hi;
+}
+uint32_t net_high_water() {
+    return s_net_hi;
+}
 
 }  // namespace app

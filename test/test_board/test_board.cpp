@@ -12,8 +12,11 @@
 #include "board.h"
 #include "boards/board_native_fake.h"
 
-void setUp(void) {}
-void tearDown(void) { board::native_fake::reset_geometry(); }
+void setUp(void) {
+}
+void tearDown(void) {
+    board::native_fake::reset_geometry();
+}
 
 static void test_id_and_display_name_set() {
     TEST_ASSERT_NOT_NULL(board::id());
@@ -42,8 +45,7 @@ static void test_capabilities_default_off() {
     TEST_ASSERT_FALSE(c.beeper);
     TEST_ASSERT_FALSE(c.nmea2000_can);
     TEST_ASSERT_FALSE(c.sd_card);
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::TouchKind::None),
-                          static_cast<int>(c.touch));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::TouchKind::None), static_cast<int>(c.touch));
     TEST_ASSERT_EQUAL_INT(static_cast<int>(board::BacklightKind::None),
                           static_cast<int>(c.backlight));
 }

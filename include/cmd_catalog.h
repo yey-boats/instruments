@@ -15,11 +15,11 @@
 namespace cmd_catalog {
 
 struct Entry {
-    const char *category;   // "net" / "sk" / "boat" / "manager" / ...
-    const char *syntax;     // canonical usage string
-    const char *summary;    // one-line description
-    bool http;              // reachable over /api/cmd
-    bool ble_serial;        // always true today; reserved for future gating
+    const char *category;  // "net" / "sk" / "boat" / "manager" / ...
+    const char *syntax;    // canonical usage string
+    const char *summary;   // one-line description
+    bool http;             // reachable over /api/cmd
+    bool ble_serial;       // always true today; reserved for future gating
 };
 
 const Entry *entries();

@@ -42,63 +42,65 @@ void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
     uint32_t now = millis();
     s_last_rx_ms = now;
     using FK = nmea0183::FieldKind;
-    using boat::SourceKind;
     using boat::Snapshot;
+    using boat::SourceKind;
     for (int i = 0; i < r.count; ++i) {
         const auto &f = r.fields[i];
         double v = f.value;
         switch (f.kind) {
-            case FK::LatDeg:
-                boat::publish(&Snapshot::lat_deg, SourceKind::NmeaWifi, now, v);
-                break;
-            case FK::LonDeg:
-                boat::publish(&Snapshot::lon_deg, SourceKind::NmeaWifi, now, v);
-                break;
-            case FK::SogKn:
-                boat::publish(&Snapshot::sog_mps, SourceKind::NmeaWifi, now, v * 0.514444);
-                break;
-            case FK::StwKn:
-                boat::publish(&Snapshot::stw_mps, SourceKind::NmeaWifi, now, v * 0.514444);
-                break;
-            case FK::CogTrueDeg:
-                boat::publish(&Snapshot::cog_true_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
-                break;
-            case FK::HeadingTrueDeg:
-                boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
-                break;
-            case FK::HeadingMagDeg:
-                // No mag field in Snapshot yet; treat as heading_true fallback when nothing better.
-                boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
-                break;
-            case FK::AwaDeg:
-                boat::publish(&Snapshot::awa_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
-                break;
-            case FK::AwsKn:
-                boat::publish(&Snapshot::aws_mps, SourceKind::NmeaWifi, now, v * 0.514444);
-                break;
-            case FK::TwaDeg:
-                boat::publish(&Snapshot::twa_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
-                break;
-            case FK::TwsKn:
-                boat::publish(&Snapshot::tws_mps, SourceKind::NmeaWifi, now, v * 0.514444);
-                break;
-            case FK::DepthM:
-                boat::publish(&Snapshot::depth_m, SourceKind::NmeaWifi, now, v);
-                break;
-            case FK::WaterTempC:
-                boat::publish(&Snapshot::water_temp_k, SourceKind::NmeaWifi, now, v + 273.15);
-                break;
-            case FK::XteNm:
-                boat::publish(&Snapshot::xte_m, SourceKind::NmeaWifi, now, v * 1852.0);
-                break;
-            case FK::BtwTrueDeg:
-                boat::publish(&Snapshot::btw_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
-                break;
-            case FK::DtwNm:
-                boat::publish(&Snapshot::dtw_m, SourceKind::NmeaWifi, now, v * 1852.0);
-                break;
-            default:
-                break;
+        case FK::LatDeg:
+            boat::publish(&Snapshot::lat_deg, SourceKind::NmeaWifi, now, v);
+            break;
+        case FK::LonDeg:
+            boat::publish(&Snapshot::lon_deg, SourceKind::NmeaWifi, now, v);
+            break;
+        case FK::SogKn:
+            boat::publish(&Snapshot::sog_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            break;
+        case FK::StwKn:
+            boat::publish(&Snapshot::stw_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            break;
+        case FK::CogTrueDeg:
+            boat::publish(&Snapshot::cog_true_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            break;
+        case FK::HeadingTrueDeg:
+            boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
+                          v * (M_PI / 180.0));
+            break;
+        case FK::HeadingMagDeg:
+            // No mag field in Snapshot yet; treat as heading_true fallback when nothing better.
+            boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
+                          v * (M_PI / 180.0));
+            break;
+        case FK::AwaDeg:
+            boat::publish(&Snapshot::awa_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            break;
+        case FK::AwsKn:
+            boat::publish(&Snapshot::aws_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            break;
+        case FK::TwaDeg:
+            boat::publish(&Snapshot::twa_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            break;
+        case FK::TwsKn:
+            boat::publish(&Snapshot::tws_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            break;
+        case FK::DepthM:
+            boat::publish(&Snapshot::depth_m, SourceKind::NmeaWifi, now, v);
+            break;
+        case FK::WaterTempC:
+            boat::publish(&Snapshot::water_temp_k, SourceKind::NmeaWifi, now, v + 273.15);
+            break;
+        case FK::XteNm:
+            boat::publish(&Snapshot::xte_m, SourceKind::NmeaWifi, now, v * 1852.0);
+            break;
+        case FK::BtwTrueDeg:
+            boat::publish(&Snapshot::btw_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            break;
+        case FK::DtwNm:
+            boat::publish(&Snapshot::dtw_m, SourceKind::NmeaWifi, now, v * 1852.0);
+            break;
+        default:
+            break;
         }
     }
 }
@@ -165,7 +167,11 @@ void run_udp() {
     uint8_t buf[1024];
     while (s_enabled && s_proto == Protocol::Udp) {
         if (!net::wifiUp()) {
-            if (listening) { udp.stop(); listening = false; s_connected = false; }
+            if (listening) {
+                udp.stop();
+                listening = false;
+                s_connected = false;
+            }
             vTaskDelay(pdMS_TO_TICKS(1000));
             continue;
         }
@@ -192,7 +198,10 @@ void run_udp() {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
-    if (listening) { udp.stop(); s_connected = false; }
+    if (listening) {
+        udp.stop();
+        s_connected = false;
+    }
 }
 
 void worker(void *) {
@@ -203,8 +212,10 @@ void worker(void *) {
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
-        if (s_proto == Protocol::Tcp) run_tcp();
-        else                          run_udp();
+        if (s_proto == Protocol::Tcp)
+            run_tcp();
+        else
+            run_udp();
     }
 }
 
@@ -215,10 +226,8 @@ void setup() {
     if (!s_task) {
         xTaskCreatePinnedToCore(worker, "n0183w", 4096, nullptr, 1, &s_task, 0);
     }
-    net::logf("[n0183w] %s proto=%s host=%s port=%u",
-              s_enabled ? "enabled" : "disabled",
-              s_proto == Protocol::Tcp ? "tcp" : "udp",
-              s_host.c_str(), s_port);
+    net::logf("[n0183w] %s proto=%s host=%s port=%u", s_enabled ? "enabled" : "disabled",
+              s_proto == Protocol::Tcp ? "tcp" : "udp", s_host.c_str(), s_port);
 }
 
 Status status() {
@@ -243,22 +252,21 @@ bool handleSerialCommand(const String &line) {
         Status st = status();
         net::logf("[n0183w] enabled=%d proto=%s host=%s port=%u connected=%d "
                   "rx_bytes=%lu sentences ok=%lu bad=%lu last_rx_ago=%lums",
-                  st.enabled,
-                  st.proto == Protocol::Tcp ? "tcp" : "udp",
-                  st.host.c_str(), st.port, st.connected,
-                  (unsigned long)st.bytes_in,
-                  (unsigned long)st.sentences_ok,
+                  st.enabled, st.proto == Protocol::Tcp ? "tcp" : "udp", st.host.c_str(), st.port,
+                  st.connected, (unsigned long)st.bytes_in, (unsigned long)st.sentences_ok,
                   (unsigned long)st.sentences_bad,
                   (unsigned long)(st.last_rx_ms ? (millis() - st.last_rx_ms) : 0));
         return true;
     }
     if (rest == "enable") {
-        s_enabled = true; save_prefs();
+        s_enabled = true;
+        save_prefs();
         net::logf("[n0183w] enabled");
         return true;
     }
     if (rest == "disable") {
-        s_enabled = false; save_prefs();
+        s_enabled = false;
+        save_prefs();
         net::logf("[n0183w] disabled");
         return true;
     }
@@ -269,7 +277,10 @@ bool handleSerialCommand(const String &line) {
         String host = sp < 0 ? args : args.substring(0, sp);
         uint16_t port = sp < 0 ? DEFAULT_PORT : (uint16_t)args.substring(sp + 1).toInt();
         if (port == 0) port = DEFAULT_PORT;
-        s_proto = Protocol::Tcp; s_host = host; s_port = port; s_enabled = true;
+        s_proto = Protocol::Tcp;
+        s_host = host;
+        s_port = port;
+        s_enabled = true;
         save_prefs();
         net::logf("[n0183w] tcp %s:%u (enabled)", host.c_str(), port);
         return true;
@@ -279,7 +290,9 @@ bool handleSerialCommand(const String &line) {
         args.trim();
         uint16_t port = args.length() == 0 ? DEFAULT_PORT : (uint16_t)args.toInt();
         if (port == 0) port = DEFAULT_PORT;
-        s_proto = Protocol::Udp; s_port = port; s_enabled = true;
+        s_proto = Protocol::Udp;
+        s_port = port;
+        s_enabled = true;
         save_prefs();
         net::logf("[n0183w] udp :%u (enabled)", port);
         return true;

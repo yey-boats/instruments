@@ -189,7 +189,9 @@ static uint32_t s_last_xte_bg = 0xFFFFFFFF;
 static uint32_t s_last_ap_color = 0xFFFFFFFF;
 
 void refresh() {
-    sk::Data d_snap; sk::copyData(d_snap); const sk::Data &d = d_snap;
+    sk::Data d_snap;
+    sk::copyData(d_snap);
+    const sk::Data &d = d_snap;
     char buf[64];
 
     double hdg_deg = NAN, cts_deg = NAN;
@@ -217,8 +219,10 @@ void refresh() {
 
     if (!isnan(hdg_deg) && !isnan(cts_deg)) {
         double delta = cts_deg - hdg_deg;
-        while (delta > 180) delta -= 360;
-        while (delta < -180) delta += 360;
+        while (delta > 180)
+            delta -= 360;
+        while (delta < -180)
+            delta += 360;
         set_rot_if_changed(bug, &s_last_bug_rot, (int16_t)(delta * 10));
         set_hidden_if_changed(bug, &s_last_bug_hidden, false);
     } else {
@@ -234,8 +238,10 @@ void refresh() {
         lv_obj_align(xte_indicator, LV_ALIGN_CENTER, x, 0);
         uint32_t c = theme.good;
         double abs_xte = fabs(d.xte);
-        if (abs_xte > 100) c = theme.alarm;
-        else if (abs_xte > 50) c = theme.warn;
+        if (abs_xte > 100)
+            c = theme.alarm;
+        else if (abs_xte > 50)
+            c = theme.warn;
         set_bg_color_if_changed(xte_indicator, &s_last_xte_bg, c);
         const char *side = d.xte > 0 ? "STBD" : (d.xte < 0 ? "PORT" : "");
         snprintf(buf, sizeof(buf), "XTE %.0f m %s", fabs(d.xte), side);
@@ -255,8 +261,7 @@ void refresh() {
         set_text_if_changed(lbl_ap, s_last_ap, sizeof(s_last_ap), buf);
         bool engaged = (strcmp(d.apState, "auto") == 0 || strcmp(d.apState, "wind") == 0 ||
                         strcmp(d.apState, "route") == 0);
-        set_text_color_if_changed(lbl_ap, &s_last_ap_color,
-                                  engaged ? theme.good : theme.fg_dim);
+        set_text_color_if_changed(lbl_ap, &s_last_ap_color, engaged ? theme.good : theme.fg_dim);
     } else {
         set_text_if_changed(lbl_ap, s_last_ap, sizeof(s_last_ap), "AP -");
     }

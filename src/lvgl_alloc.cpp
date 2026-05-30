@@ -16,8 +16,10 @@
 
 extern "C" {
 
-void lv_mem_init(void) {}
-void lv_mem_deinit(void) {}
+void lv_mem_init(void) {
+}
+void lv_mem_deinit(void) {
+}
 
 void *lv_malloc_core(size_t size) {
     return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);

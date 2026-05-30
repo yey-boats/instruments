@@ -41,14 +41,20 @@ inline double rad_to_deg_pos(double rad) {
     if (d < 0) d += 360;
     return d;
 }
-inline double mps_to_kn(double mps) { return mps * 1.94384; }
-inline double k_to_c(double k) { return k - 273.15; }
+inline double mps_to_kn(double mps) {
+    return mps * 1.94384;
+}
+inline double k_to_c(double k) {
+    return k - 273.15;
+}
 
 // Trim radians to [-180,180] degrees (relative wind angles).
 inline double rad_to_deg_pm(double rad) {
     double d = rad * 180.0 / M_PI;
-    while (d > 180) d -= 360;
-    while (d < -180) d += 360;
+    while (d > 180)
+        d -= 360;
+    while (d < -180)
+        d += 360;
     return d;
 }
 

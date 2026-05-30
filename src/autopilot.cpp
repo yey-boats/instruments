@@ -20,10 +20,10 @@ Permissions s_perms;
 
 void load_prefs() {
     storage::Namespace p(NS, true);
-    s_default_backend = static_cast<Backend>(
-        p.get_u8("backend", static_cast<uint8_t>(Backend::SignalK)));
-    s_perms.allow_engage         = p.get_u8("eng", 0) != 0;
-    s_perms.allow_standby        = p.get_u8("sby", 1) != 0;
+    s_default_backend =
+        static_cast<Backend>(p.get_u8("backend", static_cast<uint8_t>(Backend::SignalK)));
+    s_perms.allow_engage = p.get_u8("eng", 0) != 0;
+    s_perms.allow_standby = p.get_u8("sby", 1) != 0;
     s_perms.allow_heading_adjust = p.get_u8("hdg", 1) != 0;
 }
 
@@ -74,9 +74,15 @@ Result sk_silence() {
 // lands, every write returns BackendUnavailable so the UI can show
 // a "backend not yet authorised" error rather than silently
 // succeeding.
-Result n2k_set_mode(Mode) { return Result::BackendUnavailable; }
-Result n2k_adjust(int)    { return Result::BackendUnavailable; }
-Result n2k_silence()      { return Result::BackendUnavailable; }
+Result n2k_set_mode(Mode) {
+    return Result::BackendUnavailable;
+}
+Result n2k_adjust(int) {
+    return Result::BackendUnavailable;
+}
+Result n2k_silence() {
+    return Result::BackendUnavailable;
+}
 #endif
 
 }  // namespace
@@ -85,20 +91,23 @@ Result n2k_silence()      { return Result::BackendUnavailable; }
 // helpers and live in autopilot_pure.cpp so the host test env can
 // link them without pulling in Arduino dependencies.
 
-Backend default_backend() { return s_default_backend; }
+Backend default_backend() {
+    return s_default_backend;
+}
 void set_default_backend(Backend b) {
     s_default_backend = b;
     save_prefs();
     net::logf("[ap] backend = %s", backend_name(b));
 }
 
-Permissions get_permissions() { return s_perms; }
+Permissions get_permissions() {
+    return s_perms;
+}
 void set_permissions(const Permissions &p) {
     s_perms = p;
     save_prefs();
-    net::logf("[ap] permissions: engage=%d standby=%d heading=%d",
-              s_perms.allow_engage, s_perms.allow_standby,
-              s_perms.allow_heading_adjust);
+    net::logf("[ap] permissions: engage=%d standby=%d heading=%d", s_perms.allow_engage,
+              s_perms.allow_standby, s_perms.allow_heading_adjust);
 }
 
 void copy_state(State &out) {
@@ -106,14 +115,12 @@ void copy_state(State &out) {
     boat::copy_snapshot(s);
     out.backend = s_default_backend;
     out.mode = mode_from_string(s.autopilot_state);
-    out.target_heading_rad = boat::value_or_nan(
-        s.autopilot_target_rad,
-        millis(),
-        boat::timeout_for(boat::get_timeouts(), s.autopilot_target_rad.source));
-    out.current_heading_rad = boat::value_or_nan(
-        s.heading_true_rad,
-        millis(),
-        boat::timeout_for(boat::get_timeouts(), s.heading_true_rad.source));
+    out.target_heading_rad =
+        boat::value_or_nan(s.autopilot_target_rad, millis(),
+                           boat::timeout_for(boat::get_timeouts(), s.autopilot_target_rad.source));
+    out.current_heading_rad =
+        boat::value_or_nan(s.heading_true_rad, millis(),
+                           boat::timeout_for(boat::get_timeouts(), s.heading_true_rad.source));
     out.target_wind_angle_rad = NAN;
     out.alarm_active = false;
     out.warning_active = false;
@@ -123,11 +130,14 @@ void copy_state(State &out) {
 Result set_mode(Mode m) {
     if (!mode_allowed(m, s_perms)) return Result::Forbidden;
     switch (s_default_backend) {
-        case Backend::SignalK:           return sk_set_mode(m);
+    case Backend::SignalK:
+        return sk_set_mode(m);
 #ifdef ENABLE_NMEA2000
-        case Backend::NMEA2000Raymarine: return n2k_set_mode(m);
+    case Backend::NMEA2000Raymarine:
+        return n2k_set_mode(m);
 #else
-        case Backend::NMEA2000Raymarine: return Result::BackendUnavailable;
+    case Backend::NMEA2000Raymarine:
+        return Result::BackendUnavailable;
 #endif
     }
     return Result::Failed;
@@ -137,11 +147,14 @@ Result adjust_heading_deg(int delta) {
     if (delta < -90 || delta > 90) return Result::InvalidPayload;
     if (!s_perms.allow_heading_adjust) return Result::Forbidden;
     switch (s_default_backend) {
-        case Backend::SignalK:           return sk_adjust(delta);
+    case Backend::SignalK:
+        return sk_adjust(delta);
 #ifdef ENABLE_NMEA2000
-        case Backend::NMEA2000Raymarine: return n2k_adjust(delta);
+    case Backend::NMEA2000Raymarine:
+        return n2k_adjust(delta);
 #else
-        case Backend::NMEA2000Raymarine: return Result::BackendUnavailable;
+    case Backend::NMEA2000Raymarine:
+        return Result::BackendUnavailable;
 #endif
     }
     return Result::Failed;
@@ -149,11 +162,14 @@ Result adjust_heading_deg(int delta) {
 
 Result silence_alarm() {
     switch (s_default_backend) {
-        case Backend::SignalK:           return sk_silence();
+    case Backend::SignalK:
+        return sk_silence();
 #ifdef ENABLE_NMEA2000
-        case Backend::NMEA2000Raymarine: return n2k_silence();
+    case Backend::NMEA2000Raymarine:
+        return n2k_silence();
 #else
-        case Backend::NMEA2000Raymarine: return Result::BackendUnavailable;
+    case Backend::NMEA2000Raymarine:
+        return Result::BackendUnavailable;
 #endif
     }
     return Result::Failed;
@@ -164,19 +180,16 @@ void setup() {
     net::logf("[ap] default backend = %s", backend_name(s_default_backend));
 }
 
-
 bool handleSerialCommand(const String &line) {
     if (!line.startsWith("autopilot") && !line.startsWith("ap-")) return false;
 
     if (line == "autopilot" || line == "autopilot status") {
         State st;
         copy_state(st);
-        net::logf("[ap] backend=%s mode=%s hdg=%.1f target=%.1f alarm=%d",
-                  backend_name(st.backend), mode_name(st.mode),
-                  isnan(st.current_heading_rad) ? 0.0 :
-                      st.current_heading_rad * 180.0 / M_PI,
-                  isnan(st.target_heading_rad) ? 0.0 :
-                      st.target_heading_rad * 180.0 / M_PI,
+        net::logf("[ap] backend=%s mode=%s hdg=%.1f target=%.1f alarm=%d", backend_name(st.backend),
+                  mode_name(st.mode),
+                  isnan(st.current_heading_rad) ? 0.0 : st.current_heading_rad * 180.0 / M_PI,
+                  isnan(st.target_heading_rad) ? 0.0 : st.target_heading_rad * 180.0 / M_PI,
                   st.alarm_active);
         return true;
     }

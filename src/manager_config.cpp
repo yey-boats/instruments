@@ -8,8 +8,7 @@ namespace manager_config {
 
 namespace {
 
-void set_err(ParseError &err, ParseCode code, const char *path,
-             const char *message) {
+void set_err(ParseError &err, ParseCode code, const char *path, const char *message) {
     err.code = code;
     if (path) {
         strncpy(err.path, path, sizeof(err.path) - 1);
@@ -29,7 +28,10 @@ void set_err(ParseError &err, ParseCode code, const char *path,
 bool copy_str(JsonVariantConst src, char *dst, size_t cap) {
     if (cap == 0) return false;
     const char *s = src.as<const char *>();
-    if (!s) { dst[0] = 0; return false; }
+    if (!s) {
+        dst[0] = 0;
+        return false;
+    }
     strncpy(dst, s, cap - 1);
     dst[cap - 1] = 0;
     return true;
@@ -60,57 +62,82 @@ bool variant_matches(JsonObjectConst match, uint16_t w, uint16_t h) {
 
 WidgetType widget_type_from_string(const char *s) {
     if (!s) return WidgetType::Unknown;
-    if (!strcmp(s, "numeric"))   return WidgetType::Numeric;
-    if (!strcmp(s, "text"))      return WidgetType::Text;
-    if (!strcmp(s, "gauge"))     return WidgetType::Gauge;
-    if (!strcmp(s, "compass"))   return WidgetType::Compass;
-    if (!strcmp(s, "windRose"))  return WidgetType::WindRose;
-    if (!strcmp(s, "trend"))     return WidgetType::Trend;
-    if (!strcmp(s, "bar"))       return WidgetType::Bar;
-    if (!strcmp(s, "button"))    return WidgetType::Button;
+    if (!strcmp(s, "numeric")) return WidgetType::Numeric;
+    if (!strcmp(s, "text")) return WidgetType::Text;
+    if (!strcmp(s, "gauge")) return WidgetType::Gauge;
+    if (!strcmp(s, "compass")) return WidgetType::Compass;
+    if (!strcmp(s, "windRose")) return WidgetType::WindRose;
+    if (!strcmp(s, "trend")) return WidgetType::Trend;
+    if (!strcmp(s, "bar")) return WidgetType::Bar;
+    if (!strcmp(s, "button")) return WidgetType::Button;
     if (!strcmp(s, "autopilot")) return WidgetType::Autopilot;
     return WidgetType::Unknown;
 }
 
 const char *widget_type_to_string(WidgetType t) {
     switch (t) {
-        case WidgetType::Numeric:   return "numeric";
-        case WidgetType::Text:      return "text";
-        case WidgetType::Gauge:     return "gauge";
-        case WidgetType::Compass:   return "compass";
-        case WidgetType::WindRose:  return "windRose";
-        case WidgetType::Trend:     return "trend";
-        case WidgetType::Bar:       return "bar";
-        case WidgetType::Button:    return "button";
-        case WidgetType::Autopilot: return "autopilot";
-        case WidgetType::Unknown:   return "unknown";
+    case WidgetType::Numeric:
+        return "numeric";
+    case WidgetType::Text:
+        return "text";
+    case WidgetType::Gauge:
+        return "gauge";
+    case WidgetType::Compass:
+        return "compass";
+    case WidgetType::WindRose:
+        return "windRose";
+    case WidgetType::Trend:
+        return "trend";
+    case WidgetType::Bar:
+        return "bar";
+    case WidgetType::Button:
+        return "button";
+    case WidgetType::Autopilot:
+        return "autopilot";
+    case WidgetType::Unknown:
+        return "unknown";
     }
     return "?";
 }
 
 const char *parse_code_to_string(ParseCode c) {
     switch (c) {
-        case ParseCode::Ok:                    return "ok";
-        case ParseCode::InvalidProtocol:       return "invalid_protocol";
-        case ParseCode::WrongDevice:           return "wrong_device";
-        case ParseCode::DisplayMismatch:       return "display_mismatch";
-        case ParseCode::UnsupportedLayoutType: return "unsupported_layout_type";
-        case ParseCode::UnsupportedWidgetType: return "unsupported_widget_type";
-        case ParseCode::MissingWidget:         return "missing_widget";
-        case ParseCode::InvalidFontSize:       return "invalid_font_size";
-        case ParseCode::TooManyWidgets:        return "too_many_widgets";
-        case ParseCode::TooManyScreens:        return "too_many_screens";
-        case ParseCode::TooManyTiles:          return "too_many_tiles";
-        case ParseCode::InvalidPath:           return "invalid_path";
-        case ParseCode::InvalidAction:         return "invalid_action";
-        case ParseCode::OutOfMemory:           return "out_of_memory";
-        case ParseCode::BadJson:               return "bad_json";
+    case ParseCode::Ok:
+        return "ok";
+    case ParseCode::InvalidProtocol:
+        return "invalid_protocol";
+    case ParseCode::WrongDevice:
+        return "wrong_device";
+    case ParseCode::DisplayMismatch:
+        return "display_mismatch";
+    case ParseCode::UnsupportedLayoutType:
+        return "unsupported_layout_type";
+    case ParseCode::UnsupportedWidgetType:
+        return "unsupported_widget_type";
+    case ParseCode::MissingWidget:
+        return "missing_widget";
+    case ParseCode::InvalidFontSize:
+        return "invalid_font_size";
+    case ParseCode::TooManyWidgets:
+        return "too_many_widgets";
+    case ParseCode::TooManyScreens:
+        return "too_many_screens";
+    case ParseCode::TooManyTiles:
+        return "too_many_tiles";
+    case ParseCode::InvalidPath:
+        return "invalid_path";
+    case ParseCode::InvalidAction:
+        return "invalid_action";
+    case ParseCode::OutOfMemory:
+        return "out_of_memory";
+    case ParseCode::BadJson:
+        return "bad_json";
     }
     return "?";
 }
 
-bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
-           RenderPlan &out, ParseError &err) {
+bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height, RenderPlan &out,
+           ParseError &err) {
     // CLAUDE.md memory trap: `out = RenderPlan{}` creates a ~12 KB
     // temporary on the stack which overflows the FreeRTOS worker stack
     // (canary trips, device reboots). memset clears in place.
@@ -123,20 +150,17 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
     // present. Plugin may also send `selectedVariant` separately.
     if (cfg["display"].is<JsonObjectConst>()) {
         JsonObjectConst d = cfg["display"].as<JsonObjectConst>();
-        if (d["width"].is<uint16_t>() &&
-            d["width"].as<uint16_t>() != device_width) {
+        if (d["width"].is<uint16_t>() && d["width"].as<uint16_t>() != device_width) {
             set_err(err, ParseCode::DisplayMismatch, "display.width",
                     "config display.width != device");
             return false;
         }
-        if (d["height"].is<uint16_t>() &&
-            d["height"].as<uint16_t>() != device_height) {
+        if (d["height"].is<uint16_t>() && d["height"].as<uint16_t>() != device_height) {
             set_err(err, ParseCode::DisplayMismatch, "display.height",
                     "config display.height != device");
             return false;
         }
-        copy_str(d["selectedVariant"], out.layout_variant,
-                 sizeof(out.layout_variant));
+        copy_str(d["selectedVariant"], out.layout_variant, sizeof(out.layout_variant));
     }
 
     // --- widgets block ---
@@ -147,10 +171,10 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
         // defaults
         if (w["defaults"].is<JsonObjectConst>()) {
             JsonObjectConst dd = w["defaults"].as<JsonObjectConst>();
-            out.defaults.font_size       = dd["fontSize"]      | 0;
+            out.defaults.font_size = dd["fontSize"] | 0;
             out.defaults.label_font_size = dd["labelFontSize"] | 0;
             out.defaults.value_font_size = dd["valueFontSize"] | 0;
-            out.defaults.unit_font_size  = dd["unitFontSize"]  | 0;
+            out.defaults.unit_font_size = dd["unitFontSize"] | 0;
         }
 
         if (w["items"].is<JsonObjectConst>()) {
@@ -163,15 +187,13 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
                 }
                 WidgetDef &wd = out.widgets[out.widget_count];
                 if (strlen(kv.key().c_str()) > MAX_WIDGET_ID) {
-                    set_err(err, ParseCode::InvalidPath, "widgets.items",
-                            "widget id too long");
+                    set_err(err, ParseCode::InvalidPath, "widgets.items", "widget id too long");
                     return false;
                 }
                 strncpy(wd.id, kv.key().c_str(), sizeof(wd.id) - 1);
                 wd.id[sizeof(wd.id) - 1] = 0;
                 if (widget_id_exists(out, wd.id)) {
-                    set_err(err, ParseCode::InvalidPath, "widgets.items",
-                            "duplicate widget id");
+                    set_err(err, ParseCode::InvalidPath, "widgets.items", "duplicate widget id");
                     return false;
                 }
 
@@ -181,39 +203,35 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
                 if (wd.type == WidgetType::Unknown) {
                     char path[64];
                     snprintf(path, sizeof(path), "widgets.items.%s.type", wd.id);
-                    set_err(err, ParseCode::UnsupportedWidgetType, path,
-                            type_str);
+                    set_err(err, ParseCode::UnsupportedWidgetType, path, type_str);
                     return false;
                 }
                 if (!json_string_fits(item["title"], MAX_TITLE)) {
                     char path[64];
                     snprintf(path, sizeof(path), "widgets.items.%s.title", wd.id);
-                    set_err(err, ParseCode::InvalidPath, path,
-                            "widget title too long");
+                    set_err(err, ParseCode::InvalidPath, path, "widget title too long");
                     return false;
                 }
                 if (!json_string_fits(item["path"], MAX_PATH)) {
                     char path[64];
                     snprintf(path, sizeof(path), "widgets.items.%s.path", wd.id);
-                    set_err(err, ParseCode::InvalidPath, path,
-                            "widget path too long");
+                    set_err(err, ParseCode::InvalidPath, path, "widget path too long");
                     return false;
                 }
                 if (!json_string_fits(item["unit"], MAX_UNIT)) {
                     char path[64];
                     snprintf(path, sizeof(path), "widgets.items.%s.unit", wd.id);
-                    set_err(err, ParseCode::InvalidPath, path,
-                            "widget unit too long");
+                    set_err(err, ParseCode::InvalidPath, path, "widget unit too long");
                     return false;
                 }
                 copy_str(item["title"], wd.title, sizeof(wd.title));
-                copy_str(item["path"],  wd.path,  sizeof(wd.path));
-                copy_str(item["unit"],  wd.unit,  sizeof(wd.unit));
+                copy_str(item["path"], wd.path, sizeof(wd.path));
+                copy_str(item["unit"], wd.unit, sizeof(wd.unit));
                 wd.precision = item["precision"] | 0;
-                wd.style.font_size       = item["fontSize"]      | 0;
+                wd.style.font_size = item["fontSize"] | 0;
                 wd.style.label_font_size = item["labelFontSize"] | 0;
                 wd.style.value_font_size = item["valueFontSize"] | 0;
-                wd.style.unit_font_size  = item["unitFontSize"]  | 0;
+                wd.style.unit_font_size = item["unitFontSize"] | 0;
                 if (item["min"].is<double>()) wd.min = item["min"].as<double>();
                 if (item["max"].is<double>()) wd.max = item["max"].as<double>();
                 out.widget_count++;
@@ -231,12 +249,11 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
         } else if (lo["variants"].is<JsonArrayConst>()) {
             // Pick the first matching variant per spec §Variant Matching.
             for (JsonObjectConst v : lo["variants"].as<JsonArrayConst>()) {
-                if (variant_matches(v["match"].as<JsonObjectConst>(),
-                                    device_width, device_height)) {
+                if (variant_matches(v["match"].as<JsonObjectConst>(), device_width,
+                                    device_height)) {
                     if (v["screens"].is<JsonArrayConst>()) {
                         screens = v["screens"].as<JsonArrayConst>();
-                        copy_str(v["id"], out.layout_variant,
-                                 sizeof(out.layout_variant));
+                        copy_str(v["id"], out.layout_variant, sizeof(out.layout_variant));
                         break;
                     }
                 }
@@ -257,8 +274,7 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
                 }
                 ScreenPlan &sp = out.screens[out.screen_count];
                 if (!json_string_fits(sc["id"], MAX_WIDGET_ID)) {
-                    set_err(err, ParseCode::InvalidPath, "layout.screens.id",
-                            "screen id too long");
+                    set_err(err, ParseCode::InvalidPath, "layout.screens.id", "screen id too long");
                     return false;
                 }
                 copy_str(sc["id"], sp.id, sizeof(sp.id));
@@ -268,8 +284,7 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
                     char path[64];
                     snprintf(path, sizeof(path), "layout.screens[%u].type",
                              (unsigned)out.screen_count);
-                    set_err(err, ParseCode::UnsupportedLayoutType, path,
-                            layout_type);
+                    set_err(err, ParseCode::UnsupportedLayoutType, path, layout_type);
                     return false;
                 }
 
@@ -277,46 +292,40 @@ bool parse(JsonObjectConst cfg, uint16_t device_width, uint16_t device_height,
                     for (JsonObjectConst tl : sc["tiles"].as<JsonArrayConst>()) {
                         if (sp.tile_count >= MAX_TILES_PER_SCREEN) {
                             char path[64];
-                            snprintf(path, sizeof(path),
-                                     "layout.screens[%u].tiles",
+                            snprintf(path, sizeof(path), "layout.screens[%u].tiles",
                                      (unsigned)out.screen_count);
                             set_err(err, ParseCode::TooManyTiles, path,
                                     "MAX_TILES_PER_SCREEN exceeded");
                             return false;
                         }
                         LayoutTile &lt = sp.tiles[sp.tile_count];
-                        copy_str(tl["widget"], lt.widget_id,
-                                 sizeof(lt.widget_id));
+                        copy_str(tl["widget"], lt.widget_id, sizeof(lt.widget_id));
                         // Verify the widget id exists in the widgets[]
                         // table - missing reference is a hard reject.
                         bool found = false;
                         for (uint8_t i = 0; i < out.widget_count; ++i) {
                             if (strcmp(out.widgets[i].id, lt.widget_id) == 0) {
-                                found = true; break;
+                                found = true;
+                                break;
                             }
                         }
                         if (!found) {
                             char path[80];
-                            snprintf(path, sizeof(path),
-                                     "layout.screens[%u].tiles[%u].widget",
-                                     (unsigned)out.screen_count,
-                                     (unsigned)sp.tile_count);
-                            set_err(err, ParseCode::MissingWidget, path,
-                                    lt.widget_id);
+                            snprintf(path, sizeof(path), "layout.screens[%u].tiles[%u].widget",
+                                     (unsigned)out.screen_count, (unsigned)sp.tile_count);
+                            set_err(err, ParseCode::MissingWidget, path, lt.widget_id);
                             return false;
                         }
                         if (tl["area"].is<JsonObjectConst>()) {
                             JsonObjectConst a = tl["area"].as<JsonObjectConst>();
-                            lt.col      = a["col"]     | 0;
-                            lt.row      = a["row"]     | 0;
+                            lt.col = a["col"] | 0;
+                            lt.row = a["row"] | 0;
                             lt.col_span = a["colSpan"] | 1;
                             lt.row_span = a["rowSpan"] | 1;
                             if (lt.col_span == 0 || lt.row_span == 0) {
                                 char path[80];
-                                snprintf(path, sizeof(path),
-                                         "layout.screens[%u].tiles[%u].area",
-                                         (unsigned)out.screen_count,
-                                         (unsigned)sp.tile_count);
+                                snprintf(path, sizeof(path), "layout.screens[%u].tiles[%u].area",
+                                         (unsigned)out.screen_count, (unsigned)sp.tile_count);
                                 set_err(err, ParseCode::InvalidPath, path,
                                         "tile span must be at least 1");
                                 return false;

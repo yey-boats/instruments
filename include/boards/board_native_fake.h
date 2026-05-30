@@ -15,8 +15,7 @@ namespace native_fake {
 // Override the geometry returned by board::geometry(). Subsequent
 // ui::layout_context() calls observe the new values. Pass 0 to any
 // field to keep the current value.
-void set_geometry(uint16_t width_px, uint16_t height_px,
-                  uint16_t diagonal_tenths_in);
+void set_geometry(uint16_t width_px, uint16_t height_px, uint16_t diagonal_tenths_in);
 
 // Restore the compile-time defaults (FAKE_BOARD_WIDTH / HEIGHT / DIAG).
 void reset_geometry();

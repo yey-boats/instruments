@@ -7,8 +7,10 @@
 
 using namespace manager_config;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static JsonDocument _doc;
 
@@ -20,8 +22,8 @@ static JsonObjectConst parse_json(const char *s) {
 }
 
 static void test_widget_type_round_trip() {
-    const char *names[] = {"numeric", "text", "gauge", "compass",
-                           "windRose", "trend", "bar", "button", "autopilot"};
+    const char *names[] = {"numeric", "text", "gauge",  "compass",  "windRose",
+                           "trend",   "bar",  "button", "autopilot"};
     for (const char *n : names) {
         WidgetType t = widget_type_from_string(n);
         TEST_ASSERT_TRUE_MESSAGE(t != WidgetType::Unknown, n);
@@ -76,8 +78,7 @@ static void test_display_mismatch_rejected() {
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::DisplayMismatch),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::DisplayMismatch), static_cast<int>(err.code));
 }
 
 static void test_screen_references_missing_widget_rejected() {
@@ -94,8 +95,7 @@ static void test_screen_references_missing_widget_rejected() {
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::MissingWidget),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::MissingWidget), static_cast<int>(err.code));
 }
 
 static void test_screen_with_grid_layout_accepted() {
@@ -193,8 +193,7 @@ static void test_too_many_widgets_rejected() {
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyWidgets),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyWidgets), static_cast<int>(err.code));
 }
 
 static void test_oversized_widget_id_rejected() {
@@ -202,26 +201,23 @@ static void test_oversized_widget_id_rejected() {
     // overflow the destination buffer and must not be silently
     // truncated because that can create ambiguous references.
     std::string id(100, 'a');
-    std::string body = "{\"widgets\":{\"items\":{\"" + id +
-                       "\":{\"type\":\"numeric\"}}}}";
+    std::string body = "{\"widgets\":{\"items\":{\"" + id + "\":{\"type\":\"numeric\"}}}}";
     auto cfg = parse_json(body.c_str());
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::InvalidPath),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::InvalidPath), static_cast<int>(err.code));
 }
 
 static void test_oversized_path_rejected() {
     std::string path(300, 'p');
-    std::string body = "{\"widgets\":{\"items\":{\"w\":{\"type\":\"numeric\",\"path\":\""
-                       + path + "\"}}}}";
+    std::string body =
+        "{\"widgets\":{\"items\":{\"w\":{\"type\":\"numeric\",\"path\":\"" + path + "\"}}}}";
     auto cfg = parse_json(body.c_str());
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::InvalidPath),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::InvalidPath), static_cast<int>(err.code));
 }
 
 static void test_wrong_type_for_widgets_block_rejected() {
@@ -256,8 +252,7 @@ static void test_too_many_screens_rejected() {
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyScreens),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyScreens), static_cast<int>(err.code));
 }
 
 static void test_too_many_tiles_per_screen_rejected() {
@@ -274,8 +269,7 @@ static void test_too_many_tiles_per_screen_rejected() {
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyTiles),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::TooManyTiles), static_cast<int>(err.code));
 }
 
 static void test_zero_tile_span_rejected() {
@@ -288,8 +282,7 @@ static void test_zero_tile_span_rejected() {
     RenderPlan plan;
     ParseError err;
     TEST_ASSERT_FALSE(parse(cfg, 480, 480, plan, err));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::InvalidPath),
-                          static_cast<int>(err.code));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(ParseCode::InvalidPath), static_cast<int>(err.code));
 }
 
 static void test_null_and_empty_strings_safe() {

@@ -10,27 +10,36 @@
 using log_level_check::from_string;
 using log_level_check::is_valid_int;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static void test_string_known_tokens_accepted() {
     int out = -1;
-    TEST_ASSERT_TRUE(from_string("none", &out));    TEST_ASSERT_EQUAL_INT(0, out);
-    TEST_ASSERT_TRUE(from_string("error", &out));   TEST_ASSERT_EQUAL_INT(1, out);
-    TEST_ASSERT_TRUE(from_string("warn", &out));    TEST_ASSERT_EQUAL_INT(2, out);
-    TEST_ASSERT_TRUE(from_string("info", &out));    TEST_ASSERT_EQUAL_INT(3, out);
-    TEST_ASSERT_TRUE(from_string("debug", &out));   TEST_ASSERT_EQUAL_INT(4, out);
-    TEST_ASSERT_TRUE(from_string("trace", &out));   TEST_ASSERT_EQUAL_INT(5, out);
-    TEST_ASSERT_TRUE(from_string("verbose", &out)); TEST_ASSERT_EQUAL_INT(5, out);
+    TEST_ASSERT_TRUE(from_string("none", &out));
+    TEST_ASSERT_EQUAL_INT(0, out);
+    TEST_ASSERT_TRUE(from_string("error", &out));
+    TEST_ASSERT_EQUAL_INT(1, out);
+    TEST_ASSERT_TRUE(from_string("warn", &out));
+    TEST_ASSERT_EQUAL_INT(2, out);
+    TEST_ASSERT_TRUE(from_string("info", &out));
+    TEST_ASSERT_EQUAL_INT(3, out);
+    TEST_ASSERT_TRUE(from_string("debug", &out));
+    TEST_ASSERT_EQUAL_INT(4, out);
+    TEST_ASSERT_TRUE(from_string("trace", &out));
+    TEST_ASSERT_EQUAL_INT(5, out);
+    TEST_ASSERT_TRUE(from_string("verbose", &out));
+    TEST_ASSERT_EQUAL_INT(5, out);
 }
 
 static void test_string_unknown_rejected() {
     int out = 99;
     TEST_ASSERT_FALSE(from_string("spammy", &out));
-    TEST_ASSERT_FALSE(from_string("INFO", &out));   // case-sensitive
+    TEST_ASSERT_FALSE(from_string("INFO", &out));  // case-sensitive
     TEST_ASSERT_FALSE(from_string("Debug", &out));
     TEST_ASSERT_FALSE(from_string("info ", &out));  // trailing space
-    TEST_ASSERT_EQUAL_INT(99, out);  // unchanged on failure
+    TEST_ASSERT_EQUAL_INT(99, out);                 // unchanged on failure
 }
 
 static void test_string_null_and_empty_rejected() {

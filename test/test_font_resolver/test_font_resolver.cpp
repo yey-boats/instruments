@@ -4,8 +4,10 @@
 
 using namespace font_resolver;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static const uint16_t SIZES[] = {14, 20, 28, 48};
 static constexpr size_t N = sizeof(SIZES) / sizeof(SIZES[0]);

@@ -6,18 +6,18 @@ namespace ui {
 // background, blue-cyan navigation accents, amber caution, red/green side
 // colors. This keeps cockpit readability while giving each state a job.
 Palette theme = {
-    /*bg*/        0x06110f,
-    /*panel*/     0x10201f,
-    /*panel_edge*/0x34504d,
-    /*fg*/        0xf3f7f2,
-    /*fg_dim*/    0x8fa59d,
-    /*accent*/    0x57c7d8,
-    /*warn*/      0xffb84d,
-    /*alarm*/     0xff4058,
-    /*good*/      0x39d98a,
-    /*port*/      0xff4d6d,
+    /*bg*/ 0x06110f,
+    /*panel*/ 0x10201f,
+    /*panel_edge*/ 0x34504d,
+    /*fg*/ 0xf3f7f2,
+    /*fg_dim*/ 0x8fa59d,
+    /*accent*/ 0x57c7d8,
+    /*warn*/ 0xffb84d,
+    /*alarm*/ 0xff4058,
+    /*good*/ 0x39d98a,
+    /*port*/ 0xff4d6d,
     /*starboard*/ 0x39d98a,
-    /*grid*/      0x52736f,
+    /*grid*/ 0x52736f,
 };
 
 void use_night() {

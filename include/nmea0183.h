@@ -22,20 +22,20 @@ namespace nmea0183 {
 
 enum class FieldKind : uint8_t {
     None = 0,
-    LatDeg,            // signed degrees (N+, S-)
-    LonDeg,            // signed degrees (E+, W-)
-    SogKn,             // knots
-    StwKn,             // knots
-    CogTrueDeg,        // 0..360
-    HeadingTrueDeg,    // 0..360
-    HeadingMagDeg,     // 0..360
-    AwaDeg,            // -180..180 (NMEA gives 0..360 relative)
+    LatDeg,          // signed degrees (N+, S-)
+    LonDeg,          // signed degrees (E+, W-)
+    SogKn,           // knots
+    StwKn,           // knots
+    CogTrueDeg,      // 0..360
+    HeadingTrueDeg,  // 0..360
+    HeadingMagDeg,   // 0..360
+    AwaDeg,          // -180..180 (NMEA gives 0..360 relative)
     AwsKn,
     TwaDeg,
     TwsKn,
-    DepthM,            // metres below transducer
+    DepthM,  // metres below transducer
     WaterTempC,
-    XteNm,             // nautical miles, signed (+ = steer right)
+    XteNm,  // nautical miles, signed (+ = steer right)
     BtwTrueDeg,
     DtwNm,
 };
@@ -46,9 +46,9 @@ struct FieldUpdate {
 };
 
 struct ParseResult {
-    bool ok;             // checksum valid AND sentence recognized
-    char talker[3];      // null-terminated, e.g. "GP", "II"
-    char sentence[4];    // null-terminated, e.g. "RMC"
+    bool ok;           // checksum valid AND sentence recognized
+    char talker[3];    // null-terminated, e.g. "GP", "II"
+    char sentence[4];  // null-terminated, e.g. "RMC"
     uint8_t count;
     FieldUpdate fields[8];
 };

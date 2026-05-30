@@ -10,8 +10,10 @@
 using boat::SourceKind;
 using sources_check::from_string;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static void test_plugin_canonical_names_accepted() {
     // These are the strings the SignalK plugin uses in its default
@@ -38,19 +40,17 @@ static void test_legacy_source_name_output_accepted() {
 }
 
 static void test_unknown_returns_none() {
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None), static_cast<int>(from_string("usb")));
     TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None),
-                          static_cast<int>(from_string("usb")));
+                          static_cast<int>(from_string("Demo")));  // case-sensitive
     TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None),
-                          static_cast<int>(from_string("Demo")));   // case-sensitive
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None),
-                          static_cast<int>(from_string("SignalK"))); // case-sensitive
+                          static_cast<int>(from_string("SignalK")));  // case-sensitive
 }
 
 static void test_null_and_empty_return_none() {
     TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None),
                           static_cast<int>(from_string(nullptr)));
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None),
-                          static_cast<int>(from_string("")));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(SourceKind::None), static_cast<int>(from_string("")));
 }
 
 static void test_explicit_none_maps_to_none() {

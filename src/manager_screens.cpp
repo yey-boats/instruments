@@ -32,8 +32,8 @@ ManagedScreen s_screens[MAX_MANAGED_SCREENS] = {};
 uint8_t s_screen_count = 0;
 bool s_applied = false;
 
-const manager_config::WidgetDef *find_widget(
-        const manager_config::RenderPlan &plan, const char *id) {
+const manager_config::WidgetDef *find_widget(const manager_config::RenderPlan &plan,
+                                             const char *id) {
     for (uint8_t i = 0; i < plan.widget_count; ++i) {
         if (strcmp(plan.widgets[i].id, id) == 0) return &plan.widgets[i];
     }
@@ -60,10 +60,8 @@ void refresh_cb() {
     }
 }
 
-bool build_screen(const manager_config::RenderPlan &plan,
-                  const manager_config::ScreenPlan &sc,
-                  uint8_t plan_index,
-                  ManagedScreen &out) {
+bool build_screen(const manager_config::RenderPlan &plan, const manager_config::ScreenPlan &sc,
+                  uint8_t plan_index, ManagedScreen &out) {
     // Compose the managed id. Plan ids may collide with built-in
     // screens, so prefix with "mgr_" to keep the carousel ids unique.
     if (sc.id[0]) {
@@ -104,8 +102,7 @@ bool build_screen(const manager_config::RenderPlan &plan,
     }
 
     out.widget_count = 0;
-    for (uint8_t i = 0;
-         i < sc.tile_count && out.widget_count < MAX_MANAGED_WIDGETS; ++i) {
+    for (uint8_t i = 0; i < sc.tile_count && out.widget_count < MAX_MANAGED_WIDGETS; ++i) {
         const auto &t = sc.tiles[i];
         const auto *def = find_widget(plan, t.widget_id);
         if (!def) continue;  // parse() already rejects missing refs
@@ -113,8 +110,8 @@ bool build_screen(const manager_config::RenderPlan &plan,
         int y = SAFE_TOP + t.row * cell_h;
         int w = cell_w * (t.col_span ? t.col_span : 1) - 4;
         int h = cell_h * (t.row_span ? t.row_span : 1) - 4;
-        out.widgets[out.widget_count] = widget_registry::create(
-            out.root, x, y, w, h, *def, plan.defaults);
+        out.widgets[out.widget_count] =
+            widget_registry::create(out.root, x, y, w, h, *def, plan.defaults);
         if (out.widgets[out.widget_count]) out.widget_count++;
     }
     return true;
@@ -138,8 +135,8 @@ bool apply(const manager_config::RenderPlan &plan) {
 
     uint8_t limit = plan.screen_count;
     if (limit > MAX_MANAGED_SCREENS) {
-        net::logf("[mgr-screens] plan has %u screens, capping to %u",
-                  (unsigned)limit, (unsigned)MAX_MANAGED_SCREENS);
+        net::logf("[mgr-screens] plan has %u screens, capping to %u", (unsigned)limit,
+                  (unsigned)MAX_MANAGED_SCREENS);
         limit = MAX_MANAGED_SCREENS;
     }
 
@@ -167,8 +164,7 @@ bool apply(const manager_config::RenderPlan &plan) {
         } else {
             ui::register_screen(reg);
         }
-        net::logf("[mgr-screens] +%s widgets=%u",
-                  s_screens[s_screen_count].id,
+        net::logf("[mgr-screens] +%s widgets=%u", s_screens[s_screen_count].id,
                   (unsigned)s_screens[s_screen_count].widget_count);
         s_screen_count++;
     }
@@ -191,8 +187,12 @@ void refresh() {
     refresh_cb();
 }
 
-bool is_applied() { return s_applied; }
+bool is_applied() {
+    return s_applied;
+}
 
-uint8_t managed_count() { return s_screen_count; }
+uint8_t managed_count() {
+    return s_screen_count;
+}
 
 }  // namespace manager_screens

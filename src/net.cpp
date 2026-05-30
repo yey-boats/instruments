@@ -57,8 +57,8 @@ static constexpr uint32_t MDNS_REFRESH_MS = 60000;
 
 static String format_hardware_device_id(const uint8_t mac[6]) {
     char buf[32];
-    snprintf(buf, sizeof(buf), "espdisp-%02x%02x%02x%02x%02x%02x",
-             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    snprintf(buf, sizeof(buf), "espdisp-%02x%02x%02x%02x%02x%02x", mac[0], mac[1], mac[2], mac[3],
+             mac[4], mac[5]);
     return String(buf);
 }
 
@@ -66,8 +66,7 @@ static String raw_efuse_device_id() {
     uint64_t mac = ESP.getEfuseMac();
     if (mac == 0) return String(OTA_HOSTNAME);
     char buf[32];
-    snprintf(buf, sizeof(buf), "espdisp-%012llx",
-             (unsigned long long)(mac & 0xffffffffffffULL));
+    snprintf(buf, sizeof(buf), "espdisp-%012llx", (unsigned long long)(mac & 0xffffffffffffULL));
     return String(buf);
 }
 
@@ -84,21 +83,26 @@ static String hardware_default_device_id() {
     return format_hardware_device_id(mac);
 }
 
-static bool is_legacy_default_device_id(const String &id,
-                                        const String &raw_efuse_id) {
-    return id.length() == 0 || id == OTA_HOSTNAME || id == "espdisp-device" ||
-           id == raw_efuse_id;
+static bool is_legacy_default_device_id(const String &id, const String &raw_efuse_id) {
+    return id.length() == 0 || id == OTA_HOSTNAME || id == "espdisp-device" || id == raw_efuse_id;
 }
 
-WifiState wifiState() { return s_wifi_state; }
+WifiState wifiState() {
+    return s_wifi_state;
+}
 
 const char *wifiStateName() {
     switch (s_wifi_state) {
-    case WifiState::Idle: return "idle";
-    case WifiState::Connecting: return "connecting";
-    case WifiState::StaUp: return "sta";
-    case WifiState::ApSetup: return "ap";
-    case WifiState::Failed: return "failed";
+    case WifiState::Idle:
+        return "idle";
+    case WifiState::Connecting:
+        return "connecting";
+    case WifiState::StaUp:
+        return "sta";
+    case WifiState::ApSetup:
+        return "ap";
+    case WifiState::Failed:
+        return "failed";
     }
     return "?";
 }
@@ -149,9 +153,9 @@ class RxCb : public NimBLECharacteristicCallbacks {
         // queue path (with async scan support already wired in the web
         // UI), but a console-issued `scan` still routes through there
         // cleanly via dispatchCommand.
-        bool inline_ok = (line == "ip" || line == "bench" || line == "screen" ||
-                          line == "sk-status" || line == "sk-dump" ||
-                          line == "wifi-list" || line == "bright");
+        bool inline_ok =
+            (line == "ip" || line == "bench" || line == "screen" || line == "sk-status" ||
+             line == "sk-dump" || line == "wifi-list" || line == "bright");
         if (inline_ok) {
             if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
                 !layout::handleSerialCommand(line)) {
@@ -199,8 +203,8 @@ static void bleSetup() {
     adv->setScanResponse(true);
     NimBLEDevice::startAdvertising();
     printf("[ble] advertising as %s\n", s_device_id.c_str());
-    xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1,
-                            &s_ble_adv_task, 0);
+    xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1, &s_ble_adv_task,
+                            0);
 }
 
 // ---- WiFi / OTA ----
@@ -274,7 +278,7 @@ static void start_ap_mode() {
     broadcastAddr[3] = 255;
     ap_mode = true;
     printf("[wifi] AP ip=%s  mac=%s  ssid='espdisp-setup' (open)\n",
-                  WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
+           WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
     printf("[wifi] connected stations: %d\n", WiFi.softAPgetStationNum());
 }
 
@@ -325,47 +329,36 @@ static void refresh_mdns_device_txt(const char *reason) {
     manager::Status mst = manager::status();
     MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "proto",
                        device_discovery::MDNS_PROTO);
-    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "device_id",
-                       info.device_id);
+    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "device_id", info.device_id);
     MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "path", "/");
-    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "board",
-                       info.board_id);
-    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "firmware",
-                       info.firmware_name);
-    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "version",
-                       info.firmware_version);
+    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "board", info.board_id);
+    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "firmware", info.firmware_name);
+    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "version", info.firmware_version);
     MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "display",
-                       String(info.display_width) + "x" +
-                           String(info.display_height));
+                       String(info.display_width) + "x" + String(info.display_height));
     MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "auth",
                        info.web_auth_required ? "basic" : "none");
     if (mst.config_version.length()) {
-        MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "cfg_ver",
-                           mst.config_version);
+        MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "cfg_ver", mst.config_version);
     }
     if (mst.config_hash.length()) {
-        MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "cfg_hash",
-                           mst.config_hash);
+        MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "cfg_hash", mst.config_hash);
     }
-    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "seq",
-                       String(++s_mdns_seq));
+    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "seq", String(++s_mdns_seq));
     s_mdns_last_refresh_ms = millis();
     s_mdns_refresh_due = false;
-    printf("[mdns] advertise(%s) _%s._tcp port=%u id=%s board=%s fw=%s %s display=%ux%u auth=%s seq=%lu\n",
-                  reason ? reason : "refresh",
-                  device_discovery::MDNS_SERVICE, info.port, info.device_id,
-                  info.board_id, info.firmware_name, info.firmware_version,
-                  info.display_width, info.display_height,
-                  info.web_auth_required ? "basic" : "none",
-                  (unsigned long)s_mdns_seq);
+    printf("[mdns] advertise(%s) _%s._tcp port=%u id=%s board=%s fw=%s %s display=%ux%u auth=%s "
+           "seq=%lu\n",
+           reason ? reason : "refresh", device_discovery::MDNS_SERVICE, info.port, info.device_id,
+           info.board_id, info.firmware_name, info.firmware_version, info.display_width,
+           info.display_height, info.web_auth_required ? "basic" : "none",
+           (unsigned long)s_mdns_seq);
 }
 
-static bool send_discovery_packet(IPAddress target, const char *payload,
-                                  size_t len, const char *label,
-                                  bool log_failures) {
+static bool send_discovery_packet(IPAddress target, const char *payload, size_t len,
+                                  const char *label, bool log_failures) {
     bool locked = false;
-    if (s_udp_mtx &&
-        xSemaphoreTake(s_udp_mtx, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (s_udp_mtx && xSemaphoreTake(s_udp_mtx, pdMS_TO_TICKS(100)) == pdTRUE) {
         locked = true;
     }
     WiFiUDP discovery_udp;
@@ -374,13 +367,10 @@ static bool send_discovery_packet(IPAddress target, const char *payload,
         if (log_failures) logf("[discovery] announce bind failed");
         return false;
     }
-    if (!discovery_udp.beginPacket(
-            target, device_discovery::DEVICE_ANNOUNCE_PORT)) {
+    if (!discovery_udp.beginPacket(target, device_discovery::DEVICE_ANNOUNCE_PORT)) {
         if (log_failures) {
-            logf("[discovery] announce begin failed %s:%u (%s)",
-                 target.toString().c_str(),
-                 device_discovery::DEVICE_ANNOUNCE_PORT,
-                 label ? label : "target");
+            logf("[discovery] announce begin failed %s:%u (%s)", target.toString().c_str(),
+                 device_discovery::DEVICE_ANNOUNCE_PORT, label ? label : "target");
         }
         discovery_udp.stop();
         if (locked) xSemaphoreGive(s_udp_mtx);
@@ -391,10 +381,8 @@ static bool send_discovery_packet(IPAddress target, const char *payload,
     discovery_udp.stop();
     if (locked) xSemaphoreGive(s_udp_mtx);
     if (!ok && log_failures) {
-        logf("[discovery] announce send failed %s:%u (%s)",
-             target.toString().c_str(),
-             device_discovery::DEVICE_ANNOUNCE_PORT,
-             label ? label : "target");
+        logf("[discovery] announce send failed %s:%u (%s)", target.toString().c_str(),
+             device_discovery::DEVICE_ANNOUNCE_PORT, label ? label : "target");
     }
     return ok;
 }
@@ -406,8 +394,7 @@ static void send_discovery_announcement() {
     if (sk_host.length()) {
         if (!s_discovery_sk_skip_logged) {
             s_discovery_sk_skip_logged = true;
-            logf("[discovery] UDP announces paused; SignalK target is %s",
-                 sk_host.c_str());
+            logf("[discovery] UDP announces paused; SignalK target is %s", sk_host.c_str());
         }
         return;
     }
@@ -424,12 +411,9 @@ static void send_discovery_announcement() {
 
     bool ok = send_discovery_packet(broadcastAddr, buf, n, "broadcast", true);
     if (ok && (++s_discovery_sent == 1 || s_discovery_sent % 12 == 0)) {
-        logf("[discovery] announce %s:%u id=%s auth=%s sk=%s",
-             broadcastAddr.toString().c_str(),
-             device_discovery::DEVICE_ANNOUNCE_PORT,
-             info.device_id,
-             info.web_auth_required ? "basic" : "none",
-             "-");
+        logf("[discovery] announce %s:%u id=%s auth=%s sk=%s", broadcastAddr.toString().c_str(),
+             device_discovery::DEVICE_ANNOUNCE_PORT, info.device_id,
+             info.web_auth_required ? "basic" : "none", "-");
     }
 }
 
@@ -456,8 +440,8 @@ static void wifi_manager_task(void *) {
         return;
     }
 
-    printf("[wifi] %u saved network%s, trying in order\n",
-                  (unsigned)wifi_store::count(), wifi_store::count() == 1 ? "" : "s");
+    printf("[wifi] %u saved network%s, trying in order\n", (unsigned)wifi_store::count(),
+           wifi_store::count() == 1 ? "" : "s");
 
     bool joined = false;
     for (size_t i = 0; i < wifi_store::count(); ++i) {
@@ -475,15 +459,14 @@ static void wifi_manager_task(void *) {
         for (uint8_t i = 0; i < 4; ++i) {
             broadcastAddr[i] = ip[i] | ~mask[i];
         }
-        printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(),
-                      WiFi.SSID().c_str(), WiFi.RSSI());
+        printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(), WiFi.SSID().c_str(),
+               WiFi.RSSI());
         if (MDNS.begin(s_device_id.c_str())) {
             s_mdns_started = true;
             s_mdns_services_registered = false;
             MDNS.addService("arduino", "tcp", 3232);
             refresh_mdns_device_txt("boot");
-            printf("[mdns] host %s.local (espdisp + arduino)\n",
-                          s_device_id.c_str());
+            printf("[mdns] host %s.local (espdisp + arduino)\n", s_device_id.c_str());
         }
         otaSetup();
         s_wifi_state = WifiState::StaUp;
@@ -509,8 +492,8 @@ void setup() {
             s_device_id = fallback_id;
             if (stored_id.length() && stored_id != fallback_id) {
                 prefs.put_string("device_id", s_device_id.c_str());
-                printf("[net] migrated legacy device id '%s' -> '%s'\n",
-                              stored_id.c_str(), s_device_id.c_str());
+                printf("[net] migrated legacy device id '%s' -> '%s'\n", stored_id.c_str(),
+                       s_device_id.c_str());
             }
         } else {
             s_device_id = stored_id;
@@ -523,8 +506,7 @@ void setup() {
     // WiFi join attempts run on their own task (Phase 4). With multiple
     // saved networks and 10 s per try this could be 30+ seconds blocking
     // the main loop; making it async lets the UI render immediately.
-    xTaskCreatePinnedToCore(wifi_manager_task, "wifi-mgr", 6144, nullptr, 1,
-                            &s_wifi_task, 0);
+    xTaskCreatePinnedToCore(wifi_manager_task, "wifi-mgr", 6144, nullptr, 1, &s_wifi_task, 0);
 }
 
 bool dispatchCommand(const String &line) {
@@ -548,16 +530,13 @@ void loop() {
     if (s_mdns_started && wifiUp()) {
         uint32_t now = millis();
         if (s_mdns_refresh_due ||
-            (int32_t)(now - s_mdns_last_refresh_ms) >=
-                (int32_t)MDNS_REFRESH_MS) {
-            refresh_mdns_device_txt(s_mdns_refresh_due ? "requested" :
-                                                        "periodic");
+            (int32_t)(now - s_mdns_last_refresh_ms) >= (int32_t)MDNS_REFRESH_MS) {
+            refresh_mdns_device_txt(s_mdns_refresh_due ? "requested" : "periodic");
         }
     }
     if (s_discovery_announcements && wifiUp()) {
         uint32_t now = millis();
-        if (s_discovery_last_ms == 0 ||
-            (int32_t)(now - s_discovery_last_ms) >= 5000) {
+        if (s_discovery_last_ms == 0 || (int32_t)(now - s_discovery_last_ms) >= 5000) {
             s_discovery_last_ms = now;
             send_discovery_announcement();
         }
@@ -667,7 +646,8 @@ bool handleSerialCommand(const String &line) {
         //   wifi "<ssid with spaces>" [pass]     (any ssid)
         String ssid, pass;
         const char *p = line.c_str() + 5;
-        while (*p == ' ') p++;
+        while (*p == ' ')
+            p++;
         if (*p == '"') {
             const char *start = p + 1;
             const char *end = strchr(start, '"');
@@ -677,7 +657,8 @@ bool handleSerialCommand(const String &line) {
             }
             ssid = String(start).substring(0, end - start);
             p = end + 1;
-            while (*p == ' ') p++;
+            while (*p == ' ')
+                p++;
             pass = String(p);
         } else {
             const char *sp = strchr(p, ' ');
@@ -743,8 +724,7 @@ bool handleSerialCommand(const String &line) {
             storage::Namespace prefs("net", false);
             prefs.put_string("device_id", id.c_str());
         }
-        logf("[net] device id -> '%s' (hardware default, rebooting)",
-             id.c_str());
+        logf("[net] device id -> '%s' (hardware default, rebooting)", id.c_str());
         delay(200);
         ESP.restart();
         return true;

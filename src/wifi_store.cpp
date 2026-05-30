@@ -65,7 +65,9 @@ void load() {
     load_from_nvs();
 }
 
-size_t count() { return s_count; }
+size_t count() {
+    return s_count;
+}
 
 const Network &at(size_t index) {
     return s_nets[index];
@@ -77,7 +79,8 @@ size_t put(const char *ssid, const char *pass) {
     remove(ssid);
     // Make room at the front: shift everything down by one.
     if (s_count >= MAX_NETWORKS) s_count = MAX_NETWORKS - 1;
-    for (size_t i = s_count; i > 0; --i) s_nets[i] = s_nets[i - 1];
+    for (size_t i = s_count; i > 0; --i)
+        s_nets[i] = s_nets[i - 1];
     Network &n = s_nets[0];
     memset(&n, 0, sizeof(n));
     strncpy(n.ssid, ssid, SSID_MAX);
@@ -92,7 +95,8 @@ bool remove(const char *ssid) {
     if (!ssid) return false;
     for (size_t i = 0; i < s_count; ++i) {
         if (strcmp(s_nets[i].ssid, ssid) == 0) {
-            for (size_t j = i; j + 1 < s_count; ++j) s_nets[j] = s_nets[j + 1];
+            for (size_t j = i; j + 1 < s_count; ++j)
+                s_nets[j] = s_nets[j + 1];
             s_count--;
             save_to_nvs();
             return true;

@@ -74,7 +74,8 @@ static void update_segment(Segmented &seg, int selected) {
         uint32_t bg = active ? theme.accent : theme.panel;
         uint32_t fg = active ? 0xffffff : theme.fg;
         lv_obj_set_style_bg_color(seg.buttons[i], lv_color_hex(bg), 0);
-        lv_obj_set_style_border_color(seg.buttons[i], lv_color_hex(active ? theme.accent : theme.panel_edge), 0);
+        lv_obj_set_style_border_color(seg.buttons[i],
+                                      lv_color_hex(active ? theme.accent : theme.panel_edge), 0);
         lv_obj_t *label = lv_obj_get_child(seg.buttons[i], 0);
         if (label) lv_obj_set_style_text_color(label, lv_color_hex(fg), 0);
     }
@@ -281,8 +282,8 @@ lv_obj_t *build(lv_obj_t *parent) {
                    on_theme);
 
     make_label(s_root, "FORMAT", label_x, y0 + row_h * 2 + 12);
-    make_segmented(s_root, seg_format, format_labels, 3, segment_x, y0 + row_h * 2, segment_w,
-                   40, on_format);
+    make_segmented(s_root, seg_format, format_labels, 3, segment_x, y0 + row_h * 2, segment_w, 40,
+                   on_format);
 
     make_label(s_root, "DEPTH", label_x, y0 + row_h * 3 + 12);
     depth_value = make_value_label(s_root, value_x, y0 + row_h * 3 + 12, 52);
@@ -291,12 +292,11 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     make_label(s_root, "BATTERY", label_x, y0 + row_h * 4 + 12);
     battery_value = make_value_label(s_root, value_x, y0 + row_h * 4 + 12, 52);
-    make_segmented(s_root, seg_battery, battery_labels, 5, segment_x, y0 + row_h * 4,
-                   segment_w, 40, on_battery);
+    make_segmented(s_root, seg_battery, battery_labels, 5, segment_x, y0 + row_h * 4, segment_w, 40,
+                   on_battery);
 
     make_label(s_root, "DEMO", label_x, y0 + row_h * 5 + 12);
-    make_segmented(s_root, seg_demo, demo_labels, 2, segment_x, y0 + row_h * 5, 154, 40,
-                   on_demo);
+    make_segmented(s_root, seg_demo, demo_labels, 2, segment_x, y0 + row_h * 5, 154, 40, on_demo);
     make_action(s_root, "trip reset", 318, y0 + row_h * 5 - 1, 150, theme.warn, on_trip_reset);
 
     make_action(s_root, "wifi setup", 150, 402, 154, theme.accent, on_open_wifi);

@@ -11,8 +11,10 @@ uint16_t resolve(uint16_t requested, const uint16_t *sizes, size_t count) {
     uint16_t best = sizes[0];
     for (size_t i = 0; i < count; ++i) {
         if (sizes[i] == requested) return sizes[i];  // exact
-        if (sizes[i] <= requested) best = sizes[i];
-        else break;  // sizes sorted ascending; further entries can't be lower
+        if (sizes[i] <= requested)
+            best = sizes[i];
+        else
+            break;  // sizes sorted ascending; further entries can't be lower
     }
     return best;
 }

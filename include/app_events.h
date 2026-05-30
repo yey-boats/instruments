@@ -19,18 +19,18 @@ namespace app {
 
 enum class CommandType : uint8_t {
     None = 0,
-    ShowScreen,      // a = id ("wind", "next", "prev") or numeric
-    ApplyLayout,     // blob = JSON bytes; blob_len = length; consumer frees
-    SetTheme,        // a = "day" or "night"
-    SetBrightness,   // i = 0..255
+    ShowScreen,     // a = id ("wind", "next", "prev") or numeric
+    ApplyLayout,    // blob = JSON bytes; blob_len = length; consumer frees
+    SetTheme,       // a = "day" or "night"
+    SetBrightness,  // i = 0..255
     Reboot,
-    RunCommand,      // a = console command line (legacy dispatchCommand)
-    SignalKPut,      // a = SK dotted path, b = JSON value (sent to net queue)
-    SaveWifi,        // a = ssid, b = password (sent to net queue, reboots)
+    RunCommand,           // a = console command line (legacy dispatchCommand)
+    SignalKPut,           // a = SK dotted path, b = JSON value (sent to net queue)
+    SaveWifi,             // a = ssid, b = password (sent to net queue, reboots)
     ApplyManagedScreens,  // blob = manager_config::RenderPlan*; consumer
                           // calls manager_screens::apply() then frees.
-    ShowOverlay,     // a = message text (spec 17 §8 overlay.show)
-    ClearOverlay,    // (spec 17 §8 overlay.clear)
+    ShowOverlay,          // a = message text (spec 17 §8 overlay.show)
+    ClearOverlay,         // (spec 17 §8 overlay.clear)
 };
 
 struct Command {

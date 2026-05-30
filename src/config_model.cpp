@@ -7,22 +7,52 @@ namespace config {
 
 bool clamp_ui(UiConfig &c) {
     bool ok = true;
-    if (c.brightness < 20) { c.brightness = 20; ok = false; }
-    if (c.brightness > 255) { c.brightness = 255; ok = false; }
-    if ((uint8_t)c.pos_format > (uint8_t)PosFormat::DMS) { c.pos_format = PosFormat::DDM; ok = false; }
-    if ((uint8_t)c.theme > (uint8_t)Theme::Day) { c.theme = Theme::Night; ok = false; }
+    if (c.brightness < 20) {
+        c.brightness = 20;
+        ok = false;
+    }
+    if (c.brightness > 255) {
+        c.brightness = 255;
+        ok = false;
+    }
+    if ((uint8_t)c.pos_format > (uint8_t)PosFormat::DMS) {
+        c.pos_format = PosFormat::DDM;
+        ok = false;
+    }
+    if ((uint8_t)c.theme > (uint8_t)Theme::Day) {
+        c.theme = Theme::Night;
+        ok = false;
+    }
     c.default_screen[sizeof(c.default_screen) - 1] = 0;
     return ok;
 }
 
 bool clamp_alarms(AlarmConfig &c) {
     bool ok = true;
-    if (!isfinite(c.depth_alarm_m)) { c.depth_alarm_m = 3.0; ok = false; }
-    if (c.depth_alarm_m < 0.5) { c.depth_alarm_m = 0.5; ok = false; }
-    if (c.depth_alarm_m > 20.0) { c.depth_alarm_m = 20.0; ok = false; }
-    if (!isfinite(c.battery_alarm_v)) { c.battery_alarm_v = 11.5; ok = false; }
-    if (c.battery_alarm_v < 9.0) { c.battery_alarm_v = 9.0; ok = false; }
-    if (c.battery_alarm_v > 14.0) { c.battery_alarm_v = 14.0; ok = false; }
+    if (!isfinite(c.depth_alarm_m)) {
+        c.depth_alarm_m = 3.0;
+        ok = false;
+    }
+    if (c.depth_alarm_m < 0.5) {
+        c.depth_alarm_m = 0.5;
+        ok = false;
+    }
+    if (c.depth_alarm_m > 20.0) {
+        c.depth_alarm_m = 20.0;
+        ok = false;
+    }
+    if (!isfinite(c.battery_alarm_v)) {
+        c.battery_alarm_v = 11.5;
+        ok = false;
+    }
+    if (c.battery_alarm_v < 9.0) {
+        c.battery_alarm_v = 9.0;
+        ok = false;
+    }
+    if (c.battery_alarm_v > 14.0) {
+        c.battery_alarm_v = 14.0;
+        ok = false;
+    }
     return ok;
 }
 
@@ -30,7 +60,10 @@ bool clamp_signalk(SignalKConfig &c) {
     bool ok = true;
     c.host[sizeof(c.host) - 1] = 0;
     c.token[sizeof(c.token) - 1] = 0;
-    if (c.port == 0) { c.port = 3000; ok = false; }
+    if (c.port == 0) {
+        c.port = 3000;
+        ok = false;
+    }
     return ok;
 }
 
@@ -47,9 +80,12 @@ Theme parse_theme(const char *s, Theme fallback) {
 
 const char *pos_format_name(PosFormat f) {
     switch (f) {
-    case PosFormat::DDM: return "ddm";
-    case PosFormat::DD:  return "dd";
-    case PosFormat::DMS: return "dms";
+    case PosFormat::DDM:
+        return "ddm";
+    case PosFormat::DD:
+        return "dd";
+    case PosFormat::DMS:
+        return "dms";
     }
     return "ddm";
 }
@@ -64,21 +100,31 @@ PosFormat parse_pos_format(const char *s, PosFormat fallback) {
 
 const char *domain_name(Domain d) {
     switch (d) {
-    case Domain::Ui:      return "ui";
-    case Domain::Alarms:  return "alarms";
-    case Domain::SignalK: return "signalk";
-    default:              return "?";
+    case Domain::Ui:
+        return "ui";
+    case Domain::Alarms:
+        return "alarms";
+    case Domain::SignalK:
+        return "signalk";
+    default:
+        return "?";
     }
 }
 
 const char *source_name(Source s) {
     switch (s) {
-    case Source::Default:  return "default";
-    case Source::Storage:  return "storage";
-    case Source::Web:      return "web";
-    case Source::Ble:      return "ble";
-    case Source::Serial:   return "serial";
-    case Source::External: return "external";
+    case Source::Default:
+        return "default";
+    case Source::Storage:
+        return "storage";
+    case Source::Web:
+        return "web";
+    case Source::Ble:
+        return "ble";
+    case Source::Serial:
+        return "serial";
+    case Source::External:
+        return "external";
     }
     return "?";
 }

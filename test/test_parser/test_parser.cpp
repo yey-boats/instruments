@@ -134,14 +134,13 @@ static void test_null_value_does_not_overwrite() {
 
 static void test_parses_route_fields() {
     Data d;
-    const char *j =
-        "{\"updates\":[{\"values\":["
-        "{\"path\":\"navigation.courseRhumbline.crossTrackError\",\"value\":-42.5},"
-        "{\"path\":\"navigation.courseRhumbline.bearingTrackTrue\",\"value\":1.234},"
-        "{\"path\":\"navigation.courseRhumbline.nextPoint.bearingTrue\",\"value\":1.5},"
-        "{\"path\":\"navigation.courseRhumbline.nextPoint.distance\",\"value\":1234.5},"
-        "{\"path\":\"navigation.courseRhumbline.velocityMadeGood\",\"value\":3.1}"
-        "]}]}";
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"navigation.courseRhumbline.crossTrackError\",\"value\":-42.5},"
+                    "{\"path\":\"navigation.courseRhumbline.bearingTrackTrue\",\"value\":1.234},"
+                    "{\"path\":\"navigation.courseRhumbline.nextPoint.bearingTrue\",\"value\":1.5},"
+                    "{\"path\":\"navigation.courseRhumbline.nextPoint.distance\",\"value\":1234.5},"
+                    "{\"path\":\"navigation.courseRhumbline.velocityMadeGood\",\"value\":3.1}"
+                    "]}]}";
     int n = sk::applyDelta(j, strlen(j), d);
     TEST_ASSERT_EQUAL(5, n);
     TEST_ASSERT_FLOAT_WITHIN(0.001, -42.5, d.xte);
@@ -153,11 +152,10 @@ static void test_parses_route_fields() {
 
 static void test_parses_autopilot_state_and_target() {
     Data d;
-    const char *j =
-        "{\"updates\":[{\"values\":["
-        "{\"path\":\"steering.autopilot.target.headingTrue\",\"value\":1.234},"
-        "{\"path\":\"steering.autopilot.state\",\"value\":\"auto\"}"
-        "]}]}";
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"steering.autopilot.target.headingTrue\",\"value\":1.234},"
+                    "{\"path\":\"steering.autopilot.state\",\"value\":\"auto\"}"
+                    "]}]}";
     int n = sk::applyDelta(j, strlen(j), d);
     TEST_ASSERT_EQUAL(2, n);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 1.234, d.apTargetHdg);
@@ -166,11 +164,10 @@ static void test_parses_autopilot_state_and_target() {
 
 static void test_parses_current() {
     Data d;
-    const char *j =
-        "{\"updates\":[{\"values\":["
-        "{\"path\":\"environment.current.setTrue\",\"value\":2.0},"
-        "{\"path\":\"environment.current.drift\",\"value\":0.5}"
-        "]}]}";
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"environment.current.setTrue\",\"value\":2.0},"
+                    "{\"path\":\"environment.current.drift\",\"value\":0.5}"
+                    "]}]}";
     int n = sk::applyDelta(j, strlen(j), d);
     TEST_ASSERT_EQUAL(2, n);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 2.0, d.currentSetTrue);
@@ -181,21 +178,19 @@ static void test_great_circle_aliases_route() {
     // courseGreatCircle paths should populate the same fields as
     // courseRhumbline so either route style works.
     Data d;
-    const char *j =
-        "{\"updates\":[{\"values\":["
-        "{\"path\":\"navigation.courseGreatCircle.crossTrackError\",\"value\":12.0}"
-        "]}]}";
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"navigation.courseGreatCircle.crossTrackError\",\"value\":12.0}"
+                    "]}]}";
     sk::applyDelta(j, strlen(j), d);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 12.0, d.xte);
 }
 
 static void test_apstate_truncates_safely() {
     Data d;
-    const char *j =
-        "{\"updates\":[{\"values\":["
-        "{\"path\":\"steering.autopilot.state\","
-        "\"value\":\"a-very-long-state-name-that-overflows\"}"
-        "]}]}";
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"steering.autopilot.state\","
+                    "\"value\":\"a-very-long-state-name-that-overflows\"}"
+                    "]}]}";
     sk::applyDelta(j, strlen(j), d);
     // sk::Data.apState is 16 bytes; expect a 15-char truncation + NUL.
     TEST_ASSERT_TRUE(strlen(d.apState) <= 15);

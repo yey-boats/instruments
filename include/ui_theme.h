@@ -28,7 +28,9 @@ extern Palette theme;
 void use_night();  // dark blue, default
 void use_day();    // light / sunlight-readable
 
-inline lv_color_t c(uint32_t hex) { return lv_color_hex(hex); }
+inline lv_color_t c(uint32_t hex) {
+    return lv_color_hex(hex);
+}
 
 void style_screen(lv_obj_t *o);
 void style_panel(lv_obj_t *o, uint32_t accent = 0);

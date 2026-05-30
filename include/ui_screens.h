@@ -17,11 +17,11 @@ namespace ui {
 constexpr size_t MAX_SCREENS = 16;
 
 struct Screen {
-    const char *id;       // short canonical id, e.g. "wind"
-    const char *title;    // human label, e.g. "Wind"
-    lv_obj_t *root;       // fullscreen object (must be a child of lv_screen_active())
-    void (*refresh)();    // called from the global 5 Hz refresh when this screen is visible
-    bool hidden;          // if true, skip in swipe cycle (still reachable by id)
+    const char *id;     // short canonical id, e.g. "wind"
+    const char *title;  // human label, e.g. "Wind"
+    lv_obj_t *root;     // fullscreen object (must be a child of lv_screen_active())
+    void (*refresh)();  // called from the global 5 Hz refresh when this screen is visible
+    bool hidden;        // if true, skip in swipe cycle (still reachable by id)
 };
 
 // Register a fullscreen panel. Must be called after the root LVGL object

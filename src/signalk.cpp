@@ -170,23 +170,28 @@ static void start_ws() {
     ws.setReconnectInterval(5000);
     ws.enableHeartbeat(15000, 3000, 2);
     s_ws_started = true;
-    net::logf("[sk] ws begin %s:%u token_len=%u",
-              s_host.c_str(), s_port, (unsigned)s_token.length());
+    net::logf("[sk] ws begin %s:%u token_len=%u", s_host.c_str(), s_port,
+              (unsigned)s_token.length());
 }
 
-bool isAutoMode() { return s_auto_mode; }
+bool isAutoMode() {
+    return s_auto_mode;
+}
 
-String targetHost() { return s_host; }
+String targetHost() {
+    return s_host;
+}
 
-uint16_t targetPort() { return s_port; }
+uint16_t targetPort() {
+    return s_port;
+}
 
 static bool probe_discovered_target(const String &host, uint16_t port) {
     WiFiClient client;
     client.setTimeout(1500);
     bool ok = client.connect(host.c_str(), port);
     if (ok) client.stop();
-    net::logf("[sk] discovery probe %s:%u -> %s", host.c_str(), port,
-              ok ? "ok" : "failed");
+    net::logf("[sk] discovery probe %s:%u -> %s", host.c_str(), port, ok ? "ok" : "failed");
     return ok;
 }
 
@@ -206,8 +211,7 @@ static bool tryUdpDiscover() {
     udp.beginPacket(broadcast, DISCOVERY_PORT);
     udp.write((const uint8_t *)DISCOVERY_QUERY, strlen(DISCOVERY_QUERY));
     udp.endPacket();
-    net::logf("[sk] UDP discovery query -> %s:%u",
-              broadcast.toString().c_str(), DISCOVERY_PORT);
+    net::logf("[sk] UDP discovery query -> %s:%u", broadcast.toString().c_str(), DISCOVERY_PORT);
 
     uint32_t deadline = millis() + 1500;
     while ((int32_t)(deadline - millis()) > 0) {
@@ -235,13 +239,11 @@ static bool tryUdpDiscover() {
         uint16_t port = doc["port"] | 3000;
         IPAddress remote = udp.remoteIP();
         String target = host;
-        if (target.length() == 0 || target == "signalk.local" ||
-            target == "auto") {
+        if (target.length() == 0 || target == "signalk.local" || target == "auto") {
             target = remote.toString();
         }
         if (port == 0) port = 3000;
-        net::logf("[sk] UDP discovered signalk at %s:%u",
-                  target.c_str(), port);
+        net::logf("[sk] UDP discovered signalk at %s:%u", target.c_str(), port);
         if (!probe_discovered_target(target, port)) {
             continue;
         }
@@ -277,8 +279,7 @@ bool tryAutoDiscover(uint32_t now_ms) {
     String target = ip != IPAddress(0, 0, 0, 0) ? ip.toString() : host;
     s_host = target;
     s_port = port ? port : 3000;
-    net::logf("[sk] mDNS discovered signalk-ws at %s:%u (%d records)",
-              s_host.c_str(), s_port, n);
+    net::logf("[sk] mDNS discovered signalk-ws at %s:%u (%d records)", s_host.c_str(), s_port, n);
     if (!probe_discovered_target(s_host, s_port)) {
         s_host = "";
         s_port = 3000;
@@ -330,8 +331,7 @@ void setup(const String &host, uint16_t port) {
     if (!s_sk_task) {
         // Pin to core 0 (network/IO core). Stack 6 KB - WebSockets +
         // ArduinoJson subscribe doc need a few KB during connect.
-        xTaskCreatePinnedToCore(sk_task, "sk", 6144, nullptr, 2,
-                                &s_sk_task, 0);
+        xTaskCreatePinnedToCore(sk_task, "sk", 6144, nullptr, 2, &s_sk_task, 0);
     }
 }
 
@@ -341,7 +341,9 @@ void loop() {
     // Arduino loop and starving lv_timer_handler.
 }
 
-uint32_t loopIters() { return s_loop_iters; }
+uint32_t loopIters() {
+    return s_loop_iters;
+}
 uint32_t loopMaxUs() {
     uint32_t v = s_loop_max_us;
     s_loop_max_us = 0;
@@ -401,8 +403,7 @@ bool handleSerialCommand(const String &line) {
             storage::Namespace prefs("sk", false);
             prefs.put_string("token", rest.c_str());
         }
-        net::logf("[sk] token saved (len=%u) - rebooting",
-                  (unsigned)rest.length());
+        net::logf("[sk] token saved (len=%u) - rebooting", (unsigned)rest.length());
         delay(200);
         ESP.restart();
         return true;
@@ -446,8 +447,7 @@ bool handleSerialCommand(const String &line) {
             net::logf("[sk] usage: sk-ap-adjust <degrees>");
             return true;
         }
-        int rc = putValue("steering/autopilot/actions/adjustHeading",
-                          deg.c_str());
+        int rc = putValue("steering/autopilot/actions/adjustHeading", deg.c_str());
         net::logf("[sk] ap adjust=%s deg -> %d", deg.c_str(), rc);
         return true;
     }
@@ -463,8 +463,7 @@ bool handleSerialCommand(const String &line) {
         uint32_t t0 = millis();
         bool ok = c.connect(s_host.c_str(), s_port, 4000);
         uint32_t dt = millis() - t0;
-        net::logf("[sk] sk-test: %s:%u %s in %lums",
-                  s_host.c_str(), s_port, ok ? "OK" : "FAIL",
+        net::logf("[sk] sk-test: %s:%u %s in %lums", s_host.c_str(), s_port, ok ? "OK" : "FAIL",
                   (unsigned long)dt);
         if (ok) c.stop();
         return true;
@@ -478,10 +477,8 @@ bool handleSerialCommand(const String &line) {
     if (line == "sk-status") {
         net::logf("mode=%s host=%s port=%u token_len=%u connected=%d "
                   "lastUpdateAgo=%lums",
-                  s_auto_mode ? "auto" : "manual",
-                  s_host.c_str(), s_port,
-                  (unsigned)s_token.length(),
-                  data.connected,
+                  s_auto_mode ? "auto" : "manual", s_host.c_str(), s_port,
+                  (unsigned)s_token.length(), data.connected,
                   (unsigned long)(data.lastUpdateMs ? (millis() - data.lastUpdateMs) : 0));
         return true;
     }
@@ -509,8 +506,8 @@ int putValue(const char *path, const char *valueJson) {
         return -3;
     }
     HTTPClient http;
-    String url = String("http://") + s_host + ":" + String(s_port) +
-                 "/signalk/v1/api/vessels/self/" + path;
+    String url =
+        String("http://") + s_host + ":" + String(s_port) + "/signalk/v1/api/vessels/self/" + path;
     // SignalK PUT REST puts dots in path; we accept dot-paths in `path` arg
     // and send them as-is (the SK server expects them URL-encoded with
     // slashes between segments, but most servers accept dots too).

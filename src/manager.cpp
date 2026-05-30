@@ -58,8 +58,8 @@ constexpr uint16_t HTTP_CONNECT_TIMEOUT_MS = 1000;
 constexpr uint16_t HTTP_READ_TIMEOUT_MS = 1500;
 
 String s_endpoint;
-String s_token;       // device/dev/provision token sent as X-EspDisp-Authorization
-String s_sk_token;    // SignalK server bearer token used to pass SK security
+String s_token;     // device/dev/provision token sent as X-EspDisp-Authorization
+String s_sk_token;  // SignalK server bearer token used to pass SK security
 AuthState s_auth = AuthState::Unprovisioned;
 HealthState s_health = HealthState::Idle;
 uint32_t s_heartbeat_interval_ms = DEFAULT_HEARTBEAT_MS;
@@ -131,8 +131,7 @@ void load_prefs() {
     s_ota_enabled = p.get_u8("ota_en", 1) != 0;
     s_ota_max_size = p.get_u32("ota_max", 0);
     s_ota_require_sha = p.get_u8("ota_sha", 1) != 0;
-    s_auth = s_token.length() ? AuthState::Provisioned
-                              : AuthState::Unprovisioned;
+    s_auth = s_token.length() ? AuthState::Provisioned : AuthState::Unprovisioned;
 }
 
 void save_prefs() {
@@ -163,8 +162,7 @@ constexpr int MAX_COMMANDS_BYTES = 8 * 1024;
 bool resp_within_cap(HTTPClient &http, int cap, const char *who) {
     int sz = http.getSize();
     if (sz > cap) {
-        net::logf("[mgr] %s response too large (%d > %d) - dropping",
-                  who, sz, cap);
+        net::logf("[mgr] %s response too large (%d > %d) - dropping", who, sz, cap);
         return false;
     }
     return true;
@@ -209,8 +207,7 @@ void prepare_http(HTTPClient &http, bool json = false) {
     add_auth_headers(http);
 }
 
-uint32_t clamped_interval(uint32_t value, uint32_t fallback,
-                          uint32_t minimum) {
+uint32_t clamped_interval(uint32_t value, uint32_t fallback, uint32_t minimum) {
     if (value == 0) return fallback;
     return value < minimum ? minimum : value;
 }
@@ -218,13 +215,11 @@ uint32_t clamped_interval(uint32_t value, uint32_t fallback,
 void apply_manager_intervals(uint32_t heartbeat_ms, uint32_t command_poll_ms) {
     if (heartbeat_ms) {
         s_heartbeat_interval_ms =
-            clamped_interval(heartbeat_ms, DEFAULT_HEARTBEAT_MS,
-                             MIN_HEARTBEAT_MS);
+            clamped_interval(heartbeat_ms, DEFAULT_HEARTBEAT_MS, MIN_HEARTBEAT_MS);
     }
     if (command_poll_ms) {
         s_command_poll_interval_ms =
-            clamped_interval(command_poll_ms, DEFAULT_COMMAND_POLL_MS,
-                             MIN_COMMAND_POLL_MS);
+            clamped_interval(command_poll_ms, DEFAULT_COMMAND_POLL_MS, MIN_COMMAND_POLL_MS);
     }
 }
 
@@ -266,8 +261,7 @@ int fetch_discovery(const String &base, String *out_base_path = nullptr) {
             if (out_base_path && d["basePath"].is<const char *>()) {
                 *out_base_path = d["basePath"].as<const char *>();
             }
-            net::logf("[mgr] discovery: hb=%ums poll=%ums",
-                      (unsigned)s_heartbeat_interval_ms,
+            net::logf("[mgr] discovery: hb=%ums poll=%ums", (unsigned)s_heartbeat_interval_ms,
                       (unsigned)s_command_poll_interval_ms);
         }
     }
@@ -342,8 +336,7 @@ int do_register() {
                 s_token = tok;
                 s_auth = AuthState::Provisioned;
                 save_prefs();
-                net::logf("[mgr] registered ok (token_len=%u)",
-                          (unsigned)s_token.length());
+                net::logf("[mgr] registered ok (token_len=%u)", (unsigned)s_token.length());
             }
             uint32_t hb = r["heartbeat"]["intervalMs"] | 0;
             if (!hb) hb = r["heartbeat_interval_ms"] | 0;
@@ -356,8 +349,7 @@ int do_register() {
     }
     s_last_register_ms = millis();
     s_last_register_code = code;
-    s_health = (code >= 200 && code < 300) ? HealthState::Heartbeating
-                                            : HealthState::Failed;
+    s_health = (code >= 200 && code < 300) ? HealthState::Heartbeating : HealthState::Failed;
     return code;
 }
 
@@ -414,8 +406,7 @@ void build_status_body(JsonDocument &doc) {
 
     JsonObject mem = doc["memory"].to<JsonObject>();
     mem["heap_free_kb"] = (uint32_t)(ESP.getFreeHeap() / 1024);
-    mem["psram_free_kb"] =
-        (uint32_t)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+    mem["psram_free_kb"] = (uint32_t)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
 
     JsonObject fw = doc["firmware"].to<JsonObject>();
     fw["version"] = id.firmware_version;
@@ -533,8 +524,7 @@ bool apply_config(JsonDocument &cfg) {
             if (sk["host"].is<const char *>()) {
                 const char *host = sk["host"].as<const char *>();
                 bool use_mdns = sk["useMdns"] | false;
-                bool manager_default =
-                    use_mdns && strcmp(host, "signalk.local") == 0;
+                bool manager_default = use_mdns && strcmp(host, "signalk.local") == 0;
                 if (manager_default) {
                     // The SignalK plugin advertises signalk.local as a service
                     // discovery hint. Persisting it as a manual target disables
@@ -545,11 +535,9 @@ bool apply_config(JsonDocument &cfg) {
                         p.remove("host");
                         p.remove("port");
                         reset_to_auto = true;
-                        net::logf("[mgr] cleared persisted sk.host=%s; use mDNS",
-                                  host);
+                        net::logf("[mgr] cleared persisted sk.host=%s; use mDNS", host);
                     } else {
-                        net::logf("[mgr] ignored default sk.host=%s (useMdns=true)",
-                                  host);
+                        net::logf("[mgr] ignored default sk.host=%s (useMdns=true)", host);
                     }
                 } else {
                     p.put_string("host", host);
@@ -569,8 +557,7 @@ bool apply_config(JsonDocument &cfg) {
                 const char *tok = sk["token"].as<const char *>();
                 p.put_string("token", tok);
                 changed = true;
-                net::logf("[mgr] applied sk.token (len=%u)",
-                          (unsigned)strlen(tok));
+                net::logf("[mgr] applied sk.token (len=%u)", (unsigned)strlen(tok));
             }
         }
         // SK reconnect picks up changes on next ws.begin via the
@@ -589,7 +576,8 @@ bool apply_config(JsonDocument &cfg) {
             JsonArrayConst arr = src["priority"].as<JsonArrayConst>();
             boat::Priority p{};
             // Clear out the default order; whatever we set below wins.
-            for (auto &slot : p.order) slot = boat::SourceKind::None;
+            for (auto &slot : p.order)
+                slot = boat::SourceKind::None;
             uint8_t i = 0;
             bool any_rejected = false;
             for (JsonVariantConst v : arr) {
@@ -598,7 +586,8 @@ bool apply_config(JsonDocument &cfg) {
                 boat::SourceKind k = sources_check::from_string(name);
                 if (k == boat::SourceKind::None && name && *name) {
                     record_error("[mgr] reject sources.priority entry %s "
-                                 "(unknown source)", name);
+                                 "(unknown source)",
+                                 name);
                     any_rejected = true;
                     continue;
                 }
@@ -608,27 +597,39 @@ bool apply_config(JsonDocument &cfg) {
                 ok = false;
             } else if (i > 0) {
                 boat::set_priority(p);
-                net::logf("[mgr] applied sources.priority (%u entries)",
-                          (unsigned)i);
+                net::logf("[mgr] applied sources.priority (%u entries)", (unsigned)i);
             }
         }
         if (src["timeoutsMs"].is<JsonObject>()) {
             JsonObject t = src["timeoutsMs"].as<JsonObject>();
             boat::Timeouts to = boat::get_timeouts();
             bool any = false;
-            if (t["nmea2000"].is<uint32_t>())    { to.nmea2000_ms = t["nmea2000"].as<uint32_t>(); any = true; }
-            if (t["nmea0183Wifi"].is<uint32_t>()) { to.nmea_wifi_ms = t["nmea0183Wifi"].as<uint32_t>(); any = true; }
-            if (t["nmeaWifi"].is<uint32_t>())     { to.nmea_wifi_ms = t["nmeaWifi"].as<uint32_t>(); any = true; }
-            if (t["signalk"].is<uint32_t>())      { to.signalk_ms = t["signalk"].as<uint32_t>(); any = true; }
-            if (t["demo"].is<uint32_t>())         { to.demo_ms = t["demo"].as<uint32_t>(); any = true; }
+            if (t["nmea2000"].is<uint32_t>()) {
+                to.nmea2000_ms = t["nmea2000"].as<uint32_t>();
+                any = true;
+            }
+            if (t["nmea0183Wifi"].is<uint32_t>()) {
+                to.nmea_wifi_ms = t["nmea0183Wifi"].as<uint32_t>();
+                any = true;
+            }
+            if (t["nmeaWifi"].is<uint32_t>()) {
+                to.nmea_wifi_ms = t["nmeaWifi"].as<uint32_t>();
+                any = true;
+            }
+            if (t["signalk"].is<uint32_t>()) {
+                to.signalk_ms = t["signalk"].as<uint32_t>();
+                any = true;
+            }
+            if (t["demo"].is<uint32_t>()) {
+                to.demo_ms = t["demo"].as<uint32_t>();
+                any = true;
+            }
             if (any) {
                 boat::set_timeouts(to);
                 net::logf("[mgr] applied sources.timeoutsMs (n2k=%lu wifi=%lu "
                           "sk=%lu demo=%lu)",
-                          (unsigned long)to.nmea2000_ms,
-                          (unsigned long)to.nmea_wifi_ms,
-                          (unsigned long)to.signalk_ms,
-                          (unsigned long)to.demo_ms);
+                          (unsigned long)to.nmea2000_ms, (unsigned long)to.nmea_wifi_ms,
+                          (unsigned long)to.signalk_ms, (unsigned long)to.demo_ms);
             }
         }
     }
@@ -653,16 +654,21 @@ bool apply_config(JsonDocument &cfg) {
             } else {
                 String cmd = "nmea-wifi tcp ";
                 cmd += host;
-                if (port) { cmd += " "; cmd += String(port); }
+                if (port) {
+                    cmd += " ";
+                    cmd += String(port);
+                }
                 net::dispatchCommand(cmd);
             }
         } else if (strcmp(mode, "udp") == 0) {
             String cmd = "nmea-wifi udp";
-            if (port) { cmd += " "; cmd += String(port); }
+            if (port) {
+                cmd += " ";
+                cmd += String(port);
+            }
             net::dispatchCommand(cmd);
         } else if (*mode) {
-            record_error("[mgr] reject nmea0183Wifi.mode=%s (want tcp/udp)",
-                         mode);
+            record_error("[mgr] reject nmea0183Wifi.mode=%s (want tcp/udp)", mode);
             ok = false;
         }
 
@@ -695,12 +701,10 @@ bool apply_config(JsonDocument &cfg) {
             }
         }
         if (n2["sniff"].is<bool>()) {
-            net::dispatchCommand(n2["sniff"].as<bool>()
-                                 ? "n2k sniff on" : "n2k sniff off");
+            net::dispatchCommand(n2["sniff"].as<bool>() ? "n2k sniff on" : "n2k sniff off");
         }
         if (n2["txEnabled"].is<bool>()) {
-            net::dispatchCommand(n2["txEnabled"].as<bool>()
-                                 ? "n2k tx on" : "n2k tx off");
+            net::dispatchCommand(n2["txEnabled"].as<bool>() ? "n2k tx on" : "n2k tx off");
         }
         if (n2["enabled"].is<bool>()) {
             bool want_en = n2["enabled"].as<bool>();
@@ -723,8 +727,8 @@ bool apply_config(JsonDocument &cfg) {
     if (cfg["autopilot"].is<JsonObject>()) {
         JsonObject ap = cfg["autopilot"].as<JsonObject>();
         autopilot::Permissions p = autopilot::get_permissions();
-        if (ap["allowEngage"].is<bool>())        p.allow_engage = ap["allowEngage"];
-        if (ap["allowStandby"].is<bool>())       p.allow_standby = ap["allowStandby"];
+        if (ap["allowEngage"].is<bool>()) p.allow_engage = ap["allowEngage"];
+        if (ap["allowStandby"].is<bool>()) p.allow_standby = ap["allowStandby"];
         if (ap["allowHeadingAdjust"].is<bool>()) p.allow_heading_adjust = ap["allowHeadingAdjust"];
         autopilot::set_permissions(p);
 
@@ -793,8 +797,7 @@ bool apply_config(JsonDocument &cfg) {
             save_prefs();
             net::logf("[mgr] applied ota policy: enabled=%d "
                       "require_sha=%d max=%u",
-                      (int)s_ota_enabled, (int)s_ota_require_sha,
-                      (unsigned)s_ota_max_size);
+                      (int)s_ota_enabled, (int)s_ota_require_sha, (unsigned)s_ota_max_size);
         }
     }
 
@@ -854,8 +857,7 @@ bool apply_config(JsonDocument &cfg) {
                 if (strlen(pass) > 0 && strlen(pass) <= 63) {
                     p.put_string("pass", pass);
                     changed = true;
-                    net::logf("[mgr] applied webAuth.password (len=%u)",
-                              (unsigned)strlen(pass));
+                    net::logf("[mgr] applied webAuth.password (len=%u)", (unsigned)strlen(pass));
                 } else {
                     record_error("[mgr] reject webAuth.password (invalid length)");
                     ok = false;
@@ -874,12 +876,12 @@ bool apply_config(JsonDocument &cfg) {
 // F6 - post a state line to the OTA job progress endpoint. No-op if
 // no endpoint/token (we still try to install locally, but progress
 // is informational).
-void post_ota_progress(const String &job_id, const char *state,
-                       int progress_pct = -1, const char *detail = nullptr) {
+void post_ota_progress(const String &job_id, const char *state, int progress_pct = -1,
+                       const char *detail = nullptr) {
     if (!is_provisioned() || job_id.length() == 0) return;
     HTTPClient http;
-    String url = build_url("/devices/") + device_identity::get().device_id +
-                 "/firmware/jobs/" + job_id + "/progress";
+    String url = build_url("/devices/") + device_identity::get().device_id + "/firmware/jobs/" +
+                 job_id + "/progress";
     if (!http.begin(url)) return;
     prepare_http(http, true);
     JsonDocument body;
@@ -899,7 +901,7 @@ void post_ota_progress(const String &job_id, const char *state,
 void sha256_to_hex(const uint8_t *digest, char out[65]) {
     static const char *hex = "0123456789abcdef";
     for (int i = 0; i < 32; ++i) {
-        out[i * 2]     = hex[(digest[i] >> 4) & 0xF];
+        out[i * 2] = hex[(digest[i] >> 4) & 0xF];
         out[i * 2 + 1] = hex[digest[i] & 0xF];
     }
     out[64] = 0;
@@ -915,8 +917,8 @@ void ota_task(void *) {
     const char *failure_detail = nullptr;
     int outcome_code = -1;
 
-    net::logf("[mgr-ota] start job=%s url=%s size=%u",
-              job_id.c_str(), url.c_str(), (unsigned)want_size);
+    net::logf("[mgr-ota] start job=%s url=%s size=%u", job_id.c_str(), url.c_str(),
+              (unsigned)want_size);
     post_ota_progress(job_id, "accepted", 0);
 
     HTTPClient http;
@@ -1000,8 +1002,7 @@ void ota_task(void *) {
             String w(want_sha);
             w.toLowerCase();
             if (w != String(got_sha)) {
-                record_error("[mgr-ota] sha mismatch want=%s got=%s",
-                          w.c_str(), got_sha);
+                record_error("[mgr-ota] sha mismatch want=%s got=%s", w.c_str(), got_sha);
                 failure_detail = "sha256 mismatch";
                 Update.abort();
                 goto fail;
@@ -1029,12 +1030,9 @@ void ota_task(void *) {
     return;
 
 fail:
-    record_error("[mgr-ota] FAILED job=%s detail=%s code=%d",
-              job_id.c_str(),
-              failure_detail ? failure_detail : "?",
-              outcome_code);
-    post_ota_progress(job_id, "failed", -1,
-                      failure_detail ? failure_detail : "unknown");
+    record_error("[mgr-ota] FAILED job=%s detail=%s code=%d", job_id.c_str(),
+                 failure_detail ? failure_detail : "?", outcome_code);
+    post_ota_progress(job_id, "failed", -1, failure_detail ? failure_detail : "unknown");
     s_ota_in_flight = false;
     s_ota_task = nullptr;
     vTaskDelete(NULL);
@@ -1074,8 +1072,7 @@ const char *execute_command(const char *type, JsonObject payload) {
         c.i = v;
         return app::post(c, 100) ? "ok" : "busy";
     }
-    if (strcmp(type, "config.reload") == 0 ||
-        strcmp(type, "layout.reload") == 0) {
+    if (strcmp(type, "config.reload") == 0 || strcmp(type, "layout.reload") == 0) {
         // Spec 19 §"Commands": layout.reload is treated as
         // config.reload + re-build managed screens. Screens module
         // is one-shot in MVP, so a full layout swap requires a
@@ -1114,8 +1111,8 @@ const char *execute_command(const char *type, JsonObject payload) {
             return "invalid_payload";
         }
         if (s_ota_max_size && size > s_ota_max_size) {
-            record_error("[mgr-ota] policy: size %u > max %u, refusing job",
-                         (unsigned)size, (unsigned)s_ota_max_size);
+            record_error("[mgr-ota] policy: size %u > max %u, refusing job", (unsigned)size,
+                         (unsigned)s_ota_max_size);
             return "invalid_payload";
         }
         s_ota_job_id = job_id;
@@ -1123,8 +1120,8 @@ const char *execute_command(const char *type, JsonObject payload) {
         s_ota_sha256 = sha;
         s_ota_version = ver;
         s_ota_size = size;
-        if (xTaskCreatePinnedToCore(ota_task, "mgr-ota", 8192, nullptr, 1,
-                                    &s_ota_task, 0) != pdPASS) {
+        if (xTaskCreatePinnedToCore(ota_task, "mgr-ota", 8192, nullptr, 1, &s_ota_task, 0) !=
+            pdPASS) {
             return "failed";
         }
         return "ok";
@@ -1187,8 +1184,8 @@ const char *execute_command(const char *type, JsonObject payload) {
 
 void ack_command(const String &cmd_id, const char *result) {
     HTTPClient http;
-    String url = build_url("/devices/") + device_identity::get().device_id +
-                 "/commands/" + cmd_id + "/ack";
+    String url =
+        build_url("/devices/") + device_identity::get().device_id + "/commands/" + cmd_id + "/ack";
     if (!http.begin(url)) return;
     prepare_http(http, true);
     JsonDocument body;
@@ -1207,8 +1204,7 @@ int poll_commands() {
     if (WiFi.status() != WL_CONNECTED) return -2;
 
     HTTPClient http;
-    String url = build_url("/devices/") + device_identity::get().device_id +
-                 "/commands";
+    String url = build_url("/devices/") + device_identity::get().device_id + "/commands";
     if (!http.begin(url)) return -3;
     prepare_http(http);
     int code = http.GET();
@@ -1229,8 +1225,7 @@ int poll_commands() {
             const char *type = cmd["type"] | "";
             JsonObject payload = cmd["payload"].as<JsonObject>();
             const char *result = execute_command(type, payload);
-            net::logf("[mgr] cmd %s type=%s -> %s",
-                      cid.c_str(), type, result);
+            net::logf("[mgr] cmd %s type=%s -> %s", cid.c_str(), type, result);
             lock_state();
             s_last_cmd_id = cid;
             s_last_cmd_type = type;
@@ -1256,8 +1251,7 @@ int fetch_config() {
     if (WiFi.status() != WL_CONNECTED) return -2;
 
     HTTPClient http;
-    String url = build_url("/devices/") + device_identity::get().device_id +
-                 "/config";
+    String url = build_url("/devices/") + device_identity::get().device_id + "/config";
     if (!http.begin(url)) return -3;
     prepare_http(http);
     int code = http.GET();
@@ -1298,23 +1292,19 @@ int fetch_config() {
                     record_error("[mgr] render plan alloc failed");
                 } else {
                     manager_config::ParseError perr;
-                    bool parsed = manager_config::parse(
-                        cfg.as<JsonObjectConst>(),
-                        g.width_px, g.height_px, *plan_p, perr);
+                    bool parsed = manager_config::parse(cfg.as<JsonObjectConst>(), g.width_px,
+                                                        g.height_px, *plan_p, perr);
                     if (parsed) {
                         s_render_plan = *plan_p;
                         s_render_plan_valid = true;
                         net::logf("[mgr] render plan: widgets=%u screens=%u "
                                   "variant=%s",
-                                  (unsigned)plan_p->widget_count,
-                                  (unsigned)plan_p->screen_count,
-                                  plan_p->layout_variant[0]
-                                      ? plan_p->layout_variant
-                                      : "(none)");
+                                  (unsigned)plan_p->widget_count, (unsigned)plan_p->screen_count,
+                                  plan_p->layout_variant[0] ? plan_p->layout_variant : "(none)");
                     } else {
                         record_error("[mgr] render plan parse failed: %s at %s",
-                                  manager_config::parse_code_to_string(perr.code),
-                                  perr.path[0] ? perr.path : "(root)");
+                                     manager_config::parse_code_to_string(perr.code),
+                                     perr.path[0] ? perr.path : "(root)");
                     }
                     if (parsed && plan_p->screen_count > 0) {
                         // Hand the plan off to the LVGL/UI task - all
@@ -1341,8 +1331,8 @@ int fetch_config() {
                     s_applied_config_hash = new_hash;
                     save_prefs();
                     unlock_state();
-                    net::logf("[mgr] config applied: version=%s hash=%s",
-                              new_version.c_str(), new_hash.c_str());
+                    net::logf("[mgr] config applied: version=%s hash=%s", new_version.c_str(),
+                              new_hash.c_str());
                     net::requestMdnsAdvertise();
                 } else {
                     net::logf("[mgr] config %s had invalid fields; "
@@ -1368,8 +1358,7 @@ int do_heartbeat() {
     serializeJson(body, payload);
 
     HTTPClient http;
-    String url = build_url("/devices/") + device_identity::get().device_id +
-                 "/status";
+    String url = build_url("/devices/") + device_identity::get().device_id + "/status";
     if (!http.begin(url)) return -3;
     prepare_http(http, true);
     int code = http.POST(payload);
@@ -1386,8 +1375,7 @@ int do_heartbeat() {
         // the new id; keep the token in place since auth itself is fine.
         net::logf("[mgr] heartbeat 404 - re-registering");
         s_force_register = true;
-    } else if (code == 200 &&
-               resp_within_cap(http, MAX_HEARTBEAT_RESP_BYTES, "heartbeat")) {
+    } else if (code == 200 && resp_within_cap(http, MAX_HEARTBEAT_RESP_BYTES, "heartbeat")) {
         // F3: check if the server wants a config update.
         String resp = http.getString();
         JsonDocument r;
@@ -1404,8 +1392,8 @@ int do_heartbeat() {
             // Spec 17 §5 response handling: the plugin can ask the
             // device to re-register (e.g. after admin reset or token
             // rotation). Accept both camelCase and snake_case keys.
-            bool reregister = (r["requestedReregister"] | false) ||
-                              (r["requested_reregister"] | false);
+            bool reregister =
+                (r["requestedReregister"] | false) || (r["requested_reregister"] | false);
             unlock_state();
             if (drift) {
                 net::logf("[mgr] config drift: have=%s want=%s -> fetching",
@@ -1427,8 +1415,7 @@ int do_heartbeat() {
     // now the heartbeat path never wrote it. That left already-
     // provisioned boots reporting health=idle indefinitely even though
     // 200s were flowing in. Mirror the same rule here.
-    s_health = (code >= 200 && code < 300) ? HealthState::Heartbeating
-                                            : HealthState::Failed;
+    s_health = (code >= 200 && code < 300) ? HealthState::Heartbeating : HealthState::Failed;
 
     // Spec 17 §10 / 18 §11: after a post-OTA boot, the first successful
     // heartbeat triggers a /firmware/confirm POST so the plugin can
@@ -1437,9 +1424,8 @@ int do_heartbeat() {
     // plugin correlates by deviceId + version+hash.
     if (code >= 200 && code < 300 && s_ota_confirm_pending) {
         HTTPClient hc;
-        String confirm_url = build_url("/devices/") +
-                             device_identity::get().device_id +
-                             "/firmware/confirm";
+        String confirm_url =
+            build_url("/devices/") + device_identity::get().device_id + "/firmware/confirm";
         if (hc.begin(confirm_url)) {
             prepare_http(hc, true);
             JsonDocument cbody;
@@ -1496,11 +1482,9 @@ void worker(void *) {
                 } else {
                     // Back off: longer delay on transport errors to
                     // avoid pounding an unreachable peer.
-                    next_register_attempt_ms = now +
-                        (rc < 0 ? 10000 : 5000);
+                    next_register_attempt_ms = now + (rc < 0 ? 10000 : 5000);
                     if (rc < 0) {
-                        next_manager_http_ms =
-                            millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                        next_manager_http_ms = millis() + TRANSPORT_FAILURE_BACKOFF_MS;
                     }
                 }
             }
@@ -1509,8 +1493,7 @@ void worker(void *) {
             int rc = do_heartbeat();
             next_heartbeat_ms = millis() + s_heartbeat_interval_ms;
             if (rc < 0) {
-                next_manager_http_ms =
-                    millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                next_manager_http_ms = millis() + TRANSPORT_FAILURE_BACKOFF_MS;
                 vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
@@ -1519,8 +1502,7 @@ void worker(void *) {
             s_config_fetch_pending = false;
             int rc = fetch_config();
             if (rc < 0) {
-                next_manager_http_ms =
-                    millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                next_manager_http_ms = millis() + TRANSPORT_FAILURE_BACKOFF_MS;
                 vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
@@ -1529,8 +1511,7 @@ void worker(void *) {
             int rc = poll_commands();
             next_command_poll_ms = millis() + s_command_poll_interval_ms;
             if (rc < 0) {
-                next_manager_http_ms =
-                    millis() + TRANSPORT_FAILURE_BACKOFF_MS;
+                next_manager_http_ms = millis() + TRANSPORT_FAILURE_BACKOFF_MS;
                 vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
@@ -1559,10 +1540,8 @@ void setup() {
                       "/firmware/confirm pending");
         }
     }
-    net::logf("[mgr] %s endpoint=%s token=%s",
-              s_endpoint.length() ? "configured" : "idle",
-              s_endpoint.c_str(),
-              s_token.length() ? "set" : "none");
+    net::logf("[mgr] %s endpoint=%s token=%s", s_endpoint.length() ? "configured" : "idle",
+              s_endpoint.c_str(), s_token.length() ? "set" : "none");
     if (!s_task) {
         xTaskCreatePinnedToCore(worker, "mgr", 16384, nullptr, 1, &s_task, 0);
     }
@@ -1610,18 +1589,16 @@ bool handleSerialCommand(const String &line) {
         Status st = status();
         net::logf("[mgr] auth=%s health=%s endpoint=%s token=%s sk_token=%s",
                   st.auth == AuthState::Provisioned ? "provisioned" : "unprov",
-                  st.health == HealthState::Heartbeating ? "hb"
-                    : st.health == HealthState::Registering ? "reg"
-                    : st.health == HealthState::Failed ? "failed" : "idle",
+                  st.health == HealthState::Heartbeating  ? "hb"
+                  : st.health == HealthState::Registering ? "reg"
+                  : st.health == HealthState::Failed      ? "failed"
+                                                          : "idle",
                   st.endpoint.length() ? st.endpoint.c_str() : "(none)",
-                  st.has_token ? "set" : "none",
-                  st.has_sk_token ? "set" : "none");
+                  st.has_token ? "set" : "none", st.has_sk_token ? "set" : "none");
         net::logf("[mgr] last_register=%dms ago code=%d  "
                   "last_hb=%dms ago code=%d",
-                  (int)(millis() - st.last_register_ms),
-                  st.last_register_code,
-                  (int)(millis() - st.last_heartbeat_ms),
-                  st.last_heartbeat_code);
+                  (int)(millis() - st.last_register_ms), st.last_register_code,
+                  (int)(millis() - st.last_heartbeat_ms), st.last_heartbeat_code);
         net::logf("[mgr] cfg ver=%s hash=%s  pending_cmds=%u  "
                   "last_cmd=%s/%s -> %s (%lums ago)",
                   st.config_version.length() ? st.config_version.c_str() : "-",
@@ -1631,8 +1608,7 @@ bool handleSerialCommand(const String &line) {
                   st.last_cmd_type.length() ? st.last_cmd_type.c_str() : "-",
                   st.last_cmd_result.length() ? st.last_cmd_result.c_str() : "-",
                   st.last_cmd_ms ? (unsigned long)(millis() - st.last_cmd_ms) : 0UL);
-        net::logf("[mgr] ota in_flight=%d job=%s confirm_pending=%d",
-                  (int)st.ota_in_flight,
+        net::logf("[mgr] ota in_flight=%d job=%s confirm_pending=%d", (int)st.ota_in_flight,
                   st.ota_job_id.length() ? st.ota_job_id.c_str() : "-",
                   (int)st.ota_confirm_pending);
         return true;
@@ -1676,8 +1652,7 @@ bool handleSerialCommand(const String &line) {
             s_auth = AuthState::Provisioned;
         }
         save_prefs();
-        net::logf("[mgr] token %s",
-                  s_token.length() ? "saved" : "cleared");
+        net::logf("[mgr] token %s", s_token.length() ? "saved" : "cleared");
         return true;
     }
     if (line.startsWith("manager-sk-token ")) {
@@ -1689,8 +1664,7 @@ bool handleSerialCommand(const String &line) {
             s_sk_token = tok;
         }
         save_prefs();
-        net::logf("[mgr] sk_token %s (len=%u)",
-                  s_sk_token.length() ? "saved" : "cleared",
+        net::logf("[mgr] sk_token %s (len=%u)", s_sk_token.length() ? "saved" : "cleared",
                   (unsigned)s_sk_token.length());
         s_force_register = true;
         return true;
@@ -1721,8 +1695,8 @@ bool handleSerialCommand(const String &line) {
             String host = MDNS.hostname(i);
             uint16_t port = MDNS.port(i);
             IPAddress ip = MDNS.IP(i);
-            net::logf("[mgr]   [%d] %s @ %s:%u",
-                      i, host.c_str(), ip.toString().c_str(), (unsigned)port);
+            net::logf("[mgr]   [%d] %s @ %s:%u", i, host.c_str(), ip.toString().c_str(),
+                      (unsigned)port);
         }
         if (n == 1) {
             IPAddress ip = MDNS.IP(0);
@@ -1737,8 +1711,7 @@ bool handleSerialCommand(const String &line) {
             save_prefs();
             s_force_register = true;
             unlock_state();
-            net::logf("[mgr] discover: endpoint set to %s; will register",
-                      url.c_str());
+            net::logf("[mgr] discover: endpoint set to %s; will register", url.c_str());
         } else if (n > 1) {
             net::logf("[mgr] discover: multiple hits - pick one via "
                       "`manager-register http://<host>:<port>`");
@@ -1756,9 +1729,7 @@ bool handleSerialCommand(const String &line) {
         size_t got = error_log::copy(buf, error_log::MAX_ENTRIES);
         net::logf("[mgr] recent errors (%u, oldest first):", (unsigned)got);
         for (size_t i = 0; i < got; ++i) {
-            net::logf("[mgr]   [%u] t=%lums %s",
-                      (unsigned)i,
-                      (unsigned long)buf[i].timestamp_ms,
+            net::logf("[mgr]   [%u] t=%lums %s", (unsigned)i, (unsigned long)buf[i].timestamp_ms,
                       buf[i].message);
         }
         return true;
@@ -1776,19 +1747,15 @@ bool handleSerialCommand(const String &line) {
         }
         net::logf("[mgr] layout variant=%s widgets=%u screens=%u "
                   "(%ux%u) hash=%s mgr_screens_built=%u",
-                  s_render_plan.layout_variant[0] ? s_render_plan.layout_variant
-                                                  : "(none)",
-                  (unsigned)s_render_plan.widget_count,
-                  (unsigned)s_render_plan.screen_count,
-                  (unsigned)s_render_plan.display_width,
-                  (unsigned)s_render_plan.display_height,
-                  s_applied_config_hash.length() ?
-                      s_applied_config_hash.c_str() : "(none)",
+                  s_render_plan.layout_variant[0] ? s_render_plan.layout_variant : "(none)",
+                  (unsigned)s_render_plan.widget_count, (unsigned)s_render_plan.screen_count,
+                  (unsigned)s_render_plan.display_width, (unsigned)s_render_plan.display_height,
+                  s_applied_config_hash.length() ? s_applied_config_hash.c_str() : "(none)",
                   (unsigned)manager_screens::managed_count());
         for (uint8_t i = 0; i < s_render_plan.screen_count; ++i) {
             const auto &sc = s_render_plan.screens[i];
-            net::logf("[mgr]   screen[%u] id=%s tiles=%u",
-                      (unsigned)i, sc.id, (unsigned)sc.tile_count);
+            net::logf("[mgr]   screen[%u] id=%s tiles=%u", (unsigned)i, sc.id,
+                      (unsigned)sc.tile_count);
         }
         return true;
     }
@@ -1801,12 +1768,9 @@ bool handleSerialCommand(const String &line) {
             const auto &w = s_render_plan.widgets[i];
             net::logf("[mgr] widget[%u] id=%s type=%s path=%s "
                       "title=%s unit=%s prec=%u fs=%u",
-                      (unsigned)i, w.id,
-                      manager_config::widget_type_to_string(w.type),
-                      w.path, w.title, w.unit,
-                      (unsigned)w.precision,
-                      (unsigned)(w.style.font_size ? w.style.font_size
-                                                  : w.style.value_font_size));
+                      (unsigned)i, w.id, manager_config::widget_type_to_string(w.type), w.path,
+                      w.title, w.unit, (unsigned)w.precision,
+                      (unsigned)(w.style.font_size ? w.style.font_size : w.style.value_font_size));
         }
         return true;
     }
@@ -1832,15 +1796,12 @@ bool handleSerialCommand(const String &line) {
     if (line == "font-dump") {
         net::logf("[font] compiled sizes:");
         for (size_t i = 0; i < font_resolver::DEFAULT_COUNT; ++i) {
-            net::logf("[font]   [%u] = %u",
-                      (unsigned)i,
-                      (unsigned)font_resolver::DEFAULT_SIZES[i]);
+            net::logf("[font]   [%u] = %u", (unsigned)i, (unsigned)font_resolver::DEFAULT_SIZES[i]);
         }
         // Demo a few resolve calls.
         uint16_t probes[] = {10, 16, 22, 30, 42, 80};
         for (uint16_t p : probes) {
-            net::logf("[font]   resolve(%u) -> %u",
-                      (unsigned)p,
+            net::logf("[font]   resolve(%u) -> %u", (unsigned)p,
                       (unsigned)font_resolver::resolve_default(p));
         }
         return true;

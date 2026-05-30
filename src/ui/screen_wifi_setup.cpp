@@ -22,10 +22,10 @@ enum class View { Provision, List, Entry };
 static View s_view = View::Provision;
 
 static lv_obj_t *s_root = nullptr;
-static lv_obj_t *provision_view = nullptr;    // AP-mode QR provisioning
+static lv_obj_t *provision_view = nullptr;  // AP-mode QR provisioning
 static lv_obj_t *list_view = nullptr;
 static lv_obj_t *entry_view = nullptr;
-static lv_obj_t *ssid_list = nullptr;   // scrolling container of buttons
+static lv_obj_t *ssid_list = nullptr;  // scrolling container of buttons
 static lv_obj_t *btn_scan = nullptr;
 static lv_obj_t *lbl_scan_status = nullptr;
 
@@ -175,10 +175,9 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(prov_title, LV_ALIGN_TOP_MID, 0, 0);
 
     lv_obj_t *prov_sub = lv_label_create(provision_view);
-    lv_label_set_text(prov_sub,
-                      "1. scan QR or join \"espdisp-setup\"\n"
-                      "2. open http://192.168.4.1/\n"
-                      "3. pick a network in the WIFI panel");
+    lv_label_set_text(prov_sub, "1. scan QR or join \"espdisp-setup\"\n"
+                                "2. open http://192.168.4.1/\n"
+                                "3. pick a network in the WIFI panel");
     lv_obj_set_style_text_font(prov_sub, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(prov_sub, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(prov_sub, LV_TEXT_ALIGN_CENTER, 0);
@@ -310,11 +309,12 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(btn_list, LV_ALIGN_BOTTOM_MID, 0, -36);
     lv_obj_set_style_bg_color(btn_list, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_radius(btn_list, 8, 0);
-    lv_obj_add_event_cb(btn_list,
-                        [](lv_event_t *e) {
-                            if (lv_event_get_code(e) == LV_EVENT_CLICKED) show_list();
-                        },
-                        LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(
+        btn_list,
+        [](lv_event_t *e) {
+            if (lv_event_get_code(e) == LV_EVENT_CLICKED) show_list();
+        },
+        LV_EVENT_CLICKED, NULL);
     lv_obj_t *list_btn_lbl = lv_label_create(btn_list);
     lv_label_set_text(list_btn_lbl, "scan on-screen instead");
     lv_obj_center(list_btn_lbl);
@@ -338,7 +338,10 @@ void refresh() {
         static uint8_t dots = 0;
         char status[24];
         snprintf(status, sizeof(status), "scanning%s",
-                 (dots % 4) == 0 ? "" : (dots % 4) == 1 ? "." : (dots % 4) == 2 ? ".." : "...");
+                 (dots % 4) == 0   ? ""
+                 : (dots % 4) == 1 ? "."
+                 : (dots % 4) == 2 ? ".."
+                                   : "...");
         lv_label_set_text(lbl_scan_status, status);
         dots++;
         return;

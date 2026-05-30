@@ -7,7 +7,8 @@ namespace {
 constexpr const char *PLUGIN_SUFFIX = "/plugins/espdisp-manager";
 
 std::string strip_trailing_slash(std::string s) {
-    while (!s.empty() && s.back() == '/') s.pop_back();
+    while (!s.empty() && s.back() == '/')
+        s.pop_back();
     return s;
 }
 

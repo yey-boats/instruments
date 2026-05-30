@@ -30,10 +30,10 @@
 namespace nmea2000 {
 
 struct Status {
-    bool compiled_in;       // true iff ENABLE_NMEA2000 was set at build
-    bool enabled;           // runtime enable flag (NVS)
-    bool sniff;             // verbose per-frame logging (spec 12 §4)
-    bool tx_enabled;        // explicit gate before any future transmit
+    bool compiled_in;  // true iff ENABLE_NMEA2000 was set at build
+    bool enabled;      // runtime enable flag (NVS)
+    bool sniff;        // verbose per-frame logging (spec 12 §4)
+    bool tx_enabled;   // explicit gate before any future transmit
     int8_t rx_pin;
     int8_t tx_pin;
     uint32_t frames_rx;

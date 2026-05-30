@@ -56,11 +56,10 @@ static net::WifiState s_bound_state = net::WifiState::Idle;
 // response triggered the detection. So we serve the config page inline
 // rather than a 302 (some captive browsers refuse to follow redirects).
 static bool is_captive_probe_path(const String &p) {
-    return p == "/generate_204" || p == "/gen_204" ||
-           p == "/hotspot-detect.html" || p == "/library/test/success.html" ||
-           p == "/connecttest.txt" || p == "/ncsi.txt" ||
-           p == "/success.txt" || p == "/redirect" ||
-           p == "/chat" || p == "/check_network_status.txt";
+    return p == "/generate_204" || p == "/gen_204" || p == "/hotspot-detect.html" ||
+           p == "/library/test/success.html" || p == "/connecttest.txt" || p == "/ncsi.txt" ||
+           p == "/success.txt" || p == "/redirect" || p == "/chat" ||
+           p == "/check_network_status.txt";
 }
 
 // Forward decl: INDEX_HTML[] is defined further down (the big R"HTML(...)"
@@ -151,8 +150,7 @@ static void handle_state() {
         JsonObject mgr = doc["manager"].to<JsonObject>();
         mgr["deviceId"] = st.device_id;
         mgr["registered"] = st.has_token && st.endpoint.length() > 0;
-        mgr["lastHeartbeatOk"] = st.last_heartbeat_code >= 200 &&
-                                 st.last_heartbeat_code < 300;
+        mgr["lastHeartbeatOk"] = st.last_heartbeat_code >= 200 && st.last_heartbeat_code < 300;
         mgr["endpoint"] = st.endpoint;
         mgr["hasToken"] = st.has_token;
         mgr["hasSkToken"] = st.has_sk_token;
@@ -162,10 +160,10 @@ static void handle_state() {
         mgr["commandPollIntervalMs"] = st.command_poll_interval_ms;
         mgr["configVersion"] = st.config_version;
         mgr["configHash"] = st.config_hash;
-        mgr["health"] = st.health == manager::HealthState::Heartbeating ? "heartbeating"
-            : st.health == manager::HealthState::Registering ? "registering"
-            : st.health == manager::HealthState::Failed ? "failed"
-            : "idle";
+        mgr["health"] = st.health == manager::HealthState::Heartbeating  ? "heartbeating"
+                        : st.health == manager::HealthState::Registering ? "registering"
+                        : st.health == manager::HealthState::Failed      ? "failed"
+                                                                         : "idle";
         // Spec 17 §11 command diagnostics
         mgr["pendingCmdCount"] = (uint32_t)st.pending_cmd_count;
         if (st.last_cmd_id.length()) mgr["lastCmdId"] = st.last_cmd_id;
@@ -330,8 +328,7 @@ static void handle_sk_data() {
     if (d.apState[0]) ap["state"] = d.apState;
 
     doc["connected"] = d.connected;
-    doc["lastUpdateAgeMs"] =
-        d.lastUpdateMs ? (uint32_t)(millis() - d.lastUpdateMs) : (uint32_t)0;
+    doc["lastUpdateAgeMs"] = d.lastUpdateMs ? (uint32_t)(millis() - d.lastUpdateMs) : (uint32_t)0;
 
     send_json(200, doc);
 }
@@ -777,8 +774,7 @@ static void handle_cmd() {
     // these commands run from BLE NUS / USB serial only. A network
     // attacker on the LAN should not be able to drive the UI.
     if (input_test::is_injection_command(line)) {
-        server.send(403, "text/plain",
-                    "injection commands are BLE/serial only");
+        server.send(403, "text/plain", "injection commands are BLE/serial only");
         return;
     }
     // Queue for the UI task. Many console commands touch LVGL state
@@ -1326,8 +1322,8 @@ static void sync_captive_dns() {
         server.begin();
         bool first = (s_bound_state == net::WifiState::Idle);
         s_bound_state = state;
-        net::logf("[web] http %s on :80 for wifi=%s",
-                  first ? "bound" : "rebound", net::wifiStateName());
+        net::logf("[web] http %s on :80 for wifi=%s", first ? "bound" : "rebound",
+                  net::wifiStateName());
     }
 
     bool want_captive = (state == net::WifiState::ApSetup);
@@ -1351,8 +1347,7 @@ static void web_task(void *) {
     // Defer server.begin() until sync_captive_dns() sees WiFi reach
     // StaUp or ApSetup - by then lwIP's TCPIP task is up. Calling
     // begin() here while state is still Idle asserts inside lwIP.
-    net::logf("[web] http task on core %d (deferring bind until wifi up)",
-              xPortGetCoreID());
+    net::logf("[web] http task on core %d (deferring bind until wifi up)", xPortGetCoreID());
     for (;;) {
         sync_captive_dns();
         if (captive_active) dns.processNextRequest();
@@ -1364,8 +1359,8 @@ static void web_task(void *) {
 void setup() {
     if (started) return;
     bind_routes();
-    BaseType_t r = xTaskCreatePinnedToCore(web_task, "web", 8192, nullptr,
-                                           1 /* low prio */, &s_task, 0 /* core 0 */);
+    BaseType_t r = xTaskCreatePinnedToCore(web_task, "web", 8192, nullptr, 1 /* low prio */,
+                                           &s_task, 0 /* core 0 */);
     if (r != pdPASS) {
         net::logf("[web] task create failed");
         return;

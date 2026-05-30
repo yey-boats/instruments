@@ -16,8 +16,8 @@
 namespace touch_cal {
 
 struct Matrix {
-    float a, b, c;   // x coefficients
-    float d, e, f;   // y coefficients
+    float a, b, c;  // x coefficients
+    float d, e, f;  // y coefficients
 };
 
 struct Sample {

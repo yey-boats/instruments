@@ -14,14 +14,10 @@ namespace ui::demo_grid {
 static lv_obj_t *s_root = nullptr;
 
 static const ui::layouts::MetricBinding s_tiles[] = {
-    {"wind",    "WIND",   "kn",  ui::layouts::MetricSource::AWS_kn,
-     0xf6a21a, "wind"},
-    {"speed",   "SPEED",  "kn",  ui::layouts::MetricSource::SOG_kn,
-     0x57c7d8, "nav"},
-    {"depth",   "DEPTH",  "m",   ui::layouts::MetricSource::Depth_m,
-     0x39d98a, "depth"},
-    {"battery", "BATT",   "V",   ui::layouts::MetricSource::BatteryV,
-     0xff4058, "status"},
+    {"wind", "WIND", "kn", ui::layouts::MetricSource::AWS_kn, 0xf6a21a, "wind"},
+    {"speed", "SPEED", "kn", ui::layouts::MetricSource::SOG_kn, 0x57c7d8, "nav"},
+    {"depth", "DEPTH", "m", ui::layouts::MetricSource::Depth_m, 0x39d98a, "depth"},
+    {"battery", "BATT", "V", ui::layouts::MetricSource::BatteryV, 0xff4058, "status"},
 };
 
 static const ui::layouts::ScreenVariantSpec s_spec = {

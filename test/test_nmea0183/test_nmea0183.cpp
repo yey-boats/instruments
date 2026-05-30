@@ -6,8 +6,10 @@
 
 using namespace nmea0183;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 static const FieldUpdate *find_field(const ParseResult &r, FieldKind k) {
     for (int i = 0; i < r.count; ++i) {
@@ -180,16 +182,16 @@ static void cap_cb(const ParseResult &r, void *user) {
     CapturedSentence &s = c->list[c->n++];
     memcpy(s.sentence, r.sentence, 4);
     s.count = r.count;
-    for (int i = 0; i < r.count; ++i) s.fields[i] = r.fields[i];
+    for (int i = 0; i < r.count; ++i)
+        s.fields[i] = r.fields[i];
 }
 
 static void test_stream_two_sentences() {
     Stream s;
     Cap cap{};
     stream_init(s, cap_cb, &cap);
-    const char *blob =
-        "$IIVHW,045.0,T,047.0,M,5.5,N,10.2,K*64\r\n"
-        "$IIMWV,090.0,R,8.0,N,A*3C\r\n";
+    const char *blob = "$IIVHW,045.0,T,047.0,M,5.5,N,10.2,K*64\r\n"
+                       "$IIMWV,090.0,R,8.0,N,A*3C\r\n";
     stream_feed(s, (const uint8_t *)blob, strlen(blob));
     TEST_ASSERT_EQUAL_INT(2, cap.n);
     TEST_ASSERT_EQUAL_STRING("VHW", cap.list[0].sentence);

@@ -9,8 +9,10 @@
 using ui_config::is_valid_brightness;
 using ui_config::is_valid_theme;
 
-void setUp(void) {}
-void tearDown(void) {}
+void setUp(void) {
+}
+void tearDown(void) {
+}
 
 // ---- brightness ----------------------------------------------------------
 
@@ -43,7 +45,7 @@ static void test_theme_supported_tokens_accepted() {
 static void test_theme_unknown_rejected() {
     TEST_ASSERT_FALSE(is_valid_theme(""));
     TEST_ASSERT_FALSE(is_valid_theme("dusk"));
-    TEST_ASSERT_FALSE(is_valid_theme("DAY"));   // case-sensitive
+    TEST_ASSERT_FALSE(is_valid_theme("DAY"));  // case-sensitive
     TEST_ASSERT_FALSE(is_valid_theme("Night"));
     TEST_ASSERT_FALSE(is_valid_theme("auto "));
 }

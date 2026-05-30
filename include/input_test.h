@@ -41,9 +41,7 @@ bool inject_tap(int16_t x, int16_t y, uint32_t hold_ms = 50);
 // directly invokes the project's high-level swipe detector
 // (detect_swipe_release) so the gesture is recognised even if LVGL's
 // own gesture path is debounced.
-bool inject_swipe(int16_t x0, int16_t y0,
-                  int16_t x1, int16_t y1,
-                  uint32_t dur_ms = 300,
+bool inject_swipe(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint32_t dur_ms = 300,
                   uint8_t steps = 8);
 
 // --- Level 2: action queue ----------------------------------------------

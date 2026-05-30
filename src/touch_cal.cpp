@@ -22,8 +22,8 @@ void setup() {
         s_m.e = p.get_float("e", 1.0f);
         s_m.f = p.get_float("f", 0.0f);
         s_default = false;
-        net::logf("[cal] loaded a=%.4f b=%.4f c=%.2f d=%.4f e=%.4f f=%.2f",
-                  s_m.a, s_m.b, s_m.c, s_m.d, s_m.e, s_m.f);
+        net::logf("[cal] loaded a=%.4f b=%.4f c=%.2f d=%.4f e=%.4f f=%.2f", s_m.a, s_m.b, s_m.c,
+                  s_m.d, s_m.e, s_m.f);
     } else {
         net::logf("[cal] no saved calibration - using identity");
     }
@@ -54,13 +54,17 @@ void set(const Matrix &m) {
     p.put_float("d", m.d);
     p.put_float("e", m.e);
     p.put_float("f", m.f);
-    net::logf("[cal] saved a=%.4f b=%.4f c=%.2f d=%.4f e=%.4f f=%.2f",
-              m.a, m.b, m.c, m.d, m.e, m.f);
+    net::logf("[cal] saved a=%.4f b=%.4f c=%.2f d=%.4f e=%.4f f=%.2f", m.a, m.b, m.c, m.d, m.e,
+              m.f);
 }
 
-Matrix current() { return s_m; }
+Matrix current() {
+    return s_m;
+}
 
-bool is_default() { return s_default; }
+bool is_default() {
+    return s_default;
+}
 
 void reset() {
     s_m = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f};
@@ -80,8 +84,7 @@ void reset() {
 //   target_y_i = d*raw_x_i + e*raw_y_i + f
 //
 // Each is solved via the 3x3 normal equations A^T A x = A^T b.
-static bool solve3(const Sample *samples, size_t n, bool x_axis,
-                   float &k1, float &k2, float &k3) {
+static bool solve3(const Sample *samples, size_t n, bool x_axis, float &k1, float &k2, float &k3) {
     // Build 3x3 normal matrix M = A^T A and 3-vector v = A^T b.
     double M[3][3] = {{0}};
     double v[3] = {0};
@@ -90,9 +93,15 @@ static bool solve3(const Sample *samples, size_t n, bool x_axis,
         double ry = samples[i].raw_y;
         double t = x_axis ? samples[i].target_x : samples[i].target_y;
         // Row of A: [rx, ry, 1]
-        M[0][0] += rx * rx;  M[0][1] += rx * ry;  M[0][2] += rx;
-        M[1][0] += ry * rx;  M[1][1] += ry * ry;  M[1][2] += ry;
-        M[2][0] += rx;       M[2][1] += ry;       M[2][2] += 1;
+        M[0][0] += rx * rx;
+        M[0][1] += rx * ry;
+        M[0][2] += rx;
+        M[1][0] += ry * rx;
+        M[1][1] += ry * ry;
+        M[1][2] += ry;
+        M[2][0] += rx;
+        M[2][1] += ry;
+        M[2][2] += 1;
         v[0] += rx * t;
         v[1] += ry * t;
         v[2] += t;
@@ -106,14 +115,19 @@ static bool solve3(const Sample *samples, size_t n, bool x_axis,
         }
         if (piv != i) {
             for (int k = 0; k < 3; ++k) {
-                double t = M[i][k]; M[i][k] = M[piv][k]; M[piv][k] = t;
+                double t = M[i][k];
+                M[i][k] = M[piv][k];
+                M[piv][k] = t;
             }
-            double t = v[i]; v[i] = v[piv]; v[piv] = t;
+            double t = v[i];
+            v[i] = v[piv];
+            v[piv] = t;
         }
         if (fabs(M[i][i]) < 1e-9) return false;  // singular
         for (int j = i + 1; j < 3; ++j) {
             double r = M[j][i] / M[i][i];
-            for (int k = i; k < 3; ++k) M[j][k] -= r * M[i][k];
+            for (int k = i; k < 3; ++k)
+                M[j][k] -= r * M[i][k];
             v[j] -= r * v[i];
         }
     }
@@ -121,7 +135,8 @@ static bool solve3(const Sample *samples, size_t n, bool x_axis,
     double x[3];
     for (int i = 2; i >= 0; --i) {
         double s = v[i];
-        for (int j = i + 1; j < 3; ++j) s -= M[i][j] * x[j];
+        for (int j = i + 1; j < 3; ++j)
+            s -= M[i][j] * x[j];
         x[i] = s / M[i][i];
     }
     k1 = (float)x[0];

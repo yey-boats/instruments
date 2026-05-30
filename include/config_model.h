@@ -20,12 +20,7 @@
 
 namespace config {
 
-enum class Domain : uint8_t {
-    Ui = 0,
-    Alarms = 1,
-    SignalK = 2,
-    COUNT
-};
+enum class Domain : uint8_t { Ui = 0, Alarms = 1, SignalK = 2, COUNT };
 
 enum class Source : uint8_t {
     Default = 0,

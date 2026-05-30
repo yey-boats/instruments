@@ -21,7 +21,7 @@
 namespace board {
 
 enum class DisplayBus : uint8_t { RgbParallel, Spi, Qspi, DsiBridge };
-enum class TouchKind  : uint8_t { None, GT911, FT5x06, CST816, XPT2046, BoardSpecific };
+enum class TouchKind : uint8_t { None, GT911, FT5x06, CST816, XPT2046, BoardSpecific };
 enum class BacklightKind : uint8_t { None, LedcPwm, IoExpanderPwm, PanelCommand };
 enum class LayoutClass : uint8_t {
     SquareCompact,
@@ -50,8 +50,8 @@ struct Capabilities {
     bool sd_card;
 };
 
-const char *id();           // stable id string, e.g. "sunton_4848s040"
-const char *display_name(); // human readable
+const char *id();            // stable id string, e.g. "sunton_4848s040"
+const char *display_name();  // human readable
 
 Geometry geometry();
 Capabilities capabilities();

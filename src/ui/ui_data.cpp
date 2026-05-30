@@ -102,8 +102,8 @@ void format_position(double lat, double lon, PosFormat fmt, char *buf, size_t ca
         double lo_r = (lo - lo_d) * 60.0;
         int lo_m = (int)lo_r;
         double lo_s = (lo_r - lo_m) * 60.0;
-        snprintf(buf, cap, "%d\xC2\xB0%02d'%04.1f\"%c\n%d\xC2\xB0%02d'%04.1f\"%c", la_d, la_m,
-                 la_s, ns, lo_d, lo_m, lo_s, ew);
+        snprintf(buf, cap, "%d\xC2\xB0%02d'%04.1f\"%c\n%d\xC2\xB0%02d'%04.1f\"%c", la_d, la_m, la_s,
+                 ns, lo_d, lo_m, lo_s, ew);
         break;
     }
     }

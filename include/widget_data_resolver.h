@@ -35,8 +35,7 @@ double resolve_numeric(const char *path, const sk::Data &d);
 // resolve_numeric).
 // `out` is null-terminated even when "missing"; returns true iff a
 // non-empty value was written.
-bool resolve_string(const char *path, const sk::Data &d,
-                    char *out, size_t cap);
+bool resolve_string(const char *path, const sk::Data &d, char *out, size_t cap);
 
 // True iff the path is one of the recognised forms (either local
 // alias or known SK field). Useful for early-validation in the
