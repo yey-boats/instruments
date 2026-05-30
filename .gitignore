@@ -3,6 +3,7 @@
 .vscode/
 .pioenvs/
 .piolibdeps/
+sdkconfig.*
 
 # Build artifacts
 *.o
@@ -16,6 +17,7 @@ include/secrets.h
 # Local-only working directories (machine-specific firmware dumps + camera frames)
 backup/
 captures/
+signalk/config/applicationData/
 
 # Build logs
 build.log
