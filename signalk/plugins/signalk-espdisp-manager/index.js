@@ -91,6 +91,42 @@ module.exports = function espdispManagerPlugin (app) {
             port: { type: 'number', title: 'Port', default: 3000 }
           }
         },
+        deviceWebAuth: {
+          type: 'object',
+          title: 'Device Web API Basic Auth',
+          description: 'Credentials pushed to devices and used by this plugin to read live status and logs.',
+          properties: {
+            enabled: { type: 'boolean', title: 'Enabled', default: true },
+            username: { type: 'string', title: 'Username', default: 'espdisp' },
+            password: { type: 'string', title: 'Password', default: 'espdisp-dev' }
+          }
+        },
+        discoveryUdp: {
+          type: 'object',
+          title: 'SignalK UDP Discovery',
+          description: 'LAN discovery responder used by ESP displays when mDNS is unavailable, for example Docker bridge networking.',
+          properties: {
+            enabled: { type: 'boolean', title: 'Enabled', default: true },
+            bind: { type: 'string', title: 'Bind address', default: '0.0.0.0' },
+            port: { type: 'number', title: 'UDP port', default: 34300 },
+            host: {
+              type: 'string',
+              title: 'Advertised host',
+              description: 'Leave empty to let the device use the UDP reply source address.',
+              default: ''
+            }
+          }
+        },
+        deviceDiscoveryUdp: {
+          type: 'object',
+          title: 'Device UDP Discovery',
+          description: 'Listener for ESP display presence announcements. Discovered devices appear in the Discovery page before they are claimed.',
+          properties: {
+            enabled: { type: 'boolean', title: 'Enabled', default: true },
+            bind: { type: 'string', title: 'Bind address', default: '0.0.0.0' },
+            port: { type: 'number', title: 'UDP port', default: 34301 }
+          }
+        },
         network: {
           type: 'object',
           title: 'Network Identity',
@@ -107,7 +143,30 @@ module.exports = function espdispManagerPlugin (app) {
               type: 'object',
               title: 'mDNS',
               properties: {
-                enabled: { type: 'boolean', title: 'Enabled', default: true }
+                enabled: { type: 'boolean', title: 'Enabled', default: true },
+                browser: {
+                  type: 'boolean',
+                  title: 'Discover ESP displays via Bonjour/mDNS',
+                  default: true
+                },
+                advertiseManager: {
+                  type: 'boolean',
+                  title: 'Advertise manager via Bonjour/mDNS',
+                  default: true
+                },
+                bind: { type: 'string', title: 'Bind address', default: '0.0.0.0' },
+                port: { type: 'number', title: 'mDNS UDP port', default: 5353 },
+                advertiseHost: {
+                  type: 'string',
+                  title: 'Advertised IPv4 address',
+                  description: 'Leave empty to use the first non-internal IPv4 address visible to Node.',
+                  default: ''
+                },
+                advertiseIntervalMs: {
+                  type: 'number',
+                  title: 'Manager advertisement interval, ms',
+                  default: 60000
+                }
               }
             }
           }
@@ -119,6 +178,7 @@ module.exports = function espdispManagerPlugin (app) {
       app.debug('espdisp-manager started')
     },
     stop: () => {
+      if (manager && manager.close) manager.close()
       manager = undefined
     },
     statusMessage: () => {
@@ -145,6 +205,9 @@ module.exports = function espdispManagerPlugin (app) {
           get: { summary: 'List discovered ESP display devices' },
           post: { summary: 'Announce a discovered ESP display device' }
         },
+        '/plugins/espdisp-manager/discovery/devices/{deviceId}/claim': {
+          post: { summary: 'Claim a discovered ESP display device into the registry' }
+        },
         '/plugins/espdisp-manager/capabilities': {
           get: { summary: 'Describe manager protocol capabilities' }
         },
@@ -156,6 +219,12 @@ module.exports = function espdispManagerPlugin (app) {
         },
         '/plugins/espdisp-manager/devices/{deviceId}/status': {
           post: { summary: 'Update device status heartbeat' }
+        },
+        '/plugins/espdisp-manager/devices/{deviceId}/live/status': {
+          get: { summary: 'Read live device /api/state' }
+        },
+        '/plugins/espdisp-manager/devices/{deviceId}/live/logs': {
+          get: { summary: 'Read live device /api/logs' }
         },
         '/plugins/espdisp-manager/devices/{deviceId}/config': {
           get: { summary: 'Fetch generated device config' }
@@ -173,6 +242,9 @@ module.exports = function espdispManagerPlugin (app) {
         },
         '/plugins/espdisp-manager/devices/{deviceId}/profile': {
           post: { summary: 'Assign profile to a device' }
+        },
+        '/plugins/espdisp-manager/profiles/{profileId}/apply': {
+          post: { summary: 'Apply profile to one or more devices' }
         },
         '/plugins/espdisp-manager/groups/{groupId}/command': {
           post: { summary: 'Create command for a device group' }
@@ -211,6 +283,22 @@ function registerRoutes (router, getManager) {
 
   router.post('/discovery/devices', wrap(getManager, (manager, req, res) => {
     res.json(manager.announceDiscoveredDevice(req.body || {}, authFrom(req)))
+  }))
+
+  router.post('/discovery/devices/:id/claim', wrap(getManager, (manager, req, res) => {
+    const body = req.body || {}
+    const result = manager.claimDiscoveredDevice(req.params.id, {
+      ...body,
+      sendReload: checkboxValue(body.sendReload),
+      issueToken: checkboxValue(body.issueToken)
+    })
+    if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+      res.statusCode = 303
+      res.setHeader('location', `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}`)
+      res.end()
+      return
+    }
+    res.json(result)
   }))
 
   router.get('/capabilities', wrap(getManager, (manager, req, res) => {
@@ -311,6 +399,14 @@ function registerRoutes (router, getManager) {
     res.json(manager.updateStatus(req.params.id, req.body || {}, authFrom(req)))
   }))
 
+  router.get('/devices/:id/live/status', wrap(getManager, async (manager, req, res) => {
+    res.json(await manager.getLiveStatus(req.params.id))
+  }))
+
+  router.get('/devices/:id/live/logs', wrap(getManager, async (manager, req, res) => {
+    res.json(await manager.getLiveLogs(req.params.id, req.query.since))
+  }))
+
   router.get('/devices/:id/config', wrap(getManager, (manager, req, res) => {
     manager.requireDeviceAuth(req.params.id, authFrom(req))
     res.json(manager.generateConfig(req.params.id))
@@ -342,6 +438,10 @@ function registerRoutes (router, getManager) {
 
   router.post('/profiles', wrap(getManager, (manager, req, res) => {
     res.json(manager.upsertProfile(req.body || {}))
+  }))
+
+  router.post('/profiles/:id/apply', wrap(getManager, (manager, req, res) => {
+    res.json(manager.applyProfile(req.params.id, req.body || {}))
   }))
 
   router.post('/devices/:id/command', wrap(getManager, (manager, req, res) => {
@@ -426,7 +526,15 @@ function wrap (getManager, handler) {
         res.status(503).json({ error: { code: 'plugin_stopped', message: 'plugin is not running' } })
         return
       }
-      handler(manager, req, res)
+      Promise.resolve(handler(manager, req, res)).catch((err) => {
+        const status = err.status || 500
+        res.status(status).json(err.payload || {
+          error: {
+            code: status === 500 ? 'internal_error' : 'request_failed',
+            message: err.message
+          }
+        })
+      })
     } catch (err) {
       const status = err.status || 500
       res.status(status).json(err.payload || {
@@ -603,6 +711,7 @@ function renderUi (manager, page, req) {
     legend { color: #40515a; font-size: 13px; font-weight: 700; padding: 0 4px; }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; }
     button { min-height: 36px; border: 1px solid #0e5c72; border-radius: 4px; padding: 7px 12px; background: #116078; color: white; font-weight: 600; cursor: pointer; }
+    button[disabled] { background: #d9e0e3; border-color: #c6d0d5; color: #60717a; cursor: not-allowed; }
     button[value="save"], button[value="save-preset"] { background: white; color: #116078; }
     .pill { display: inline-block; padding: 2px 7px; border-radius: 999px; background: #eef3f5; color: #40515a; font-size: 12px; }
     .status { display: inline-block; min-width: 64px; padding: 2px 7px; border-radius: 999px; background: #eef3f5; text-align: center; }
@@ -628,7 +737,7 @@ function renderPage (manager, dashboard, page, req) {
   if (page === 'devices') return renderDevicesPage(dashboard.devices)
   if (page === 'device') return renderDevicePage(manager, req.params.id)
   if (page === 'deviceConfig') return renderDeviceConfigPage(manager, req.params.id)
-  if (page === 'discovery') return renderDiscoveryPage(manager.listDiscoveredDevices().devices)
+  if (page === 'discovery') return renderDiscoveryPage(manager, manager.listDiscoveredDevices().devices)
   if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices)
   if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices)
   if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs)
@@ -674,7 +783,11 @@ function renderDevicePage (manager, id) {
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
       <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
-      <p><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/config">Open generated config</a></p>
+      <p>
+        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/config">Open generated config</a>
+        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/status">Live status JSON</a>
+        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/logs">Live logs JSON</a>
+      </p>
       <table>
         <tbody>
           <tr><th>Profile</th><td>${escapeHtml(device.assignedProfile || 'default')}</td></tr>
@@ -1076,6 +1189,11 @@ function renderDeviceConfigWidget (config) {
         ['Source priority', config.sources && Array.isArray(config.sources.priority) ? config.sources.priority.join(', ') : ''],
         ['NMEA 0183 WiFi', nmeaLabel(config.nmea0183Wifi)]
       ]))}
+      ${configSection('Device Web API', keyValueTable([
+        ['Basic auth', yesNo(config.webAuth && config.webAuth.enabled)],
+        ['Username', config.webAuth && config.webAuth.username],
+        ['Password set', yesNo(config.webAuth && config.webAuth.password)]
+      ]))}
       ${configSection('OTA', keyValueTable([
         ['Enabled', yesNo(config.ota && config.ota.enabled)],
         ['Mode', config.ota && config.ota.mode],
@@ -1177,26 +1295,56 @@ function fontSummary (settings) {
     .join(', ') || 'defaults'
 }
 
-function renderDiscoveryPage (devices) {
+function renderDiscoveryPage (manager, devices) {
+  const profiles = manager.listProfiles().profiles
   const rows = devices.map((device) => `
         <tr>
           <td><strong>${escapeHtml(device.name || device.deviceId)}</strong><br><span>${escapeHtml(device.deviceId)}</span></td>
           <td>${escapeHtml(device.address || '')}:${escapeHtml(device.port || '')}</td>
+          <td>${escapeHtml(device.source || '')}</td>
           <td>${escapeHtml(displayLabel(device.display))}</td>
           <td>${escapeHtml(firmwareLabel(device.firmware))}</td>
           <td>${device.registered ? '<span class="status ok">yes</span>' : '<span class="status">no</span>'}</td>
           <td>${device.stale ? '<span class="status bad">stale</span>' : '<span class="status ok">fresh</span>'}</td>
+          <td>${device.conflict ? `<span class="status bad">address conflict</span><br><span>${escapeHtml(device.conflict.deviceIds.join(', '))}</span>` : '<span class="status ok">none</span>'}</td>
           <td>${escapeHtml(device.lastSeen || '')}</td>
+          <td>${renderDiscoveryClaimControl(device, profiles)}</td>
         </tr>`).join('')
   return `
     <section class="panel">
       <h2>Discovered devices</h2>
-      <p class="muted">Devices appear here after an mDNS/provisioning announcement posts to <code>/discovery/devices</code>.</p>
+      <p class="muted">Devices appear here from Bonjour/mDNS, UDP announcements, or authenticated provisioning posts.</p>
       <table>
-        <thead><tr><th>Device</th><th>Address</th><th>Display</th><th>Firmware</th><th>Registered</th><th>Freshness</th><th>Last seen</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="7">No discovered devices.</td></tr>'}</tbody>
+        <thead><tr><th>Device</th><th>Address</th><th>Source</th><th>Display</th><th>Firmware</th><th>Registered</th><th>Freshness</th><th>Conflict</th><th>Last seen</th><th>Action</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="10">No discovered devices.</td></tr>'}</tbody>
       </table>
     </section>`
+}
+
+function renderDiscoveryClaimControl (device, profiles) {
+  if (device.registered) {
+    return `<a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.deviceId)}">Open</a>`
+  }
+  const blocked = []
+  if (device.stale) blocked.push('stale')
+  if (device.conflict) blocked.push('address conflict')
+  if (!device.address) blocked.push('missing address')
+  if (blocked.length) {
+    return `
+    <form method="post" action="/plugins/espdisp-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
+      ${profileSelect(profiles, 'default')}
+      <button type="submit" disabled>Claim</button>
+      <p class="muted">Resolve ${escapeHtml(blocked.join(', '))} before claiming.</p>
+    </form>`
+  }
+  return `
+    <form method="post" action="/plugins/espdisp-manager/discovery/devices/${encodeURIComponent(device.deviceId)}/claim">
+      <input type="hidden" name="role" value="${escapeHtml(device.role || 'display')}">
+      <input type="hidden" name="location" value="${escapeHtml(device.location || '')}">
+      <input type="hidden" name="sendReload" value="1">
+      ${profileSelect(profiles, 'default')}
+      <button type="submit">Claim</button>
+    </form>`
 }
 
 function renderProfilesPage (profiles, devices) {
@@ -1394,5 +1542,8 @@ function escapeHtml (value) {
 
 module.exports._test = {
   toYaml,
-  fromYaml
+  fromYaml,
+  renderUi,
+  importDashboardPreset,
+  applyPresetForm
 }

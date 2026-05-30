@@ -1,25 +1,4 @@
 {
   "enabled": true,
-  "configuration": {
-    "serverId": "espdisp-test-server",
-    "heartbeatMs": 5000,
-    "commandPollMs": 1000,
-    "auth": {
-      "mode": "dev-shared-token",
-      "devToken": "espdisp-dev",
-      "provisionToken": "espdisp-provision"
-    },
-    "signalk": {
-      "host": "signalk.local",
-      "port": 3000
-    },
-    "network": {
-      "domain": "local",
-      "hostnamePrefix": "espdisp",
-      "namingPolicy": "device-id",
-      "mdns": {
-        "enabled": true
-      }
-    }
-  }
+  "configuration": {}
 }

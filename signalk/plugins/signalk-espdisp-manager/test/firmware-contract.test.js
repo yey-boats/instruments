@@ -88,6 +88,22 @@ assert.strictEqual(firstConfig.display.width, 480)
 assert.strictEqual(firstConfig.layout.variant, 'square-480')
 assert.strictEqual(firstConfig.widgets.variant, 'square-480')
 assert.strictEqual(firstConfig.widgets.items.mapPreview, undefined)
+assert.deepStrictEqual(firstConfig.webAuth, {
+  enabled: true,
+  username: 'espdisp',
+  password: 'espdisp-dev'
+})
+
+const { manager: openWebManager, auth: openWebAuth } = makeManager({
+  auth: { mode: 'dev-shared-token', devToken: 'test-token' },
+  deviceWebAuth: { enabled: false, username: 'espdisp', password: 'unused' }
+})
+openWebManager.registerDevice({ device: { id: 'espdisp-open-web', name: 'Open Web' } }, openWebAuth)
+assert.deepStrictEqual(openWebManager.generateConfig('espdisp-open-web').webAuth, {
+  enabled: false,
+  username: 'espdisp',
+  password: 'unused'
+})
 
 const heartbeat = manager.updateStatus(deviceId, {
   time: '2026-05-27T18:20:00Z',
@@ -139,6 +155,11 @@ const heartbeat = manager.updateStatus(deviceId, {
     port: 3232,
     passwordSet: true
   },
+  webAuth: {
+    enabled: true,
+    username: 'espdisp',
+    passwordSet: true
+  },
   config: {
     version: firstConfig.version,
     hash: firstConfig.hash,
@@ -148,6 +169,7 @@ const heartbeat = manager.updateStatus(deviceId, {
 }, auth)
 
 assert.strictEqual(heartbeat.status, 'ok')
+assert.strictEqual(manager.getDevice(deviceId).webAuth.enabled, true)
 assert.strictEqual(heartbeat.desiredConfig.reload, false)
 
 const command = manager.createCommand(deviceId, {

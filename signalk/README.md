@@ -6,6 +6,8 @@ It is used for local firmware testing with:
 
 - SignalK HTTP/WebSocket on `localhost:3000`
 - NMEA 0183 TCP output on `localhost:10110`
+- ESP display SignalK discovery responder on UDP `34300`
+- ESP display device announcement listener on UDP `34301`
 - official NMEA 0183 conversion plugin
 - official autopilot plugin in emulator mode
 - synthetic boat data from `tools/fake_boat.py`
@@ -55,6 +57,50 @@ or directly:
 
 ```sh
 curl http://localhost:3000/signalk
+```
+
+ESP display firmware in default `sk-host auto` mode first tries mDNS
+`_signalk-ws._tcp`. If that is not advertised by the LAN or Docker setup, it
+broadcasts `espdisp.signalk.discover.v1` to UDP `34300`. The manager plugin
+replies with the SignalK HTTP/WebSocket port; the device uses the reply source
+address when no explicit advertised host is configured, then TCP-probes the
+target before opening the SignalK WebSocket.
+
+For manager discovery, the plugin can also advertise `_espdisp-mgmt._tcp.local`
+with TXT metadata for protocol, base path, auth mode, TLS flag, SignalK port,
+and NMEA TCP port. Firmware can query this with `manager-discover`. This works
+on LANs or containers where multicast DNS UDP `5353` reaches the display.
+
+ESP display firmware also broadcasts `espdisp.device.announce.v1` to UDP
+`34301` after joining WiFi. The manager plugin listens on that port and adds
+unclaimed displays to the Discovery page without needing a subnet scan.
+
+The firmware also advertises Bonjour/mDNS service `_espdisp._tcp.local`.
+The manager plugin passively listens for those advertisements and uses the
+TXT fields (`device_id`, `board`, `firmware`, `version`, `display`, `auth`,
+`cfg_ver`, `cfg_hash`, `seq`) to update the same Discovery page. Firmware
+refreshes the Bonjour TXT records on boot, periodically, and after managed
+configuration/auth changes.
+
+## Discovery Troubleshooting
+
+From the repo root, verify device visibility:
+
+```sh
+python3 -m tests.system.discovery --json --listen-udp --timeout 5
+```
+
+If the device does not appear:
+
+- check the display is connected to the same WiFi as SignalK
+- check firmware logs for `[mdns] advertise` and `[discovery] announce`
+- confirm mDNS multicast UDP `5353` is allowed between the SignalK host and
+  display network
+- confirm UDP `34301` is exposed when SignalK runs in Docker
+- use an explicit host as a fallback:
+
+```sh
+ESPDISP_HOST=<device-ip> pytest tests/system/unattended/test_boot_health.py
 ```
 
 ## Verify NMEA 0183 TCP

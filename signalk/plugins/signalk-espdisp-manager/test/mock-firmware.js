@@ -23,6 +23,32 @@ class MockFirmware {
       density: 'mdpi',
       shape: 'square'
     }
+    this.capabilities = options.capabilities || {
+      touch: true,
+      touchInterrupt: true,
+      bleConfig: true,
+      ota: true,
+      pullOta: true,
+      nmea0183Wifi: true,
+      autopilotControls: true,
+      widgets: {
+        numeric: true,
+        text: true,
+        gauge: true,
+        compass: true,
+        windRose: true,
+        trend: true,
+        bar: true,
+        button: true,
+        autopilot: true,
+        map: false
+      },
+      fonts: {
+        scalable: false,
+        sizes: [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56],
+        families: ['default']
+      }
+    }
   }
 
   identity () {
@@ -44,32 +70,7 @@ class MockFirmware {
         interrupt: true
       },
       firmware: this.firmware,
-      capabilities: {
-        touch: true,
-        touchInterrupt: true,
-        bleConfig: true,
-        ota: true,
-        pullOta: true,
-        nmea0183Wifi: true,
-        autopilotControls: true,
-        widgets: {
-          numeric: true,
-          text: true,
-          gauge: true,
-          compass: true,
-          windRose: true,
-          trend: true,
-          bar: true,
-          button: true,
-          autopilot: true,
-          map: false
-        },
-        fonts: {
-          scalable: false,
-          sizes: [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56],
-          families: ['default']
-        }
-      }
+      capabilities: this.capabilities
     }
   }
 

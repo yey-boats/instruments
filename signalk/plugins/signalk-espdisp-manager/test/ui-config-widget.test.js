@@ -14,6 +14,8 @@ assert.ok(source.includes("router.get('/ui/profiles/:id'"), 'preset detail route
 assert.ok(source.includes("router.post('/ui/profiles/:id/apply'"), 'preset apply route is missing')
 assert.ok(source.includes('function parseUrlEncodedForm'), 'multi-select form parser is missing')
 assert.ok(source.includes('Apply to selected devices'), 'multi-device preset apply UI is missing')
+assert.ok(source.includes('Resolve ${escapeHtml(blocked.join'), 'unsafe discovered-device claim guard is missing')
+assert.ok(source.includes('button[disabled]'), 'disabled claim button styling is missing')
 assert.ok(source.includes('renderWidgetsTable(config.widgets)'), 'widget summary table is not rendered')
 assert.ok(source.includes('renderScreensTable(config.layout)'), 'screen layout table is not rendered')
 assert.ok(source.includes('SignalK and NMEA'), 'data source section is not rendered')

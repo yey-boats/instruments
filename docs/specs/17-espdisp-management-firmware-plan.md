@@ -53,6 +53,15 @@ include/device_identity.h
 src/device_identity.cpp
 ```
 
+Default identity:
+
+- new devices use `espdisp-<12 lowercase hex WiFi STA MAC>` as `deviceId`,
+  BLE name, mDNS host, and OTA host
+- custom IDs set with `id <name>` are preserved in NVS
+- `id auto` restores the hardware-derived default
+- legacy blank, `espdisp`, and `espdisp-device` defaults migrate to the
+  hardware-derived ID on boot
+
 ### 2. Management Endpoint Discovery
 
 Define discovery order:

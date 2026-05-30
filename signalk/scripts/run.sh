@@ -28,6 +28,8 @@ docker run -d \
   --name "$CONTAINER" \
   -p 3000:3000 \
   -p 10110:10110 \
+  -p 34300:34300/udp \
+  -p 34301:34301/udp \
   -v "$CONFIG_DIR:/home/node/.signalk" \
   -v "$SK_DIR/plugins:/home/node/plugins" \
   "$IMAGE" >/dev/null
@@ -55,4 +57,6 @@ nohup "$PYTHON" -u "$ROOT/tools/fake_boat.py" "$SK_HOST" "$SK_PORT" \
 
 echo "SignalK at http://$SK_HOST:$SK_PORT"
 echo "NMEA 0183 TCP at $SK_HOST:10110"
+echo "ESP display SignalK discovery UDP at $SK_HOST:34300"
+echo "ESP display device announcement UDP at $SK_HOST:34301"
 echo "fake_boat log: /tmp/fake_boat.log"

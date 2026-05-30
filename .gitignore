@@ -21,6 +21,10 @@ captures/
 build.log
 upload.log
 
+# Node / Playwright
+node_modules/
+test-results/
+
 # Python
 __pycache__/
 *.pyc

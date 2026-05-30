@@ -5,6 +5,8 @@ services:
     ports:
       - "3000:3000"
       - "10110:10110"
+      - "34300:34300/udp"
+      - "34301:34301/udp"
     volumes:
       - ./config:/home/node/.signalk
       - ./plugins:/home/node/plugins

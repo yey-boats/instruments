@@ -69,13 +69,15 @@ Typical workflow:
 ```text
 1. Start the SignalK lab stack with make demo-up.
 2. Register or discover one or more ESP displays.
-3. Open Devices and inspect health, display geometry, config drift, and
+3. Claim discovered panels from Discovery, optionally selecting the first
+   dashboard preset.
+4. Open Devices and inspect health, display geometry, config drift, and
    pending commands.
-4. Open a device config page to assign a dashboard preset and edit structured
+5. Open a device config page to assign a dashboard preset and edit structured
    settings.
-5. Save per-device overrides or save the same settings as a reusable preset.
-6. Use "Save and send" or preset "Apply" to queue config.reload.
-7. Device polls commands, sees config.reload, fetches /devices/:id/config,
+6. Save per-device overrides or save the same settings as a reusable preset.
+7. Use "Save and send" or preset "Apply" to queue config.reload.
+8. Device polls commands, sees config.reload, fetches /devices/:id/config,
    applies the generated dashboard config, and reports the applied hash in
    status.
 ```
@@ -167,7 +169,32 @@ POST /ui/profiles/:id/apply
 GET  /ui/firmware
 GET  /discovery/devices
 POST /discovery/devices
+POST /discovery/devices/:id/claim
 ```
+
+Discovery sources:
+
+```text
+Manager advertisement: Bonjour/mDNS _espdisp-mgmt._tcp.local
+Bonjour/mDNS _espdisp._tcp.local
+UDP espdisp.device.announce.v1 on port 34301
+Authenticated HTTP POST /discovery/devices
+```
+
+The manager advertisement is optional because some Docker and boat-router
+deployments do not forward multicast DNS. When enabled, it publishes protocol,
+base path, auth mode, TLS flag, SignalK port, and NMEA TCP port so firmware
+can use the `manager-discover` path before falling back to well-known HTTP or
+manual setup.
+
+Bonjour TXT records are treated as live discovery metadata. The firmware
+refreshes them on boot, every minute, and after managed config or web auth
+changes. The plugin stores those updates with `source=mdns`; UDP
+announcements use `source=udp`. Both paths populate the same Discovery page
+and claim flow. Discovery records also carry freshness, previous addresses,
+and address-conflict metadata so operators can spot stale leases, duplicate
+advertisements, and two device IDs reporting the same endpoint before claiming
+the device.
 
 Registry:
 
@@ -201,8 +228,54 @@ can announce an address and capabilities before the panel has been claimed:
 }
 ```
 
+Firmware also broadcasts the same information as UDP
+`espdisp.device.announce.v1` on port `34301`. The plugin listens on that port
+and writes the same discovery record as the authenticated HTTP announcement
+endpoint.
+
 `GET /discovery/devices` returns announced devices with `registered` and
-`stale` flags. Registration still goes through `POST /devices/register`.
+`stale` flags. Operators can claim an announced device into the registry with:
+
+```text
+POST /discovery/devices/:id/claim
+```
+
+The claim body may include `profileId`, `role`, `location`, `sendReload`, and
+`issueToken`. Claiming creates or updates the registry record, marks it
+claimed, assigns the selected preset, and can queue an initial `config.reload`
+command. Firmware registration still goes through `POST /devices/register`;
+when the same device later registers, the claimed profile and registry state
+are preserved.
+
+Claimed registry records carry these explicit sub-objects:
+
+```json
+{
+  "claim": {
+    "claimedAt": "2026-05-29T00:00:00.000Z",
+    "updatedAt": "2026-05-29T00:00:00.000Z",
+    "source": "discovery",
+    "profileId": "default"
+  },
+  "discovery": {
+    "source": "udp",
+    "address": "192.168.50.42",
+    "port": 80,
+    "lastSeen": "2026-05-29T00:00:00.000Z",
+    "services": [{ "type": "_espdisp._tcp", "port": 80 }],
+    "authRequired": true
+  },
+  "auth": {
+    "web": {
+      "required": true,
+      "mode": "basic",
+      "username": "espdisp",
+      "passwordSet": true
+    },
+    "manager": { "mode": "dev-shared-token" }
+  }
+}
+```
 
 Profiles and groups:
 
@@ -212,10 +285,15 @@ POST /profiles
 GET  /profiles/:id/dashboard.json
 GET  /profiles/:id/dashboard.yaml
 POST /profiles/import-dashboard
+POST /profiles/:id/apply
 POST /devices/:id/profile
 GET  /groups
 POST /groups/:groupId/command
 ```
+
+`POST /profiles/:id/apply` accepts `deviceIds`, `clearOverrides`, and
+`sendReload`. It assigns the preset to several devices through the same path as
+the UI and optionally queues `config.reload` for each selected device.
 
 Commands:
 
@@ -485,6 +563,11 @@ Run plugin tests:
 ```sh
 npm test --prefix signalk/plugins/signalk-espdisp-manager
 ```
+
+The plugin suite includes a mock-firmware end-to-end flow that announces a
+device, claims it from discovery, queues `config.reload`, applies a generated
+dashboard config, swaps presets, and verifies the reported config hash
+converges.
 
 Run future firmware contract tests in skip mode:
 

@@ -1,3 +1,6 @@
+const dgram = require('dgram')
+const http = require('http')
+const os = require('os')
 const { JsonStore } = require('./store')
 const {
   now,
@@ -10,6 +13,13 @@ const {
 } = require('./util')
 
 const PROTOCOL = 'espdisp.management.v1'
+const SIGNALK_DISCOVERY_QUERY = 'espdisp.signalk.discover.v1'
+const SIGNALK_DISCOVERY_PROTOCOL = 'espdisp.signalk.discovery.v1'
+const DEVICE_ANNOUNCE_PROTOCOL = 'espdisp.device.announce.v1'
+const ESPDISP_MDNS_SERVICE = '_espdisp._tcp.local'
+const ESPDISP_MGMT_MDNS_SERVICE = '_espdisp-mgmt._tcp.local'
+const MDNS_MULTICAST = '224.0.0.251'
+const MDNS_PORT = 5353
 
 class EspDispManager {
   constructor (app, options) {
@@ -17,6 +27,173 @@ class EspDispManager {
     this.options = normalizeOptions(options || {})
     this.store = new JsonStore(app.getDataDirPath())
     this.store.init()
+    this.discoverySocket = null
+    this.deviceDiscoverySocket = null
+    this.mdnsDiscoverySocket = null
+    this.mdnsAdvertiseTimer = null
+    this.startSignalKDiscovery()
+    this.startDeviceDiscovery()
+    this.startMdnsDiscovery()
+  }
+
+  close () {
+    if (this.discoverySocket) {
+      this.discoverySocket.close()
+      this.discoverySocket = null
+    }
+    if (this.deviceDiscoverySocket) {
+      this.deviceDiscoverySocket.close()
+      this.deviceDiscoverySocket = null
+    }
+    if (this.mdnsDiscoverySocket) {
+      this.mdnsDiscoverySocket.close()
+      this.mdnsDiscoverySocket = null
+    }
+    if (this.mdnsAdvertiseTimer) {
+      clearInterval(this.mdnsAdvertiseTimer)
+      this.mdnsAdvertiseTimer = null
+    }
+  }
+
+  startSignalKDiscovery () {
+    const cfg = this.options.discoveryUdp
+    if (!cfg.enabled) return
+
+    const socket = dgram.createSocket('udp4')
+    socket.on('error', (err) => {
+      if (this.app && this.app.debug) {
+        this.app.debug(`espdisp SignalK discovery UDP error: ${err.message}`)
+      }
+    })
+    socket.on('message', (msg, rinfo) => {
+      const text = msg.toString('utf8').trim()
+      if (text !== SIGNALK_DISCOVERY_QUERY) return
+
+      const host = cfg.host || this.options.signalk.host || 'auto'
+      const reply = Buffer.from(JSON.stringify({
+        protocol: SIGNALK_DISCOVERY_PROTOCOL,
+        serverId: this.options.serverId,
+        host,
+        port: this.options.signalk.port,
+        http: {
+          path: '/signalk',
+          stream: '/signalk/v1/stream?subscribe=none'
+        },
+        manager: {
+          basePath: '/plugins/espdisp-manager'
+        }
+      }))
+      socket.send(reply, rinfo.port, rinfo.address)
+    })
+    socket.bind(cfg.port, cfg.bind, () => {
+      socket.setBroadcast(true)
+      if (this.app && this.app.debug) {
+        this.app.debug(`espdisp SignalK discovery UDP listening on ${cfg.bind}:${cfg.port}`)
+      }
+    })
+    this.discoverySocket = socket
+  }
+
+  startDeviceDiscovery () {
+    const cfg = this.options.deviceDiscoveryUdp
+    if (!cfg.enabled) return
+
+    const socket = dgram.createSocket('udp4')
+    socket.on('error', (err) => {
+      if (this.app && this.app.debug) {
+        this.app.debug(`espdisp device discovery UDP error: ${err.message}`)
+      }
+    })
+    socket.on('message', (msg, rinfo) => {
+      let body
+      try {
+        body = JSON.parse(msg.toString('utf8'))
+      } catch (err) {
+        return
+      }
+      if (!body || body.protocol !== DEVICE_ANNOUNCE_PROTOCOL) return
+      try {
+        this.recordDiscoveredDevice({
+          ...body,
+          address: body.address || rinfo.address,
+          transport: 'http',
+          services: [
+            { type: '_espdisp._tcp', port: Number(body.port || 80) }
+          ]
+        })
+      } catch (err) {
+        if (this.app && this.app.debug) {
+          this.app.debug(`espdisp device discovery ignored packet: ${err.message}`)
+        }
+      }
+    })
+    socket.bind(cfg.port, cfg.bind, () => {
+      socket.setBroadcast(true)
+      if (this.app && this.app.debug) {
+        this.app.debug(`espdisp device discovery UDP listening on ${cfg.bind}:${cfg.port}`)
+      }
+    })
+    this.deviceDiscoverySocket = socket
+  }
+
+  startMdnsDiscovery () {
+    const cfg = this.options.network.mdns
+    if (!cfg.enabled || (!cfg.browser && !cfg.advertiseManager)) return
+
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true })
+    socket.on('error', (err) => {
+      if (this.app && this.app.debug) {
+        this.app.debug(`espdisp mDNS discovery error: ${err.message}`)
+      }
+    })
+    socket.on('message', (msg, rinfo) => {
+      if (cfg.browser) {
+        for (const device of devicesFromMdnsPacket(msg, rinfo)) {
+          try {
+            this.recordDiscoveredDevice(device)
+          } catch (err) {
+            if (this.app && this.app.debug) {
+              this.app.debug(`espdisp mDNS discovery ignored packet: ${err.message}`)
+            }
+          }
+        }
+      }
+      if (cfg.advertiseManager && mdnsPacketHasQuestion(msg, ESPDISP_MGMT_MDNS_SERVICE)) {
+        this.sendManagerMdnsAdvertisement('query')
+      }
+    })
+    socket.bind(cfg.port, cfg.bind, () => {
+      try {
+        socket.addMembership(MDNS_MULTICAST)
+      } catch (err) {
+        if (this.app && this.app.debug) {
+          this.app.debug(`espdisp mDNS discovery multicast join failed: ${err.message}`)
+        }
+      }
+      if (this.app && this.app.debug) {
+        this.app.debug(`espdisp mDNS discovery listening on ${cfg.bind}:${cfg.port}`)
+      }
+      if (cfg.advertiseManager) {
+        this.sendManagerMdnsAdvertisement('boot')
+        this.mdnsAdvertiseTimer = setInterval(() => {
+          this.sendManagerMdnsAdvertisement('periodic')
+        }, cfg.advertiseIntervalMs)
+      }
+    })
+    this.mdnsDiscoverySocket = socket
+  }
+
+  sendManagerMdnsAdvertisement (reason) {
+    if (!this.mdnsDiscoverySocket) return
+    const cfg = this.options.network.mdns
+    const packet = buildManagerMdnsPacket(this.options, cfg)
+    this.mdnsDiscoverySocket.send(packet, 0, packet.length, MDNS_PORT, MDNS_MULTICAST, (err) => {
+      if (err && this.app && this.app.debug) {
+        this.app.debug(`espdisp mDNS manager advertise ${reason} failed: ${err.message}`)
+      } else if (this.app && this.app.debug) {
+        this.app.debug(`espdisp mDNS manager advertise ${reason}`)
+      }
+    })
   }
 
   discovery () {
@@ -140,13 +317,40 @@ class EspDispManager {
 
   listDiscoveredDevices () {
     const registered = this.store.registry.devices
+    const addressOwners = {}
+    const observedAt = now()
+    for (const device of Object.values(this.store.discovery.devices || {})) {
+      if (device.supersededBy) continue
+      if (isStaleDiscovery(device, observedAt)) continue
+      const key = discoveryAddressKey(device)
+      if (!key) continue
+      if (!addressOwners[key]) addressOwners[key] = []
+      addressOwners[key].push(device.deviceId)
+    }
     return {
       devices: Object.values(this.store.discovery.devices || {})
-        .map((device) => ({
-          ...device,
-          registered: Boolean(registered[device.deviceId]),
-          stale: device.lastSeen ? Date.now() - Date.parse(device.lastSeen) > 60000 : true
-        }))
+        .map((device) => {
+          const ageMs = device.lastSeen
+            ? Date.now() - Date.parse(device.lastSeen)
+            : Number.POSITIVE_INFINITY
+          const key = discoveryAddressKey(device)
+          const superseded = Boolean(device.supersededBy)
+          const duplicateIds = key && !superseded
+            ? (addressOwners[key] || []).filter((id) => id !== device.deviceId)
+            : []
+          const conflict = duplicateIds.length > 0
+            ? { type: 'address', deviceIds: duplicateIds }
+            : null
+          return {
+            ...device,
+            registered: Boolean(registered[device.deviceId]),
+            ageMs,
+            stale: !Number.isFinite(ageMs) || ageMs > 60000,
+            conflict,
+            duplicate: Boolean(conflict),
+            superseded
+          }
+        })
         .sort((a, b) => {
           const aTime = Date.parse(a.lastSeen || 0)
           const bTime = Date.parse(b.lastSeen || 0)
@@ -156,9 +360,6 @@ class EspDispManager {
   }
 
   announceDiscoveredDevice (body, auth) {
-    const incoming = body.device || body
-    const id = sanitizeDeviceId(incoming.id || incoming.deviceId)
-    if (!id) throw httpError(400, 'invalid_request', 'device.id is required')
     if (this.options.auth.mode !== 'disabled') {
       const ok = auth && (
         auth.bearer === this.options.auth.devToken ||
@@ -166,17 +367,36 @@ class EspDispManager {
       )
       if (!ok) throw httpError(401, 'unauthorized', 'discovery announcement requires manager token')
     }
+    return this.recordDiscoveredDevice(body)
+  }
+
+  recordDiscoveredDevice (body) {
+    const incoming = normalizeDiscoveryBody(body)
+    const id = sanitizeDeviceId(incoming.id || incoming.deviceId)
+    if (!id) throw httpError(400, 'invalid_request', 'device.id is required')
+    const existing = this.store.discovery.devices[id] || {}
+    const address = incoming.address || incoming.ip || null
+    const previousAddresses = Array.isArray(existing.previousAddresses)
+      ? existing.previousAddresses.slice()
+      : []
+    if (existing.address && address && existing.address !== address &&
+        !previousAddresses.includes(existing.address)) {
+      previousAddresses.unshift(existing.address)
+      previousAddresses.splice(5)
+    }
+    const observedAt = now()
 
     const record = {
       deviceId: id,
       name: incoming.name || id,
       role: incoming.role || 'display',
       location: incoming.location || null,
-      firstSeen: this.store.discovery.devices[id]
-        ? this.store.discovery.devices[id].firstSeen
-        : now(),
-      lastSeen: now(),
-      address: incoming.address || incoming.ip || null,
+      firstSeen: existing.firstSeen || observedAt,
+      lastSeen: observedAt,
+      seenCount: Number(existing.seenCount || 0) + 1,
+      source: incoming.source || incoming.discoverySource || 'announcement',
+      address,
+      previousAddresses,
       port: Number(incoming.port || 80),
       transport: incoming.transport || 'http',
       services: incoming.services || [],
@@ -184,7 +404,25 @@ class EspDispManager {
       display: incoming.display || null,
       firmware: incoming.firmware || null,
       board: incoming.board || null,
-      capabilities: incoming.capabilities || {}
+      authRequired: Boolean(incoming.authRequired),
+      auth: {
+        required: Boolean(incoming.authRequired),
+        mode: incoming.authRequired ? 'basic' : 'none'
+      },
+      capabilities: incoming.capabilities || {},
+      replacedDeviceIds: Array.isArray(existing.replacedDeviceIds)
+        ? existing.replacedDeviceIds.slice()
+        : []
+    }
+    const replacedDeviceIds = this.supersedeStaleDiscoveryRecords(record, observedAt)
+    for (const replacedId of replacedDeviceIds) {
+      if (!record.replacedDeviceIds.includes(replacedId)) {
+        record.replacedDeviceIds.push(replacedId)
+      }
+    }
+    if (existing.supersededBy === id) {
+      delete record.supersededBy
+      delete record.supersededAt
     }
     this.store.discovery.devices[id] = record
     this.store.saveDiscovery()
@@ -194,6 +432,136 @@ class EspDispManager {
       device: record,
       registered: Boolean(this.store.registry.devices[id]),
       registerUrl: `/plugins/espdisp-manager/devices/register`
+    }
+  }
+
+  supersedeStaleDiscoveryRecords (fresh, observedAt) {
+    const key = discoveryAddressKey(fresh)
+    if (!key) return []
+    const replaced = []
+    for (const [otherId, other] of Object.entries(this.store.discovery.devices || {})) {
+      if (otherId === fresh.deviceId || other.supersededBy) continue
+      if (discoveryAddressKey(other) !== key) continue
+      if (!isStaleDiscovery(other, observedAt)) continue
+      other.supersededBy = fresh.deviceId
+      other.supersededAt = observedAt
+      for (const priorId of other.replacedDeviceIds || []) {
+        if (!replaced.includes(priorId)) replaced.push(priorId)
+        const prior = this.store.discovery.devices[priorId]
+        if (prior) {
+          prior.supersededBy = fresh.deviceId
+          prior.supersededAt = observedAt
+        }
+      }
+      replaced.push(otherId)
+    }
+    return replaced
+  }
+
+  claimDiscoveredDevice (id, body) {
+    body = body || {}
+    const deviceId = sanitizeDeviceId(id)
+    if (!deviceId) throw httpError(400, 'invalid_request', 'device id is required')
+    const discovered = this.store.discovery.devices[deviceId]
+    if (!discovered) throw httpError(404, 'device_not_found', 'discovered device not found')
+
+    const existing = this.store.registry.devices[deviceId] || {}
+    const created = !existing.id
+    const identity = {
+      ...(existing.identity || {}),
+      id: deviceId,
+      name: body.name || discovered.name || existing.name || deviceId,
+      board: discovered.board || existing.board || null,
+      display: discovered.display || existing.display || null,
+      firmware: discovered.firmware || existing.firmware || null,
+      capabilities: discovered.capabilities || existing.capabilities || {}
+    }
+    const claimed = {
+      ...existing,
+      id: deviceId,
+      name: body.name || existing.name || discovered.name || deviceId,
+      claimed: true,
+      claim: {
+        claimedAt: existing.claim && existing.claim.claimedAt
+          ? existing.claim.claimedAt
+          : now(),
+        updatedAt: now(),
+        source: 'discovery',
+        profileId: body.profileId || existing.assignedProfile || null
+      },
+      role: body.role || existing.role || discovered.role || 'display',
+      location: body.location || existing.location || discovered.location || null,
+      firstSeen: existing.firstSeen || discovered.firstSeen || now(),
+      lastSeen: existing.lastSeen || discovered.lastSeen || now(),
+      identity,
+      capabilities: discovered.capabilities || existing.capabilities || {},
+      display: discovered.display || existing.display || null,
+      firmware: discovered.firmware || existing.firmware || null,
+      board: discovered.board || existing.board || null,
+      discovery: {
+        source: discovered.source || 'announcement',
+        address: discovered.address || null,
+        port: Number(discovered.port || 80),
+        lastSeen: discovered.lastSeen || null,
+        services: discovered.services || [],
+        authRequired: Boolean(discovered.authRequired)
+      },
+      auth: {
+        ...(existing.auth || {}),
+        web: {
+          ...(existing.auth && existing.auth.web ? existing.auth.web : {}),
+          required: Boolean(discovered.authRequired),
+          mode: discovered.authRequired ? 'basic' : 'none',
+          username: this.options.deviceWebAuth.username,
+          passwordSet: Boolean(this.options.deviceWebAuth.password)
+        },
+        manager: {
+          mode: this.options.auth.mode
+        }
+      },
+      assignedProfile: body.profileId || existing.assignedProfile || null,
+      overrides: existing.overrides || {},
+      status: existing.status || {}
+    }
+    if (!claimed.assignedProfile) {
+      claimed.assignedProfile = this.matchProfileForDevice(claimed) || 'default'
+    }
+    if (!this.store.profiles.profiles[claimed.assignedProfile]) {
+      throw httpError(404, 'profile_not_found', 'profile not found')
+    }
+    if (!claimed.deviceToken && this.options.auth.mode === 'dev-shared-token') {
+      claimed.deviceToken = this.options.auth.devToken
+      claimed.deviceTokenId = 'dev'
+    } else if (!claimed.deviceToken) {
+      claimed.deviceToken = randomId('dev')
+      claimed.deviceTokenId = randomId('tok')
+    }
+    claimed.networkIdentity = this.resolveNetworkIdentity(claimed, identity)
+    claimed.claim.profileId = claimed.assignedProfile
+    claimed.updatedAt = now()
+
+    this.store.registry.devices[deviceId] = claimed
+    this.store.saveRegistry()
+    this.store.audit(created ? 'device.claimed' : 'device.reclaimed', deviceId, {
+      profileId: claimed.assignedProfile
+    })
+
+    let command = null
+    if (body.sendReload) command = this.queueConfigReload(deviceId)
+
+    return {
+      status: created ? 'claimed' : 'updated',
+      deviceId,
+      claimed: true,
+      assignedProfile: claimed.assignedProfile,
+      deviceToken: created || body.issueToken ? claimed.deviceToken : undefined,
+      tokenId: claimed.deviceTokenId,
+      config: {
+        version: this.configVersion(claimed),
+        hash: this.generateConfig(deviceId).hash,
+        url: `/plugins/espdisp-manager/devices/${deviceId}/config`
+      },
+      command
     }
   }
 
@@ -364,13 +732,39 @@ class EspDispManager {
     device.updatedAt = now()
     this.store.saveRegistry()
     this.store.audit('device.profile.assigned', id, { profileId })
+    const command = body.sendReload ? this.queueConfigReload(id) : null
     return {
       deviceId: id,
       assignedProfile: profileId,
       config: {
         version: this.configVersion(device),
         hash: this.generateConfig(id).hash
-      }
+      },
+      command
+    }
+  }
+
+  applyProfile (profileId, body) {
+    body = body || {}
+    if (!this.store.profiles.profiles[profileId]) {
+      throw httpError(404, 'profile_not_found', 'profile not found')
+    }
+    const deviceIds = Array.isArray(body.deviceIds)
+      ? body.deviceIds
+      : (body.deviceIds ? [body.deviceIds] : [])
+    if (deviceIds.length === 0) throw httpError(400, 'invalid_request', 'deviceIds is required')
+    const results = deviceIds.map((deviceId) => {
+      const device = this.getDevice(deviceId)
+      return this.assignProfile(deviceId, {
+        profileId,
+        overrides: body.clearOverrides ? {} : device.overrides,
+        sendReload: Boolean(body.sendReload)
+      })
+    })
+    return {
+      profileId,
+      count: results.length,
+      results
     }
   }
 
@@ -382,6 +776,7 @@ class EspDispManager {
     if (body.firmware) device.firmware = body.firmware
     if (body.display) device.display = body.display
     if (body.touch) device.touch = body.touch
+    if (body.webAuth) device.webAuth = body.webAuth
     if (body.network) {
       device.networkIdentity = {
         ...(device.networkIdentity || {}),
@@ -470,6 +865,11 @@ class EspDispManager {
         port: this.options.signalk.port,
         useMdns: true
       },
+      webAuth: {
+        enabled: this.options.deviceWebAuth.enabled,
+        username: this.options.deviceWebAuth.username,
+        password: this.options.deviceWebAuth.password
+      },
       ota: {
         enabled: true,
         mode: 'arduino-ota',
@@ -485,6 +885,38 @@ class EspDispManager {
     delete hashBody.generatedAt
     config.hash = sha256Json(hashBody)
     return config
+  }
+
+  deviceWebAuth (device) {
+    return {
+      enabled: this.options.deviceWebAuth.enabled,
+      username: this.options.deviceWebAuth.username,
+      password: this.options.deviceWebAuth.password
+    }
+  }
+
+  deviceHttpBase (device) {
+    const address = (device.status && device.status.network && device.status.network.ip) ||
+      (device.networkIdentity && device.networkIdentity.lastResolvedAddress) ||
+      (device.networkIdentity && device.networkIdentity.currentFqdn) ||
+      (device.networkIdentity && device.networkIdentity.desiredFqdn)
+    if (!address) throw httpError(409, 'device_address_unknown', 'device address is unknown')
+    return `http://${address}:80`
+  }
+
+  getLiveStatus (id) {
+    return this.fetchDeviceJson(this.getDevice(id), '/api/state')
+  }
+
+  getLiveLogs (id, since) {
+    const query = since ? `?since=${encodeURIComponent(since)}` : ''
+    return this.fetchDeviceJson(this.getDevice(id), `/api/logs${query}`)
+  }
+
+  fetchDeviceJson (device, path) {
+    const base = this.deviceHttpBase(device)
+    const auth = this.deviceWebAuth(device)
+    return httpGetJson(`${base}${path}`, auth)
   }
 
   listProfiles () {
@@ -536,6 +968,18 @@ class EspDispManager {
     this.store.saveCommands()
     this.store.audit('command.created', id, { commandId: command.id, type: command.type })
     return command
+  }
+
+  queueConfigReload (id) {
+    const config = this.generateConfig(id)
+    return this.createCommand(id, {
+      type: 'config.reload',
+      payload: {
+        version: config.version,
+        hash: config.hash,
+        url: `/plugins/espdisp-manager/devices/${id}/config`
+      }
+    })
   }
 
   cancelCommand (id, commandId, reason) {
@@ -963,7 +1407,15 @@ class EspDispManager {
       tokenId: device.deviceTokenId || null,
       provisioned: Boolean(device.deviceToken),
       claimed: Boolean(device.claimed),
-      authMode: this.options.auth.mode
+      authMode: this.options.auth.mode,
+      webAuth: device.auth && device.auth.web
+        ? device.auth.web
+        : {
+            required: false,
+            mode: 'none',
+            username: this.options.deviceWebAuth.username,
+            passwordSet: Boolean(this.options.deviceWebAuth.password)
+          }
     }
   }
 
@@ -1041,15 +1493,379 @@ function normalizeOptions (options) {
       host: options.signalk && options.signalk.host ? options.signalk.host : 'signalk.local',
       port: Number(options.signalk && options.signalk.port ? options.signalk.port : 3000)
     },
+    deviceWebAuth: {
+      enabled: !(options.deviceWebAuth && options.deviceWebAuth.enabled === false),
+      username: options.deviceWebAuth && options.deviceWebAuth.username ? options.deviceWebAuth.username : 'espdisp',
+      password: options.deviceWebAuth && options.deviceWebAuth.password ? options.deviceWebAuth.password : 'espdisp-dev'
+    },
+    discoveryUdp: {
+      enabled: !(options.discoveryUdp && options.discoveryUdp.enabled === false),
+      bind: options.discoveryUdp && options.discoveryUdp.bind ? options.discoveryUdp.bind : '0.0.0.0',
+      port: Number(options.discoveryUdp && Object.prototype.hasOwnProperty.call(options.discoveryUdp, 'port') ? options.discoveryUdp.port : 34300),
+      host: options.discoveryUdp && options.discoveryUdp.host ? options.discoveryUdp.host : ''
+    },
+    deviceDiscoveryUdp: {
+      enabled: !(options.deviceDiscoveryUdp && options.deviceDiscoveryUdp.enabled === false),
+      bind: options.deviceDiscoveryUdp && options.deviceDiscoveryUdp.bind ? options.deviceDiscoveryUdp.bind : '0.0.0.0',
+      port: Number(options.deviceDiscoveryUdp && Object.prototype.hasOwnProperty.call(options.deviceDiscoveryUdp, 'port') ? options.deviceDiscoveryUdp.port : 34301)
+    },
     network: {
       domain: options.network && options.network.domain ? options.network.domain : 'local',
       hostnamePrefix: options.network && options.network.hostnamePrefix ? options.network.hostnamePrefix : 'espdisp',
       namingPolicy: options.network && options.network.namingPolicy ? options.network.namingPolicy : 'device-id',
       mdns: {
-        enabled: !(options.network && options.network.mdns && options.network.mdns.enabled === false)
+        enabled: !(options.network && options.network.mdns && options.network.mdns.enabled === false),
+        browser: !(options.network && options.network.mdns && options.network.mdns.browser === false),
+        advertiseManager: !(options.network && options.network.mdns && options.network.mdns.advertiseManager === false),
+        bind: options.network && options.network.mdns && options.network.mdns.bind ? options.network.mdns.bind : '0.0.0.0',
+        port: Number(options.network && options.network.mdns && Object.prototype.hasOwnProperty.call(options.network.mdns, 'port') ? options.network.mdns.port : MDNS_PORT),
+        advertiseHost: options.network && options.network.mdns && options.network.mdns.advertiseHost ? options.network.mdns.advertiseHost : '',
+        advertiseIntervalMs: Number(options.network && options.network.mdns && options.network.mdns.advertiseIntervalMs ? options.network.mdns.advertiseIntervalMs : 60000)
       }
     }
   }
+}
+
+function devicesFromMdnsPacket (packet, rinfo) {
+  const msg = parseMdnsPacket(packet)
+  if (!msg) return []
+
+  const serviceInstances = new Set()
+  const instances = new Map()
+  const addresses = new Map()
+  for (const rr of msg.records) {
+    const name = rr.name.toLowerCase()
+    if (rr.type === 12 && name === ESPDISP_MDNS_SERVICE) {
+      serviceInstances.add(rr.ptr)
+      if (!instances.has(rr.ptr)) instances.set(rr.ptr, { instance: rr.ptr })
+    } else if (rr.type === 33) {
+      const item = instances.get(rr.name) || { instance: rr.name }
+      item.port = rr.port
+      item.target = rr.target
+      instances.set(rr.name, item)
+    } else if (rr.type === 16) {
+      const item = instances.get(rr.name) || { instance: rr.name }
+      item.txt = { ...(item.txt || {}), ...rr.txt }
+      instances.set(rr.name, item)
+    } else if (rr.type === 1 && rr.address) {
+      addresses.set(name, rr.address)
+    }
+  }
+
+  const out = []
+  for (const [instanceName, item] of instances.entries()) {
+    const txt = item.txt || {}
+    const isEspDisp = serviceInstances.has(instanceName) ||
+      txt.proto === '1' ||
+      instanceName.toLowerCase().endsWith(`.${ESPDISP_MDNS_SERVICE}`)
+    if (!isEspDisp) continue
+
+    const id = sanitizeDeviceId(txt.device_id || txt.deviceId ||
+      instanceName.split('.')[0])
+    if (!id) continue
+
+    const target = item.target || ''
+    const address = target
+      ? addresses.get(target.toLowerCase()) || null
+      : null
+    const display = parseDisplay(txt.display)
+    const firmware = txt.firmware || txt.version
+      ? { name: txt.firmware || 'espdisp', version: txt.version || null }
+      : null
+    const authRequired = txt.auth === 'basic'
+    out.push({
+      id,
+      deviceId: id,
+      name: id,
+      source: 'mdns',
+      address: address || (rinfo && rinfo.address) || null,
+      port: Number(item.port || 80),
+      transport: 'http',
+      services: [{ type: '_espdisp._tcp', port: Number(item.port || 80) }],
+      mdns: {
+        instance: instanceName,
+        target: target || null,
+        txt
+      },
+      board: txt.board || null,
+      firmware,
+      display,
+      authRequired,
+      capabilities: {}
+    })
+  }
+  return out
+}
+
+function parseDisplay (value) {
+  if (!value || typeof value !== 'string') return null
+  const m = value.match(/^(\d+)x(\d+)$/)
+  if (!m) return null
+  return { width: Number(m[1]), height: Number(m[2]) }
+}
+
+function parseMdnsPacket (packet) {
+  if (!Buffer.isBuffer(packet) || packet.length < 12) return null
+  const qd = packet.readUInt16BE(4)
+  const an = packet.readUInt16BE(6)
+  const ns = packet.readUInt16BE(8)
+  const ar = packet.readUInt16BE(10)
+  let off = 12
+  const questions = []
+  for (let i = 0; i < qd; i++) {
+    const q = readDnsName(packet, off)
+    if (!q) return null
+    if (q.offset + 4 > packet.length) return null
+    questions.push({
+      name: q.name,
+      type: packet.readUInt16BE(q.offset),
+      class: packet.readUInt16BE(q.offset + 2)
+    })
+    off = q.offset + 4
+    if (off > packet.length) return null
+  }
+
+  const records = []
+  const count = an + ns + ar
+  for (let i = 0; i < count; i++) {
+    const n = readDnsName(packet, off)
+    if (!n || n.offset + 10 > packet.length) return null
+    off = n.offset
+    const type = packet.readUInt16BE(off)
+    const klass = packet.readUInt16BE(off + 2)
+    const ttl = packet.readUInt32BE(off + 4)
+    const rdlen = packet.readUInt16BE(off + 8)
+    off += 10
+    if (off + rdlen > packet.length) return null
+    const rdata = off
+    const end = off + rdlen
+    const rr = { name: n.name, type, class: klass, ttl }
+    if (type === 12) {
+      const ptr = readDnsName(packet, rdata)
+      if (ptr) rr.ptr = ptr.name
+    } else if (type === 33 && rdlen >= 6) {
+      rr.priority = packet.readUInt16BE(rdata)
+      rr.weight = packet.readUInt16BE(rdata + 2)
+      rr.port = packet.readUInt16BE(rdata + 4)
+      const target = readDnsName(packet, rdata + 6)
+      if (target) rr.target = target.name
+    } else if (type === 16) {
+      rr.txt = parseTxtRecord(packet.subarray(rdata, end))
+    } else if (type === 1 && rdlen === 4) {
+      rr.address = `${packet[rdata]}.${packet[rdata + 1]}.${packet[rdata + 2]}.${packet[rdata + 3]}`
+    }
+    records.push(rr)
+    off = end
+  }
+  return { questions, records }
+}
+
+function mdnsPacketHasQuestion (packet, name) {
+  const msg = parseMdnsPacket(packet)
+  if (!msg) return false
+  const want = name.toLowerCase()
+  return msg.questions.some((q) => {
+    const qname = q.name.toLowerCase()
+    return qname === want || qname === ESPDISP_MGMT_MDNS_SERVICE
+  })
+}
+
+function buildManagerMdnsPacket (options, cfg) {
+  const serverId = options.serverId || 'signalk-espdisp-manager'
+  const instance = `${serverId}.${ESPDISP_MGMT_MDNS_SERVICE}`
+  const targetHost = sanitizeMdnsHost(serverId)
+  const target = `${targetHost}.local`
+  const address = cfg.advertiseHost || firstLocalIpv4() || '127.0.0.1'
+  const port = Number(options.signalk && options.signalk.port ? options.signalk.port : 3000)
+  const txt = [
+    'protocol=espdisp.management.v1',
+    'path=/plugins/espdisp-manager',
+    `server_id=${serverId}`,
+    `auth=${options.auth && options.auth.mode ? options.auth.mode : 'dev-shared-token'}`,
+    'tls=false',
+    `signalk_port=${port}`,
+    'nmea0183_tcp=10110'
+  ]
+  const answers = [
+    dnsRecord(ESPDISP_MGMT_MDNS_SERVICE, 12, dnsName(instance), 120),
+    dnsRecord(instance, 33, Buffer.concat([
+      Buffer.from([0, 0, 0, 0, (port >> 8) & 0xff, port & 0xff]),
+      dnsName(target)
+    ]), 120),
+    dnsRecord(instance, 16, dnsTxt(txt), 120),
+    dnsRecord(target, 1, ipv4Bytes(address), 120)
+  ]
+  const header = Buffer.alloc(12)
+  header.writeUInt16BE(0, 0)
+  header.writeUInt16BE(0x8400, 2)
+  header.writeUInt16BE(0, 4)
+  header.writeUInt16BE(answers.length, 6)
+  header.writeUInt16BE(0, 8)
+  header.writeUInt16BE(0, 10)
+  return Buffer.concat([header, ...answers])
+}
+
+function dnsRecord (name, type, rdata, ttl) {
+  const head = Buffer.alloc(10)
+  head.writeUInt16BE(type, 0)
+  head.writeUInt16BE(1, 2)
+  head.writeUInt32BE(ttl, 4)
+  head.writeUInt16BE(rdata.length, 8)
+  return Buffer.concat([dnsName(name), head, rdata])
+}
+
+function dnsName (name) {
+  const parts = name.split('.').filter(Boolean)
+  return Buffer.concat([
+    ...parts.map((part) => {
+      const buf = Buffer.from(part)
+      return Buffer.concat([Buffer.from([buf.length]), buf])
+    }),
+    Buffer.from([0])
+  ])
+}
+
+function dnsTxt (items) {
+  return Buffer.concat(items.map((item) => {
+    const buf = Buffer.from(item)
+    return Buffer.concat([Buffer.from([buf.length]), buf])
+  }))
+}
+
+function ipv4Bytes (address) {
+  const parts = String(address).split('.').map((v) => Number(v))
+  if (parts.length !== 4 || parts.some((v) => !Number.isInteger(v) || v < 0 || v > 255)) {
+    return Buffer.from([127, 0, 0, 1])
+  }
+  return Buffer.from(parts)
+}
+
+function firstLocalIpv4 () {
+  const nets = os.networkInterfaces()
+  for (const entries of Object.values(nets)) {
+    for (const entry of entries || []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address
+    }
+  }
+  return ''
+}
+
+function sanitizeMdnsHost (value) {
+  return String(value || 'signalk-espdisp-manager')
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63) || 'signalk-espdisp-manager'
+}
+
+function readDnsName (packet, offset) {
+  const labels = []
+  let off = offset
+  let jumped = false
+  let next = offset
+  let guard = 0
+  for (;;) {
+    if (off >= packet.length || ++guard > 64) return null
+    const len = packet[off]
+    if (len === 0) {
+      off += 1
+      if (!jumped) next = off
+      return { name: labels.join('.'), offset: next }
+    }
+    if ((len & 0xc0) === 0xc0) {
+      if (off + 1 >= packet.length) return null
+      const ptr = ((len & 0x3f) << 8) | packet[off + 1]
+      if (!jumped) next = off + 2
+      off = ptr
+      jumped = true
+      continue
+    }
+    if ((len & 0xc0) !== 0 || off + 1 + len > packet.length) return null
+    labels.push(packet.subarray(off + 1, off + 1 + len).toString('utf8'))
+    off += 1 + len
+    if (!jumped) next = off
+  }
+}
+
+function parseTxtRecord (buf) {
+  const txt = {}
+  let off = 0
+  while (off < buf.length) {
+    const len = buf[off++]
+    if (len === 0 || off + len > buf.length) break
+    const item = buf.subarray(off, off + len).toString('utf8')
+    off += len
+    const eq = item.indexOf('=')
+    if (eq < 0) {
+      txt[item] = true
+    } else {
+      txt[item.slice(0, eq)] = item.slice(eq + 1)
+    }
+  }
+  return txt
+}
+
+function discoveryAddressKey (device) {
+  if (!device || !device.address) return ''
+  return `${device.address}:${Number(device.port || 80)}`
+}
+
+function isStaleDiscovery (device, at) {
+  const lastSeenMs = device && device.lastSeen ? Date.parse(device.lastSeen) : 0
+  const atMs = Date.parse(at || now())
+  return !lastSeenMs || !atMs || atMs - lastSeenMs > 60000
+}
+
+function normalizeDiscoveryBody (body) {
+  body = body || {}
+  const nested = body.device || {}
+  return {
+    ...nested,
+    ...body,
+    id: nested.id || body.id || body.deviceId,
+    deviceId: body.deviceId || nested.deviceId || nested.id || body.id,
+    name: body.name || nested.name || body.deviceId || nested.id,
+    board: body.board || nested.board || nested.board_id || null,
+    firmware: body.firmware || nested.firmware || null,
+    display: body.display || nested.display || null,
+    capabilities: body.capabilities || nested.capabilities || {},
+    address: body.address || body.ip || nested.address || nested.ip || null,
+    authRequired: Boolean(body.authRequired || nested.authRequired),
+    port: body.port || nested.port || 80,
+    services: body.services || nested.services || [],
+    mdns: body.mdns || nested.mdns || null,
+    transport: body.transport || nested.transport || 'http'
+  }
+}
+
+function httpGetJson (url, auth) {
+  return new Promise((resolve, reject) => {
+    const headers = {}
+    if (auth && auth.enabled && auth.username && auth.password) {
+      headers.Authorization = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`
+    }
+    const req = http.get(url, { headers, timeout: 3000 }, (res) => {
+      let body = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => {
+        body += chunk
+        if (body.length > 128 * 1024) req.destroy(new Error('device response too large'))
+      })
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(httpError(res.statusCode, 'device_http_error', `device returned HTTP ${res.statusCode}`))
+          return
+        }
+        try {
+          resolve(JSON.parse(body))
+        } catch (err) {
+          reject(httpError(502, 'device_bad_json', 'device returned invalid JSON'))
+        }
+      })
+    })
+    req.on('timeout', () => req.destroy(new Error('device request timeout')))
+    req.on('error', (err) => reject(httpError(502, 'device_unreachable', err.message)))
+  })
 }
 
 function summarizeDevice (device) {
@@ -1062,6 +1878,13 @@ function summarizeDevice (device) {
     lastSeen: device.lastSeen,
     firmware: device.firmware,
     display: device.display,
+    auth: device.auth
+      ? {
+          web: device.auth.web || null,
+          manager: device.auth.manager || null
+        }
+      : null,
+    discovery: device.discovery || null,
     networkIdentity: device.networkIdentity,
     assignedProfile: device.assignedProfile,
     config: device.config,
@@ -1081,6 +1904,9 @@ function httpError (status, code, message, details) {
 module.exports = {
   EspDispManager,
   PROTOCOL,
+  devicesFromMdnsPacket,
+  buildManagerMdnsPacket,
+  parseMdnsPacket,
   normalizeOptions,
   httpError
 }
