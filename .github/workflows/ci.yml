@@ -111,6 +111,25 @@ jobs:
       - name: Run plugin tests
         run: npm test
 
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run plugin UI tests
+        run: npm run test:playwright
+
+      - name: Build plugin package
+        run: |
+          mkdir -p ../../../dist/signalk
+          npm pack --pack-destination ../../../dist/signalk
+
+      - name: Upload plugin package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: signalk-espdisp-manager-${{ github.sha }}
+          path: dist/signalk/signalk-espdisp-manager-*.tgz
+          if-no-files-found: error
+          retention-days: 14
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

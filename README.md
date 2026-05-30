@@ -58,7 +58,7 @@ personal, research, educational, and other noncommercial use.
 - **Experimental ESP display manager** — local SignalK plugin for device registry, provisioning, profiles, widget configs, command queues, firmware catalog/jobs, and a dashboard UI
 - **Multi-target logging** — Serial / UDP broadcast / BLE notify, the same `logf()` writes to all three
 - **Host-portable parser** — SignalK delta logic builds and tests on macOS / Linux as well as the device
-- **CI + release automation** — GitHub Actions builds firmware on every push and attaches binaries to tagged releases
+- **CI + release automation** — GitHub Actions builds firmware and the SignalK plugin package on every push; tagged releases attach firmware binaries plus the matching plugin tarball
 
 ## Project status
 
@@ -224,6 +224,9 @@ Release tags must match the `VERSION` file, for example `v0.1.0`. Tagged
 GitHub releases build the production `esp32-4848s040` firmware, package the
 matching `signalk-espdisp-manager-<version>.tgz` plugin, and publish checksums
 for all release artifacts.
+
+To install the SignalK plugin from this repository, see
+[SignalK plugin install](signalk/README.md#install-esp-display-manager-from-this-repo).
 
 ## Console commands
 
