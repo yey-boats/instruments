@@ -1,12 +1,12 @@
 #include "source_nmea2000.h"
 
-#include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <math.h>
 
 #include "boat_data.h"
 #include "net.h"
+#include "storage.h"
 
 #ifdef ENABLE_NMEA2000
 #include "driver/twai.h"
@@ -37,25 +37,21 @@ volatile uint32_t s_last_rx_ms = 0;
 TaskHandle_t s_task = nullptr;
 
 void load_prefs() {
-    Preferences p;
-    p.begin(NS, true);
-    s_enabled = p.getUChar("enabled", 0) != 0;
-    s_sniff = p.getUChar("sniff", 0) != 0;
-    s_tx_enabled = p.getUChar("tx_en", 0) != 0;
-    s_rx_pin = (int8_t)p.getChar("rx_pin", -1);
-    s_tx_pin = (int8_t)p.getChar("tx_pin", -1);
-    p.end();
+    storage::Namespace p(NS, true);
+    s_enabled = p.get_u8("enabled", 0) != 0;
+    s_sniff = p.get_u8("sniff", 0) != 0;
+    s_tx_enabled = p.get_u8("tx_en", 0) != 0;
+    s_rx_pin = p.get_i8("rx_pin", -1);
+    s_tx_pin = p.get_i8("tx_pin", -1);
 }
 
 void save_prefs() {
-    Preferences p;
-    p.begin(NS, false);
-    p.putUChar("enabled", s_enabled ? 1 : 0);
-    p.putUChar("sniff", s_sniff ? 1 : 0);
-    p.putUChar("tx_en", s_tx_enabled ? 1 : 0);
-    p.putChar("rx_pin", s_rx_pin);
-    p.putChar("tx_pin", s_tx_pin);
-    p.end();
+    storage::Namespace p(NS, false);
+    p.put_u8("enabled", s_enabled ? 1 : 0);
+    p.put_u8("sniff", s_sniff ? 1 : 0);
+    p.put_u8("tx_en", s_tx_enabled ? 1 : 0);
+    p.put_i8("rx_pin", s_rx_pin);
+    p.put_i8("tx_pin", s_tx_pin);
 }
 
 #ifdef ENABLE_NMEA2000

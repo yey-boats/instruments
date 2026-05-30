@@ -7,7 +7,7 @@
 #include <esp_heap_caps.h>
 
 #include <Arduino.h>
-#include <Preferences.h>
+#include "storage.h"
 #include <string.h>
 
 #include "net.h"
@@ -204,10 +204,8 @@ void pump() {
             } else if (t == "night") {
                 ui::use_night();
             }
-            Preferences p;
-            p.begin("ui", false);
-            p.putString("theme", t);
-            p.end();
+            storage::Namespace p("ui", false);
+            p.put_string("theme", t.c_str());
             break;
         }
         case CommandType::SetBrightness: {

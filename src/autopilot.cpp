@@ -1,6 +1,6 @@
 #include "autopilot.h"
 
-#include <Preferences.h>
+#include "storage.h"
 #include <string.h>
 
 #include "app_events.h"
@@ -19,24 +19,20 @@ Backend s_default_backend = Backend::SignalK;
 Permissions s_perms;
 
 void load_prefs() {
-    Preferences p;
-    p.begin(NS, true);
+    storage::Namespace p(NS, true);
     s_default_backend = static_cast<Backend>(
-        p.getUChar("backend", static_cast<uint8_t>(Backend::SignalK)));
-    s_perms.allow_engage         = p.getUChar("eng", 0) != 0;
-    s_perms.allow_standby        = p.getUChar("sby", 1) != 0;
-    s_perms.allow_heading_adjust = p.getUChar("hdg", 1) != 0;
-    p.end();
+        p.get_u8("backend", static_cast<uint8_t>(Backend::SignalK)));
+    s_perms.allow_engage         = p.get_u8("eng", 0) != 0;
+    s_perms.allow_standby        = p.get_u8("sby", 1) != 0;
+    s_perms.allow_heading_adjust = p.get_u8("hdg", 1) != 0;
 }
 
 void save_prefs() {
-    Preferences p;
-    p.begin(NS, false);
-    p.putUChar("backend", static_cast<uint8_t>(s_default_backend));
-    p.putUChar("eng", s_perms.allow_engage ? 1 : 0);
-    p.putUChar("sby", s_perms.allow_standby ? 1 : 0);
-    p.putUChar("hdg", s_perms.allow_heading_adjust ? 1 : 0);
-    p.end();
+    storage::Namespace p(NS, false);
+    p.put_u8("backend", static_cast<uint8_t>(s_default_backend));
+    p.put_u8("eng", s_perms.allow_engage ? 1 : 0);
+    p.put_u8("sby", s_perms.allow_standby ? 1 : 0);
+    p.put_u8("hdg", s_perms.allow_heading_adjust ? 1 : 0);
 }
 
 // SignalK backend. Posts to the net worker queue (app::post_net) so

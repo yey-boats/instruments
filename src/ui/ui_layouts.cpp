@@ -10,7 +10,7 @@
 #include "autopilot.h"
 #include "beeper.h"
 
-#include <Preferences.h>
+#include "storage.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -1667,10 +1667,11 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
     if (!st) return;
 
     // Read current theme from prefs (cheap; happens at ~5 Hz).
-    Preferences pu;
-    pu.begin("ui", true);
-    String cur_theme = pu.getString("theme", "night");
-    pu.end();
+    std::string cur_theme;
+    {
+        storage::Namespace pu("ui", true);
+        cur_theme = pu.get_string("theme", "night");
+    }
     if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
         strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
         static const char *vals[3] = {"day", "night", "auto"};

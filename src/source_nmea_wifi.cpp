@@ -1,10 +1,11 @@
 #include "source_nmea_wifi.h"
 
-#include <Preferences.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+
+#include "storage.h"
 
 #include "boat_data.h"
 #include "net.h"
@@ -103,23 +104,19 @@ void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
 }
 
 void load_prefs() {
-    Preferences p;
-    p.begin(NS, true);
-    s_enabled = p.getUChar("enabled", 0) != 0;
-    s_proto = static_cast<Protocol>(p.getUChar("proto", 0));
-    s_host = p.getString("host", "");
-    s_port = p.getUShort("port", DEFAULT_PORT);
-    p.end();
+    storage::Namespace p(NS, true);
+    s_enabled = p.get_u8("enabled", 0) != 0;
+    s_proto = static_cast<Protocol>(p.get_u8("proto", 0));
+    s_host = String(p.get_string("host", "").c_str());
+    s_port = p.get_u16("port", DEFAULT_PORT);
 }
 
 void save_prefs() {
-    Preferences p;
-    p.begin(NS, false);
-    p.putUChar("enabled", s_enabled ? 1 : 0);
-    p.putUChar("proto", static_cast<uint8_t>(s_proto));
-    p.putString("host", s_host);
-    p.putUShort("port", s_port);
-    p.end();
+    storage::Namespace p(NS, false);
+    p.put_u8("enabled", s_enabled ? 1 : 0);
+    p.put_u8("proto", static_cast<uint8_t>(s_proto));
+    p.put_string("host", s_host.c_str());
+    p.put_u16("port", s_port);
 }
 
 void run_tcp() {

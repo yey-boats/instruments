@@ -4,7 +4,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <WiFi.h>
-#include <Preferences.h>
+#include "storage.h"
 #include <ArduinoJson.h>
 #include <lvgl.h>
 #include <math.h>
@@ -90,20 +90,15 @@ static void send_json(int code, JsonDocument &doc) {
 }
 
 static bool api_auth_required() {
-    Preferences p;
-    p.begin("web", true);
-    bool enabled = p.getUChar("auth", 0) != 0;
-    p.end();
-    return enabled;
+    storage::Namespace p("web", true);
+    return p.get_u8("auth", 0) != 0;
 }
 
 static bool require_api_auth() {
     if (!api_auth_required()) return true;
-    Preferences p;
-    p.begin("web", true);
-    String user = p.getString("user", "espdisp");
-    String pass = p.getString("pass", "");
-    p.end();
+    storage::Namespace p("web", true);
+    String user = String(p.get_string("user", "espdisp").c_str());
+    String pass = String(p.get_string("pass", "").c_str());
     if (user.length() == 0 || pass.length() == 0) return true;
     if (server.authenticate(user.c_str(), pass.c_str())) return true;
     server.requestAuthentication(BASIC_AUTH, "espdisp", "auth required");
@@ -132,14 +127,14 @@ static void handle_state() {
 
     JsonObject sk = doc["sk"].to<JsonObject>();
     sk["state"] = sk::connectionStatus();
-    Preferences p;
-    p.begin("sk", true);
-    sk["host"] = p.getString("host", "");
-    sk["port"] = p.getUInt("port", 3000);
-    // Never echo the token itself - only whether one is configured.
-    // CLAUDE.md: "the SignalK token field is sensitive."
-    sk["has_token"] = p.getString("token", "").length() > 0;
-    p.end();
+    {
+        storage::Namespace p("sk", true);
+        sk["host"] = p.get_string("host", "");
+        sk["port"] = p.get_u32("port", 3000);
+        // Never echo the token itself - only whether one is configured.
+        // CLAUDE.md: "the SignalK token field is sensitive."
+        sk["has_token"] = !p.get_string("token", "").empty();
+    }
     // Task diagnostics: confirms sk_task is alive (iters keeps growing)
     // and exposes the peak ws.loop() duration since last sample. A high
     // peak here is fine - it's on core 0, not on the LVGL task.
@@ -207,10 +202,8 @@ static void handle_state() {
     display["brightness"] = (uint32_t)ui::brightness();
     JsonObject ui_o = doc["ui"].to<JsonObject>();
     {
-        Preferences pu;
-        pu.begin("ui", true);
-        ui_o["theme"] = pu.getString("theme", "night");
-        pu.end();
+        storage::Namespace pu("ui", true);
+        ui_o["theme"] = pu.get_string("theme", "night");
     }
 
     JsonObject queues = doc["queues"].to<JsonObject>();
