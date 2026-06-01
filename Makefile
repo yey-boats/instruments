@@ -93,6 +93,9 @@ ble-cmd:  ## Send one BLE command (use CMD="sk-status")
 	@test -n "$(CMD)" || { echo "Usage: make ble-cmd CMD='sk-status'" >&2; exit 1; }
 	python3 tools/ble_console.py "$(CMD)"
 
+provision:  ## Onboard a fresh MFD onto the lab (BLE; defaults from .env.test)
+	python3 tools/provision_device.py $(PROVISION_ARGS)
+
 logs:  ## Listen for UDP log broadcasts on port 9999
 	python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 9999)); print('listening on :9999  (^C to stop)'); \
 	  $(_)\nwhile True:\n    d, a = s.recvfrom(2048)\n    print(f'[{a[0]}] {d.decode(\"utf-8\", \"replace\").rstrip()}')"
@@ -144,6 +147,6 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
 	rm -rf .pio
 
 .PHONY: help setup version version-check version-set build test sys-test sys-test-remote \
-        sys-test-attended flash ota monitor ble ble-cmd logs \
+        sys-test-attended flash ota monitor ble ble-cmd provision logs \
         demo-up demo-down demo-up-remote demo-down-remote \
         lint format backup release-tag clean
