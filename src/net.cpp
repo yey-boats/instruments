@@ -706,6 +706,20 @@ bool handleSerialCommand(const String &line) {
         }
         return true;
     }
+    if (line == "wifi-reconnect") {
+        // Recovery hatch for the lwIP/ARP wedge: the radio reports the
+        // STA associated but the IP layer stops answering ARP after some
+        // request volume. Kicking disconnect+begin cycles the supplicant
+        // and clears the lwIP netif without the 6+ second cost of
+        // ESP.restart().  Credentials and saved networks survive.
+        wl_status_t before = WiFi.status();
+        logf("[wifi] reconnect requested (was status=%d ip=%s)", (int)before,
+             ipString().c_str());
+        WiFi.disconnect(false /* wifioff */, false /* erase */);
+        delay(150);
+        WiFi.reconnect();
+        return true;
+    }
     if (line == "ip") {
         logf("ip=%s  mode=%s  rssi=%d", ipString().c_str(), ap_mode ? "AP" : "STA", WiFi.RSSI());
         return true;
