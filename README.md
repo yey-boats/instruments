@@ -184,12 +184,15 @@ make setup         First-time setup (PlatformIO check + secrets.h)
 make build         Build firmware
 make test          Run host-side unit tests
 make flash         Flash over USB (auto-detects /dev/cu.usbserial-*)
-make ota           Flash over WiFi   (requires DEVICE_IP=<ip>)
-make monitor       Open serial monitor
-make ble           Open BLE console (logs + commands without WiFi)
-make logs          Listen for UDP log broadcasts on :9999
-make demo-up       Start SignalK + synthetic data in Docker
-make demo-down     Stop the demo stack
+make ota              Flash over WiFi  (DEVICE_IP defaults to espdisp.local)
+make monitor          Open serial monitor
+make ble              Open BLE console (logs + commands without WiFi)
+make logs             Listen for UDP log broadcasts on :9999
+make demo-up          Start SignalK + synthetic data in local Docker
+make demo-down        Stop the local demo stack
+make demo-up-remote   Start SignalK on the lab host (compulab) over SSH+Docker
+make demo-down-remote Stop the remote stack
+make sys-test-remote  Source .env.test and run system tests against the lab rig
 make lint          Check formatting + Python syntax
 make format        Auto-format C++ sources
 make backup        Dump device flash to backup/full_flash_16MB.bin
@@ -314,6 +317,25 @@ make demo-down
 `fake_boat.py` connects to SignalK as an authenticated provider and emits
 deltas for navigation, wind, depth, water temperature, battery, and tanks
 once per second.
+
+### Lab rig (remote SignalK + dedicated AP)
+
+For permanent lab use, SignalK runs in Docker on a dedicated host
+(`compulab`) and the ESP32 joins a dedicated AP that `compulab` itself
+broadcasts. The layout is documented in
+[`docs/lab-topology.md`](docs/lab-topology.md); the short version:
+
+- SignalK + `espdisp-manager` + `fake_boat` come up with `make demo-up-remote`
+  (SSHes to `compulab@192.168.2.11`, runs the container with `--network host`).
+- The lab AP (`SSID esp-lab`, 2.4 GHz, WPA2) is brought up by
+  `signalk/scripts/lab-ap-setup.sh` on `compulab` and persists across
+  reboot via a systemd unit. Devices get DHCP from `10.42.0.0/24`; the
+  reference MFD is pinned at `10.42.0.67` by a static lease.
+- The segment is **routed** (not NAT'd) — `compulab` is the gateway out
+  to the cynas LAN. For full OTA reachability from the cynas side,
+  the cynas router needs a static route `10.42.0.0/24 → 192.168.2.11`.
+- All test-suite expectations are in `.env.test`; `make sys-test-remote`
+  sources it before running pytest.
 
 ### NMEA 0183 over WiFi
 

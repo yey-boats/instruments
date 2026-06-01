@@ -13,6 +13,7 @@ sdkconfig.*
 
 # Local secrets
 include/secrets.h
+.env.test.local
 
 # Local-only working directories (machine-specific firmware dumps + camera frames)
 backup/

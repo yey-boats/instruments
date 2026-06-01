@@ -13,6 +13,13 @@ SK_HOST   ?= localhost
 SK_PORT   ?= 3000
 PROJECT_VERSION ?= $(shell cat VERSION)
 
+# Lab default for the current setup: SignalK on compulab over SSH,
+# device reachable only via OTA + BLE. Override on the command line if
+# you spin up a different host or rotate creds.
+REMOTE_HOST ?= compulab@192.168.2.11
+REMOTE_DIR  ?= /home/compulab/espdisp-signalk
+REMOTE_SK_HOST ?= $(lastword $(subst @, ,$(REMOTE_HOST)))
+
 PIO ?= pio
 
 # Resolve PORT=auto to the first matching CH340 device on macOS / Linux.
@@ -71,9 +78,9 @@ flash: setup  ## Flash via USB (uses PORT, auto-detected if not set)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
 	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
 
-ota: setup  ## Flash via WiFi (requires DEVICE_IP)
-	@test -n "$(DEVICE_IP)" || { echo "Usage: make ota DEVICE_IP=<ip>" >&2; exit 1; }
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e ota -t upload --upload-port $(DEVICE_IP)
+ota: setup  ## Flash via WiFi (DEVICE_IP defaults to espdisp.local)
+	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),espdisp.local))
+	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e ota -t upload --upload-port $(OTA_TARGET)
 
 monitor:  ## Open serial monitor at 115200 baud
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
@@ -90,11 +97,27 @@ logs:  ## Listen for UDP log broadcasts on port 9999
 	python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 9999)); print('listening on :9999  (^C to stop)'); \
 	  $(_)\nwhile True:\n    d, a = s.recvfrom(2048)\n    print(f'[{a[0]}] {d.decode(\"utf-8\", \"replace\").rstrip()}')"
 
-demo-up:  ## Start SignalK in Docker and push synthetic boat data
+demo-up:  ## Start SignalK locally in Docker (legacy/local-host path)
 	@SK_HOST=$(SK_HOST) SK_PORT=$(SK_PORT) ./signalk/scripts/run.sh
 
-demo-down:  ## Stop fake_boat and SignalK
+demo-down:  ## Stop local fake_boat + SignalK
 	@./signalk/scripts/stop.sh
+
+demo-up-remote:  ## Start SignalK on REMOTE_HOST (default compulab@192.168.2.11) via SSH+Docker
+	@REMOTE_HOST=$(REMOTE_HOST) REMOTE_DIR=$(REMOTE_DIR) \
+	  SK_HOST=$(REMOTE_SK_HOST) SK_PORT=$(SK_PORT) \
+	  ./signalk/scripts/run-remote.sh
+
+demo-down-remote:  ## Stop the remote SignalK container + local fake_boat
+	@REMOTE_HOST=$(REMOTE_HOST) ./signalk/scripts/stop-remote.sh
+
+sys-test-remote:  ## Run unattended system tests against the lab device + remote SK (sources .env.test)
+	@test -f .env.test || { echo ".env.test missing - regenerate from this repo" >&2; exit 1; }
+	@set -a; . ./.env.test; set +a; \
+	  if [ -z "$$ESPDISP_HOST" ]; then \
+	    echo "ESPDISP_HOST still unset after sourcing .env.test" >&2; exit 1; \
+	  fi; \
+	  pytest tests/system/unattended
 
 lint: version-check  ## Check C++ formatting and Python syntax
 	@find src include test -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
@@ -120,5 +143,7 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
 	$(PIO) run -t clean 2>/dev/null || true
 	rm -rf .pio
 
-.PHONY: help setup version version-check version-set build test flash ota monitor \
-        ble ble-cmd logs demo-up demo-down lint format backup release-tag clean
+.PHONY: help setup version version-check version-set build test sys-test sys-test-remote \
+        sys-test-attended flash ota monitor ble ble-cmd logs \
+        demo-up demo-down demo-up-remote demo-down-remote \
+        lint format backup release-tag clean
