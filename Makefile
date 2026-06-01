@@ -122,6 +122,25 @@ sys-test-remote:  ## Run unattended system tests against the lab device + remote
 	  fi; \
 	  pytest tests/system/unattended
 
+# The full transport: native BLE on this Mac (the lab AP is on a
+# combo WiFi+BT chip on compulab, so its BT is starved while hostapd
+# runs — BLE has to live on the dev laptop) plus SSH-tunneled HTTP
+# through compulab to the device's port 80 (because cynas has no
+# route to 10.42.0.0/24 yet). Tunnel auto-opens on `sys-test-mac`
+# and is torn down after.
+TUNNEL_PORT ?= 10067
+DEVICE_LAN_IP ?= 10.42.0.67
+
+sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via compulab
+	@test -f .env.test || { echo ".env.test missing" >&2; exit 1; }
+	@pkill -f 'ssh.*$(TUNNEL_PORT):$(DEVICE_LAN_IP)' 2>/dev/null || true
+	@ssh -fN -L $(TUNNEL_PORT):$(DEVICE_LAN_IP):80 $(REMOTE_HOST) \
+	  && echo "tunnel up: localhost:$(TUNNEL_PORT) -> $(DEVICE_LAN_IP):80"
+	@trap 'pkill -f "ssh.*$(TUNNEL_PORT):$(DEVICE_LAN_IP)" 2>/dev/null || true' EXIT; \
+	  set -a; . ./.env.test; set +a; \
+	  ESPDISP_HOST=localhost:$(TUNNEL_PORT) ESPDISP_BLE_NAME=espdisp \
+	    pytest tests/system/unattended --espdisp-no-udp-discovery --espdisp-no-discovery
+
 lint: version-check  ## Check C++ formatting and Python syntax
 	@find src include test -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
 	@python3 -m py_compile tools/*.py
@@ -147,6 +166,6 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
 	rm -rf .pio
 
 .PHONY: help setup version version-check version-set build test sys-test sys-test-remote \
-        sys-test-attended flash ota monitor ble ble-cmd provision logs \
+        sys-test-mac sys-test-attended flash ota monitor ble ble-cmd provision logs \
         demo-up demo-down demo-up-remote demo-down-remote \
         lint format backup release-tag clean

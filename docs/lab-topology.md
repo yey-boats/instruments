@@ -126,6 +126,25 @@ make demo-down-remote
 | `signalk/plugins/signalk-espdisp-manager/`   | Local plugin source                   |
 | `tests/system/`                              | pytest system suite                   |
 
+## Why Mac runs BLE tests, compulab runs HTTP tests
+
+`compulab` has a Realtek combo WiFi+BT chip (BT MAC 4C:49:6C:80:CB:**49**,
+wlan-ap0 MAC 4C:49:6C:80:CB:**46** — same OUI prefix, shared radio).  While
+hostapd hammers 2.4 GHz for `esp-lab`, BlueZ's LE scan parameter setup
+returns `Input/output error` and `bleak` sees only anonymous advertisements
+(no names, no service UUIDs).  Coexistence is upstream-broken on this
+class of chip; we don't fight it.
+
+So the test transports split:
+- **BLE NUS injection (tap/swipe/gesture)** runs from the dev Mac.
+- **HTTP `/api/*`** runs through an SSH `-L 10067:10.42.0.67:80` tunnel
+  through compulab, since cynas doesn't yet have the static route
+  to `10.42.0.0/24`.
+
+`make sys-test-mac` opens the tunnel, sources `.env.test`, points the
+suite at `localhost:10067` + `ESPDISP_BLE_NAME=espdisp`, runs pytest,
+and tears the tunnel down on exit.
+
 ## Recovery cheats
 
 - **Device stops responding on IP but BLE works.** It's likely
