@@ -73,9 +73,23 @@ String s_applied_config_version = "v0";
 String s_applied_config_hash = "";
 // Parsed RenderPlan from the last successfully-validated config.
 // Read by D7 diagnostic commands and (future D5) by the screen
-// builder. Holds zeroed defaults until first valid config lands.
-manager_config::RenderPlan s_render_plan;
+// builder. Lazily PSRAM-allocated on first parse — keeping a ~12 KB
+// `RenderPlan` in .bss starved internal SRAM (~30 KB documented
+// healthy → ~4 KB observed on May-30 build). The parser temporary
+// at the apply site already went to PSRAM for the same reason; this
+// matches that for the resident copy. All reads gate on
+// `s_render_plan_valid` so the nullptr-until-allocated transition is
+// already covered.
+manager_config::RenderPlan *s_render_plan = nullptr;
 bool s_render_plan_valid = false;
+
+static manager_config::RenderPlan *ensure_render_plan() {
+    if (!s_render_plan) {
+        s_render_plan = (manager_config::RenderPlan *)heap_caps_calloc(
+            1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
+    }
+    return s_render_plan;
+}
 String s_desired_config_version = "";
 String s_desired_config_hash = "";
 volatile bool s_config_fetch_pending = false;
@@ -402,8 +416,8 @@ void build_status_body(JsonDocument &doc) {
     ui_o["screen"] = ui::current_id();
     ui_o["theme"] = theme_name;
     ui_o["brightness"] = ui::brightness();
-    ui_o["layoutVariant"] = s_render_plan.layout_variant;
-    ui_o["widgetVariant"] = s_render_plan.widget_variant;
+    ui_o["layoutVariant"] = s_render_plan_valid ? s_render_plan->layout_variant : "";
+    ui_o["widgetVariant"] = s_render_plan_valid ? s_render_plan->widget_variant : "";
     ui_o["widgetConfigHash"] = s_applied_config_hash;
 
     JsonObject display_o = doc["display"].to<JsonObject>();
@@ -1303,8 +1317,14 @@ int fetch_config() {
                     bool parsed = manager_config::parse(cfg.as<JsonObjectConst>(), g.width_px,
                                                         g.height_px, *plan_p, perr);
                     if (parsed) {
-                        s_render_plan = *plan_p;
-                        s_render_plan_valid = true;
+                        if (ensure_render_plan()) {
+                            *s_render_plan = *plan_p;
+                            s_render_plan_valid = true;
+                        } else {
+                            // Resident copy alloc failed; keep last-good plan
+                            // (s_render_plan_valid unchanged) and surface it.
+                            record_error("[mgr] resident render plan alloc failed");
+                        }
                         net::logf("[mgr] render plan: widgets=%u screens=%u "
                                   "variant=%s",
                                   (unsigned)plan_p->widget_count, (unsigned)plan_p->screen_count,
@@ -1775,13 +1795,13 @@ bool handleSerialCommand(const String &line) {
         }
         net::logf("[mgr] layout variant=%s widgets=%u screens=%u "
                   "(%ux%u) hash=%s mgr_screens_built=%u",
-                  s_render_plan.layout_variant[0] ? s_render_plan.layout_variant : "(none)",
-                  (unsigned)s_render_plan.widget_count, (unsigned)s_render_plan.screen_count,
-                  (unsigned)s_render_plan.display_width, (unsigned)s_render_plan.display_height,
+                  s_render_plan->layout_variant[0] ? s_render_plan->layout_variant : "(none)",
+                  (unsigned)s_render_plan->widget_count, (unsigned)s_render_plan->screen_count,
+                  (unsigned)s_render_plan->display_width, (unsigned)s_render_plan->display_height,
                   s_applied_config_hash.length() ? s_applied_config_hash.c_str() : "(none)",
                   (unsigned)manager_screens::managed_count());
-        for (uint8_t i = 0; i < s_render_plan.screen_count; ++i) {
-            const auto &sc = s_render_plan.screens[i];
+        for (uint8_t i = 0; i < s_render_plan->screen_count; ++i) {
+            const auto &sc = s_render_plan->screens[i];
             net::logf("[mgr]   screen[%u] id=%s tiles=%u", (unsigned)i, sc.id,
                       (unsigned)sc.tile_count);
         }
@@ -1792,8 +1812,8 @@ bool handleSerialCommand(const String &line) {
             net::logf("[mgr] no render plan applied yet");
             return true;
         }
-        for (uint8_t i = 0; i < s_render_plan.widget_count; ++i) {
-            const auto &w = s_render_plan.widgets[i];
+        for (uint8_t i = 0; i < s_render_plan->widget_count; ++i) {
+            const auto &w = s_render_plan->widgets[i];
             net::logf("[mgr] widget[%u] id=%s type=%s path=%s "
                       "title=%s unit=%s prec=%u fs=%u",
                       (unsigned)i, w.id, manager_config::widget_type_to_string(w.type), w.path,
@@ -1808,12 +1828,12 @@ bool handleSerialCommand(const String &line) {
             return true;
         }
         JsonDocument out;
-        out["layout_variant"] = s_render_plan.layout_variant;
-        out["widget_variant"] = s_render_plan.widget_variant;
-        out["display"]["width"] = s_render_plan.display_width;
-        out["display"]["height"] = s_render_plan.display_height;
-        out["widget_count"] = s_render_plan.widget_count;
-        out["screen_count"] = s_render_plan.screen_count;
+        out["layout_variant"] = s_render_plan->layout_variant;
+        out["widget_variant"] = s_render_plan->widget_variant;
+        out["display"]["width"] = s_render_plan->display_width;
+        out["display"]["height"] = s_render_plan->display_height;
+        out["widget_count"] = s_render_plan->widget_count;
+        out["screen_count"] = s_render_plan->screen_count;
         out["config_version"] = s_applied_config_version;
         out["config_hash"] = s_applied_config_hash;
         String s;
