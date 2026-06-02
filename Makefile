@@ -228,7 +228,7 @@ sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via nav
 lint: version-check  ## Check C++ formatting and Python syntax
 	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { \
 	  echo "$(CLANG_FORMAT) not found. Install clang-format or run with CLANG_FORMAT=/path/to/clang-format." >&2; exit 127; }
-	@find src include test \( -name '*.cpp' -o -name '*.h' \) -print | xargs $(CLANG_FORMAT) --dry-run --Werror
+	@find src include test \( -name '*.cpp' -o -name '*.h' \) ! -name 'build_version.h' -print | xargs $(CLANG_FORMAT) --dry-run --Werror
 	@find tools -name '*.py' -print | xargs python3 -m py_compile
 
 pre-commit: lint  ## Run the same checks used by the local hook and CI
@@ -240,13 +240,15 @@ hooks-install:  ## Install repository git hooks
 format:  ## Auto-format C++ sources in place
 	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { \
 	  echo "$(CLANG_FORMAT) not found. Install clang-format or run with CLANG_FORMAT=/path/to/clang-format." >&2; exit 127; }
-	@find src include test \( -name '*.cpp' -o -name '*.h' \) -print | xargs $(CLANG_FORMAT) -i
+	@find src include test \( -name '*.cpp' -o -name '*.h' \) ! -name 'build_version.h' -print | xargs $(CLANG_FORMAT) -i
 
 backup:  ## Dump the device flash to backup/full_flash_16MB.bin (chunked, resumable)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
 	PORT=$(PORT) bash tools/dump_chunked.sh
 
-release-tag:  ## Tag a release locally (use VERSION=v0.1.0). Does NOT push.
+release-tag:  ## (legacy) Tag a release locally. Prefer the "Cut Release" CI workflow.
+	@echo "Note: prefer .github/workflows/release-cut.yml (Actions tab) - it bumps"
+	@echo "      VERSION, commits, tags, and pushes from CI with no local git state."
 	@test -n "$(VERSION)" || { echo "Usage: make release-tag VERSION=v0.1.0" >&2; exit 1; }
 	@echo "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$$' \
 	  || { echo "Version must look like v0.1.0 or v0.1.0-rc1" >&2; exit 1; }

@@ -1,0 +1,98 @@
+name: Cut Release
+
+# Manual dispatch only. Bumps the VERSION file (if needed), commits, and
+# creates+pushes the `v<VERSION>` tag. The existing `release.yml`
+# workflow fires on the tag and does the actual build/publish.
+#
+# This replaces the previous local-only flow:
+#     make release-tag VERSION=v0.x.y && git push origin v0.x.y
+# A maintainer now triggers this from the Actions tab and the release
+# is cut entirely in CI - no local git state required.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (semver, no v prefix). E.g. 0.2.0'
+        required: true
+        type: string
+      dry_run:
+        description: 'Validate only; do not commit or push'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  cut:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate inputs
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${VERSION_INPUT}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'; then
+            echo "::error::VERSION '${VERSION_INPUT}' is not semver"
+            exit 1
+          fi
+          if git rev-parse "v${VERSION_INPUT}" >/dev/null 2>&1; then
+            echo "::error::tag v${VERSION_INPUT} already exists"
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Bump VERSION + plugin manifests
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          python3 tools/set_version.py "${VERSION_INPUT}"
+          python3 tools/check_version.py
+
+      - name: Show diff (dry run preview)
+        run: git --no-pager diff
+
+      - name: Commit, tag, and push
+        if: ${{ !inputs.dry_run }}
+        env:
+          # Both inputs land in env vars so the shell never interpolates
+          # ${{ ... }} directly into a command. VERSION_INPUT was already
+          # regex-validated in the "Validate inputs" step; REF_NAME comes
+          # from github.ref_name which git itself constrains to a valid
+          # branch name, but we still pipe it through env: for consistency.
+          VERSION_INPUT: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet; then
+            git add VERSION signalk/plugins/signalk-espdisp-manager/package.json \
+                    signalk/plugins/signalk-espdisp-manager/package-lock.json 2>/dev/null || true
+            git commit -m "chore: release v${VERSION_INPUT}"
+            git push origin "HEAD:${REF_NAME}"
+          else
+            echo "VERSION already at ${VERSION_INPUT}; tagging without a bump commit"
+          fi
+          git tag -a "v${VERSION_INPUT}" -m "Release v${VERSION_INPUT}"
+          git push origin "v${VERSION_INPUT}"
+          echo "::notice::tag v${VERSION_INPUT} pushed; release.yml will now build artifacts"
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        env:
+          VERSION_INPUT: ${{ inputs.version }}
+        run: |
+          echo "::notice::dry run: would have committed and tagged v${VERSION_INPUT}"
+          echo "::notice::nothing pushed; re-run with dry_run=false to actually release"
