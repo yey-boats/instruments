@@ -14,8 +14,9 @@ WebSocket client and renders live navigation data on an LVGL dashboard.
 The current development line also includes a repo-owned SignalK lab stack and
 an experimental SignalK plugin for centralized ESP display registration,
 profiles, widget layout, commands, and firmware update orchestration. The
-plugin side is test-covered; the firmware-side manager client is the next
-integration milestone.
+plugin side is test-covered, and the firmware now has an MVP manager client
+for registration, heartbeats, config pull, command polling, and pull OTA.
+Real-boat validation and security hardening are still in progress.
 
 Licensed under [PolyForm Noncommercial 1.0.0](LICENSE) — free for
 personal, research, educational, and other noncommercial use.
@@ -72,8 +73,8 @@ It is not yet a production navigation instrument.
 | NMEA 0183 over WiFi | Configured through the official `@signalk/signalk-to-nmea0183` plugin on TCP `10110` |
 | Autopilot simulator | Configured through the official `@signalk/signalk-autopilot` emulator backend |
 | ESP display manager plugin | Experimental but implemented and covered by local plugin tests |
-| Firmware manager client | In progress; specs and opt-in contract tests exist |
-| OTA fleet management | Planned; plugin-side artifact/job model exists, firmware apply path still pending |
+| Firmware manager client | MVP implemented; opt-in contract tests exist; real-network validation and hardening remain |
+| OTA fleet management | MVP implemented; plugin-side artifact/job model and firmware pull/apply path exist; hardware failure-path validation remains |
 
 ## Architecture Overview
 
@@ -81,8 +82,9 @@ The project has two cooperating halves:
 
 - **ESP display firmware** runs on the touch panel. It renders the local UI,
   ingests SignalK/NMEA data, exposes diagnostics over serial/BLE/UDP, supports
-  OTA, and is growing a manager client that can register with SignalK, fetch a
-  generated config, poll commands, and report status.
+  OTA, and includes a manager client that can register with SignalK, fetch a
+  generated config, poll commands, report status, and run pull-based firmware
+  updates.
 - **SignalK lab and manager stack** runs on the development machine or boat
   server. It provides synthetic data, NMEA 0183 TCP output, an autopilot
   emulator, and the repo-owned `espdisp-manager` plugin for fleet-style display
@@ -119,8 +121,9 @@ Operators use structured pages:
   queue `config.reload` so the devices pull the new generated dashboard config.
 - The device web UI exposes matching dashboard config import/export endpoints:
   `/api/dashboard/config.json` and `/api/dashboard/config.yaml`.
-- `Firmware` tracks plugin-side firmware artifacts and OTA jobs; firmware
-  application on the device is still being integrated.
+- `Firmware` tracks plugin-side firmware artifacts and OTA jobs; the firmware
+  can pull, verify, install, reboot, and confirm jobs, with hardware
+  failure-path validation still outstanding.
 
 Current SignalK dashboard-configuration screenshots:
 

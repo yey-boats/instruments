@@ -1,7 +1,8 @@
 """Lane B - pull-OTA dry-run (spec 17 F6 / spec 18 S8).
 
-Documents the OTA job state machine. Uses the mock's command queue
-since the firmware-side firmware.update handler isn't built yet.
+Documents the firmware OTA job state machine against the mock manager.
+The served image is intentionally invalid so the test exercises progress
+and verification paths without replacing the device firmware partition.
 """
 import os
 import time

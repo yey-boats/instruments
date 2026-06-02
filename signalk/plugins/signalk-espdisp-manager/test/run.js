@@ -1,5 +1,6 @@
 require('./plugin.test')
 require('./firmware-contract.test')
+require('./auth-token.test')
 require('./mock-firmware.test')
 require('./display-widgets.test')
 require('./dashboard.test')

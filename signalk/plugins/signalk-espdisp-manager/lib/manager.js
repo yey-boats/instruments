@@ -1,4 +1,5 @@
 const dgram = require('dgram')
+const crypto = require('crypto')
 const http = require('http')
 const os = require('os')
 const { JsonStore } = require('./store')
@@ -272,12 +273,20 @@ class EspDispManager {
       merged.assignedProfile = this.matchProfileForDevice(merged) || 'default'
     }
 
-    if (!merged.deviceToken && this.options.auth.mode === 'dev-shared-token') {
-      merged.deviceToken = this.options.auth.devToken
+    let issuedToken = null
+    if (!deviceHasToken(merged) && this.options.auth.mode === 'dev-shared-token') {
+      issuedToken = this.options.auth.devToken
+      merged.deviceTokenHash = hashToken(issuedToken)
       merged.deviceTokenId = 'dev'
-    } else if (!merged.deviceToken) {
-      merged.deviceToken = randomId('dev')
+      delete merged.deviceToken
+    } else if (!deviceHasToken(merged)) {
+      issuedToken = randomId('dev')
+      merged.deviceTokenHash = hashToken(issuedToken)
       merged.deviceTokenId = randomId('tok')
+      delete merged.deviceToken
+    } else if (merged.deviceToken) {
+      merged.deviceTokenHash = hashToken(merged.deviceToken)
+      delete merged.deviceToken
     }
 
     this.store.registry.devices[id] = merged
@@ -289,7 +298,7 @@ class EspDispManager {
       deviceId: id,
       claimed: merged.claimed,
       assignedProfile: merged.assignedProfile,
-      deviceToken: created ? merged.deviceToken : undefined,
+      deviceToken: created ? issuedToken : undefined,
       tokenId: merged.deviceTokenId,
       config: {
         version: this.configVersion(merged),
@@ -661,12 +670,27 @@ class EspDispManager {
     if (!this.store.profiles.profiles[claimed.assignedProfile]) {
       throw httpError(404, 'profile_not_found', 'profile not found')
     }
-    if (!claimed.deviceToken && this.options.auth.mode === 'dev-shared-token') {
-      claimed.deviceToken = this.options.auth.devToken
+    let issuedToken = null
+    if (body.issueToken && !created) {
+      issuedToken = this.options.auth.mode === 'dev-shared-token'
+        ? this.options.auth.devToken
+        : randomId('dev')
+      claimed.deviceTokenHash = hashToken(issuedToken)
+      claimed.deviceTokenId = this.options.auth.mode === 'dev-shared-token' ? 'dev' : randomId('tok')
+      delete claimed.deviceToken
+    } else if (!deviceHasToken(claimed) && this.options.auth.mode === 'dev-shared-token') {
+      issuedToken = this.options.auth.devToken
+      claimed.deviceTokenHash = hashToken(issuedToken)
       claimed.deviceTokenId = 'dev'
-    } else if (!claimed.deviceToken) {
-      claimed.deviceToken = randomId('dev')
+      delete claimed.deviceToken
+    } else if (!deviceHasToken(claimed)) {
+      issuedToken = randomId('dev')
+      claimed.deviceTokenHash = hashToken(issuedToken)
       claimed.deviceTokenId = randomId('tok')
+      delete claimed.deviceToken
+    } else if (claimed.deviceToken) {
+      claimed.deviceTokenHash = hashToken(claimed.deviceToken)
+      delete claimed.deviceToken
     }
     claimed.networkIdentity = this.resolveNetworkIdentity(claimed, identity)
     claimed.claim.profileId = claimed.assignedProfile
@@ -686,7 +710,7 @@ class EspDispManager {
       deviceId,
       claimed: true,
       assignedProfile: claimed.assignedProfile,
-      deviceToken: created || body.issueToken ? claimed.deviceToken : undefined,
+      deviceToken: created || body.issueToken ? issuedToken : undefined,
       tokenId: claimed.deviceTokenId,
       config: {
         version: this.configVersion(claimed),
@@ -1232,7 +1256,8 @@ class EspDispManager {
   rotateDeviceToken (id) {
     const device = this.getDevice(id)
     const token = randomId('dev')
-    device.deviceToken = token
+    device.deviceTokenHash = hashToken(token)
+    delete device.deviceToken
     device.deviceTokenId = randomId('tok')
     device.updatedAt = now()
     this.store.saveRegistry()
@@ -1246,7 +1271,8 @@ class EspDispManager {
 
   revokeDeviceToken (id) {
     const device = this.getDevice(id)
-    device.deviceToken = null
+    device.deviceTokenHash = null
+    delete device.deviceToken
     device.deviceTokenId = null
     device.updatedAt = now()
     this.store.saveRegistry()
@@ -1663,7 +1689,7 @@ class EspDispManager {
     const token = body.token || randomId('prov')
     const record = {
       id: randomId('prov-token'),
-      token,
+      tokenHash: hashToken(token),
       createdAt: now(),
       expiresAt: new Date(Date.now() + ttlMs).toISOString(),
       usesRemaining: Number(body.uses || 1),
@@ -1672,7 +1698,7 @@ class EspDispManager {
     this.store.provisioning.tokens.push(record)
     this.store.saveProvisioning()
     this.store.audit('provisioning.token.created', record.id, { expiresAt: record.expiresAt })
-    return record
+    return { ...record, token }
   }
 
   listProvisioningTokens () {
@@ -1694,7 +1720,7 @@ class EspDispManager {
     return {
       deviceId: id,
       tokenId: device.deviceTokenId || null,
-      provisioned: Boolean(device.deviceToken),
+      provisioned: deviceHasToken(device),
       claimed: Boolean(device.claimed),
       authMode: this.options.auth.mode,
       webAuth: device.auth && device.auth.web
@@ -1747,20 +1773,36 @@ class EspDispManager {
       throw httpError(401, 'unauthorized', 'invalid development token')
     }
     const device = this.store.registry.devices[id]
-    if (device && auth.bearer && auth.bearer === device.deviceToken) return
+    if (device && auth.bearer && this.verifyDeviceToken(device, auth.bearer)) return
     if (provisioningAllowed && auth.provision && this.consumeProvisioningToken(auth.provision)) return
     if (provisioningAllowed && auth.provision && auth.provision === this.options.auth.provisionToken) return
     throw httpError(401, 'unauthorized', 'invalid device token')
   }
 
+  verifyDeviceToken (device, token) {
+    if (!device || !token) return false
+    if (device.deviceTokenHash && timingSafeEqual(device.deviceTokenHash, hashToken(token))) return true
+    if (device.deviceToken && timingSafeEqual(hashToken(device.deviceToken), hashToken(token))) {
+      device.deviceTokenHash = hashToken(device.deviceToken)
+      delete device.deviceToken
+      this.store.saveRegistry()
+      return true
+    }
+    return false
+  }
+
   consumeProvisioningToken (token) {
     const nowMs = Date.now()
     const record = this.store.provisioning.tokens.find((item) => {
-      return item.token === token &&
+      return verifyStoredToken(item, token) &&
         item.usesRemaining > 0 &&
         Date.parse(item.expiresAt) > nowMs
     })
     if (!record) return false
+    if (record.token) {
+      record.tokenHash = hashToken(record.token)
+      delete record.token
+    }
     record.usesRemaining -= 1
     this.store.saveProvisioning()
     this.store.audit('provisioning.token.used', record.id, { usesRemaining: record.usesRemaining })
@@ -2471,6 +2513,26 @@ function summarizeDevice (device) {
       ? { network: device.status.network, ui: device.status.ui }
       : {}
   }
+}
+
+function hashToken (token) {
+  return `sha256:${crypto.createHash('sha256').update(String(token || '')).digest('hex')}`
+}
+
+function timingSafeEqual (a, b) {
+  const aa = Buffer.from(String(a || ''))
+  const bb = Buffer.from(String(b || ''))
+  return aa.length === bb.length && crypto.timingSafeEqual(aa, bb)
+}
+
+function deviceHasToken (device) {
+  return Boolean(device && (device.deviceTokenHash || device.deviceToken))
+}
+
+function verifyStoredToken (record, token) {
+  if (!record || !token) return false
+  if (record.tokenHash && timingSafeEqual(record.tokenHash, hashToken(token))) return true
+  return Boolean(record.token && timingSafeEqual(hashToken(record.token), hashToken(token)))
 }
 
 function httpError (status, code, message, details) {

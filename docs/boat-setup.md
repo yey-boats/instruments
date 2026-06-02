@@ -127,6 +127,13 @@ local builds, not the preferred onboard upgrade path.
 Keep at least one known-good USB recovery path available before testing OTA
 changes on a mounted panel.
 
+Use firmware channels conservatively:
+
+- `stable`: normal boat updates from tagged releases with `SHA256SUMS`.
+- `prerelease` / `beta`: short lab or sea-trial runs with USB recovery nearby.
+- `dev` / `lab`: local development only; do not leave these installed for
+  normal navigation.
+
 ## Install The SignalK Plugin
 
 Install the CI/release-built plugin package on the boat SignalK server:
@@ -190,9 +197,17 @@ Use a trusted boat LAN:
 - Treat BLE and local web diagnostics as setup/troubleshooting surfaces, not
   public interfaces.
 - Rotate WiFi and SignalK tokens after sharing credentials during installation.
+- Use per-device manager tokens for normal managed operation. The manager
+  stores device/provisioning tokens as hashes and only shows plaintext tokens
+  at issue or rotation time.
+- Treat `dev-shared-token` manager mode as a lab-only shortcut.
 
 For untrusted or shared networks, use a separate onboard AP/VLAN for instruments
 and allow only the routes/ports the boat actually needs.
+
+Do not put displays directly on public marina WiFi. If a marina network is the
+only WAN path, keep SignalK and displays behind an onboard router/VLAN and let
+only the router talk upstream.
 
 ## Manager Plugin On A Boat
 

@@ -95,7 +95,7 @@ GET  /devices/:id/auth/status
 
 Rules:
 
-- store token hashes only
+- store token hashes only (implemented for device and provisioning tokens)
 - never return existing token after creation
 - audit token changes
 - support unclaimed device review

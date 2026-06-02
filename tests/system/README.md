@@ -75,8 +75,7 @@ Optional:
 
 - `ESPDISP_SK_HOST` — SignalK server (default: `localhost`)
 - `ESPDISP_NMEA_WIFI_PORT` — default `10110`
-- `ESPDISP_MANAGER_CONTRACT=1` — enable future ESP manager firmware
-  contract tests
+- `ESPDISP_MANAGER_CONTRACT=1` — enable ESP manager firmware contract tests
 - `SIGNALK_URL` — manager plugin URL base (default: `http://localhost:3000`)
 - `SIGNALK_USERNAME` / `SIGNALK_PASSWORD` — defaults `admin` / `admin`
 - `ARTIFACTS_DIR` — screenshot output dir (default: `tests/system/artifacts`)

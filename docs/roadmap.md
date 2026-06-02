@@ -27,6 +27,11 @@ Implemented and test-covered today:
 - Dashboard import/export on SignalK as JSON and YAML, plus matching
   device-local JSON and JSON-compatible YAML endpoints for bench use.
 - Device web security reporting through `/api/security`.
+- Firmware-side manager client for discovery, registration, token-authenticated
+  heartbeats, config fetch/apply, command poll/ack, and pull OTA with
+  progress/boot confirmation.
+- Plugin registry stores device tokens as hashes; newly issued tokens are only
+  returned to the caller at registration, claim, or rotation time.
 - Local tests for plugin behavior and host-portable firmware logic.
 
 ## Milestones
@@ -52,7 +57,8 @@ Remaining:
 
 ### M1 - Configure Device Dashboards From SignalK
 
-Status: implemented on the SignalK side; firmware integration is in progress.
+Status: implemented for the SignalK side and firmware MVP; validation and
+editor depth remain.
 
 Definition of done:
 
@@ -67,18 +73,20 @@ Definition of done:
 
 Remaining:
 
-- Complete firmware-side fetch/apply/rollback for generated dashboard configs.
+- Complete a fully transactional rollback story for generated dashboard config
+  apply failures. The current firmware keeps last-good managed render plans for
+  parse/allocation failures, but not every config side effect can be rolled
+  back atomically.
 - Validate multi-screen and multi-widget generated configs on real firmware,
   beyond the current managed-screen MVP path.
 - Add richer editor controls for adding/removing widgets, selecting SignalK
   paths, reordering tiles, and previewing layouts per device size.
-- Add end-to-end tests against a running SignalK server and a mock firmware
-  device that verify import/export, command queueing, config pull, and hash
-  convergence.
+- Extend end-to-end tests against a running SignalK server and mock/real
+  firmware devices for more failure cases and larger generated configs.
 
 ### M2 - Device Management Client
 
-Status: planned and partially specified.
+Status: firmware MVP implemented; hardening and deployment validation remain.
 
 Definition of done:
 
@@ -95,15 +103,17 @@ Definition of done:
 
 Remaining:
 
-- Implement manager discovery and registration in firmware.
-- Implement per-device command polling and acknowledgements.
-- Implement status heartbeat payloads and plugin-side status reconciliation.
-- Implement hostname/domain application order, mDNS restart behavior, conflict
-  reporting, and OTA address derivation.
+- Harden manager discovery across Docker, boat LAN, setup AP, and mDNS-hostile
+  networks.
+- Expand status reconciliation and failure reporting for auth rotation,
+  hostname conflicts, command expiry, and stale manager records.
+- Finish hostname/domain edge cases: domain application, mDNS restart behavior,
+  conflict reporting, and OTA address derivation on real deployments.
 
 ### M3 - Provisioning, Authentication, And Local Access Security
 
-Status: SignalK plugin auth model exists; device-local hardening remains.
+Status: SignalK plugin auth model exists and device tokens are hash-stored;
+device-local hardening remains.
 
 Definition of done:
 
@@ -116,8 +126,8 @@ Definition of done:
 
 Remaining:
 
-- Store only token hashes in the plugin.
-- Add claim/provisioning flow to firmware.
+- Add claim/provisioning flow to firmware beyond manual manager-register/token
+  setup.
 - Add local device web write protection for provisioned devices.
 - Add BLE pairing, provisioning PIN, or signed manager claim before allowing
   persistent BLE configuration writes.
@@ -125,7 +135,8 @@ Remaining:
 
 ### M4 - Firmware Catalog And OTA Fleet Management
 
-Status: plugin-side artifact/job model exists; device OTA apply path remains.
+Status: plugin-side artifact/job model and firmware pull-OTA MVP exist;
+hardware failure-path validation and recovery policy remain.
 
 Definition of done:
 
@@ -141,17 +152,15 @@ Definition of done:
 
 Remaining:
 
-- Define final firmware storage backend policy for local files versus external
-  vendor URLs.
-- Implement device-side pull OTA with checksum validation and boot
-  confirmation.
 - Add hardware validation for successful update, failed checksum, interrupted
   download, failed boot confirmation, and rollback/retry behavior.
-- Add release-channel policy for lab, beta, stable, and vendor-specific builds.
+- Implement enforcement knobs for release channels once operator channel
+  preferences are configurable.
 
 ### M5 - Discovery And Service Discovery Polish
 
-Status: plugin endpoints and discovery fixtures exist.
+Status: firmware and plugin discovery mechanisms exist; network validation and
+operator polish remain.
 
 Definition of done:
 
@@ -164,10 +173,9 @@ Definition of done:
 
 Remaining:
 
-- Add mDNS advertisement for the manager where supported by the SignalK
-  deployment.
-- Add UI affordances for discovered-but-unclaimed devices.
-- Add stale/duplicate/conflict handling for device discovery records.
+- Improve UI affordances for discovered-but-unclaimed devices.
+- Continue stale/duplicate/conflict handling polish for device discovery
+  records.
 - Validate service discovery on real boat LANs, development Docker networks,
   and setup AP mode.
 
@@ -257,12 +265,14 @@ Current surface:
 
 Next work:
 
-- Manager discovery, registration, auth, heartbeat, commands, and config fetch.
-- Generated dashboard config validation/apply/rollback.
+- Harden manager discovery, registration recovery, auth rotation, heartbeat,
+  commands, and config fetch failure modes.
+- Complete generated dashboard config rollback semantics.
 - Device-local dashboard web configurator polish.
 - Device YAML policy: keep JSON-compatible YAML on device unless a small,
   bounded YAML parser becomes necessary.
-- Pull OTA, progress reporting, verification, boot confirmation, and rollback.
+- Pull OTA hardware validation, interrupted-download handling, boot confirmation
+  failure handling, and rollback/retry policy.
 
 ### Security
 
@@ -276,11 +286,10 @@ Current model:
 Next work:
 
 - Provisioning PIN or signed manager claim.
-- Per-device token lifecycle in firmware.
+- Per-device token lifecycle in firmware for rotation/revocation recovery.
 - Lock local web/BLE writes after claim unless explicitly re-enabled.
 - Avoid storing or exporting WiFi passwords and SignalK bearer tokens in
   dashboard presets.
-- Document threat model for lab, trusted boat LAN, and public marina WiFi.
 
 ### Firmware Storage And Vendor Tracking
 
@@ -290,10 +299,6 @@ Current model:
 
 Next work:
 
-- Store artifact metadata separately from binary storage.
-- Support vendor, product, board, version, channel, checksum, release notes,
-  compatibility constraints, and source URL.
-- Allow local lab artifacts and vendor-hosted artifacts.
 - Track provenance and review state before a firmware artifact can be offered
   as stable.
 - Add garbage-collection policy for old local artifacts.
@@ -317,8 +322,12 @@ Potential later tracks:
 
 ## Known Gaps
 
-- Firmware-side manager client is not complete end to end.
-- Firmware-side OTA update application is not complete end to end.
+- Firmware-side manager client has an MVP implementation, but is not yet
+  validated end to end across real boat LANs, setup AP, SignalK auth modes,
+  token rotation, and stale/conflicting registry records.
+- Firmware-side OTA update application has a pull/checksum/progress/confirm
+  implementation, but is not yet validated across real successful updates,
+  interrupted downloads, failed boot confirmation, and rollback/retry cases.
 - Device `.yaml` import/export is currently JSON-compatible YAML, not a full
   YAML parser.
 - Device-local web and BLE write security need hardening before public or

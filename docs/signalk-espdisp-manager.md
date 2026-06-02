@@ -365,6 +365,18 @@ Device-level auth is carried separately:
 X-EspDisp-Authorization: Bearer <device-token>
 ```
 
+Registry and provisioning token storage:
+
+- Per-device tokens are stored as `sha256:<hex>` hashes in the plugin registry.
+  The plaintext token is returned only when a device is first registered,
+  claimed with token issue enabled, or explicitly rotated.
+- One-time provisioning tokens are also stored as hashes. The plaintext token is
+  returned only from the creation call.
+- Legacy registry or provisioning records with plaintext tokens are migrated to
+  hashes the next time the token is successfully used.
+- The `dev-shared-token` mode is for lab use only; production-style deployments
+  should use provisioning tokens plus per-device bearer tokens.
+
 The local test fixture uses:
 
 ```text
@@ -506,6 +518,15 @@ Device access security is intentionally explicit:
   intended for local physical proximity setup.
 - `/api/security` reports the active device web/BLE access model.
 
+Threat model:
+
+| Environment | Assumption | Required practice |
+|---|---|---|
+| Lab LAN / `esp-lab` | Developers control the AP, SignalK server, and devices. Debug builds and shared development tokens may be used. | Keep lab credentials out of boat presets, rotate tokens after shared sessions, and do not expose lab SignalK to public networks. |
+| Trusted boat LAN | The boat router/firewall protects SignalK, ESP displays, OTA, and local web endpoints from marina/public clients. | Use SignalK authentication, per-device manager tokens, reserved DHCP or stable hostnames, and keep USB recovery available before OTA. |
+| Setup AP / first provisioning | The device may temporarily expose local setup surfaces before it joins the boat LAN. | Use only during installation, avoid entering long-lived secrets on untrusted clients, and move the device to the trusted LAN before managed operation. |
+| Public or shared marina WiFi | Other clients may scan, replay, or attempt writes to local HTTP/BLE surfaces. | Do not place displays directly on this network. Use an onboard AP/VLAN or firewall rules that block unsolicited access. |
+
 ## Command Flow
 
 Commands are durable until delivered, acknowledged, cancelled, failed, or
@@ -593,6 +614,23 @@ In both cases the command includes `jobId`, `artifactId`, `version`, `url`,
 reports progress with `POST /devices/:id/firmware/jobs/:jobId/progress` and
 confirms the booted version with `POST /devices/:id/firmware/confirm`.
 
+Firmware storage and channel policy:
+
+| Source | Intended use | Requirements |
+|---|---|---|
+| GitHub release asset | Stable or prerelease onboard upgrades imported by `firmware/catalog/refresh`. | Asset name must match a supported release target, `SHA256SUMS` must include the asset, and channel is derived from the GitHub release prerelease flag. |
+| Plugin-local artifact | Lab or vendor artifact uploaded/registered through the manager API. | Metadata must include vendor, product, board compatibility, version/channel, size, and SHA-256 before it is offered to a device. |
+| External vendor URL | Future vendor-hosted firmware. | Must include provenance, compatibility, size, SHA-256, and explicit review/trust metadata before it can be marked stable. |
+
+Channels:
+
+- `lab` and `dev` artifacts are for local testing and should not be offered as
+  stable boat updates.
+- `prerelease` / `beta` artifacts may be offered only when the operator opts
+  into prerelease updates.
+- `stable` artifacts require checksum metadata, compatible board targeting,
+  and either a trusted GitHub release asset or reviewed vendor metadata.
+
 ## Dashboard API
 
 `GET /dashboard` returns an operator summary:
@@ -643,13 +681,13 @@ device, claims it from discovery, queues `config.reload`, applies a generated
 dashboard config, swaps presets, and verifies the reported config hash
 converges.
 
-Run future firmware contract tests in skip mode:
+Run firmware contract tests in skip mode:
 
 ```sh
 pytest tests/system/unattended/test_espdisp_manager_contract.py -q
 ```
 
-Run firmware contract tests against a real device once firmware support exists:
+Run firmware contract tests against a real device:
 
 ```sh
 ESPDISP_MANAGER_CONTRACT=1 \

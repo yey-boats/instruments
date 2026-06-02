@@ -91,6 +91,7 @@ about what is still unsafe.
 Tasks:
 
 1. Token storage hardening in the plugin
+   - Status: implemented for device tokens and provisioning tokens.
    - Store token hashes only.
    - Return tokens only at creation/rotation time.
    - Audit create, rotate, revoke, and failed auth events.
