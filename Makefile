@@ -97,7 +97,26 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or fix discovery (see 'make discover')" >&2; exit 1; }
 	@echo "[ota] target=$(OTA_TARGET)"
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e ota -t upload --upload-port $(OTA_TARGET)
+	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),ota-debug,ota) -t upload --upload-port $(OTA_TARGET)
+
+# ota-verify: the same flash, but post-verifies via /api/state.device.build
+# instead of trusting espota.py's exit code. espota.py reports
+# "Error Uploading" whenever the device reboots before sending its final
+# ACK (which is most successful flashes), so the bare `make ota` target
+# has a 100% false-failure rate even when the new FW is on the device.
+# This target wraps espota in tools/ota_flash.sh, ignores its exit code,
+# waits for the device to reboot, and confirms the new firmware is
+# actually running by matching __DATE__ __TIME__ baked into the .bin
+# against device.build in /api/state. Pass REMOTE=user@host to flash
+# through a relay (used when this host can't reach the device subnet,
+# e.g. via compulab on the esp-lab AP).
+ota-verify: setup  ## OTA + verify via /api/state. REMOTE=user@host to flash through a relay.
+	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
+	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved" >&2; exit 1; }
+	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
+	bash tools/ota_flash.sh $(OTA_TARGET) \
+	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
+	  $(if $(REMOTE),--remote $(REMOTE),)
 
 # flash-auto: USB if plugged in. OTA fallback is opt-in via OTA=1 because
 # discovery is unauthenticated; we don't want a `make flash-auto` invocation
@@ -159,9 +178,8 @@ lab-logger-tail:  ## Stream live logs from REMOTE
 # One-shot orchestrator: build debug FW, flash via OTA, deploy lab-logger,
 # show recent logs. Each step is idempotent and unattended (provided
 # REMOTE_SUDO_PASS is set the first time, see lab-logger-deploy).
-lab-up:  ## Build debug FW + OTA flash + deploy lab-logger, end-to-end
-	@$(MAKE) build ENV=esp32-4848s040-debug
-	@$(MAKE) ota ENV=esp32-4848s040-debug $(if $(DEVICE_IP),DEVICE_IP=$(DEVICE_IP),) $(if $(NAME),NAME=$(NAME),)
+lab-up:  ## Build debug FW + OTA flash (verified) + deploy lab-logger
+	@$(MAKE) ota-verify ENV=esp32-4848s040-debug $(if $(DEVICE_IP),DEVICE_IP=$(DEVICE_IP),) $(if $(NAME),NAME=$(NAME),) $(if $(REMOTE),REMOTE=$(REMOTE),)
 	@$(MAKE) lab-logger-deploy REMOTE=$(REMOTE)
 	@echo "[lab-up] done. Recent logs:"
 	@$(MAKE) lab-logger-status REMOTE=$(REMOTE)
