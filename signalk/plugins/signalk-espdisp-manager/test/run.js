@@ -11,6 +11,7 @@ require('./app-dock-config.test')
 require('./ui-config-widget.test')
 require('./dashboard-import-export.test')
 Promise.all([
+  require('./github-firmware.test'),
   require('./udp-discovery.test'),
   require('./device-udp-discovery.test'),
   require('./live-device.test')

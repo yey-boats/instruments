@@ -13,7 +13,7 @@ const registration = manager.registerDevice({
     id: deviceId,
     name: 'Future Firmware Contract',
     model: 'ESP32-4848S040',
-    board: 'esp32-4848s040',
+    board: 'sunton_4848s040',
     mac: '11:22:33:44:55:66',
     chip: 'ESP32-S3',
     flashBytes: 16777216,
@@ -218,7 +218,7 @@ const artifact = manager.addFirmwareArtifact({
     git: { commit: 'def5678', dirty: false }
   },
   compatibility: {
-    boards: ['esp32-4848s040'],
+    boards: ['sunton_4848s040'],
     chip: 'ESP32-S3',
     minFlashBytes: 16777216,
     requiresPsram: true,
@@ -227,7 +227,7 @@ const artifact = manager.addFirmwareArtifact({
   file: {
     name: 'espdisp-0.5.1-esp32-4848s040.bin',
     size: 1784512,
-    sha256: 'sha256:firmware-test'
+    sha256: 'sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
   },
   signing: { signed: false }
 })
@@ -242,7 +242,7 @@ assert.strictEqual(manager.getFirmwareJob(deviceId, job.jobId).artifactId, artif
 const otaCommand = manager.pendingCommands(deviceId).find((cmd) => cmd.type === 'firmware.update')
 assert.ok(otaCommand)
 assert.strictEqual(otaCommand.payload.jobId, job.jobId)
-assert.strictEqual(otaCommand.payload.sha256, 'sha256:firmware-test')
+assert.strictEqual(otaCommand.payload.sha256, 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc')
 
 const progress = manager.updateFirmwareProgress(deviceId, job.jobId, {
   state: 'downloading',
@@ -311,7 +311,7 @@ const provisioned = makeManager({
 const token = provisioned.manager.createProvisioningToken({ ttlMs: 60000, uses: 1 })
 assert.strictEqual(provisioned.manager.listProvisioningTokens().tokens.length, 1)
 const provisionedReg = provisioned.manager.registerDevice({
-  device: { id: 'espdisp-provisioned', board: 'esp32-4848s040' }
+  device: { id: 'espdisp-provisioned', board: 'sunton_4848s040' }
 }, { provision: token.token })
 assert.strictEqual(provisionedReg.status, 'registered')
 assert.strictEqual(provisioned.manager.authStatus('espdisp-provisioned').provisioned, true)

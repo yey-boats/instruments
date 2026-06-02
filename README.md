@@ -176,31 +176,67 @@ layout class, usable area, display bus, touch controller, touch interrupt, and
 NMEA 2000 CAN capability so the SignalK manager can select presets by geometry
 instead of hardcoded board names.
 
-## Quick start
+## Onboard setup
+
+Normal boat installs should use firmware and plugin artifacts built by this
+repository's GitHub Actions workflows, not ad-hoc local builds.
+
+Stable release path:
+
+1. Open the
+   [latest GitHub release](https://github.com/navado/esp32-boat-mfd/releases).
+2. Download the merged firmware image for the physical board, for example
+   `esp32-4848s040-merged_firmware.bin` or
+   `waveshare-touch-lcd-7b_1024x600-merged_firmware.bin`.
+3. Download `signalk-espdisp-manager-<version>.tgz` for the SignalK plugin.
+4. Verify artifacts with the release `SHA256SUMS` file.
+5. Flash the display over USB:
 
 ```sh
-# 1. Clone and set up
-git clone https://github.com/navado/esp32-boat-mfd.git
-cd esp32-boat-mfd
-make setup
-
-# 2. First flash over USB (CH340 driver required: silabs.com / wch-ic.com)
-make flash
-
-# 3. Provision WiFi over the serial console (in a separate terminal)
-make monitor
-#   wifi <ssid> <password>
-
-# 4. Read the device's IP off the serial log, then iterate over WiFi
-make ota DEVICE_IP=10.0.0.42
+esptool.py --chip esp32s3 --port /dev/cu.usbserial-* write_flash 0x0 <target>-merged_firmware.bin
 ```
 
-For a no-boat demo run, see [Running with synthetic data](#running-with-synthetic-data).
+6. Install the plugin on the boat SignalK server:
+
+```sh
+cd ~/.signalk
+npm install /path/to/signalk-espdisp-manager-<version>.tgz
+```
+
+7. Restart SignalK, then enable **ESP Display Manager** in the SignalK admin
+   plugin UI if you want centralized display management.
+8. Provision the display onto the boat WiFi and SignalK server from serial or
+   BLE:
+
+```text
+wifi <boat-ssid> <boat-wifi-password>
+sk <signalk-host-or-ip> 3000
+```
+
+Latest CI artifact path:
+
+- Firmware artifacts are attached to successful CI runs as
+  `firmware-<platformio-env>-latest`, for example
+  `firmware-esp32-4848s040-latest` or
+  `firmware-waveshare-touch-lcd-7b_1024x600-latest`.
+  Each artifact includes `merged_firmware.bin` for first USB flashing plus
+  `firmware.bin`, `firmware.elf`, `bootloader.bin`, and `partitions.bin`.
+- The plugin package artifact is named `signalk-espdisp-manager-<git-sha>`.
+- CI artifacts are useful for testing current `main` or newer board profiles;
+  releases remain the preferred stable boat install source.
+
+For the full onboard checklist and network model, see
+[Boat setup](docs/boat-setup.md). For development-only lab workflows, see
+[Running with synthetic data](#running-with-synthetic-data) and
+[Lab topology](docs/lab-topology.md).
 For managed-display registry/config/command concepts, see
 [SignalK ESP Display Manager](docs/signalk-espdisp-manager.md).
 For the full status and upcoming work, see the [project roadmap](docs/roadmap.md).
 
-## Make targets
+## Development make targets
+
+These targets are for development, testing, and local flashing.  Normal onboard
+installs should start from the CI/release artifacts described above.
 
 ```
 make help          List all targets
@@ -248,9 +284,9 @@ make build PROJECT_VERSION=0.1.1-dev
 ```
 
 Release tags must match the `VERSION` file, for example `v0.1.0`. Tagged
-GitHub releases build the production `esp32-4848s040` firmware, package the
-matching `signalk-espdisp-manager-<version>.tgz` plugin, and publish checksums
-for all release artifacts. Use that release asset for normal SignalK installs.
+GitHub releases build every supported firmware target, package the matching
+`signalk-espdisp-manager-<version>.tgz` plugin, and publish checksums for all
+release artifacts. Use those release assets for normal SignalK installs.
 
 To install the SignalK plugin from the release asset or build a local package,
 see
@@ -329,6 +365,9 @@ chunked transfer is on the roadmap (see task #20).
 
 ## Running with synthetic data
 
+The local and remote demo stacks are for development and repeatable testing.
+For a real boat network, use [Boat setup](docs/boat-setup.md) instead.
+
 To exercise the firmware without a boat:
 
 ```sh
@@ -342,26 +381,16 @@ make demo-down
 deltas for navigation, wind, depth, water temperature, battery, and tanks
 once per second.
 
-### Lab rig (remote SignalK + dedicated AP)
+### Development lab rig (remote SignalK + dedicated AP)
 
-For permanent lab use, SignalK runs in Docker on a dedicated host
-(`nav-server`) and the ESP32 joins a dedicated AP that `nav-server` itself
-broadcasts. `nav-server` can be any Docker-capable Linux mini-PC; my lab uses a
+The remote lab workflow is intentionally separate from the onboard setup. It
+uses a Docker-capable Linux mini-PC (`nav-server`) to run SignalK and broadcast
+a dedicated `esp-lab` AP for repeatable development tests. My lab host is a
 [Compulab IOT-GATE-IMX8PLUS industrial ARM IoT gateway](https://www.compulab.com/products/iot-gateways/iot-gate-imx8plus-industrial-arm-iot-gateway/).
-The layout is documented in
-[`docs/lab-topology.md`](docs/lab-topology.md); the short version:
 
-- SignalK + `espdisp-manager` + `fake_boat` come up with `make demo-up-remote`
-  (SSHes to `nav-server`, runs the container with `--network host`).
-- The lab AP (`SSID esp-lab`, 2.4 GHz, WPA2) is brought up by
-  `signalk/scripts/lab-ap-setup.sh` on `nav-server` and persists across
-  reboot via a systemd unit. Devices get DHCP from `10.42.0.0/24`; the
-  reference MFD is pinned at `10.42.0.67` by a static lease.
-- The segment is **routed** (not NAT'd) — `nav-server` is the gateway out
-  to the Router/Starlink/etc. WAN-router LAN. For full OTA reachability from that
-  LAN, the WAN router needs a static route `10.42.0.0/24 -> 192.168.2.11`.
-- All test-suite expectations are in `.env.test`; `make sys-test-remote`
-  sources it before running pytest.
+See [Lab topology](docs/lab-topology.md) for the full development diagram,
+remote demo commands, `nav-server` setup, and Router/Starlink/etc. WAN-router
+routing notes. Normal boat installs should use [Boat setup](docs/boat-setup.md).
 
 ### NMEA 0183 over WiFi
 
@@ -571,10 +600,10 @@ git push origin v0.1.0
 For tagged releases, GitHub builds with `ESPDISP_VERSION=${TAG_NAME#v}` so
 firmware version `0.1.0` corresponds to Git tag `v0.1.0`.
 
-The `release.yml` workflow builds the firmware on push of a `v*` tag,
-attaches `firmware.bin`, `merged_firmware.bin`, ELF, and SHA-256 sums to
-the GitHub release, and generates release notes from commits since the
-previous tag.
+The `release.yml` workflow builds all supported firmware targets on push of a
+`v*` tag, attaches target-prefixed `firmware.bin`, `merged_firmware.bin`, ELF,
+bootloader, partition table, plugin package, and SHA-256 sums to the GitHub
+release, and generates release notes from commits since the previous tag.
 
 Pre-releases are detected automatically: tags matching `*-rc*`, `*-alpha*`,
 or `*-beta*` are marked as pre-release.

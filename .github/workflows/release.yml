@@ -50,30 +50,58 @@ jobs:
       - name: Create placeholder secrets.h
         run: cp include/secrets.h.example include/secrets.h
 
-      - name: Build firmware
-        run: ESPDISP_VERSION="${TAG_NAME#v}" pio run -e esp32-4848s040
+      - name: Build supported firmware environments
+        run: |
+          set -euo pipefail
+          targets=(
+            esp32-4848s040
+            esp32-4848s040-arduino
+            waveshare-touch-lcd-4
+            waveshare-touch-lcd-4_3
+            waveshare-touch-lcd-4_3b
+            waveshare-touch-lcd-5_800x480
+            waveshare-touch-lcd-5_1024x600
+            waveshare-touch-lcd-7_800x480
+            waveshare-touch-lcd-7b_1024x600
+          )
+          for env in "${targets[@]}"; do
+            ESPDISP_VERSION="${TAG_NAME#v}" pio run -e "$env"
+          done
 
       - name: Stage release artifacts
         run: |
+          set -euo pipefail
           out="release-staging"
           mkdir -p "$out"
-          cp .pio/build/esp32-4848s040/bootloader.bin "$out/bootloader.bin"
-          cp .pio/build/esp32-4848s040/partitions.bin "$out/partitions.bin"
-          cp .pio/build/esp32-4848s040/firmware.bin   "$out/firmware.bin"
-          cp .pio/build/esp32-4848s040/firmware.elf   "$out/firmware.elf"
-          BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin 2>/dev/null | head -1)
+          BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin -print -quit 2>/dev/null)
           if [ -z "$BOOT_APP0" ]; then
             echo "::error::boot_app0.bin not found under ~/.platformio/packages"
             exit 1
           fi
           echo "Using boot_app0.bin from: $BOOT_APP0"
-          esptool.py --chip esp32s3 merge_bin \
-            -o "$out/merged_firmware.bin" \
-            --flash_mode qio --flash_size 16MB \
-            0x0     "$out/bootloader.bin" \
-            0x8000  "$out/partitions.bin" \
-            0xe000  "$BOOT_APP0" \
-            0x10000 "$out/firmware.bin"
+          targets=(
+            esp32-4848s040
+            waveshare-touch-lcd-4
+            waveshare-touch-lcd-4_3
+            waveshare-touch-lcd-4_3b
+            waveshare-touch-lcd-5_800x480
+            waveshare-touch-lcd-5_1024x600
+            waveshare-touch-lcd-7_800x480
+            waveshare-touch-lcd-7b_1024x600
+          )
+          for env in "${targets[@]}"; do
+            cp ".pio/build/$env/bootloader.bin" "$out/$env-bootloader.bin"
+            cp ".pio/build/$env/partitions.bin" "$out/$env-partitions.bin"
+            cp ".pio/build/$env/firmware.bin"   "$out/$env-firmware.bin"
+            cp ".pio/build/$env/firmware.elf"   "$out/$env-firmware.elf"
+            esptool.py --chip esp32s3 merge_bin \
+              -o "$out/$env-merged_firmware.bin" \
+              --flash_mode qio --flash_size 16MB \
+              0x0     "$out/$env-bootloader.bin" \
+              0x8000  "$out/$env-partitions.bin" \
+              0xe000  "$BOOT_APP0" \
+              0x10000 "$out/$env-firmware.bin"
+          done
           ls -la "$out"
 
       - name: Package SignalK plugin
@@ -87,7 +115,7 @@ jobs:
 
       - name: Generate checksums
         run: |
-          ( cd release-staging && sha256sum *.bin *.tgz > SHA256SUMS )
+          ( cd release-staging && sha256sum *.bin *.elf *.tgz > SHA256SUMS )
           ls -la release-staging
 
       - name: Generate release notes
@@ -105,10 +133,21 @@ jobs:
             echo ""
             echo "## Flash instructions"
             echo ""
+            echo "Download the merged firmware image for your board target:"
+            echo ""
+            echo "- \`esp32-4848s040-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-4-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-4_3-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-4_3b-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-5_800x480-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-5_1024x600-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-7_800x480-merged_firmware.bin\`"
+            echo "- \`waveshare-touch-lcd-7b_1024x600-merged_firmware.bin\`"
+            echo ""
             echo 'Single-file flash (covers bootloader, partition table, OTA boot selector, and app):'
             echo ""
             echo '```sh'
-            echo "esptool.py --chip esp32s3 --port /dev/cu.usbserial-* write_flash 0x0 merged_firmware.bin"
+            echo "esptool.py --chip esp32s3 --port /dev/cu.usbserial-* write_flash 0x0 <target>-merged_firmware.bin"
             echo '```'
             echo ""
             echo 'Or via PlatformIO OTA once the device is on the network:'
@@ -141,11 +180,8 @@ jobs:
           name: ${{ env.TAG_NAME }}
           body_path: release_notes.md
           files: |
-            release-staging/firmware.bin
-            release-staging/firmware.elf
-            release-staging/bootloader.bin
-            release-staging/partitions.bin
-            release-staging/merged_firmware.bin
+            release-staging/*.bin
+            release-staging/*.elf
             release-staging/*.tgz
             release-staging/SHA256SUMS
           draft: false

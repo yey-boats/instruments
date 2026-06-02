@@ -127,6 +127,23 @@ module.exports = function espdispManagerPlugin (app) {
             port: { type: 'number', title: 'UDP port', default: 34301 }
           }
         },
+        firmware: {
+          type: 'object',
+          title: 'Firmware Catalog',
+          properties: {
+            github: {
+              type: 'object',
+              title: 'GitHub release source',
+              description: 'Imports firmware artifacts from GitHub release assets for software upgrades.',
+              properties: {
+                enabled: { type: 'boolean', title: 'Enabled', default: true },
+                owner: { type: 'string', title: 'GitHub owner', default: 'navado' },
+                repo: { type: 'string', title: 'GitHub repository', default: 'esp32-boat-mfd' },
+                includePrereleases: { type: 'boolean', title: 'Include prereleases', default: false }
+              }
+            }
+          }
+        },
         network: {
           type: 'object',
           title: 'Network Identity',
@@ -254,6 +271,9 @@ module.exports = function espdispManagerPlugin (app) {
         },
         '/plugins/espdisp-manager/firmware/catalog': {
           get: { summary: 'List firmware artifacts' }
+        },
+        '/plugins/espdisp-manager/firmware/catalog/refresh': {
+          post: { summary: 'Refresh firmware artifacts from GitHub releases' }
         },
         '/plugins/espdisp-manager/devices/{deviceId}/firmware/jobs': {
           get: { summary: 'List firmware jobs' },
@@ -482,6 +502,10 @@ function registerRoutes (router, getManager) {
 
   router.get('/firmware/catalog', wrap(getManager, (manager, req, res) => {
     res.json(manager.listFirmware())
+  }))
+
+  router.post('/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
+    res.json(await manager.refreshFirmwareFromGithub())
   }))
 
   router.post('/firmware/artifacts', wrap(getManager, (manager, req, res) => {

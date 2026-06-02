@@ -12,6 +12,7 @@ function makeManager (options) {
   const merged = mergeTestOptions({
     discoveryUdp: { enabled: false },
     deviceDiscoveryUdp: { enabled: false },
+    firmware: { github: { enabled: false } },
     network: { mdns: { browser: false, advertiseManager: false } }
   }, options || {})
   return {

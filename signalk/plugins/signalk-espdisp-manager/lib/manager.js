@@ -20,6 +20,16 @@ const ESPDISP_MDNS_SERVICE = '_espdisp._tcp.local'
 const ESPDISP_MGMT_MDNS_SERVICE = '_espdisp-mgmt._tcp.local'
 const MDNS_MULTICAST = '224.0.0.251'
 const MDNS_PORT = 5353
+const SUPPORTED_FIRMWARE_TARGETS = [
+  { target: 'esp32-4848s040', board: 'sunton_4848s040' },
+  { target: 'waveshare-touch-lcd-4', board: 'waveshare_touch_lcd_4' },
+  { target: 'waveshare-touch-lcd-4_3', board: 'waveshare_touch_lcd_4_3' },
+  { target: 'waveshare-touch-lcd-4_3b', board: 'waveshare_touch_lcd_4_3b' },
+  { target: 'waveshare-touch-lcd-5_800x480', board: 'waveshare_touch_lcd_5_800x480' },
+  { target: 'waveshare-touch-lcd-5_1024x600', board: 'waveshare_touch_lcd_5_1024x600' },
+  { target: 'waveshare-touch-lcd-7_800x480', board: 'waveshare_touch_lcd_7_800x480' },
+  { target: 'waveshare-touch-lcd-7b_1024x600', board: 'waveshare_touch_lcd_7b_1024x600' }
+]
 
 class EspDispManager {
   constructor (app, options) {
@@ -34,6 +44,13 @@ class EspDispManager {
     this.startSignalKDiscovery()
     this.startDeviceDiscovery()
     this.startMdnsDiscovery()
+    if (this.options.firmware.github.enabled) {
+      this.refreshFirmwareFromGithub().catch((err) => {
+        if (this.app && this.app.debug) {
+          this.app.debug(`espdisp GitHub firmware refresh failed: ${err.message}`)
+        }
+      })
+    }
   }
 
   close () {
@@ -1126,6 +1143,87 @@ class EspDispManager {
     return clone(this.store.firmware)
   }
 
+  async refreshFirmwareFromGithub (fetchImpl) {
+    const cfg = this.options.firmware.github
+    if (!cfg.enabled) return this.listFirmware()
+    const doFetch = fetchImpl || cfg.fetch || globalThis.fetch
+    if (typeof doFetch !== 'function') {
+      throw httpError(500, 'github_fetch_unavailable', 'fetch is not available in this Node runtime')
+    }
+
+    const release = await fetchGithubRelease(cfg, doFetch)
+    const assets = Array.isArray(release.assets) ? release.assets : []
+    const sumsAsset = assets.find((asset) => asset.name === 'SHA256SUMS')
+    const sums = sumsAsset && sumsAsset.browser_download_url
+      ? parseSha256Sums(await fetchText(sumsAsset.browser_download_url, doFetch))
+      : {}
+
+    const targets = cfg.targets && cfg.targets.length
+      ? cfg.targets.map(normalizeFirmwareTarget)
+      : SUPPORTED_FIRMWARE_TARGETS
+    const imported = []
+    for (const entry of targets) {
+      const target = entry.target
+      const assetName = `${target}-merged_firmware.bin`
+      const asset = assets.find((candidate) => candidate.name === assetName)
+      if (!asset || !asset.browser_download_url) continue
+      const sha = sums[assetName]
+      if (!sha) continue
+      const tag = release.tag_name || release.name || 'unknown'
+      const version = String(tag).replace(/^v/, '')
+      const artifact = {
+        artifactId: `github-${sanitizeArtifactId(tag)}-${target}`,
+        source: {
+          type: 'github-release',
+          owner: cfg.owner,
+          repo: cfg.repo,
+          tag,
+          htmlUrl: release.html_url || null,
+          assetUrl: asset.browser_download_url
+        },
+        vendor: { id: 'navado', name: 'Navado', trust: { level: 'github-release', allowUnsigned: false } },
+        product: { id: 'espdisp', name: 'ESP Display' },
+        firmware: {
+          name: 'espdisp',
+          version,
+          channel: release.prerelease ? 'prerelease' : 'stable'
+        },
+        compatibility: {
+          boards: [entry.board],
+          releaseTarget: target,
+          chip: 'ESP32-S3',
+          minFlashBytes: 16777216,
+          requiresPsram: true,
+          partitionScheme: 'ota_16mb'
+        },
+        file: {
+          name: asset.name,
+          size: Number(asset.size || 0),
+          sha256: `sha256:${sha}`,
+          url: asset.browser_download_url,
+          contentType: asset.content_type || 'application/octet-stream'
+        },
+        signing: { signed: false, checksums: 'SHA256SUMS' },
+        uploadedAt: now()
+      }
+      upsertFirmwareArtifact(this.store.firmware.artifacts, artifact)
+      imported.push(artifact)
+    }
+    this.store.firmware.github = {
+      owner: cfg.owner,
+      repo: cfg.repo,
+      release: release.tag_name || null,
+      checkedAt: now(),
+      imported: imported.length
+    }
+    this.store.saveFirmware()
+    this.store.audit('firmware.github.refresh', `${cfg.owner}/${cfg.repo}`, {
+      release: release.tag_name || null,
+      imported: imported.map((artifact) => artifact.artifactId)
+    })
+    return { ...this.listFirmware(), refreshed: this.store.firmware.github }
+  }
+
   addFirmwareArtifact (body) {
     if (!body.vendor || !body.vendor.id) throw httpError(400, 'invalid_request', 'vendor.id is required')
     if (!body.product || !body.product.id) throw httpError(400, 'invalid_request', 'product.id is required')
@@ -1171,8 +1269,10 @@ class EspDispManager {
         jobId: job.jobId,
         artifactId: artifact.artifactId,
         version: artifact.firmware && artifact.firmware.version,
-        url: `/plugins/espdisp-manager/firmware/download/${job.jobId}`,
-        sha256: artifact.file && artifact.file.sha256,
+        url: artifact.file && artifact.file.url
+          ? artifact.file.url
+          : `/plugins/espdisp-manager/firmware/download/${job.jobId}`,
+        sha256: firmwarePayloadSha256(artifact.file && artifact.file.sha256),
         size: artifact.file && artifact.file.size,
         mode: 'pull',
         reboot: job.policy.reboot,
@@ -1201,6 +1301,7 @@ class EspDispManager {
     if (!job) throw httpError(404, 'job_not_found', 'firmware job not found')
     const artifact = this.getFirmwareArtifact(job.artifactId)
     if (!artifact.file || !artifact.file.path) {
+      if (artifact.file && artifact.file.url) return { job, artifact }
       throw httpError(404, 'artifact_binary_missing', 'firmware binary is not stored in this test fixture')
     }
     return { job, artifact }
@@ -1509,6 +1610,17 @@ function normalizeOptions (options) {
       bind: options.deviceDiscoveryUdp && options.deviceDiscoveryUdp.bind ? options.deviceDiscoveryUdp.bind : '0.0.0.0',
       port: Number(options.deviceDiscoveryUdp && Object.prototype.hasOwnProperty.call(options.deviceDiscoveryUdp, 'port') ? options.deviceDiscoveryUdp.port : 34301)
     },
+    firmware: {
+      github: {
+        enabled: !(options.firmware && options.firmware.github && options.firmware.github.enabled === false),
+        owner: options.firmware && options.firmware.github && options.firmware.github.owner ? options.firmware.github.owner : 'navado',
+        repo: options.firmware && options.firmware.github && options.firmware.github.repo ? options.firmware.github.repo : 'esp32-boat-mfd',
+        apiBase: options.firmware && options.firmware.github && options.firmware.github.apiBase ? options.firmware.github.apiBase : 'https://api.github.com',
+        includePrereleases: Boolean(options.firmware && options.firmware.github && options.firmware.github.includePrereleases),
+        targets: options.firmware && options.firmware.github && Array.isArray(options.firmware.github.targets) ? options.firmware.github.targets : SUPPORTED_FIRMWARE_TARGETS,
+        fetch: options.firmware && options.firmware.github && options.firmware.github.fetch
+      }
+    },
     network: {
       domain: options.network && options.network.domain ? options.network.domain : 'local',
       hostnamePrefix: options.network && options.network.hostnamePrefix ? options.network.hostnamePrefix : 'espdisp',
@@ -1523,6 +1635,80 @@ function normalizeOptions (options) {
         advertiseIntervalMs: Number(options.network && options.network.mdns && options.network.mdns.advertiseIntervalMs ? options.network.mdns.advertiseIntervalMs : 60000)
       }
     }
+  }
+}
+
+async function fetchGithubRelease (cfg, doFetch) {
+  const base = String(cfg.apiBase || 'https://api.github.com').replace(/\/$/, '')
+  const path = cfg.includePrereleases
+    ? `/repos/${cfg.owner}/${cfg.repo}/releases`
+    : `/repos/${cfg.owner}/${cfg.repo}/releases/latest`
+  const payload = await fetchJson(`${base}${path}`, doFetch)
+  if (Array.isArray(payload)) {
+    const release = payload.find((candidate) => !candidate.draft)
+    if (!release) throw httpError(404, 'github_release_not_found', 'no GitHub release found')
+    return release
+  }
+  return payload
+}
+
+async function fetchJson (url, doFetch) {
+  const response = await doFetch(url, {
+    headers: { Accept: 'application/vnd.github+json' }
+  })
+  if (!response || !response.ok) {
+    throw httpError(502, 'github_request_failed', `GitHub request failed: ${url}`)
+  }
+  return response.json()
+}
+
+async function fetchText (url, doFetch) {
+  const response = await doFetch(url)
+  if (!response || !response.ok) {
+    throw httpError(502, 'github_request_failed', `GitHub request failed: ${url}`)
+  }
+  return response.text()
+}
+
+function parseSha256Sums (text) {
+  const sums = {}
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const match = line.trim().match(/^([a-fA-F0-9]{64})\s+(.+)$/)
+    if (!match) continue
+    sums[match[2].replace(/^\.\//, '')] = match[1].toLowerCase()
+  }
+  return sums
+}
+
+function sanitizeArtifactId (value) {
+  return String(value || 'unknown').replace(/[^a-zA-Z0-9_.-]/g, '-')
+}
+
+function normalizeFirmwareTarget (entry) {
+  if (entry && typeof entry === 'object') {
+    const target = entry.target || entry.env || entry.id
+    return { target, board: entry.board || boardIdFromReleaseTarget(target) }
+  }
+  return { target: entry, board: boardIdFromReleaseTarget(entry) }
+}
+
+function boardIdFromReleaseTarget (target) {
+  const known = SUPPORTED_FIRMWARE_TARGETS.find((entry) => entry.target === target)
+  if (known) return known.board
+  return String(target || '').replace(/-/g, '_')
+}
+
+function firmwarePayloadSha256 (value) {
+  const sha = String(value || '')
+  return sha.startsWith('sha256:') ? sha.slice('sha256:'.length) : sha
+}
+
+function upsertFirmwareArtifact (artifacts, artifact) {
+  const index = artifacts.findIndex((existing) => existing.artifactId === artifact.artifactId)
+  if (index >= 0) {
+    artifacts[index] = { ...artifacts[index], ...artifact }
+  } else {
+    artifacts.push(artifact)
   }
 }
 

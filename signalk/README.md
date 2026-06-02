@@ -108,6 +108,36 @@ from the tagged source and published alongside the matching firmware artifacts.
 Every push/PR also uploads a `signalk-espdisp-manager-<sha>` workflow artifact
 for branch testing, but those artifacts are not release-pinned.
 
+## Firmware Upgrade Artifacts From GitHub
+
+The ESP Display Manager firmware catalog can import firmware artifacts directly
+from this repository's GitHub releases. Release assets are versioned by Git tag
+and board target, for example:
+
+```text
+esp32-4848s040-merged_firmware.bin
+waveshare-touch-lcd-7b_1024x600-merged_firmware.bin
+SHA256SUMS
+```
+
+When the GitHub release source is enabled, the plugin reads the latest release,
+matches `*-merged_firmware.bin` assets against supported board ids, verifies
+that each asset is listed in `SHA256SUMS`, and adds catalog entries with:
+
+- firmware version from the release tag
+- board compatibility from the asset name
+- SHA-256 from `SHA256SUMS`
+- GitHub release download URL for device pull-OTA jobs
+
+Refresh the catalog from the API:
+
+```sh
+curl -X POST http://<signalk-host>:3000/plugins/espdisp-manager/firmware/catalog/refresh
+```
+
+The device firmware update command then points at the GitHub asset URL and
+includes the matching SHA-256 so firmware can verify the downloaded image.
+
 ### Build A Local Plugin Package
 
 For development, build a local tarball from the repo checkout:

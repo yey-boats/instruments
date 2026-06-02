@@ -48,11 +48,11 @@ const artifact = manager.addFirmwareArtifact({
   vendor: { id: 'navado', name: 'Navado' },
   product: { id: 'espdisp', name: 'ESP Display' },
   firmware: { name: 'espdisp', version: '0.5.1', channel: 'dev' },
-  compatibility: { boards: ['esp32-4848s040'], chip: 'ESP32-S3' },
+  compatibility: { boards: ['sunton_4848s040'], chip: 'ESP32-S3' },
   file: {
     name: 'espdisp-0.5.1-esp32-4848s040.bin',
     size: 2048,
-    sha256: 'sha256:mockfw'
+    sha256: 'sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
   }
 })
 const job = manager.createFirmwareJob(firmware.deviceId, { artifactId: artifact.artifactId })

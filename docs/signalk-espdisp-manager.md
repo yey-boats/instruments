@@ -519,6 +519,30 @@ For config changes the command type is currently:
 Firmware jobs follow the same command pattern using `firmware.update`, plus
 job progress and boot confirmation endpoints.
 
+### GitHub Release Firmware Source
+
+For onboard software upgrades, the manager can populate its firmware catalog
+from this repository's GitHub releases. The release workflow publishes one
+target-prefixed merged image per supported board, plus `SHA256SUMS`:
+
+```text
+esp32-4848s040-merged_firmware.bin
+waveshare-touch-lcd-4-merged_firmware.bin
+waveshare-touch-lcd-4_3-merged_firmware.bin
+waveshare-touch-lcd-4_3b-merged_firmware.bin
+waveshare-touch-lcd-5_800x480-merged_firmware.bin
+waveshare-touch-lcd-5_1024x600-merged_firmware.bin
+waveshare-touch-lcd-7_800x480-merged_firmware.bin
+waveshare-touch-lcd-7b_1024x600-merged_firmware.bin
+SHA256SUMS
+```
+
+`POST /plugins/espdisp-manager/firmware/catalog/refresh` reads the latest
+GitHub release, imports assets whose names match supported board ids, records
+their SHA-256 checksums, and stores the GitHub download URL. Firmware update
+jobs created from those artifacts send `firmware.update` commands with the
+GitHub asset URL, target version, size, and SHA-256.
+
 ## Dashboard API
 
 `GET /dashboard` returns an operator summary:

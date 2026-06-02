@@ -19,6 +19,7 @@ jobs:
       matrix:
         env:
           - esp32-4848s040
+          - esp32-4848s040-arduino
           - waveshare-touch-lcd-4
           - waveshare-touch-lcd-4_3
           - waveshare-touch-lcd-4_3b
@@ -44,8 +45,8 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-
 
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
+      - name: Install PlatformIO and esptool
+        run: pip install --upgrade platformio esptool
 
       - name: Check project version metadata
         run: python3 tools/check_version.py
@@ -56,6 +57,21 @@ jobs:
       - name: Build (${{ matrix.env }})
         run: pio run -e ${{ matrix.env }}
 
+      - name: Create merged firmware image
+        run: |
+          BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin -print -quit 2>/dev/null)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "::error::boot_app0.bin not found under ~/.platformio/packages"
+            exit 1
+          fi
+          esptool.py --chip esp32s3 merge_bin \
+            -o ".pio/build/${{ matrix.env }}/merged_firmware.bin" \
+            --flash_mode qio --flash_size 16MB \
+            0x0     ".pio/build/${{ matrix.env }}/bootloader.bin" \
+            0x8000  ".pio/build/${{ matrix.env }}/partitions.bin" \
+            0xe000  "$BOOT_APP0" \
+            0x10000 ".pio/build/${{ matrix.env }}/firmware.bin"
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -65,6 +81,7 @@ jobs:
             .pio/build/${{ matrix.env }}/firmware.elf
             .pio/build/${{ matrix.env }}/bootloader.bin
             .pio/build/${{ matrix.env }}/partitions.bin
+            .pio/build/${{ matrix.env }}/merged_firmware.bin
           if-no-files-found: error
           retention-days: 14
 

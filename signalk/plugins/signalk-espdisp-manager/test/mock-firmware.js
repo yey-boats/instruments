@@ -56,7 +56,7 @@ class MockFirmware {
       id: this.deviceId,
       name: 'Mock ESP Display',
       model: 'ESP32-4848S040',
-      board: 'esp32-4848s040',
+      board: 'sunton_4848s040',
       mac: 'AA:BB:CC:DD:EE:99',
       chip: 'ESP32-S3',
       flashBytes: 16777216,
