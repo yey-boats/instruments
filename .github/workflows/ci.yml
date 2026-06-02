@@ -165,14 +165,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: clang-format check
-        uses: jidicula/clang-format-action@v4.13.0
-        with:
-          clang-format-version: '17'
-          check-path: 'src include test'
-          fallback-style: 'LLVM'
+      - name: Install clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-format
 
-      - name: Python tools syntax
-        run: |
-          python3 -m py_compile tools/*.py
-          python3 tools/check_version.py
+      - name: Run shared pre-commit checks
+        run: make pre-commit

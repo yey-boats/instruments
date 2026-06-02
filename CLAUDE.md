@@ -30,6 +30,8 @@ make ble-cmd CMD="sk-status"            # one-shot BLE command
 make logs                               # listen on UDP :9999 (mirrored logs)
 make demo-up / demo-down                # docker SignalK + tools/fake_boat.py
 make lint / make format                 # clang-format LLVM style + py_compile
+make pre-commit                         # same lint command used by hook + CI
+make hooks-install                      # set core.hooksPath=.githooks
 make backup                             # full 16 MB flash dump via tools/dump_chunked.sh
 ```
 
@@ -136,7 +138,9 @@ serial **and** BLE NUS via `net::dispatchCommand`.
   `chore:`, `test:`) — used by the `release.yml` workflow to generate
   release notes from a tag.
 - **Code style**: C++17, LLVM-ish, 4-space indent, brace on same line.
-  `make format` runs clang-format-17 in place.
+  `make format` runs clang-format in place. Run `make pre-commit` before
+  committing; CI and `.githooks/pre-commit` use the same target, so do not
+  skip lint locally and leave CI to fail on formatting.
 - **Licensing/identity**: project is attributed to **"navado and
   contributors"** — do not insert real names in headers, license, or
   README. License is **PolyForm Noncommercial 1.0.0**; do not relicense

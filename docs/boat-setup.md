@@ -70,6 +70,9 @@ Preferred stable path:
 
 - Download firmware and plugin assets from the latest GitHub release:
   https://github.com/navado/esp32-boat-mfd/releases
+- Release firmware is built from `release-*` PlatformIO environments. Those
+  builds keep the board identity but disable debug/test controls such as touch
+  injection, bench/fps/demo commands, and stall forensic logging.
 - Use the target-specific merged image for first USB flashing, such as
   `esp32-4848s040-merged_firmware.bin` or
   `waveshare-touch-lcd-7b_1024x600-merged_firmware.bin`.

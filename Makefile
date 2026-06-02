@@ -22,6 +22,7 @@ REMOTE_DIR  ?= /home/$(REMOTE_USER)/espdisp-signalk
 REMOTE_SK_HOST ?= $(lastword $(subst @, ,$(REMOTE_HOST)))
 
 PIO ?= pio
+CLANG_FORMAT ?= clang-format
 
 # Resolve PORT=auto to the first matching CH340 device on macOS / Linux.
 ifeq ($(PORT),auto)
@@ -128,9 +129,31 @@ ble-cmd:  ## Send one BLE command (use CMD="sk-status")
 provision:  ## Onboard a fresh MFD onto the lab (BLE; defaults from .env.test)
 	python3 tools/provision_device.py $(PROVISION_ARGS)
 
-logs:  ## Listen for UDP log broadcasts on port 9999
-	python3 -c "import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('0.0.0.0', 9999)); print('listening on :9999  (^C to stop)'); \
-	  $(_)\nwhile True:\n    d, a = s.recvfrom(2048)\n    print(f'[{a[0]}] {d.decode(\"utf-8\", \"replace\").rstrip()}')"
+logs:  ## Listen for UDP log broadcasts on port 9999 (debug FW only)
+	python3 tools/lab-logger/loglistener.py
+
+# Lab logger persistence: ship tools/lab-logger/ to REMOTE via SSH and
+# install the systemd unit + logrotate config there. REMOTE defaults to
+# compulab@192.168.2.11 (the lab box hosting the esp-lab AP). The remote
+# user needs sudo (interactive password prompt is fine; `-t` allocates
+# a pty so sudo can read the password).
+REMOTE ?= compulab@192.168.2.11
+lab-logger-deploy:  ## Install UDP log listener + logrotate on REMOTE (default compulab)
+	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@echo "[lab-logger] uploading to $(REMOTE):/tmp/espdisp-lab-logger"
+	@ssh $(REMOTE) 'rm -rf /tmp/espdisp-lab-logger && mkdir -p /tmp/espdisp-lab-logger'
+	tar -czf - -C tools/lab-logger . | ssh $(REMOTE) 'tar -xzf - -C /tmp/espdisp-lab-logger'
+	@echo "[lab-logger] running install.sh under sudo (will prompt for password on your terminal)"
+	@echo "[lab-logger] if this fails with 'a terminal is required', you're running"
+	@echo "[lab-logger] from a non-interactive shell; the files are already on $(REMOTE) -"
+	@echo "[lab-logger] finish manually: ssh -t $(REMOTE) 'sudo bash /tmp/espdisp-lab-logger/install.sh'"
+	ssh -tt $(REMOTE) 'sudo bash /tmp/espdisp-lab-logger/install.sh'
+
+lab-logger-status:  ## Show systemd status + last 20 log lines on REMOTE
+	@ssh -t $(REMOTE) 'sudo systemctl --no-pager --full status espdisp-loglistener; echo ---; sudo tail -n 20 /var/log/espdisp/device.log 2>/dev/null || true'
+
+lab-logger-tail:  ## Stream live logs from REMOTE
+	@ssh -t $(REMOTE) 'sudo tail -F /var/log/espdisp/device.log'
 
 demo-up:  ## Start SignalK locally in Docker (legacy/local-host path)
 	@SK_HOST=$(SK_HOST) SK_PORT=$(SK_PORT) ./signalk/scripts/run.sh
@@ -174,11 +197,21 @@ sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via nav
 	    pytest tests/system/unattended --espdisp-no-udp-discovery --espdisp-no-discovery
 
 lint: version-check  ## Check C++ formatting and Python syntax
-	@find src include test -name '*.cpp' -o -name '*.h' | xargs clang-format --dry-run --Werror
-	@python3 -m py_compile tools/*.py
+	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { \
+	  echo "$(CLANG_FORMAT) not found. Install clang-format or run with CLANG_FORMAT=/path/to/clang-format." >&2; exit 127; }
+	@find src include test \( -name '*.cpp' -o -name '*.h' \) -print | xargs $(CLANG_FORMAT) --dry-run --Werror
+	@find tools -name '*.py' -print | xargs python3 -m py_compile
+
+pre-commit: lint  ## Run the same checks used by the local hook and CI
+
+hooks-install:  ## Install repository git hooks
+	git config core.hooksPath .githooks
+	@echo "git hooks installed: core.hooksPath=.githooks"
 
 format:  ## Auto-format C++ sources in place
-	@find src include test -name '*.cpp' -o -name '*.h' | xargs clang-format -i
+	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { \
+	  echo "$(CLANG_FORMAT) not found. Install clang-format or run with CLANG_FORMAT=/path/to/clang-format." >&2; exit 127; }
+	@find src include test \( -name '*.cpp' -o -name '*.h' \) -print | xargs $(CLANG_FORMAT) -i
 
 backup:  ## Dump the device flash to backup/full_flash_16MB.bin (chunked, resumable)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
@@ -200,4 +233,4 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
 .PHONY: help setup version version-check version-set build test sys-test sys-test-remote \
         sys-test-mac sys-test-attended flash ota monitor ble ble-cmd provision logs \
         demo-up demo-down demo-up-remote demo-down-remote \
-        lint format backup release-tag clean
+        lint pre-commit hooks-install format backup release-tag clean

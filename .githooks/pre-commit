@@ -1,0 +1,9 @@
+#!/bin/sh
+set -eu
+
+clang_format="$(git config --get hooks.clangformat || true)"
+if [ -n "$clang_format" ]; then
+    make pre-commit CLANG_FORMAT="$clang_format"
+else
+    make pre-commit
+fi

@@ -600,10 +600,20 @@ git push origin v0.1.0
 For tagged releases, GitHub builds with `ESPDISP_VERSION=${TAG_NAME#v}` so
 firmware version `0.1.0` corresponds to Git tag `v0.1.0`.
 
-The `release.yml` workflow builds all supported firmware targets on push of a
-`v*` tag, attaches target-prefixed `firmware.bin`, `merged_firmware.bin`, ELF,
-bootloader, partition table, plugin package, and SHA-256 sums to the GitHub
-release, and generates release notes from commits since the previous tag.
+The `release.yml` workflow builds all supported firmware targets from
+`release-*` PlatformIO environments on push of a `v*` tag. These profiles keep
+the same board IDs as development builds, but compile with
+`ESPDISP_RELEASE_BUILD=1`, `CORE_DEBUG_LEVEL=0`, and debug/test controls
+disabled. The release publishes target-prefixed `firmware.bin`,
+`merged_firmware.bin`, ELF, bootloader, partition table, plugin package, and
+SHA-256 sums to the GitHub release, and generates release notes from commits
+since the previous tag.
+
+The merged image names are part of the SignalK firmware-catalog contract:
+`esp32-4848s040-merged_firmware.bin`,
+`waveshare-touch-lcd-4-merged_firmware.bin`, and the other supported target
+names must be present alongside `SHA256SUMS` for the plugin to import
+upgradable versions from GitHub.
 
 Pre-releases are detected automatically: tags matching `*-rc*`, `*-alpha*`,
 or `*-beta*` are marked as pre-release.

@@ -26,11 +26,38 @@
 #include "autopilot.h"
 #include "device_identity.h"
 #include "device_discovery.h"
+#include "build_config.h"
 
 namespace net {
 
 static IPAddress broadcastAddr;
 static bool ota_started = false;
+
+#ifdef ESPDISP_DEBUG_UDP_LOG
+// Lab-only UDP log sink. Compiled out of release builds entirely.
+// Wire format: one logf() line per UDP datagram, broadcast to
+// `broadcastAddr:UDP_LOG_PORT`. The lab logger (tools/lab-logger/)
+// binds INADDR_ANY:UDP_LOG_PORT and prefixes each datagram with the
+// source IP + receive timestamp before persisting.
+static WiFiUDP s_log_udp;
+static bool s_log_udp_ready = false;
+static void udp_log_emit(const char *buf, int n) {
+    // broadcastAddr is set to softAPIP|.255 in AP mode and to
+    // localIP | ~mask when STA comes up. Zero means we have no usable
+    // network - silently drop (the in-memory log ring still has the
+    // line for later inspection via /api/logs).
+    if (broadcastAddr == IPAddress(0, 0, 0, 0)) return;
+    if (!s_log_udp_ready) {
+        if (!s_log_udp.begin(0)) return;
+        s_log_udp_ready = true;
+    }
+    if (!s_log_udp.beginPacket(broadcastAddr, UDP_LOG_PORT)) return;
+    s_log_udp.write((const uint8_t *)buf, (size_t)n);
+    if (n == 0 || buf[n - 1] != '\n') s_log_udp.write((uint8_t)'\n');
+    s_log_udp.endPacket();
+}
+#endif
+
 static bool ap_mode = false;
 static ExtraCommandHandler s_extra = nullptr;
 static String s_device_id;
@@ -153,9 +180,12 @@ class RxCb : public NimBLECharacteristicCallbacks {
         // queue path (with async scan support already wired in the web
         // UI), but a console-issued `scan` still routes through there
         // cleanly via dispatchCommand.
-        bool inline_ok =
-            (line == "ip" || line == "bench" || line == "screen" || line == "sk-status" ||
-             line == "sk-dump" || line == "wifi-list" || line == "bright");
+        bool inline_ok = (line == "ip" ||
+#if ESPDISP_ENABLE_BENCH
+                          line == "bench" ||
+#endif
+                          line == "screen" || line == "sk-status" || line == "sk-dump" ||
+                          line == "wifi-list" || line == "bright");
         if (inline_ok) {
             if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
                 !layout::handleSerialCommand(line)) {
@@ -516,7 +546,9 @@ bool dispatchCommand(const String &line) {
     if (nmea2000::handleSerialCommand(line)) return true;
     if (boat::handleSerialCommand(line)) return true;
     if (board::handleSerialCommand(line)) return true;
+#if ESPDISP_ENABLE_INPUT_TEST
     if (input_test::handleConsoleCommand(line)) return true;
+#endif
     if (manager::handleSerialCommand(line)) return true;
     if (beeper::handleSerialCommand(line)) return true;
     if (autopilot::handleSerialCommand(line)) return true;
@@ -635,6 +667,9 @@ void logf(const char *fmt, ...) {
         bleTxChar->setValue((uint8_t *)buf, n);
         bleTxChar->notify();
     }
+#ifdef ESPDISP_DEBUG_UDP_LOG
+    udp_log_emit(buf, n);
+#endif
     if (locked) xSemaphoreGive(s_log_mtx);
 }
 

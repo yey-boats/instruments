@@ -10,3 +10,12 @@
   pending files instead of calling the task done.
 - When the user asks to commit, include all files required by the completed
   work, run the relevant tests, and report the commit hash.
+
+## Local Checks
+
+- Run `make pre-commit` before committing; it is the same lint command used by
+  the local git hook and CI.
+- Install the repo hook with `make hooks-install` if `core.hooksPath` is not
+  already `.githooks`.
+- If `make pre-commit` fails, fix formatting with `make format` or address the
+  reported syntax/version issue before running tests or committing.

@@ -54,15 +54,14 @@ jobs:
         run: |
           set -euo pipefail
           targets=(
-            esp32-4848s040
-            esp32-4848s040-arduino
-            waveshare-touch-lcd-4
-            waveshare-touch-lcd-4_3
-            waveshare-touch-lcd-4_3b
-            waveshare-touch-lcd-5_800x480
-            waveshare-touch-lcd-5_1024x600
-            waveshare-touch-lcd-7_800x480
-            waveshare-touch-lcd-7b_1024x600
+            release-esp32-4848s040
+            release-waveshare-touch-lcd-4
+            release-waveshare-touch-lcd-4_3
+            release-waveshare-touch-lcd-4_3b
+            release-waveshare-touch-lcd-5_800x480
+            release-waveshare-touch-lcd-5_1024x600
+            release-waveshare-touch-lcd-7_800x480
+            release-waveshare-touch-lcd-7b_1024x600
           )
           for env in "${targets[@]}"; do
             ESPDISP_VERSION="${TAG_NAME#v}" pio run -e "$env"
@@ -80,27 +79,29 @@ jobs:
           fi
           echo "Using boot_app0.bin from: $BOOT_APP0"
           targets=(
-            esp32-4848s040
-            waveshare-touch-lcd-4
-            waveshare-touch-lcd-4_3
-            waveshare-touch-lcd-4_3b
-            waveshare-touch-lcd-5_800x480
-            waveshare-touch-lcd-5_1024x600
-            waveshare-touch-lcd-7_800x480
-            waveshare-touch-lcd-7b_1024x600
+            esp32-4848s040:release-esp32-4848s040
+            waveshare-touch-lcd-4:release-waveshare-touch-lcd-4
+            waveshare-touch-lcd-4_3:release-waveshare-touch-lcd-4_3
+            waveshare-touch-lcd-4_3b:release-waveshare-touch-lcd-4_3b
+            waveshare-touch-lcd-5_800x480:release-waveshare-touch-lcd-5_800x480
+            waveshare-touch-lcd-5_1024x600:release-waveshare-touch-lcd-5_1024x600
+            waveshare-touch-lcd-7_800x480:release-waveshare-touch-lcd-7_800x480
+            waveshare-touch-lcd-7b_1024x600:release-waveshare-touch-lcd-7b_1024x600
           )
-          for env in "${targets[@]}"; do
-            cp ".pio/build/$env/bootloader.bin" "$out/$env-bootloader.bin"
-            cp ".pio/build/$env/partitions.bin" "$out/$env-partitions.bin"
-            cp ".pio/build/$env/firmware.bin"   "$out/$env-firmware.bin"
-            cp ".pio/build/$env/firmware.elf"   "$out/$env-firmware.elf"
+          for entry in "${targets[@]}"; do
+            public="${entry%%:*}"
+            env="${entry##*:}"
+            cp ".pio/build/$env/bootloader.bin" "$out/$public-bootloader.bin"
+            cp ".pio/build/$env/partitions.bin" "$out/$public-partitions.bin"
+            cp ".pio/build/$env/firmware.bin"   "$out/$public-firmware.bin"
+            cp ".pio/build/$env/firmware.elf"   "$out/$public-firmware.elf"
             esptool.py --chip esp32s3 merge_bin \
-              -o "$out/$env-merged_firmware.bin" \
+              -o "$out/$public-merged_firmware.bin" \
               --flash_mode qio --flash_size 16MB \
-              0x0     "$out/$env-bootloader.bin" \
-              0x8000  "$out/$env-partitions.bin" \
+              0x0     "$out/$public-bootloader.bin" \
+              0x8000  "$out/$public-partitions.bin" \
               0xe000  "$BOOT_APP0" \
-              0x10000 "$out/$env-firmware.bin"
+              0x10000 "$out/$public-firmware.bin"
           done
           ls -la "$out"
 

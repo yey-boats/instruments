@@ -112,9 +112,8 @@ int applyDelta(const char *json, size_t len, Data &out) {
     return count;
 }
 
-const char *classifyStatus(bool connected, uint32_t lastUpdateMs,
-                           uint32_t connectedSinceMs, uint32_t wsLastFrameMs,
-                           uint32_t nowMs, uint32_t stallMs) {
+const char *classifyStatus(bool connected, uint32_t lastUpdateMs, uint32_t connectedSinceMs,
+                           uint32_t wsLastFrameMs, uint32_t nowMs, uint32_t stallMs) {
     if (!connected) return "disconnected";
     // Pick the freshest of the three signals as the staleness reference.
     // wsLastFrameMs catches link activity that doesn't tick lastUpdateMs

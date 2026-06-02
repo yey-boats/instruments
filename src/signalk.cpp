@@ -1,4 +1,5 @@
 #include "signalk.h"
+#include "build_config.h"
 #include "signalk_parser.h"
 #include "source_signalk.h"
 #include "net.h"
@@ -366,6 +367,7 @@ static uint32_t s_stall_begin_ms = 0;
 static uint32_t s_stall_iters_baseline = 0;
 
 void pollStallTelemetry() {
+#if ESPDISP_ENABLE_STALL_TELEMETRY
     String status = connectionStatus();
     bool now_stalled = (status == "stalled");
     if (now_stalled == s_prev_stalled) return;
@@ -391,30 +393,27 @@ void pollStallTelemetry() {
 
     // Age helper: -1 sentinel for "never stamped" so the log line
     // distinguishes a freshly-cleared timestamp from a 0-ms-old one.
-    auto age = [&](uint32_t t) -> long {
-        return t ? (long)(now - t) : -1L;
-    };
+    auto age = [&](uint32_t t) -> long { return t ? (long)(now - t) : -1L; };
 
     if (now_stalled) {
         s_stall_begin_ms = now;
         net::logf("[sk] STALL begin connected=%d last_update_age=%ld "
                   "last_frame_age=%ld connect_age=%ld iters_delta=%u "
                   "peak_us=%u wifi=%s rssi=%d host=%s:%u",
-                  (int)connected, age(last_update), age(ws_last_frame),
-                  age(connected_since), (unsigned)iters_delta,
-                  (unsigned)peak_us, net::wifiStateName(), net::rssi(),
+                  (int)connected, age(last_update), age(ws_last_frame), age(connected_since),
+                  (unsigned)iters_delta, (unsigned)peak_us, net::wifiStateName(), net::rssi(),
                   s_host.c_str(), (unsigned)s_port);
     } else {
         uint32_t dur = s_stall_begin_ms ? (now - s_stall_begin_ms) : 0;
         net::logf("[sk] STALL end after %u ms status=%s connected=%d "
                   "last_update_age=%ld last_frame_age=%ld iters_delta=%u "
                   "peak_us=%u rssi=%d",
-                  (unsigned)dur, status.c_str(), (int)connected,
-                  age(last_update), age(ws_last_frame),
-                  (unsigned)iters_delta, (unsigned)peak_us, net::rssi());
+                  (unsigned)dur, status.c_str(), (int)connected, age(last_update),
+                  age(ws_last_frame), (unsigned)iters_delta, (unsigned)peak_us, net::rssi());
         s_stall_begin_ms = 0;
     }
     s_prev_stalled = now_stalled;
+#endif
 }
 
 uint32_t loopIters() {
@@ -612,8 +611,7 @@ String connectionStatus() {
     connectedSince = data.connectedSinceMs;
     wsLastFrame = data.wsLastFrameMs;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
-    return classifyStatus(connected, lastUpdate, connectedSince, wsLastFrame,
-                          millis());
+    return classifyStatus(connected, lastUpdate, connectedSince, wsLastFrame, millis());
 }
 
 }  // namespace sk

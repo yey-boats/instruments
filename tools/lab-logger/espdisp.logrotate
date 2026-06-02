@@ -1,0 +1,18 @@
+# Weekly rotation, 1-week retention (rotate 7 + daily = ~7 days kept).
+# copytruncate is required because the systemd-managed listener holds
+# the log fd open and has no SIGHUP/SIGUSR1 reopen path; logrotate
+# copies the current file aside, then truncates in place so the
+# listener keeps writing into the same inode. The systemd unit uses
+# DynamicUser=yes, so we don't `create` (the original file is never
+# removed) and `su root root` lets logrotate read/truncate regardless
+# of the transient UID the listener runs as.
+/var/log/espdisp/device.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su root root
+}

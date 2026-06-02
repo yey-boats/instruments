@@ -1,0 +1,35 @@
+[Unit]
+Description=espdisp UDP log listener (port 9999)
+Documentation=https://github.com/navado/esp32-boat-mfd/blob/main/tools/lab-logger/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/espdisp-loglistener/loglistener.py
+Restart=on-failure
+RestartSec=5
+# Capture stdout to a real file. logrotate handles weekly rotation;
+# we use copytruncate (see espdisp.logrotate) because the listener
+# holds the fd open and has no SIGHUP-style reopen.
+StandardOutput=append:/var/log/espdisp/device.log
+StandardError=append:/var/log/espdisp/device.log
+
+# The listener runs unprivileged and only needs IPv4 UDP. systemd's
+# sandboxing knobs cost nothing here and keep the blast radius small
+# if the listener ever gets compromised on the multi-tenant lab box.
+DynamicUser=yes
+LogsDirectory=espdisp
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_INET
+SystemCallArchitectures=native
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -24,6 +24,7 @@
 #include "beeper.h"
 #include "autopilot.h"
 #include "board.h"
+#include "build_config.h"
 
 #include "storage.h"
 #include <math.h>
@@ -649,6 +650,13 @@ static uint32_t lv_tick_cb(void) {
 
 namespace input_test {
 
+bool is_injection_command(const String &line) {
+    return line == "tap" || line.startsWith("tap ") || line == "swipe" ||
+           line.startsWith("swipe ") || line == "gesture" || line.startsWith("gesture ") ||
+           line == "touch" || line.startsWith("touch ");
+}
+
+#if ESPDISP_ENABLE_INPUT_TEST
 bool inject_touch(int16_t x, int16_t y, bool pressed) {
     if (!g_touch_mtx) return false;
     if (xSemaphoreTake(g_touch_mtx, pdMS_TO_TICKS(20)) != pdTRUE) return false;
@@ -715,12 +723,6 @@ bool post_gesture(const char *dir) {
     c.t_post_us = micros();
     net::logf("[test] post_gesture dir=%s -> %s", dir, cmd);
     return app::post(c, 0);
-}
-
-bool is_injection_command(const String &line) {
-    return line == "tap" || line.startsWith("tap ") || line == "swipe" ||
-           line.startsWith("swipe ") || line == "gesture" || line.startsWith("gesture ") ||
-           line == "touch" || line.startsWith("touch ");
 }
 
 namespace {
@@ -803,6 +805,23 @@ bool handleConsoleCommand(const String &line) {
     }
     return false;  // unreachable
 }
+#else
+bool inject_touch(int16_t, int16_t, bool) {
+    return false;
+}
+bool inject_tap(int16_t, int16_t, uint32_t) {
+    return false;
+}
+bool inject_swipe(int16_t, int16_t, int16_t, int16_t, uint32_t, uint8_t) {
+    return false;
+}
+bool post_gesture(const char *) {
+    return false;
+}
+bool handleConsoleCommand(const String &line) {
+    return is_injection_command(line);
+}
+#endif
 
 }  // namespace input_test
 
@@ -1364,6 +1383,7 @@ static void screen_gesture_handler(lv_event_t *e) {
 // ----- Command handler --------------------------------------------------
 
 static bool handleMainCommand(const String &line) {
+#if ESPDISP_ENABLE_DEMO
     if (line == "demo" || line.startsWith("demo ")) {
         uint32_t period = 3000;
         if (line.length() > 5) period = (uint32_t)line.substring(5).toInt() * 1000;
@@ -1374,6 +1394,8 @@ static bool handleMainCommand(const String &line) {
         demo_stop();
         return true;
     }
+#endif
+#if ESPDISP_ENABLE_BENCH
     if (line == "fps") {
         fps_overlay_toggle();
         return true;
@@ -1394,6 +1416,11 @@ static bool handleMainCommand(const String &line) {
         irq_probe::disarm();
         return true;
     }
+#else
+    if (line == "irq-probe" || line == "irq-probe-dump" || line == "irq-probe-stop") {
+        return true;
+    }
+#endif
     if (line == "gt911-config" || line == "touch-config") {
         gt911_dump_config();
         return true;
@@ -1434,6 +1461,7 @@ static bool handleMainCommand(const String &line) {
         return true;
     }
     if (line == "latency-reset" || line == "bench-reset") {
+#if ESPDISP_ENABLE_BENCH
         latency::reset_all();
         g_flush_count = 0;
         g_flush_us_total = 0;
@@ -1446,6 +1474,7 @@ static bool handleMainCommand(const String &line) {
         strncpy(g_section_peak_name, "-", sizeof(g_section_peak_name) - 1);
         g_section_peak_name[sizeof(g_section_peak_name) - 1] = 0;
         net::logf("[bench] reset");
+#endif
         return true;
     }
     if (line.startsWith("touch-cal-set ")) {
@@ -1708,7 +1737,9 @@ static void ui_refresh(lv_timer_t *) {
 
     t = micros();
     mob_refresh();
+#if ESPDISP_ENABLE_STALL_TELEMETRY
     sk::pollStallTelemetry();
+#endif
     alarm_check();
     note_slow_section("ui:overlays", micros() - t);
 

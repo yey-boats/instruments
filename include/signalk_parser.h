@@ -95,8 +95,7 @@ void applyValue(const char *path, JsonVariant val, Data &out);
 // horizon (15s ping x 2 retries + 3s pong wait ~= 33s). Shorter
 // thresholds reliably alarm before the WS library has even decided
 // whether the link is alive.
-const char *classifyStatus(bool connected, uint32_t lastUpdateMs,
-                           uint32_t connectedSinceMs, uint32_t wsLastFrameMs,
-                           uint32_t nowMs, uint32_t stallMs = 30000);
+const char *classifyStatus(bool connected, uint32_t lastUpdateMs, uint32_t connectedSinceMs,
+                           uint32_t wsLastFrameMs, uint32_t nowMs, uint32_t stallMs = 30000);
 
 }  // namespace sk

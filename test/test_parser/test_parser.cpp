@@ -198,11 +198,9 @@ static void test_apstate_truncates_safely() {
 
 // classifyStatus: WS not connected -> "disconnected", regardless of timestamps.
 static void test_status_disconnected() {
-    TEST_ASSERT_EQUAL_STRING(
-        "disconnected", sk::classifyStatus(false, 0, 0, 0, 50000, 10000));
-    TEST_ASSERT_EQUAL_STRING(
-        "disconnected",
-        sk::classifyStatus(false, 1000, 500, 1000, 50000, 10000));
+    TEST_ASSERT_EQUAL_STRING("disconnected", sk::classifyStatus(false, 0, 0, 0, 50000, 10000));
+    TEST_ASSERT_EQUAL_STRING("disconnected",
+                             sk::classifyStatus(false, 1000, 500, 1000, 50000, 10000));
 }
 
 // Regression: WS just connected, no delta yet, well inside the warmup
@@ -211,27 +209,23 @@ static void test_status_disconnected() {
 // "SIGNALK STALLED" alarm banner appeared on every fresh connect.
 static void test_status_live_during_warmup() {
     // connectedSinceMs=1000, now=2000 -> 1s into warmup, no data, no frames yet.
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, 0, 1000, 0, 2000, 10000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 0, 1000, 0, 2000, 10000));
 }
 
 // After the warmup window expires with still no data and no frames, stalled.
 static void test_status_stalled_after_warmup_no_activity() {
     // connectedSinceMs=1000, now=12001 -> 11001ms since connect, > 10000.
-    TEST_ASSERT_EQUAL_STRING(
-        "stalled", sk::classifyStatus(true, 0, 1000, 0, 12001, 10000));
+    TEST_ASSERT_EQUAL_STRING("stalled", sk::classifyStatus(true, 0, 1000, 0, 12001, 10000));
 }
 
 // Fresh data within the stall window -> live.
 static void test_status_live_with_fresh_data() {
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, 50000, 1000, 50000, 51000, 10000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 50000, 1000, 50000, 51000, 10000));
 }
 
 // Data went stale (last delta > stallMs ago) and no other activity -> stalled.
 static void test_status_stalled_with_stale_data() {
-    TEST_ASSERT_EQUAL_STRING(
-        "stalled", sk::classifyStatus(true, 1000, 500, 1000, 12000, 10000));
+    TEST_ASSERT_EQUAL_STRING("stalled", sk::classifyStatus(true, 1000, 500, 1000, 12000, 10000));
 }
 
 // Regression: a brief WS reconnect must restart the warmup window. The
@@ -243,8 +237,7 @@ static void test_status_stalled_with_stale_data() {
 static void test_status_reconnect_resets_warmup() {
     // After reconnect: lastUpdateMs=0, wsLastFrameMs=0,
     // connectedSinceMs=200000, now=200500 -> 500ms into the new warmup.
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, 0, 200000, 0, 200500, 10000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 0, 200000, 0, 200500, 10000));
 }
 
 // millis() wrap (~49 days uptime): nowMs wraps past lastUpdateMs but the
@@ -253,8 +246,7 @@ static void test_status_reconnect_resets_warmup() {
 static void test_status_handles_millis_wrap() {
     uint32_t last = 0xFFFFF000u;  // just before wrap
     uint32_t now = 0x00000100u;   // wrapped; ~4.3s after last
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, last, last, last, now, 10000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, last, last, last, now, 10000));
 }
 
 // New: WS link activity (hello, subscription ack, envelope-only delta)
@@ -264,16 +256,14 @@ static void test_status_handles_millis_wrap() {
 static void test_status_live_when_frames_arrive_without_values() {
     // lastUpdateMs=0 (no values ever), wsLastFrameMs=49000 (recent frame),
     // connectedSinceMs=1000, now=50000 -> last frame 1s ago.
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, 0, 1000, 49000, 50000, 10000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 0, 1000, 49000, 50000, 10000));
 }
 
 // New: no WS activity of any kind within the window -> stalled even if
 // connectedSinceMs is recent (which it isn't here; warmup already passed).
 static void test_status_stalled_when_all_signals_stale() {
     // All three timestamps are 20s old, window is 10s -> stalled.
-    TEST_ASSERT_EQUAL_STRING(
-        "stalled", sk::classifyStatus(true, 1000, 1000, 1000, 21000, 10000));
+    TEST_ASSERT_EQUAL_STRING("stalled", sk::classifyStatus(true, 1000, 1000, 1000, 21000, 10000));
 }
 
 // New: frames arrive but values don't. Frames are more recent than the
@@ -281,8 +271,7 @@ static void test_status_stalled_when_all_signals_stale() {
 static void test_status_frames_more_recent_than_values() {
     // lastUpdateMs=1000 (old), wsLastFrameMs=49000 (recent), now=50000.
     // Stall window 10000 -> ref=49000, ago=1000 -> live.
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, 1000, 500, 49000, 50000, 10000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 1000, 500, 49000, 50000, 10000));
 }
 
 // New: default-arg threshold (30s) is what production uses. Verify a
@@ -290,11 +279,10 @@ static void test_status_frames_more_recent_than_values() {
 // threshold the same state would have been "stalled".
 static void test_status_default_threshold_is_30s() {
     // ref=25000, now=50000 -> 25s ago.
-    TEST_ASSERT_EQUAL_STRING(
-        "live", sk::classifyStatus(true, 25000, 25000, 25000, 50000));
+    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 25000, 25000, 25000, 50000));
     // At the legacy 10s threshold, same state would alarm.
-    TEST_ASSERT_EQUAL_STRING(
-        "stalled", sk::classifyStatus(true, 25000, 25000, 25000, 50000, 10000));
+    TEST_ASSERT_EQUAL_STRING("stalled",
+                             sk::classifyStatus(true, 25000, 25000, 25000, 50000, 10000));
 }
 
 int main(int, char **) {
