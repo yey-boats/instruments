@@ -79,29 +79,39 @@ flash: setup  ## Flash via USB (uses PORT, auto-detected if not set)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
 	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
 
-discover:  ## Discover the device on the LAN (mDNS) or over BLE; prints IP. NAME=<filter> optional.
+discover:  ## Discover the device (mDNS, then BLE); prints IP. NAME=<device_id> for exact match.
 	@python3 tools/discover_device.py $(if $(NAME),--name $(NAME),)
 
-discover-json:  ## Same as discover but prints full JSON record (ip, name, port, source, txt).
+discover-json:  ## Same as discover but prints full JSON record.
 	@python3 tools/discover_device.py --json $(if $(NAME),--name $(NAME),)
 
 # ota target: explicit DEVICE_IP wins. Otherwise we run tools/discover_device.py
-# (mDNS _espdisp._tcp -> _arduino._tcp -> BLE NUS `ip` query) and use whatever
-# it returns. Pass NAME=<substring> to disambiguate when multiple devices are
-# visible. Fails loudly if discovery returns nothing.
-ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> to pin, NAME=<filter> to scope discovery.
+# (mDNS _espdisp._tcp -> _arduino._tcp -> BLE NUS `ip` query). Both transports
+# are unauthenticated - any spoofed responder on the LAN/BLE can steer the
+# upload, and if OTA_PASSWORD is empty in secrets.h the attacker captures
+# firmware.bin (including any baked-in WiFi PSK). For unattended/lab use,
+# pin DEVICE_IP=<addr> or pass NAME=<device_id> for an exact-match lookup
+# that errors on ambiguity.
+ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes discovery.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
-	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or run 'make discover'" >&2; exit 1; }
+	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or fix discovery (see 'make discover')" >&2; exit 1; }
 	@echo "[ota] target=$(OTA_TARGET)"
 	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e ota -t upload --upload-port $(OTA_TARGET)
 
-flash-auto: setup  ## USB if a serial port is present, else OTA via discovery.
+# flash-auto: USB if plugged in. OTA fallback is opt-in via OTA=1 because
+# discovery is unauthenticated; we don't want a `make flash-auto` invocation
+# meant for USB to silently push firmware over the network to whoever wins
+# the discovery race.
+flash-auto: setup  ## USB if a serial port is present; pass OTA=1 to allow OTA fallback.
 	@if [ -n "$(PORT)" ]; then \
 	  echo "[flash-auto] USB port $(PORT)"; \
 	  $(MAKE) flash PORT=$(PORT); \
+	elif [ "$(OTA)" = "1" ]; then \
+	  echo "[flash-auto] no USB port; OTA=1 set - using OTA discovery"; \
+	  $(MAKE) ota $(if $(NAME),NAME=$(NAME),) $(if $(DEVICE_IP),DEVICE_IP=$(DEVICE_IP),); \
 	else \
-	  echo "[flash-auto] no USB port - falling back to OTA discovery"; \
-	  $(MAKE) ota $(if $(NAME),NAME=$(NAME),); \
+	  echo "no USB serial port found. Re-run with OTA=1 to allow network flashing (uses unauthenticated discovery - see 'make ota' help)." >&2; \
+	  exit 1; \
 	fi
 
 monitor:  ## Open serial monitor at 115200 baud
