@@ -8,6 +8,9 @@
 #include <ESPmDNS.h>
 #include <NimBLEDevice.h>
 #include <esp_mac.h>
+#include <esp_attr.h>
+#include <esp_system.h>
+#include <esp_heap_caps.h>
 #include <freertos/semphr.h>
 
 #include "secrets.h"
@@ -41,6 +44,74 @@ static bool ota_started = false;
 static volatile uint8_t s_udp_log_level = LOG_WARN;
 static char s_udp_log_tag[16] = {0};
 static void load_log_prefs();
+
+// Crash forensics. RTC slow memory survives software reset (panic,
+// ESP.restart, watchdog) but not power-cycle, which is exactly the
+// signal we want: a power loss is self-evident, a soft reset isn't.
+// We stamp these on every log line, then at boot we read whatever
+// remained from the previous run and broadcast it - the lab logger
+// captures it as a `[prevboot]` trail, so we can see what was going
+// on right before the device fell over even though the in-memory
+// log ring was wiped by the reset.
+//
+// RTC_NOINIT_ATTR variables hold garbage on power-on. s_rtc_magic
+// gates that - any first-boot read sees a junk value and we skip
+// the dump, then stamp the magic for subsequent reboots.
+//
+// Size: 12 bytes of scalars + 2 KiB ring = well under the S3's 8 KiB
+// of RTC slow mem and the chip doesn't use it for anything else here
+// (no deep sleep in this firmware).
+static constexpr uint32_t CRASH_RTC_MAGIC = 0x45535044;  // "ESPD"
+static constexpr size_t CRASH_RING_CAP = 2048;
+RTC_NOINIT_ATTR static uint32_t s_rtc_magic;
+RTC_NOINIT_ATTR static uint32_t s_rtc_last_uptime_ms;
+RTC_NOINIT_ATTR static uint32_t s_rtc_min_free_heap;
+RTC_NOINIT_ATTR static uint32_t s_rtc_ring_head;
+RTC_NOINIT_ATTR static char s_rtc_ring[CRASH_RING_CAP];
+
+static void crash_ring_append(const char *buf, int n) {
+    if (n <= 0) return;
+    // Treat s_rtc_ring as a circular byte stream; head is the write
+    // position. We don't track a separate tail - reader walks the
+    // whole buffer at boot. Lines are NUL-separated so a torn write
+    // mid-line is still parseable from the next separator.
+    uint32_t head = s_rtc_ring_head % CRASH_RING_CAP;
+    for (int i = 0; i < n; ++i) {
+        s_rtc_ring[head] = buf[i];
+        head = (head + 1) % CRASH_RING_CAP;
+    }
+    if (head < CRASH_RING_CAP) s_rtc_ring[head] = '\0';
+    s_rtc_ring_head = head;
+}
+
+static const char *reset_reason_name(esp_reset_reason_t r) {
+    switch (r) {
+    case ESP_RST_UNKNOWN:
+        return "UNKNOWN";
+    case ESP_RST_POWERON:
+        return "POWERON";
+    case ESP_RST_EXT:
+        return "EXT";
+    case ESP_RST_SW:
+        return "SW";
+    case ESP_RST_PANIC:
+        return "PANIC";
+    case ESP_RST_INT_WDT:
+        return "INT_WDT";
+    case ESP_RST_TASK_WDT:
+        return "TASK_WDT";
+    case ESP_RST_WDT:
+        return "WDT";
+    case ESP_RST_DEEPSLEEP:
+        return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:
+        return "BROWNOUT";
+    case ESP_RST_SDIO:
+        return "SDIO";
+    default:
+        return "?";
+    }
+}
 
 #ifdef ESPDISP_DEBUG_UDP_LOG
 // Lab-only UDP log sink. Compiled out of release builds entirely.
@@ -558,6 +629,57 @@ void setup() {
     // Load UDP log filter prefs before anything starts emitting so the
     // first boot-time logf doesn't get broadcast at the wrong level.
     load_log_prefs();
+
+    // Crash forensics: emit one WARN line for every reboot describing
+    // why we reset, and if the RTC ring has data from a prior soft
+    // reset, dump its tail prefixed with [prevboot] so the lab logger
+    // captures what was happening right before the panic. POWERON
+    // reboots have garbage in the RTC area (uninitialized), so we gate
+    // the prevboot dump on the magic word.
+    {
+        esp_reset_reason_t reason = esp_reset_reason();
+        bool have_prev = (s_rtc_magic == CRASH_RTC_MAGIC);
+        uint32_t free_now = (uint32_t)esp_get_free_heap_size();
+        if (have_prev) {
+            logf_at(LOG_WARN,
+                    "[boot] reset_reason=%s prev_uptime_ms=%u "
+                    "prev_min_free_heap=%u free_heap=%u",
+                    reset_reason_name(reason), (unsigned)s_rtc_last_uptime_ms,
+                    (unsigned)s_rtc_min_free_heap, (unsigned)free_now);
+            // Walk the RTC ring from oldest to newest. head points at
+            // the next write slot; the byte before it is the most
+            // recently written. Lines are '\n'-terminated.
+            uint32_t head = s_rtc_ring_head % CRASH_RING_CAP;
+            char line[200];
+            size_t lp = 0;
+            // Start one past head so we walk the full buffer once.
+            for (size_t i = 0; i < CRASH_RING_CAP; ++i) {
+                size_t idx = (head + i) % CRASH_RING_CAP;
+                char c = s_rtc_ring[idx];
+                if (c == '\0') continue;  // skip uninitialized / torn bytes
+                if (c == '\n' || lp == sizeof(line) - 1) {
+                    line[lp] = 0;
+                    if (lp > 0) logf_at(LOG_WARN, "[prevboot] %s", line);
+                    lp = 0;
+                    continue;
+                }
+                if ((unsigned char)c >= 0x20) line[lp++] = c;
+            }
+            if (lp > 0) {
+                line[lp] = 0;
+                logf_at(LOG_WARN, "[prevboot] %s", line);
+            }
+        } else {
+            logf_at(LOG_WARN, "[boot] reset_reason=%s (cold start, no prev trail) free_heap=%u",
+                    reset_reason_name(reason), (unsigned)free_now);
+        }
+        // Reset the RTC region for the new boot's trail.
+        s_rtc_magic = CRASH_RTC_MAGIC;
+        s_rtc_ring_head = 0;
+        s_rtc_last_uptime_ms = 0;
+        s_rtc_min_free_heap = free_now;
+        memset(s_rtc_ring, 0, CRASH_RING_CAP);
+    }
     // BLE is independent of WiFi - bring it up immediately so the BLE
     // console is responsive even if the WiFi manager is still trying.
     bleSetup();
@@ -687,6 +809,20 @@ static void log_emit(uint8_t level, const char *fmt, va_list ap) {
     append_log_locked(buf, n);
     fwrite(buf, 1, n, stdout);
     if (buf[n - 1] != '\n') putchar('\n');
+
+    // Forensic crash trail: copy every line into the RTC-retained ring
+    // and stamp the current uptime + heap low-water. A panic kills the
+    // device before it can flush; on next boot we read whatever survived
+    // the soft reset. Cheap (memcpy + two stores) so it stays on for
+    // all builds, not just debug.
+    crash_ring_append(buf, n);
+    if (buf[n - 1] != '\n') crash_ring_append("\n", 1);
+    s_rtc_last_uptime_ms = millis();
+    uint32_t min_free = (uint32_t)esp_get_minimum_free_heap_size();
+    if (s_rtc_magic != CRASH_RTC_MAGIC || min_free < s_rtc_min_free_heap ||
+        s_rtc_min_free_heap == 0) {
+        s_rtc_min_free_heap = min_free;
+    }
 
     if (bleConnected && bleTxChar) {
         bleTxChar->setValue((uint8_t *)buf, n);
