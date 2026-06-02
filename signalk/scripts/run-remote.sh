@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bring up the SignalK demo stack on a remote Docker host (default:
-# compulab@192.168.2.11), then run fake_boat locally so it pushes
+# nav-server), then run fake_boat locally so it pushes
 # synthetic deltas into the remote SK server.
 #
 # Override defaults:
@@ -13,8 +13,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SK_DIR="$ROOT/signalk"
 
-REMOTE_HOST="${REMOTE_HOST:-compulab@192.168.2.11}"
-REMOTE_DIR="${REMOTE_DIR:-/home/compulab/espdisp-signalk}"
+REMOTE_HOST="${REMOTE_HOST:-nav-server}"
+REMOTE_DIR="${REMOTE_DIR:-/home/nav-server/espdisp-signalk}"
 SK_HOST="${SK_HOST:-${REMOTE_HOST##*@}}"
 SK_PORT="${SK_PORT:-3000}"
 CONTAINER="${SIGNALK_CONTAINER:-signalk-server}"
@@ -96,7 +96,7 @@ docker run -d \
 # --network host: the container sees every interface on the box
 # (eth0 + wlan-ap0), so UDP broadcasts from the esp-lab subnet land
 # on the SK discovery responder.  This is required for the device's
-# 34300 discovery probe to be answered from compulab.
+# 34300 discovery probe to be answered from nav-server.
 REMOTE
 
 # 3. poll until the remote SK answers HTTP, then start fake_boat locally

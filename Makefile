@@ -13,11 +13,11 @@ SK_HOST   ?= localhost
 SK_PORT   ?= 3000
 PROJECT_VERSION ?= $(shell cat VERSION)
 
-# Lab default for the current setup: SignalK on compulab over SSH,
+# Lab default for the current setup: SignalK on nav-server over SSH,
 # device reachable only via OTA + BLE. Override on the command line if
 # you spin up a different host or rotate creds.
-REMOTE_HOST ?= compulab@192.168.2.11
-REMOTE_DIR  ?= /home/compulab/espdisp-signalk
+REMOTE_HOST ?= nav-server
+REMOTE_DIR  ?= /home/nav-server/espdisp-signalk
 REMOTE_SK_HOST ?= $(lastword $(subst @, ,$(REMOTE_HOST)))
 
 PIO ?= pio
@@ -106,7 +106,7 @@ demo-up:  ## Start SignalK locally in Docker (legacy/local-host path)
 demo-down:  ## Stop local fake_boat + SignalK
 	@./signalk/scripts/stop.sh
 
-demo-up-remote:  ## Start SignalK on REMOTE_HOST (default compulab@192.168.2.11) via SSH+Docker
+demo-up-remote:  ## Start SignalK on REMOTE_HOST (default nav-server) via SSH+Docker
 	@REMOTE_HOST=$(REMOTE_HOST) REMOTE_DIR=$(REMOTE_DIR) \
 	  SK_HOST=$(REMOTE_SK_HOST) SK_PORT=$(SK_PORT) \
 	  ./signalk/scripts/run-remote.sh
@@ -123,15 +123,15 @@ sys-test-remote:  ## Run unattended system tests against the lab device + remote
 	  pytest tests/system/unattended
 
 # The full transport: native BLE on this Mac (the lab AP is on a
-# combo WiFi+BT chip on compulab, so its BT is starved while hostapd
+# combo WiFi+BT chip on nav-server, so its BT is starved while hostapd
 # runs — BLE has to live on the dev laptop) plus SSH-tunneled HTTP
-# through compulab to the device's port 80 (because cynas has no
+# through nav-server to the device's port 80 (because the WAN router has no
 # route to 10.42.0.0/24 yet). Tunnel auto-opens on `sys-test-mac`
 # and is torn down after.
 TUNNEL_PORT ?= 10067
 DEVICE_LAN_IP ?= 10.42.0.67
 
-sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via compulab
+sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via nav-server
 	@test -f .env.test || { echo ".env.test missing" >&2; exit 1; }
 	@pkill -f 'ssh.*$(TUNNEL_PORT):$(DEVICE_LAN_IP)' 2>/dev/null || true
 	@ssh -fN -L $(TUNNEL_PORT):$(DEVICE_LAN_IP):80 $(REMOTE_HOST) \

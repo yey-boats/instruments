@@ -3,7 +3,7 @@
 # local fake_boat that was pushing into it.
 set -euo pipefail
 
-REMOTE_HOST="${REMOTE_HOST:-compulab@192.168.2.11}"
+REMOTE_HOST="${REMOTE_HOST:-nav-server}"
 CONTAINER="${SIGNALK_CONTAINER:-signalk-server}"
 
 pkill -f "tools/fake_boat.py" 2>/dev/null || true

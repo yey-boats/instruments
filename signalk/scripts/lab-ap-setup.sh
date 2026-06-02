@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Run on compulab as root.  Brings up `esp-lab` AP on virtual wlan-ap0
+# Run on nav-server as root.  Brings up `esp-lab` AP on virtual wlan-ap0
 # and a dnsmasq DHCP server for 10.42.0.0/24.  Forwarding is pure
-# routed (no NAT) — cynas router needs a static route
+# routed (no NAT) — the Router/Starlink/etc. WAN router needs a static route
 # `10.42.0.0/24 via 192.168.2.11` for return traffic.
 #
 # Usage:
@@ -46,7 +46,7 @@ wpa_passphrase=$PSK
 EOF
 chmod 0600 "$CONF_DIR/hostapd.conf"  # PSK lives in this file at rest
 
-# --- dnsmasq config (DHCP only, default gw 10.42.0.1 = compulab) ------
+# --- dnsmasq config (DHCP only, default gw 10.42.0.1 = nav-server) -----
 # Static lease for the lab MFD (MAC 28:37:2f:8a:02:90) pins its IP at
 # 10.42.0.67, matching what .env.test expects.  Add more dhcp-host
 # lines as new devices join.
@@ -102,7 +102,7 @@ setsid dnsmasq -C "$CONF_DIR/dnsmasq.conf" \
   --log-facility="$LOG_DIR/espdisp-lab-dnsmasq.log"
 sleep 1
 
-# --- self-install + systemd unit so AP survives compulab reboot -------
+# --- self-install + systemd unit so AP survives nav-server reboot ------
 SELF="$(readlink -f "$0")"
 PERSIST=/usr/local/sbin/espdisp-lab-ap-setup.sh
 if [ "$SELF" != "$PERSIST" ]; then
