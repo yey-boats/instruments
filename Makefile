@@ -17,7 +17,8 @@ PROJECT_VERSION ?= $(shell cat VERSION)
 # device reachable only via OTA + BLE. Override on the command line if
 # you spin up a different host or rotate creds.
 REMOTE_HOST ?= nav-server
-REMOTE_DIR  ?= /home/nav-server/espdisp-signalk
+REMOTE_USER ?= $(if $(findstring @,$(REMOTE_HOST)),$(firstword $(subst @, ,$(REMOTE_HOST))),nav-server)
+REMOTE_DIR  ?= /home/$(REMOTE_USER)/espdisp-signalk
 REMOTE_SK_HOST ?= $(lastword $(subst @, ,$(REMOTE_HOST)))
 
 PIO ?= pio

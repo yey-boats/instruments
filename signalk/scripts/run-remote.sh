@@ -14,7 +14,14 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SK_DIR="$ROOT/signalk"
 
 REMOTE_HOST="${REMOTE_HOST:-nav-server}"
-REMOTE_DIR="${REMOTE_DIR:-/home/nav-server/espdisp-signalk}"
+if [ -z "${REMOTE_DIR:-}" ]; then
+  if [[ "$REMOTE_HOST" == *@* ]]; then
+    REMOTE_USER="${REMOTE_HOST%@*}"
+  else
+    REMOTE_USER="nav-server"
+  fi
+  REMOTE_DIR="/home/$REMOTE_USER/espdisp-signalk"
+fi
 SK_HOST="${SK_HOST:-${REMOTE_HOST##*@}}"
 SK_PORT="${SK_PORT:-3000}"
 CONTAINER="${SIGNALK_CONTAINER:-signalk-server}"
