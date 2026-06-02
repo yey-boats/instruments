@@ -113,17 +113,23 @@ int applyDelta(const char *json, size_t len, Data &out) {
 }
 
 const char *classifyStatus(bool connected, uint32_t lastUpdateMs,
-                           uint32_t connectedSinceMs, uint32_t nowMs,
-                           uint32_t stallMs) {
+                           uint32_t connectedSinceMs, uint32_t wsLastFrameMs,
+                           uint32_t nowMs, uint32_t stallMs) {
     if (!connected) return "disconnected";
-    // If data has arrived since the current connection, use that as the
-    // freshness reference. Otherwise fall back to the connect timestamp
-    // so the warmup window after WS connect/reconnect doesn't trip the
-    // alarm. signalk.cpp resets lastUpdateMs=0 on disconnect so a stale
-    // pre-disconnect timestamp can't leak across a reconnect.
-    uint32_t ref = lastUpdateMs ? lastUpdateMs : connectedSinceMs;
-    // No reference yet (connected==true was set without a timestamp).
-    // Don't alarm - treat as warmup.
+    // Pick the freshest of the three signals as the staleness reference.
+    // wsLastFrameMs catches link activity that doesn't tick lastUpdateMs
+    // (hello, subscription acks, envelope-only deltas) so a healthy but
+    // value-quiet server doesn't trip the alarm. connectedSinceMs is the
+    // warmup floor for fresh (re)connects. signalk.cpp resets all three
+    // on disconnect so stale pre-disconnect timestamps can't leak across.
+    uint32_t ref = 0;
+    auto bump = [&](uint32_t t) {
+        if (!t) return;
+        if (!ref || (int32_t)(t - ref) > 0) ref = t;
+    };
+    bump(lastUpdateMs);
+    bump(wsLastFrameMs);
+    bump(connectedSinceMs);
     if (ref == 0) return "live";
     uint32_t ago = nowMs - ref;
     return ago > stallMs ? "stalled" : "live";

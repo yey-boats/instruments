@@ -54,6 +54,14 @@ struct Data {
     // delta arrives so a freshly-connected (or freshly-reconnected) link
     // doesn't immediately raise the "SIGNALK STALLED" alarm.
     uint32_t connectedSinceMs = 0;
+    // Wall-clock millis on the last received WS TEXT frame, regardless of
+    // whether applyDelta matched any value-bearing path. This is the WS
+    // *link* freshness signal as opposed to *data* freshness: SK servers
+    // legitimately send hello, subscription acks, and envelope-only
+    // deltas (no `values`), which keep the pipe alive but wouldn't tick
+    // lastUpdateMs. Counting them here prevents the alarm from firing
+    // during normal idle gaps when the link is healthy.
+    uint32_t wsLastFrameMs = 0;
     bool connected = false;
 };
 
@@ -68,14 +76,27 @@ void applyValue(const char *path, JsonVariant val, Data &out);
 
 // Pure classifier for the SignalK link status string surfaced via
 // /api/state.sk, the status screen, and the "SIGNALK STALLED" alarm.
-//   "disconnected" -> WS not connected
-//   "live"         -> WS connected and either fresh data within stallMs,
-//                     or no data yet but still inside the warmup window
-//                     measured from connectedSinceMs.
-//   "stalled"      -> WS connected but no data within stallMs of the
-//                     newer of (lastUpdateMs, connectedSinceMs).
+//
+// Returns:
+//   "disconnected" -> WS not connected.
+//   "live"         -> WS connected and at least one of {value-bearing
+//                     delta, any WS TEXT frame, connection establishment}
+//                     happened within stallMs.
+//   "stalled"      -> WS connected but no WS activity at all within
+//                     stallMs of nowMs.
+//
+// All three timestamps are uint32_t millis(). The reference for the
+// staleness check is whichever of (lastUpdateMs, wsLastFrameMs,
+// connectedSinceMs) is most recent in modular-arithmetic terms, so
+// hello/ack/envelope-only frames (which don't tick lastUpdateMs but
+// do tick wsLastFrameMs) are correctly treated as link activity.
+//
+// stallMs default of 30000 matches the WebSocketsClient heartbeat
+// horizon (15s ping x 2 retries + 3s pong wait ~= 33s). Shorter
+// thresholds reliably alarm before the WS library has even decided
+// whether the link is alive.
 const char *classifyStatus(bool connected, uint32_t lastUpdateMs,
-                           uint32_t connectedSinceMs, uint32_t nowMs,
-                           uint32_t stallMs = 10000);
+                           uint32_t connectedSinceMs, uint32_t wsLastFrameMs,
+                           uint32_t nowMs, uint32_t stallMs = 30000);
 
 }  // namespace sk

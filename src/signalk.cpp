@@ -103,6 +103,10 @@ static void onText(uint8_t *payload, size_t len) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
     int n = applyDelta((const char *)payload, len, data);
     uint32_t now = millis();
+    // Always tick the WS frame timestamp: any TEXT we receive proves
+    // the link is alive even if applyDelta found no value-bearing path
+    // (server hello, subscription ack, envelope-only delta).
+    data.wsLastFrameMs = now;
     if (n > 0) data.lastUpdateMs = now;
     Data snap = data;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
@@ -116,15 +120,17 @@ static void set_connected(bool v) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
     data.connected = v;
     if (v) {
-        // Stamp the connect time and clear any stale lastUpdate from a
-        // prior session so the warmup window starts fresh and a brief
-        // reconnect doesn't inherit a multi-minute-old timestamp that
+        // Stamp the connect time and clear stale per-frame/data timestamps
+        // from any prior session so the warmup window starts fresh and a
+        // brief reconnect doesn't inherit multi-minute-old timestamps that
         // would instantly trip the "SIGNALK STALLED" alarm.
         data.connectedSinceMs = millis();
         data.lastUpdateMs = 0;
+        data.wsLastFrameMs = 0;
     } else {
         data.connectedSinceMs = 0;
         data.lastUpdateMs = 0;
+        data.wsLastFrameMs = 0;
     }
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 }
@@ -540,12 +546,15 @@ String connectionStatus() {
     bool connected;
     uint32_t lastUpdate;
     uint32_t connectedSince;
+    uint32_t wsLastFrame;
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
     connected = data.connected;
     lastUpdate = data.lastUpdateMs;
     connectedSince = data.connectedSinceMs;
+    wsLastFrame = data.wsLastFrameMs;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
-    return classifyStatus(connected, lastUpdate, connectedSince, millis());
+    return classifyStatus(connected, lastUpdate, connectedSince, wsLastFrame,
+                          millis());
 }
 
 }  // namespace sk
