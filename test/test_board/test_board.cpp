@@ -106,7 +106,8 @@ static void test_800x480_large_panel_uses_compact_class_but_wide_context() {
     TEST_ASSERT_EQUAL_UINT16(800, g.width_px);
     TEST_ASSERT_EQUAL_UINT16(480, g.height_px);
     TEST_ASSERT_FALSE(g.square);
-    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::DisplayShape::Rectangle), static_cast<int>(g.shape));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::DisplayShape::Rectangle),
+                          static_cast<int>(g.shape));
     TEST_ASSERT_EQUAL_INT(static_cast<int>(board::LayoutClass::LandscapeCompact),
                           static_cast<int>(g.layout_class));
     TEST_ASSERT_EQUAL_INT(static_cast<int>(board::DensityClass::Mdpi),
@@ -155,7 +156,8 @@ static void test_board_name_helpers() {
     TEST_ASSERT_EQUAL_STRING("landscape-1024x600",
                              board::layout_class_name(board::LayoutClass::LandscapeWide));
     TEST_ASSERT_EQUAL_STRING("GT911", board::touch_kind_name(board::TouchKind::GT911));
-    TEST_ASSERT_EQUAL_STRING("rgb-parallel", board::display_bus_name(board::DisplayBus::RgbParallel));
+    TEST_ASSERT_EQUAL_STRING("rgb-parallel",
+                             board::display_bus_name(board::DisplayBus::RgbParallel));
 }
 
 static void test_landscape_compact_640x480() {

@@ -34,14 +34,13 @@ bool s_power = true;
 uint16_t s_width = FAKE_BOARD_WIDTH;
 uint16_t s_height = FAKE_BOARD_HEIGHT;
 uint16_t s_diag = FAKE_BOARD_DIAG_TENTHS;
-DisplayShape s_shape = FAKE_BOARD_WIDTH == FAKE_BOARD_HEIGHT ? DisplayShape::Square
-                                                             : DisplayShape::Rectangle;
+DisplayShape s_shape =
+    FAKE_BOARD_WIDTH == FAKE_BOARD_HEIGHT ? DisplayShape::Square : DisplayShape::Rectangle;
 
 LayoutClass classify(uint16_t w, uint16_t h) {
     if (w == h) return LayoutClass::SquareCompact;
     if (w > h) {
-        return (w >= 1024 || h >= 600) ? LayoutClass::LandscapeWide
-                                       : LayoutClass::LandscapeCompact;
+        return (w >= 1024 || h >= 600) ? LayoutClass::LandscapeWide : LayoutClass::LandscapeCompact;
     }
     return (uint32_t)h * 10 / w >= 15 ? LayoutClass::PortraitTall : LayoutClass::PortraitCompact;
 }
@@ -134,8 +133,8 @@ void reset_geometry() {
     s_width = FAKE_BOARD_WIDTH;
     s_height = FAKE_BOARD_HEIGHT;
     s_diag = FAKE_BOARD_DIAG_TENTHS;
-    s_shape = FAKE_BOARD_WIDTH == FAKE_BOARD_HEIGHT ? DisplayShape::Square
-                                                    : DisplayShape::Rectangle;
+    s_shape =
+        FAKE_BOARD_WIDTH == FAKE_BOARD_HEIGHT ? DisplayShape::Square : DisplayShape::Rectangle;
 }
 
 }  // namespace native_fake

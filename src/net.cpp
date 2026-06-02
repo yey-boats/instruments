@@ -713,8 +713,7 @@ bool handleSerialCommand(const String &line) {
         // and clears the lwIP netif without the 6+ second cost of
         // ESP.restart().  Credentials and saved networks survive.
         wl_status_t before = WiFi.status();
-        logf("[wifi] reconnect requested (was status=%d ip=%s)", (int)before,
-             ipString().c_str());
+        logf("[wifi] reconnect requested (was status=%d ip=%s)", (int)before, ipString().c_str());
         WiFi.disconnect(false /* wifioff */, false /* erase */);
         delay(150);
         WiFi.reconnect();

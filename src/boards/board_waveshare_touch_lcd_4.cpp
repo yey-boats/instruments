@@ -16,9 +16,10 @@
 // board::capabilities() advertises (NMEA2000 + SD enabled).
 
 #if defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4) || defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4_3) ||        \
-    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4_3B) || defined(BOARD_ID_WAVESHARE_TOUCH_LCD_5_800X480) || \
-    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_5_1024X600) ||                                           \
-    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_7_800X480) ||                                            \
+    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_4_3B) ||                                                  \
+    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_5_800X480) ||                                             \
+    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_5_1024X600) ||                                            \
+    defined(BOARD_ID_WAVESHARE_TOUCH_LCD_7_800X480) ||                                             \
     defined(BOARD_ID_WAVESHARE_TOUCH_LCD_7B_1024X600)
 
 #include "board.h"

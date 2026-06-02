@@ -18,7 +18,8 @@
 // users without an explicit -D in platformio.ini still get a working
 // firmware. Once BOARD_ID_DEFINED is set anywhere in the build, this
 // file only compiles when the matching id is also set.
-#if defined(BOARD_ID_SUNTON_4848S040) || (!defined(BOARD_ID_DEFINED) && !defined(BOARD_ID_NATIVE_FAKE))
+#if defined(BOARD_ID_SUNTON_4848S040) ||                                                           \
+    (!defined(BOARD_ID_DEFINED) && !defined(BOARD_ID_NATIVE_FAKE))
 
 namespace board {
 

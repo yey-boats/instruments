@@ -4,11 +4,11 @@
 
 #include "manager_endpoint.h"
 
-using manager_endpoint::DiscoveryMethod;
-using manager_endpoint::Endpoint;
 using manager_endpoint::base_url;
 using manager_endpoint::discovery_method_from_string;
 using manager_endpoint::discovery_method_to_string;
+using manager_endpoint::DiscoveryMethod;
+using manager_endpoint::Endpoint;
 using manager_endpoint::parse_url;
 using manager_endpoint::redacted_secret_state;
 

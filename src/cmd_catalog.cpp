@@ -13,7 +13,8 @@ static const Entry CATALOG[] = {
     {"net", "wifi-list", "List saved WiFi networks", true, true},
     {"net", "wifi <ssid> <pass>", "Save WiFi creds and reboot", false, true},
     {"net", "wifi-forget <ssid>", "Drop a saved network", true, true},
-    {"net", "wifi-reconnect", "Disconnect + re-associate without reboot (lwIP recovery)", true, true},
+    {"net", "wifi-reconnect", "Disconnect + re-associate without reboot (lwIP recovery)", true,
+     true},
     {"net", "id <name>|auto", "Set device id or restore hardware-derived id; reboots", true, true},
     {"net", "reboot", "Reboot the device", true, true},
 

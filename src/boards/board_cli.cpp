@@ -15,12 +15,11 @@ bool handleSerialCommand(const String &line) {
         Geometry g = geometry();
         Capabilities c = capabilities();
         net::logf("[board] id=%s name=%s", id(), display_name());
-        net::logf("[board] geom %ux%u rot=%u %.1f\" shape=%s density=%s layout=%s",
-                  g.width_px, g.height_px, g.rotation, g.diagonal_tenths_in / 10.0f,
-                  shape_name(g.shape), density_class_name(g.density_class),
-                  layout_class_name(g.layout_class));
-        net::logf("[board] usable x=%u y=%u w=%u h=%u", g.usable_x, g.usable_y,
-                  g.usable_width, g.usable_height);
+        net::logf("[board] geom %ux%u rot=%u %.1f\" shape=%s density=%s layout=%s", g.width_px,
+                  g.height_px, g.rotation, g.diagonal_tenths_in / 10.0f, shape_name(g.shape),
+                  density_class_name(g.density_class), layout_class_name(g.layout_class));
+        net::logf("[board] usable x=%u y=%u w=%u h=%u", g.usable_x, g.usable_y, g.usable_width,
+                  g.usable_height);
         net::logf("[board] caps psram=%d backlight=%d touch=%d cal=%d "
                   "beeper=%d can=%d sd=%d bus=%s touchKind=%s irq=%d",
                   c.psram_required, (int)c.backlight, (int)c.touch, c.touch_calibration, c.beeper,

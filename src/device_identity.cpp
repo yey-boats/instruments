@@ -173,7 +173,8 @@ void to_json_doc(JsonDocument &doc) {
     safe["x"] = g.usable_x;
     safe["y"] = safe_y;
     safe["width"] = g.usable_width;
-    safe["height"] = g.usable_height > (safe_y - g.usable_y) ? g.usable_height - (safe_y - g.usable_y) : 0;
+    safe["height"] =
+        g.usable_height > (safe_y - g.usable_y) ? g.usable_height - (safe_y - g.usable_y) : 0;
 
     JsonObject touch = doc["touch"].to<JsonObject>();
     touch["enabled"] = bc.touch != board::TouchKind::None;
