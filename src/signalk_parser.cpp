@@ -112,4 +112,21 @@ int applyDelta(const char *json, size_t len, Data &out) {
     return count;
 }
 
+const char *classifyStatus(bool connected, uint32_t lastUpdateMs,
+                           uint32_t connectedSinceMs, uint32_t nowMs,
+                           uint32_t stallMs) {
+    if (!connected) return "disconnected";
+    // If data has arrived since the current connection, use that as the
+    // freshness reference. Otherwise fall back to the connect timestamp
+    // so the warmup window after WS connect/reconnect doesn't trip the
+    // alarm. signalk.cpp resets lastUpdateMs=0 on disconnect so a stale
+    // pre-disconnect timestamp can't leak across a reconnect.
+    uint32_t ref = lastUpdateMs ? lastUpdateMs : connectedSinceMs;
+    // No reference yet (connected==true was set without a timestamp).
+    // Don't alarm - treat as warmup.
+    if (ref == 0) return "live";
+    uint32_t ago = nowMs - ref;
+    return ago > stallMs ? "stalled" : "live";
+}
+
 }  // namespace sk

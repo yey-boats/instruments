@@ -196,6 +196,66 @@ static void test_apstate_truncates_safely() {
     TEST_ASSERT_TRUE(strlen(d.apState) <= 15);
 }
 
+// classifyStatus: WS not connected -> "disconnected", regardless of timestamps.
+static void test_status_disconnected() {
+    TEST_ASSERT_EQUAL_STRING("disconnected",
+                             sk::classifyStatus(false, 0, 0, 50000, 10000));
+    TEST_ASSERT_EQUAL_STRING("disconnected",
+                             sk::classifyStatus(false, 1000, 500, 50000, 10000));
+}
+
+// Regression: WS just connected, no delta yet, well inside the warmup
+// window -> must be "live", not "stalled". Before the fix, lastUpdate==0
+// alone forced "stalled" the instant set_connected(true) ran, so the
+// "SIGNALK STALLED" alarm banner appeared on every fresh connect.
+static void test_status_live_during_warmup() {
+    // connectedSinceMs=1000, now=2000 -> 1s into warmup, no data yet.
+    TEST_ASSERT_EQUAL_STRING("live",
+                             sk::classifyStatus(true, 0, 1000, 2000, 10000));
+}
+
+// After the warmup window expires with still no data, surface as stalled.
+static void test_status_stalled_after_warmup_no_data() {
+    // connectedSinceMs=1000, now=12001 -> 11001ms since connect, > 10000.
+    TEST_ASSERT_EQUAL_STRING("stalled",
+                             sk::classifyStatus(true, 0, 1000, 12001, 10000));
+}
+
+// Fresh data within the stall window -> live.
+static void test_status_live_with_fresh_data() {
+    TEST_ASSERT_EQUAL_STRING(
+        "live", sk::classifyStatus(true, 50000, 1000, 51000, 10000));
+}
+
+// Data went stale (last delta > stallMs ago) -> stalled.
+static void test_status_stalled_with_stale_data() {
+    TEST_ASSERT_EQUAL_STRING(
+        "stalled", sk::classifyStatus(true, 1000, 500, 12000, 10000));
+}
+
+// Regression: a brief WS reconnect must restart the warmup window. The
+// old behavior left lastUpdateMs at a value from before the disconnect,
+// so `millis() - lastUpdateMs` was always huge after reconnect and the
+// alarm fired immediately. signalk.cpp now resets lastUpdateMs to 0 on
+// every connect; the classifier must treat that state as warmup, not
+// stalled.
+static void test_status_reconnect_resets_warmup() {
+    // After reconnect: lastUpdateMs=0 (cleared by set_connected),
+    // connectedSinceMs=200000, now=200500 -> 500ms into the new warmup.
+    TEST_ASSERT_EQUAL_STRING(
+        "live", sk::classifyStatus(true, 0, 200000, 200500, 10000));
+}
+
+// millis() wrap (~49 days uptime): nowMs wraps past lastUpdateMs but the
+// real elapsed time is small. uint32_t subtraction must still give the
+// correct ago.
+static void test_status_handles_millis_wrap() {
+    uint32_t last = 0xFFFFF000u;  // just before wrap
+    uint32_t now = 0x00000100u;   // wrapped; ~4.3s after last
+    TEST_ASSERT_EQUAL_STRING("live",
+                             sk::classifyStatus(true, last, last, now, 10000));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_parses_speed_over_ground);
@@ -214,5 +274,12 @@ int main(int, char **) {
     RUN_TEST(test_parses_current);
     RUN_TEST(test_great_circle_aliases_route);
     RUN_TEST(test_apstate_truncates_safely);
+    RUN_TEST(test_status_disconnected);
+    RUN_TEST(test_status_live_during_warmup);
+    RUN_TEST(test_status_stalled_after_warmup_no_data);
+    RUN_TEST(test_status_live_with_fresh_data);
+    RUN_TEST(test_status_stalled_with_stale_data);
+    RUN_TEST(test_status_reconnect_resets_warmup);
+    RUN_TEST(test_status_handles_millis_wrap);
     return UNITY_END();
 }

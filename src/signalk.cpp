@@ -115,6 +115,17 @@ static void onText(uint8_t *payload, size_t len) {
 static void set_connected(bool v) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
     data.connected = v;
+    if (v) {
+        // Stamp the connect time and clear any stale lastUpdate from a
+        // prior session so the warmup window starts fresh and a brief
+        // reconnect doesn't inherit a multi-minute-old timestamp that
+        // would instantly trip the "SIGNALK STALLED" alarm.
+        data.connectedSinceMs = millis();
+        data.lastUpdateMs = 0;
+    } else {
+        data.connectedSinceMs = 0;
+        data.lastUpdateMs = 0;
+    }
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 }
 
@@ -528,14 +539,13 @@ String connectionStatus() {
     // Snapshot under the same mutex sk_task uses to mutate these fields.
     bool connected;
     uint32_t lastUpdate;
+    uint32_t connectedSince;
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
     connected = data.connected;
     lastUpdate = data.lastUpdateMs;
+    connectedSince = data.connectedSinceMs;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
-    if (!connected) return "disconnected";
-    uint32_t ago = millis() - lastUpdate;
-    if (lastUpdate == 0 || ago > 10000) return "stalled";
-    return "live";
+    return classifyStatus(connected, lastUpdate, connectedSince, millis());
 }
 
 }  // namespace sk

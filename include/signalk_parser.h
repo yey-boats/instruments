@@ -49,6 +49,11 @@ struct Data {
     double currentDrift = NAN;    // current speed, m/s
 
     uint32_t lastUpdateMs = 0;
+    // Wall-clock millis when the WS transitioned to connected. Reset to 0
+    // on disconnect. Used as the staleness reference until the first
+    // delta arrives so a freshly-connected (or freshly-reconnected) link
+    // doesn't immediately raise the "SIGNALK STALLED" alarm.
+    uint32_t connectedSinceMs = 0;
     bool connected = false;
 };
 
@@ -60,5 +65,17 @@ int applyDelta(const char *json, size_t len, Data &out);
 
 // Apply a single path/value pair. Public for unit testing.
 void applyValue(const char *path, JsonVariant val, Data &out);
+
+// Pure classifier for the SignalK link status string surfaced via
+// /api/state.sk, the status screen, and the "SIGNALK STALLED" alarm.
+//   "disconnected" -> WS not connected
+//   "live"         -> WS connected and either fresh data within stallMs,
+//                     or no data yet but still inside the warmup window
+//                     measured from connectedSinceMs.
+//   "stalled"      -> WS connected but no data within stallMs of the
+//                     newer of (lastUpdateMs, connectedSinceMs).
+const char *classifyStatus(bool connected, uint32_t lastUpdateMs,
+                           uint32_t connectedSinceMs, uint32_t nowMs,
+                           uint32_t stallMs = 10000);
 
 }  // namespace sk
