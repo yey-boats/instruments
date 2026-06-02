@@ -93,6 +93,25 @@ review, and imported back into the manager. Devices expose matching local web
 endpoints for dashboard config import/export when direct bench configuration is
 needed.
 
+## Device States
+
+The Devices page shows one health state per registered device. States are
+derived in this order: offline, config-error, pending, network-conflict, then
+ok. If more than one condition is true, the earlier state in that order wins.
+
+| State | Meaning | How to solve it | How to avoid it |
+|---|---|---|---|
+| `ok` | The device is online, has no failed config report, has no pending/delivered commands, and its desired hostname is unique. | No action needed. If the device still behaves oddly, open the device detail page and inspect live status, logs, reported config hash, and recent commands. | Keep profiles stable, avoid unnecessary hostname changes, and let devices complete command acknowledgements before issuing more changes. |
+| `offline` | The manager has not seen a heartbeat recently. The online window is `max(heartbeatMs * 3, 15000)` milliseconds; the plugin clamps heartbeat to at least `30000` ms because firmware does the same. This state hides lower-priority states until the device reports again. | Power the device, confirm WiFi, confirm it can reach SignalK, check the device's manager endpoint/token, then restart or re-register if needed. Use Discovery or an IP scan if the address changed. | Use stable WiFi, keep the SignalK host reachable from the display network, avoid AP isolation, and keep manager discovery/registration settings current. |
+| `config-error` | The device heartbeat reported `config.applied === false`. The device rejected or only partially applied its last generated config. | Open the device detail/config page, compare desired and reported config hashes, inspect recent errors/logs, then fix unsupported widgets, invalid paths, bad layout references, invalid brightness/theme/touch settings, or malformed network/source config. Queue `config.reload` after fixing. | Use the structured config UI, keep widget IDs and screen tile references consistent, avoid unsupported widget types for that device, and test presets on a mock or lab device before applying broadly. |
+| `pending` | The device has at least one non-expired command in `pending` or `delivered` state. This includes commands such as `config.reload`, screen/theme/brightness changes, and firmware jobs. | Wait for the device to poll and acknowledge. If it stays pending, check that the device is online, command polling is running, auth tokens are valid, and the command has not expired. Cancel stale commands if appropriate, then retry. | Do not queue repeated reloads faster than the device's command poll interval, keep command payloads valid, and confirm the device is heartbeating before sending commands. |
+| `network-conflict` | The manager calculated the same desired hostname for another registered device. This is usually caused by duplicate device IDs, identical manual hostnames, or a role/location naming policy that maps two devices to the same name. | Open each conflicting device, change one device's ID, role/location, manual hostname, or the manager network naming policy so each desired hostname is unique. Then send config reload or let the next heartbeat/config cycle update the device. Remove stale duplicate registry records if a device was replaced. | Use unique device IDs, avoid assigning the same manual hostname to multiple displays, choose a naming policy that includes enough unique information, and clean up old registry entries after replacing hardware. |
+
+Discovery rows have separate freshness/conflict indicators for unclaimed
+records. Those are about observed network advertisements and duplicate
+addresses. The registered device `network-conflict` state is specifically
+about duplicate desired hostnames in the registry.
+
 ## Screenshots
 
 Manager overview:
@@ -167,6 +186,8 @@ GET  /ui/profiles
 GET  /ui/profiles/:id
 POST /ui/profiles/:id/apply
 GET  /ui/firmware
+POST /ui/firmware/catalog/refresh
+POST /ui/devices/:id/firmware/update
 GET  /discovery/devices
 POST /discovery/devices
 POST /discovery/devices/:id/claim
@@ -319,6 +340,7 @@ Firmware:
 
 ```text
 GET  /firmware/catalog
+POST /firmware/catalog/refresh
 POST /firmware/artifacts
 GET  /firmware/artifacts/:artifactId
 GET  /firmware/download/:jobId
@@ -542,6 +564,34 @@ GitHub release, imports assets whose names match supported board ids, records
 their SHA-256 checksums, and stores the GitHub download URL. Firmware update
 jobs created from those artifacts send `firmware.update` commands with the
 GitHub asset URL, target version, size, and SHA-256.
+
+The SignalK operator UI exposes the same flow on `GET /ui/firmware`:
+
+- `Device upgrade status` compares every registered device with compatible
+  catalog artifacts.
+- `Available versions` lists artifact versions compatible with the device
+  board/chip and marks the currently installed version.
+- `Queue update` creates a firmware job and enqueues a `firmware.update`
+  command for that device.
+- `Refresh catalog from GitHub` imports the newest compatible release assets
+  before queuing updates.
+
+The command is pull-based. If an artifact has a GitHub release URL, firmware
+downloads from GitHub. If the artifact is stored by the plugin instead, the
+command URL points at SignalK:
+
+```text
+/plugins/espdisp-manager/firmware/download/<job-id>
+```
+
+That SignalK endpoint streams the stored firmware binary when the artifact has
+`file.path`; GitHub-backed artifacts are downloaded directly from the GitHub
+asset URL in the command payload.
+
+In both cases the command includes `jobId`, `artifactId`, `version`, `url`,
+`sha256`, `size`, `mode: pull`, `reboot`, and `confirmAfterBoot`. Firmware
+reports progress with `POST /devices/:id/firmware/jobs/:jobId/progress` and
+confirms the booted version with `POST /devices/:id/firmware/confirm`.
 
 ## Dashboard API
 

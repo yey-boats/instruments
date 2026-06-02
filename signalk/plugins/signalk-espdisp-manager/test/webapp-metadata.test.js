@@ -11,3 +11,7 @@ assert.strictEqual(pkg.signalk.displayName, 'ESP Display Manager')
 assert.strictEqual(pkg.signalk.appIcon, './icon.svg')
 assert.ok(fs.existsSync(path.join(root, 'public', 'index.html')))
 assert.ok(fs.existsSync(path.join(root, 'public', 'icon.svg')))
+
+const index = fs.readFileSync(path.join(root, 'public', 'index.html'), 'utf8')
+assert.ok(index.includes('src="/plugins/espdisp-manager/ui"'))
+assert.ok(!index.includes('http-equiv="refresh"'))

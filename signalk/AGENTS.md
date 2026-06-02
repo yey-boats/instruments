@@ -11,6 +11,9 @@ This folder owns the local SignalK server fixture used by `make demo-up`.
 - Runtime dependency installs belong in `config/package.json`.
 - Plugin enablement belongs in `config/plugin-config-data/`.
 - Server settings belong in `config/settings.json`.
+- Before calling SignalK plugin work complete, check `git status --short`.
+  Commit the implementation and tests when requested, or explicitly report the
+  uncommitted files.
 
 ## Container
 

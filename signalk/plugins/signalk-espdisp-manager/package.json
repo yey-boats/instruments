@@ -16,6 +16,7 @@
     "package.json"
   ],
   "scripts": {
+    "check": "node -c index.js && node -c lib/manager.js && npm test",
     "test": "node test/run.js",
     "test:playwright": "playwright test"
   },

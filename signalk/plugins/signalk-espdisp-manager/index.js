@@ -1,3 +1,5 @@
+const fs = require('fs')
+const path = require('path')
 const { EspDispManager } = require('./lib/manager')
 const pluginPackage = require('./package.json')
 
@@ -54,12 +56,12 @@ module.exports = function espdispManagerPlugin (app) {
         heartbeatMs: {
           type: 'number',
           title: 'Heartbeat interval, ms',
-          default: 5000
+          default: 30000
         },
         commandPollMs: {
           type: 'number',
           title: 'Command poll interval, ms',
-          default: 1000
+          default: 15000
         },
         auth: {
           type: 'object',
@@ -222,6 +224,9 @@ module.exports = function espdispManagerPlugin (app) {
           get: { summary: 'List discovered ESP display devices' },
           post: { summary: 'Announce a discovered ESP display device' }
         },
+        '/plugins/espdisp-manager/discovery/scan': {
+          post: { summary: 'Scan IP or BLE transports for ESP display devices' }
+        },
         '/plugins/espdisp-manager/discovery/devices/{deviceId}/claim': {
           post: { summary: 'Claim a discovered ESP display device into the registry' }
         },
@@ -305,6 +310,33 @@ function registerRoutes (router, getManager) {
     res.json(manager.announceDiscoveredDevice(req.body || {}, authFrom(req)))
   }))
 
+  router.post('/discovery/scan', wrap(getManager, async (manager, req, res) => {
+    const result = await manager.scanForDevices(req.body || {})
+    if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+      res.statusCode = 303
+      res.setHeader('location', `/plugins/espdisp-manager/ui/discovery?scan=${encodeURIComponent(result.status)}&found=${result.found}&scanned=${result.scanned}`)
+      res.end()
+      return
+    }
+    res.json(result)
+  }))
+
+  router.post('/devices/register-from-signalk', wrap(getManager, async (manager, req, res) => {
+    const body = req.body || {}
+    const result = await manager.registerDeviceFromSignalK({
+      ...body,
+      sendReload: checkboxValue(body.sendReload),
+      sendManagerRegister: checkboxValue(body.sendManagerRegister)
+    })
+    if (String(req.headers['content-type'] || '').includes('application/x-www-form-urlencoded')) {
+      res.statusCode = 303
+      res.setHeader('location', `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(result.deviceId)}?status=registered-through-signalk`)
+      res.end()
+      return
+    }
+    res.json(result)
+  }))
+
   router.post('/discovery/devices/:id/claim', wrap(getManager, (manager, req, res) => {
     const body = req.body || {}
     const result = manager.claimDiscoveredDevice(req.params.id, {
@@ -339,14 +371,46 @@ function registerRoutes (router, getManager) {
     res.end(renderUi(manager, 'devices', req))
   }))
 
-  router.get('/ui/devices/:id', wrap(getManager, (manager, req, res) => {
+  router.get('/ui/devices/:id', wrap(getManager, async (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
-    res.end(renderUi(manager, 'device', req))
+    const dashboard = manager.dashboard()
+    const live = {}
+    try {
+      live.status = await manager.getLiveStatus(req.params.id)
+    } catch (err) {
+      live.statusError = err
+    }
+    try {
+      live.logs = await manager.getLiveLogs(req.params.id)
+    } catch (err) {
+      live.logsError = err
+    }
+    res.end(renderUiShell('Device detail', renderDevicePage(manager, req.params.id, live), dashboard, 'device'))
   }))
 
   router.get('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'deviceConfig', req))
+  }))
+
+  router.get('/ui/devices/:id/live/status', wrap(getManager, async (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    try {
+      const status = await manager.getLiveStatus(req.params.id)
+      res.end(renderLiveStatusPage(manager, req.params.id, status))
+    } catch (err) {
+      res.end(renderLiveErrorPage(manager, req.params.id, 'Live status', err))
+    }
+  }))
+
+  router.get('/ui/devices/:id/live/logs', wrap(getManager, async (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    try {
+      const logs = await manager.getLiveLogs(req.params.id, req.query.since)
+      res.end(renderLiveLogsPage(manager, req.params.id, logs))
+    } catch (err) {
+      res.end(renderLiveErrorPage(manager, req.params.id, 'Live logs', err))
+    }
   }))
 
   router.post('/ui/devices/:id/config', wrap(getManager, (manager, req, res) => {
@@ -381,6 +445,27 @@ function registerRoutes (router, getManager) {
   router.get('/ui/firmware', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'firmware', req))
+  }))
+
+  router.post('/ui/firmware/catalog/refresh', wrap(getManager, async (manager, req, res) => {
+    await manager.refreshFirmwareFromGithub()
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/espdisp-manager/ui/firmware')
+    res.end()
+  }))
+
+  router.post('/ui/devices/:id/firmware/update', wrap(getManager, (manager, req, res) => {
+    manager.createFirmwareJob(req.params.id, {
+      artifactId: req.body && req.body.artifactId,
+      policy: {
+        reboot: req.body.reboot !== 'false',
+        confirmAfterBoot: req.body.confirmAfterBoot !== 'false',
+        rollbackOnFailure: true
+      }
+    })
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/espdisp-manager/ui/firmware')
+    res.end()
   }))
 
   router.get('/groups', wrap(getManager, (manager, req, res) => {
@@ -518,7 +603,25 @@ function registerRoutes (router, getManager) {
 
   router.get('/firmware/download/:jobId', wrap(getManager, (manager, req, res) => {
     const info = manager.firmwareDownloadInfo(req.params.jobId)
-    res.json(info)
+    const file = info.artifact && info.artifact.file ? info.artifact.file : {}
+    if (!file.path) {
+      res.json(info)
+      return
+    }
+    res.setHeader('content-type', file.contentType || 'application/octet-stream')
+    if (file.size) res.setHeader('content-length', String(file.size))
+    res.setHeader('x-espdisp-artifact-id', info.artifact.artifactId)
+    res.setHeader('x-espdisp-sha256', file.sha256 || '')
+    res.setHeader('content-disposition', `attachment; filename="${path.basename(file.name || file.path)}"`)
+    fs.createReadStream(file.path)
+      .on('error', (err) => {
+        if (!res.headersSent) {
+          res.status(404).json({ error: { code: 'artifact_binary_missing', message: err.message } })
+        } else {
+          res.destroy(err)
+        }
+      })
+      .pipe(res)
   }))
 
   router.get('/devices/:id/firmware/jobs', wrap(getManager, (manager, req, res) => {
@@ -693,6 +796,11 @@ function renderUi (manager, page, req) {
     preset: 'Preset',
     firmware: 'Firmware'
   }[page] || 'Overview'
+  return renderUiShell(title, renderPage(manager, dashboard, page, req), dashboard, page)
+}
+
+function renderUiShell (title, body, dashboard, page = '') {
+  dashboard = dashboard || { serverId: 'signalk-espdisp-manager', generatedAt: new Date().toISOString() }
   return `<!doctype html>
 <html>
 <head>
@@ -720,6 +828,7 @@ function renderUi (manager, page, req) {
     a { color: #116078; }
     code { background: #eef3f5; padding: 1px 4px; border-radius: 3px; }
     pre { overflow: auto; background: #172026; color: #e8f1f4; padding: 14px; border-radius: 6px; }
+    .json-block { max-height: 520px; }
     .config-grid { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 14px; margin-bottom: 20px; }
     .config-section { background: white; border: 1px solid #d9e0e3; border-radius: 6px; padding: 14px; }
     .config-section.full { grid-column: 1 / -1; }
@@ -751,20 +860,20 @@ function renderUi (manager, page, req) {
     ${nav(page)}
   </header>
   <main>
-    ${renderPage(manager, dashboard, page, req)}
+    ${body}
   </main>
 </body>
 </html>`
 }
 
 function renderPage (manager, dashboard, page, req) {
-  if (page === 'devices') return renderDevicesPage(dashboard.devices)
+  if (page === 'devices') return renderDevicesPage(dashboard.devices, req)
   if (page === 'device') return renderDevicePage(manager, req.params.id)
   if (page === 'deviceConfig') return renderDeviceConfigPage(manager, req.params.id)
   if (page === 'discovery') return renderDiscoveryPage(manager, manager.listDiscoveredDevices().devices)
   if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices)
   if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices)
-  if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs)
+  if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs, manager.firmwareUpgradeMatrix())
   return renderOverviewPage(dashboard)
 }
 
@@ -784,15 +893,44 @@ function renderOverviewPage (dashboard) {
     </section>`
 }
 
-function renderDevicesPage (devices) {
+function renderDevicesPage (devices, req) {
+  const host = req && req.headers && req.headers.host ? req.headers.host : ''
+  const managerUrl = host ? `http://${host}/plugins/espdisp-manager` : '/plugins/espdisp-manager'
   return `
     <section class="panel">
       <h2>Registered devices</h2>
+      <div class="actions">
+        <a href="/plugins/espdisp-manager/ui/devices">Refresh</a>
+      </div>
+      ${renderSignalKRegisterForm(managerUrl)}
       ${deviceTable(devices)}
     </section>`
 }
 
-function renderDevicePage (manager, id) {
+function renderSignalKRegisterForm (managerUrl) {
+  return `
+      <form class="config-form" method="post" action="/plugins/espdisp-manager/devices/register-from-signalk">
+        <fieldset>
+          <legend>Register through SignalK</legend>
+          <div class="form-grid">
+            ${field('Device address', input('address', '10.42.0.67'))}
+            ${field('HTTP port', input('port', '80', 'number', '1', '65535', '1'))}
+            ${field('Device ID', input('deviceId', ''))}
+            ${field('Preset', input('profileId', 'default'))}
+            ${field('Role', input('role', 'display'))}
+            ${field('Location', input('location', ''))}
+            ${field('Manager URL', input('managerUrl', managerUrl))}
+            ${field('Send manager-register', checkbox('sendManagerRegister', true))}
+            ${field('Queue reload', checkbox('sendReload', false))}
+          </div>
+          <div class="actions">
+            <button type="submit" name="action" value="register">Register</button>
+          </div>
+        </fieldset>
+      </form>`
+}
+
+function renderDevicePage (manager, id, live = {}) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
   const commands = manager.store.commands.commands
@@ -809,9 +947,13 @@ function renderDevicePage (manager, id) {
       <p class="muted">${escapeHtml(device.id)} · ${escapeHtml(device.role)} · ${escapeHtml(device.location || 'unassigned')}</p>
       <p>
         <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/config">Open generated config</a>
-        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/status">Live status JSON</a>
-        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/logs">Live logs JSON</a>
+        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
+        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
       </p>
+      <div class="config-grid">
+        ${renderLiveStatusWidget(live.status, live.statusError)}
+        ${renderLiveLogsWidget(live.logs, live.logsError)}
+      </div>
       <table>
         <tbody>
           <tr><th>Profile</th><td>${escapeHtml(device.assignedProfile || 'default')}</td></tr>
@@ -827,6 +969,147 @@ function renderDevicePage (manager, id) {
       <h2>Firmware jobs</h2>
       ${firmwareJobTable(jobs)}
     </section>`
+}
+
+function renderLiveStatusWidget (status, err) {
+  if (err) return liveErrorWidget('Live status', err)
+  return `
+    <section class="config-section">
+      <h2>Live status</h2>
+      ${keyValueTable([
+        ['Device', status.device && status.device.id],
+        ['WiFi', status.wifi ? `${status.wifi.state || ''} ${status.wifi.ip || ''}`.trim() : ''],
+        ['SignalK', status.sk && status.sk.state],
+        ['Manager', status.manager && status.manager.health],
+        ['Screen', status.screen && status.screen.id],
+        ['Touch', status.touch && status.touch.mode]
+      ])}
+    </section>`
+}
+
+function renderLiveLogsWidget (logs, err) {
+  if (err) return liveErrorWidget('Live logs', err)
+  const entries = Array.isArray(logs.entries)
+    ? logs.entries
+    : Array.isArray(logs.logs)
+      ? logs.logs
+      : []
+  const recent = entries.slice(-5).map((entry) => [
+    entry.seq != null ? entry.seq : '',
+    entry.line || entry.message || JSON.stringify(entry)
+  ])
+  return `
+    <section class="config-section">
+      <h2>Live logs</h2>
+      ${simpleTable(['Seq', 'Message'], recent, 'No live log entries returned.')}
+    </section>`
+}
+
+function liveErrorWidget (title, err) {
+  const message = err && err.payload && err.payload.error
+    ? err.payload.error.message
+    : err && err.message
+      ? err.message
+      : 'live device request failed'
+  const code = err && err.payload && err.payload.error
+    ? err.payload.error.code
+    : 'live_request_failed'
+  return `
+    <section class="config-section">
+      <h2>${escapeHtml(title)}</h2>
+      ${keyValueTable([
+        ['Status', { __html: '<span class="status bad">unreachable</span>' }],
+        ['Error', code],
+        ['Message', message]
+      ])}
+    </section>`
+}
+
+function renderLiveStatusPage (manager, id, status) {
+  const device = manager.getDevice(id)
+  const rows = [
+    ['Device ID', status.device && status.device.id],
+    ['Uptime', status.device && status.device.uptime_ms != null ? `${status.device.uptime_ms} ms` : ''],
+    ['WiFi', status.wifi ? `${status.wifi.state || ''} ${status.wifi.ip || ''}`.trim() : ''],
+    ['RSSI', status.wifi && status.wifi.rssi],
+    ['SignalK', status.sk && status.sk.state],
+    ['Manager', status.manager && status.manager.health],
+    ['Screen', status.screen && `${status.screen.id || ''} (${status.screen.index != null ? status.screen.index : '?'}/${status.screen.count != null ? status.screen.count : '?'})`],
+    ['Theme', status.ui && status.ui.theme],
+    ['Brightness', status.display && status.display.brightness],
+    ['Touch', status.touch && `${status.touch.mode || ''} ${status.touch.pressed ? 'pressed' : ''}`.trim()]
+  ]
+  return renderUiShell('Live status', `
+    <section class="panel">
+      <h2>${escapeHtml(device.name || device.id)} live status</h2>
+      <p>
+        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Refresh</a>
+        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/status">Raw JSON</a>
+      </p>
+      ${keyValueTable(rows)}
+      ${status.manager && Array.isArray(status.manager.recentErrors) && status.manager.recentErrors.length
+        ? `<h2>Recent device errors</h2>${simpleTable(['Time', 'Message'], status.manager.recentErrors.map((entry) => [entry.t_ms, entry.msg]))}`
+        : ''}
+      <h2>Full status</h2>
+      <pre class="json-block">${escapeHtml(JSON.stringify(status, null, 2))}</pre>
+    </section>`)
+}
+
+function renderLiveLogsPage (manager, id, logs) {
+  const device = manager.getDevice(id)
+  const entries = Array.isArray(logs.entries)
+    ? logs.entries
+    : Array.isArray(logs.logs)
+      ? logs.logs
+      : []
+  const rows = entries.map((entry) => [
+    entry.seq != null ? entry.seq : '',
+    entry.t_ms != null ? entry.t_ms : (entry.time || ''),
+    entry.level || '',
+    entry.line || entry.message || JSON.stringify(entry)
+  ])
+  return renderUiShell('Live logs', `
+    <section class="panel">
+      <h2>${escapeHtml(device.name || device.id)} live logs</h2>
+      <p>
+        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs${logs.lastSeq != null ? `?since=${encodeURIComponent(logs.lastSeq)}` : ''}">Refresh</a>
+        · <a href="/plugins/espdisp-manager/devices/${encodeURIComponent(id)}/live/logs">Raw JSON</a>
+      </p>
+      ${simpleTable(['Seq', 'Time', 'Level', 'Message'], rows, 'No live log entries returned.')}
+      <h2>Full log response</h2>
+      <pre class="json-block">${escapeHtml(JSON.stringify(logs, null, 2))}</pre>
+    </section>`)
+}
+
+function renderLiveErrorPage (manager, id, title, err) {
+  const device = manager.getDevice(id)
+  const message = err && err.payload && err.payload.error
+    ? err.payload.error.message
+    : err && err.message
+      ? err.message
+      : 'live device request failed'
+  const code = err && err.payload && err.payload.error
+    ? err.payload.error.code
+    : 'live_request_failed'
+  return renderUiShell(title, `
+    <section class="panel">
+      <h2>${escapeHtml(device.name || device.id)} ${escapeHtml(title.toLowerCase())}</h2>
+      <p>
+        <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
+        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
+        · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
+      </p>
+      <table>
+        <tbody>
+          <tr><th>Status</th><td><span class="status bad">unreachable</span></td></tr>
+          <tr><th>Error</th><td>${escapeHtml(code)}</td></tr>
+          <tr><th>Message</th><td>${escapeHtml(message)}</td></tr>
+          <tr><th>Address source</th><td>${escapeHtml(manager.deviceHttpBase ? 'registered device network identity' : '')}</td></tr>
+        </tbody>
+      </table>
+    </section>`)
 }
 
 function renderDeviceConfigPage (manager, id) {
@@ -916,6 +1199,8 @@ function applyPresetForm (manager, profileId, body) {
 }
 
 function configOverridesFromForm (body) {
+  const widgets = widgetsFromForm(body)
+  const layout = layoutFromForm(body)
   return {
     settings: {
       defaultScreen: cleanString(body.defaultScreen) || 'dashboard',
@@ -942,8 +1227,10 @@ function configOverridesFromForm (body) {
         labelFontSize: integerValue(body.labelFontSize, 12),
         valueFontSize: integerValue(body.valueFontSize, 32),
         unitFontSize: integerValue(body.unitFontSize, 14)
-      }
+      },
+      items: widgets
     },
+    layout,
     debug: {
       logLevel: cleanString(body.logLevel) || 'info',
       touchMode: cleanString(body.touchMode) || 'irq'
@@ -956,6 +1243,8 @@ function renderDeviceConfigForm (device, config, profiles) {
   const nmea = config.nmea0183Wifi || {}
   const autopilot = config.autopilot || {}
   const widgets = (config.widgets && config.widgets.defaults) || {}
+  const widgetItems = (config.widgets && config.widgets.items) || {}
+  const layout = config.layout || {}
   const debug = config.debug || {}
   return `
     <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">
@@ -982,6 +1271,8 @@ function renderDeviceConfigForm (device, config, profiles) {
         ${field('Log level', select('logLevel', debug.logLevel || 'info', [['debug', 'Debug'], ['info', 'Info'], ['warn', 'Warn'], ['error', 'Error']]))}
         ${field('Touch mode', select('touchMode', debug.touchMode || 'irq', [['irq', 'IRQ'], ['poll', 'Poll'], ['disabled', 'Disabled']]))}
       </div>
+      ${renderWidgetEditor(widgetItems)}
+      ${renderLayoutEditor(layout)}
       <fieldset>
         <legend>Save as preset</legend>
         <div class="form-grid">
@@ -996,6 +1287,163 @@ function renderDeviceConfigForm (device, config, profiles) {
         <button type="submit" name="action" value="save-send-preset">Save preset and send</button>
       </div>
     </form>`
+}
+
+function widgetsFromForm (body) {
+  const ids = arrayValue(body.widgetId)
+  const titles = arrayValue(body.widgetTitle)
+  const types = arrayValue(body.widgetType)
+  const paths = arrayValue(body.widgetPath)
+  const units = arrayValue(body.widgetUnit)
+  const precisions = arrayValue(body.widgetPrecision)
+  const valueFonts = arrayValue(body.widgetValueFontSize)
+  const remove = new Set(arrayValue(body.removeWidget).map(cleanString))
+  const items = {}
+  ids.forEach((rawId, index) => {
+    const id = sanitizeWidgetId(rawId)
+    if (!id || remove.has(id)) return
+    const type = cleanString(types[index]) || 'numeric'
+    const path = cleanString(paths[index])
+    if (!path) return
+    const widget = {
+      type,
+      title: cleanString(titles[index]) || id,
+      path
+    }
+    const unit = cleanString(units[index])
+    if (unit) widget.unit = unit
+    const precision = integerValue(precisions[index], null)
+    if (precision != null) widget.precision = precision
+    const valueFontSize = integerValue(valueFonts[index], null)
+    if (valueFontSize != null) widget.valueFontSize = valueFontSize
+    items[id] = widget
+  })
+  return items
+}
+
+function layoutFromForm (body) {
+  const screenIds = arrayValue(body.screenId)
+  const screenTypes = arrayValue(body.screenType)
+  const tileWidgets = arrayValue(body.tileWidget)
+  const tileScreens = arrayValue(body.tileScreen)
+  const tileCols = arrayValue(body.tileCol)
+  const tileRows = arrayValue(body.tileRow)
+  const removeTiles = new Set(arrayValue(body.removeTile).map(cleanString))
+  const screenById = {}
+  screenIds.forEach((rawId, index) => {
+    const id = sanitizeWidgetId(rawId)
+    if (!id) return
+    screenById[id] = {
+      id,
+      type: cleanString(screenTypes[index]) || 'grid',
+      tiles: []
+    }
+  })
+  tileWidgets.forEach((rawWidget, index) => {
+    const widget = sanitizeWidgetId(rawWidget)
+    const screenId = sanitizeWidgetId(tileScreens[index] || screenIds[0] || 'dashboard')
+    if (!widget || !screenId || removeTiles.has(`${screenId}:${widget}:${index}`)) return
+    if (!screenById[screenId]) {
+      screenById[screenId] = { id: screenId, type: 'grid', tiles: [] }
+    }
+    const tile = { widget }
+    const col = integerValue(tileCols[index], null)
+    const row = integerValue(tileRows[index], null)
+    if (col != null || row != null) {
+      tile.area = {}
+      if (col != null) tile.area.col = col
+      if (row != null) tile.area.row = row
+    }
+    screenById[screenId].tiles.push(tile)
+  })
+  return {
+    version: 1,
+    screens: Object.values(screenById)
+  }
+}
+
+function renderWidgetEditor (items) {
+  const rows = Object.entries(items || {}).map(([id, widget]) => renderWidgetEditorRow(id, widget))
+  rows.push(renderWidgetEditorRow('', {}))
+  return `
+      <fieldset>
+        <legend>Widgets</legend>
+        <table>
+          <thead><tr><th>ID</th><th>Title</th><th>Type</th><th>SignalK path</th><th>Unit</th><th>Precision</th><th>Value font</th><th>Remove</th></tr></thead>
+          <tbody>${rows.join('')}</tbody>
+        </table>
+      </fieldset>`
+}
+
+function renderWidgetEditorRow (id, widget) {
+  return `
+    <tr>
+      <td>${input('widgetId', id)}</td>
+      <td>${input('widgetTitle', widget.title || '')}</td>
+      <td>${select('widgetType', widget.type || 'numeric', widgetTypeOptions())}</td>
+      <td>${input('widgetPath', widget.path || '')}</td>
+      <td>${input('widgetUnit', widget.unit || '')}</td>
+      <td>${input('widgetPrecision', widget.precision == null ? '' : widget.precision, 'number', '0', '6', '1')}</td>
+      <td>${input('widgetValueFontSize', widget.valueFontSize == null ? '' : widget.valueFontSize, 'number', '8', '120', '1')}</td>
+      <td>${id ? `<input type="checkbox" name="removeWidget" value="${escapeHtml(id)}">` : ''}</td>
+    </tr>`
+}
+
+function renderLayoutEditor (layout) {
+  const screens = Array.isArray(layout.screens) && layout.screens.length
+    ? layout.screens
+    : [{ id: 'dashboard', type: 'grid', tiles: [] }]
+  const screenRows = screens.map((screen) => `
+    <tr>
+      <td>${input('screenId', screen.id || 'dashboard')}</td>
+      <td>${select('screenType', screen.type || 'grid', [['grid', 'Grid']])}</td>
+    </tr>`).join('')
+  const tileRows = []
+  screens.forEach((screen) => {
+    ;(screen.tiles || []).forEach((tile, index) => {
+      tileRows.push(renderTileEditorRow(screen.id || 'dashboard', tile, index))
+    })
+  })
+  tileRows.push(renderTileEditorRow(screens[0].id || 'dashboard', {}, tileRows.length))
+  return `
+      <fieldset>
+        <legend>Screens</legend>
+        <table>
+          <thead><tr><th>Screen ID</th><th>Type</th></tr></thead>
+          <tbody>${screenRows}</tbody>
+        </table>
+        <table>
+          <thead><tr><th>Screen</th><th>Widget</th><th>Column</th><th>Row</th><th>Remove</th></tr></thead>
+          <tbody>${tileRows.join('')}</tbody>
+        </table>
+      </fieldset>`
+}
+
+function renderTileEditorRow (screenId, tile, index) {
+  const area = tile.area || {}
+  const removeValue = `${screenId}:${tile.widget || ''}:${index}`
+  return `
+    <tr>
+      <td>${input('tileScreen', screenId || 'dashboard')}</td>
+      <td>${input('tileWidget', tile.widget || '')}</td>
+      <td>${input('tileCol', area.col == null ? '' : area.col, 'number', '0', '15', '1')}</td>
+      <td>${input('tileRow', area.row == null ? '' : area.row, 'number', '0', '15', '1')}</td>
+      <td>${tile.widget ? `<input type="checkbox" name="removeTile" value="${escapeHtml(removeValue)}">` : ''}</td>
+    </tr>`
+}
+
+function widgetTypeOptions () {
+  return [
+    ['numeric', 'Numeric'],
+    ['text', 'Text'],
+    ['bar', 'Bar'],
+    ['gauge', 'Gauge'],
+    ['compass', 'Compass'],
+    ['windRose', 'Wind rose'],
+    ['trend', 'Trend'],
+    ['button', 'Button'],
+    ['autopilot', 'Autopilot']
+  ]
 }
 
 function field (labelText, control) {
@@ -1061,6 +1509,13 @@ function sanitizePresetId (value) {
     .toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^-+|-+$/g, '')
+}
+
+function sanitizeWidgetId (value) {
+  return cleanString(value)
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 31)
 }
 
 function statusError (status, message) {
@@ -1251,6 +1706,17 @@ function keyValueTable (rows) {
     <tr><th>${escapeHtml(key)}</th><td>${formatConfigValue(value)}</td></tr>`).join('')}</tbody></table>`
 }
 
+function simpleTable (headers, rows, emptyMessage) {
+  const body = rows && rows.length
+    ? rows.map((row) => `<tr>${row.map((value) => `<td>${formatConfigValue(value)}</td>`).join('')}</tr>`).join('')
+    : `<tr><td colspan="${headers.length}">${escapeHtml(emptyMessage || 'No rows.')}</td></tr>`
+  return `
+    <table>
+      <thead><tr>${headers.map((header) => `<th>${escapeHtml(header)}</th>`).join('')}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>`
+}
+
 function renderWidgetsTable (widgets) {
   const items = widgets && widgets.items ? Object.entries(widgets.items) : []
   const rows = items.map(([id, widget]) => `
@@ -1337,12 +1803,34 @@ function renderDiscoveryPage (manager, devices) {
   return `
     <section class="panel">
       <h2>Discovered devices</h2>
-      <p class="muted">Devices appear here from Bonjour/mDNS, UDP announcements, or authenticated provisioning posts.</p>
+      <p class="muted">Devices appear here from Bonjour/mDNS, UDP announcements, IP scans, or authenticated provisioning posts.</p>
+      <div class="actions">
+        <a href="/plugins/espdisp-manager/ui/discovery">Refresh</a>
+      </div>
+      ${renderDiscoveryScanForm()}
       <table>
         <thead><tr><th>Device</th><th>Address</th><th>Source</th><th>Display</th><th>Firmware</th><th>Registered</th><th>Freshness</th><th>Conflict</th><th>Last seen</th><th>Action</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="10">No discovered devices.</td></tr>'}</tbody>
       </table>
     </section>`
+}
+
+function renderDiscoveryScanForm () {
+  return `
+      <form class="config-form" method="post" action="/plugins/espdisp-manager/discovery/scan">
+        <fieldset>
+          <legend>Scan network</legend>
+          <div class="form-grid">
+            ${field('Method', select('method', 'ip', [['ip', 'IP'], ['ble', 'BLE']]))}
+            ${field('Target', input('target', ''))}
+            ${field('Ports', input('ports', '80'))}
+            ${field('Timeout ms', input('timeoutMs', '900', 'number', '250', '5000', '50'))}
+          </div>
+          <div class="actions">
+            <button type="submit" name="action" value="scan">Scan</button>
+          </div>
+        </fieldset>
+      </form>`
 }
 
 function renderDiscoveryClaimControl (device, profiles) {
@@ -1458,20 +1946,61 @@ function configSummary (config) {
   return parts.join(', ') || 'base layout'
 }
 
-function renderFirmwarePage (catalog, jobs) {
+function renderFirmwarePage (catalog, jobs, upgrades) {
   const artifactRows = (catalog.artifacts || []).map((artifact) => `
         <tr>
           <td><strong>${escapeHtml(artifact.firmware && artifact.firmware.version)}</strong><br><span>${escapeHtml(artifact.artifactId)}</span></td>
           <td>${escapeHtml(artifact.vendor && artifact.vendor.id)}</td>
           <td>${escapeHtml(artifact.product && artifact.product.id)}</td>
+          <td>${escapeHtml(firmwareSourceLabel(artifact))}</td>
           <td><code>${escapeHtml(artifact.file && artifact.file.sha256)}</code></td>
         </tr>`).join('')
+  const upgradeRows = ((upgrades && upgrades.devices) || []).map((device) => {
+    const versions = device.compatibleArtifacts.length > 0
+      ? device.compatibleArtifacts.map((artifact) => {
+          const version = artifact.firmware && artifact.firmware.version ? artifact.firmware.version : artifact.artifactId
+          const marker = artifact.sameVersion ? ' current' : ''
+          return `<span class="pill">${escapeHtml(`${version}${marker} · ${firmwareSourceLabel(artifact)}`)}</span>`
+        }).join(' ')
+      : '<span>None for this board/chip.</span>'
+    const action = device.availableArtifacts.length > 0
+      ? device.availableArtifacts.map((artifact) => `
+          <form method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.deviceId)}/firmware/update" style="display:inline-block; margin:0 6px 6px 0;">
+            <input type="hidden" name="artifactId" value="${escapeHtml(artifact.artifactId)}">
+            <input type="hidden" name="reboot" value="true">
+            <input type="hidden" name="confirmAfterBoot" value="true">
+            <button type="submit">Queue update ${escapeHtml(artifact.firmware && artifact.firmware.version)}</button>
+          </form>`).join('')
+      : '<span>No update action.</span>'
+    const jobText = device.activeJobs.length > 0
+      ? `<br><span>${escapeHtml(device.activeJobs.length)} active firmware job(s)</span>`
+      : ''
+    return `
+        <tr>
+          <td><strong><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.deviceId)}">${escapeHtml(device.name)}</a></strong><br><span>${escapeHtml(device.deviceId)}</span></td>
+          <td>${escapeHtml(device.board || '')}<br><span>${escapeHtml(device.chip || '')}</span></td>
+          <td>${escapeHtml(device.currentVersion || 'unknown')}</td>
+          <td>${versions}</td>
+          <td><span class="status ${device.upgradable ? 'ok' : ''}">${escapeHtml(device.status)}</span>${jobText}</td>
+          <td>${action}</td>
+        </tr>`
+  }).join('')
+  const github = catalog.github || {}
   return `
     <section class="panel">
+      <h2>Device upgrade status</h2>
+      <form method="post" action="/plugins/espdisp-manager/ui/firmware/catalog/refresh" class="actions" style="margin-bottom: 12px;">
+        <button type="submit">Refresh catalog from GitHub</button>
+        <span class="muted">Last GitHub check: ${escapeHtml(github.checkedAt || 'never')} · release ${escapeHtml(github.release || 'unknown')}</span>
+      </form>
+      <table>
+        <thead><tr><th>Device</th><th>Board</th><th>Current firmware</th><th>Available versions</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>${upgradeRows || '<tr><td colspan="6">No devices registered.</td></tr>'}</tbody>
+      </table>
       <h2>Firmware artifacts</h2>
       <table>
-        <thead><tr><th>Firmware</th><th>Vendor</th><th>Product</th><th>SHA-256</th></tr></thead>
-        <tbody>${artifactRows || '<tr><td colspan="4">No firmware artifacts.</td></tr>'}</tbody>
+        <thead><tr><th>Firmware</th><th>Vendor</th><th>Product</th><th>Source</th><th>SHA-256</th></tr></thead>
+        <tbody>${artifactRows || '<tr><td colspan="5">No firmware artifacts.</td></tr>'}</tbody>
       </table>
       <h2>Recent jobs</h2>
       ${firmwareJobTable(jobs || [])}
@@ -1552,6 +2081,12 @@ function firmwareLabel (firmware) {
   return firmware.version || firmware.name || firmware.id || 'custom firmware'
 }
 
+function firmwareSourceLabel (artifact) {
+  if (artifact && artifact.file && artifact.file.url) return 'GitHub'
+  if (artifact && artifact.file && artifact.file.path) return 'SignalK'
+  return 'SignalK metadata'
+}
+
 function metric (value, label) {
   return `<div class="metric"><b>${value}</b><span>${escapeHtml(label)}</span></div>`
 }
@@ -1569,5 +2104,6 @@ module.exports._test = {
   fromYaml,
   renderUi,
   importDashboardPreset,
-  applyPresetForm
+  applyPresetForm,
+  configOverridesFromForm
 }

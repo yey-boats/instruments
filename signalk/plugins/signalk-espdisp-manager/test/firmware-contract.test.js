@@ -70,8 +70,8 @@ const registration = manager.registerDevice({
 }, auth)
 
 assert.strictEqual(registration.deviceId, deviceId)
-assert.strictEqual(registration.commands.pollMs, 1000)
-assert.strictEqual(registration.heartbeat.intervalMs, 5000)
+assert.strictEqual(registration.commands.pollMs, 15000)
+assert.strictEqual(registration.heartbeat.intervalMs, 30000)
 
 const discovery = manager.discovery()
 assert.strictEqual(discovery.protocol, 'espdisp.management.v1')
@@ -234,6 +234,13 @@ const artifact = manager.addFirmwareArtifact({
 
 assert.strictEqual(manager.getFirmwareArtifact(artifact.artifactId).firmware.version, '0.5.1')
 
+const upgrades = manager.firmwareUpgradeMatrix()
+const deviceUpgrade = upgrades.devices.find((device) => device.deviceId === deviceId)
+assert.ok(deviceUpgrade)
+assert.strictEqual(deviceUpgrade.upgradable, true)
+assert.strictEqual(deviceUpgrade.latestArtifact.artifactId, artifact.artifactId)
+assert.ok(deviceUpgrade.availableArtifacts.find((candidate) => candidate.artifactId === artifact.artifactId))
+
 const job = manager.createFirmwareJob(deviceId, { artifactId: artifact.artifactId })
 assert.strictEqual(job.status, 'queued')
 assert.strictEqual(manager.listFirmwareJobs(deviceId).jobs.length, 1)
@@ -304,6 +311,21 @@ assert.throws(
   () => manager.createFirmwareJob(deviceId, { artifactId: incompatible.artifactId }),
   /firmware board is not compatible/
 )
+
+const boardIdDeviceId = 'espdisp-board-id'
+manager.registerDevice({
+  device: {
+    id: boardIdDeviceId,
+    name: 'Board ID Firmware',
+    board_id: 'sunton_4848s040',
+    chip: 'ESP32-S3',
+    firmware: { name: 'espdisp', version: '0.5.0-dev' }
+  }
+}, auth)
+const boardIdUpgrade = manager.firmwareUpgradeMatrix().devices.find((device) => device.deviceId === boardIdDeviceId)
+assert.strictEqual(boardIdUpgrade.board, 'sunton_4848s040')
+assert.strictEqual(boardIdUpgrade.upgradable, true)
+assert.doesNotThrow(() => manager.createFirmwareJob(boardIdDeviceId, { artifactId: artifact.artifactId }))
 
 const provisioned = makeManager({
   auth: { mode: 'provision-token', provisionToken: 'static-provision' }

@@ -261,7 +261,7 @@ class EspDispManager {
       display: incoming.display || existing.display || null,
       touch: incoming.touch || existing.touch || null,
       firmware: incoming.firmware || existing.firmware || null,
-      board: incoming.board || existing.board || null,
+      board: incoming.board || incoming.board_id || existing.board || null,
       mac: incoming.mac || existing.mac || null,
       assignedProfile: existing.assignedProfile || null,
       overrides: existing.overrides || {},
@@ -387,6 +387,121 @@ class EspDispManager {
     return this.recordDiscoveredDevice(body)
   }
 
+  async scanForDevices (body) {
+    body = body || {}
+    const method = String(body.method || 'ip').toLowerCase()
+    if (method === 'ble') {
+      return {
+        method,
+        status: 'unsupported',
+        message: 'BLE scanning is not available in this SignalK Node runtime',
+        scanned: 0,
+        found: 0,
+        devices: []
+      }
+    }
+    if (method !== 'ip') {
+      throw httpError(400, 'invalid_request', 'scan method must be ip or ble')
+    }
+
+    const ports = parseScanPorts(body.ports || body.port || 80)
+    const timeoutMs = Math.max(250, Math.min(Number(body.timeoutMs || 900), 5000))
+    const concurrency = Math.max(1, Math.min(Number(body.concurrency || 24), 64))
+    const candidates = scanCandidates(body.target || body.targets, this.store, 512)
+    const results = []
+    let scanned = 0
+
+    await mapLimit(candidates, concurrency, async (host) => {
+      for (const port of ports) {
+        scanned++
+        const device = await this.probeHttpDevice(host, port, timeoutMs)
+        if (!device) continue
+        const recorded = this.recordDiscoveredDevice(device)
+        results.push(recorded.device)
+        break
+      }
+    })
+
+    return {
+      method,
+      status: 'ok',
+      scanned,
+      found: results.length,
+      devices: results
+    }
+  }
+
+  async probeHttpDevice (host, port, timeoutMs) {
+    const auth = this.deviceWebAuth()
+    const base = `http://${host}:${port}`
+    let state
+    try {
+      state = await httpGetJson(`${base}/api/state`, auth, timeoutMs)
+    } catch (err) {
+      return null
+    }
+    return discoveryDeviceFromState(state, host, port)
+  }
+
+  async registerDeviceFromSignalK (body) {
+    body = body || {}
+    const address = String(body.address || body.host || '').trim()
+    const port = Number(body.port || 80)
+    if (!address) throw httpError(400, 'invalid_request', 'device address is required')
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      throw httpError(400, 'invalid_request', 'device port is invalid')
+    }
+
+    const probed = await this.probeHttpDevice(address, port, Number(body.timeoutMs || 1200))
+    const deviceId = sanitizeDeviceId(
+      body.deviceId ||
+      body.id ||
+      (probed && (probed.deviceId || probed.id))
+    )
+    if (!deviceId) {
+      throw httpError(400, 'invalid_request', 'device id is required when probe cannot read /api/state')
+    }
+
+    this.recordDiscoveredDevice({
+      ...(probed || {}),
+      id: deviceId,
+      deviceId,
+      name: body.name || (probed && probed.name) || deviceId,
+      role: body.role || (probed && probed.role) || 'display',
+      location: body.location || (probed && probed.location) || null,
+      source: 'signalk-manual',
+      address,
+      port,
+      transport: 'http',
+      authRequired: Boolean(this.options.deviceWebAuth.enabled)
+    })
+
+    const claimed = this.claimDiscoveredDevice(deviceId, {
+      name: body.name,
+      role: body.role || 'display',
+      location: body.location,
+      profileId: body.profileId || body.profile || 'default',
+      sendReload: Boolean(body.sendReload),
+      issueToken: true
+    })
+
+    let deviceCommand = null
+    if (body.sendManagerRegister) {
+      const managerUrl = String(body.managerUrl || '').trim()
+      if (!managerUrl) {
+        throw httpError(400, 'invalid_request', 'managerUrl is required when sending manager-register')
+      }
+      deviceCommand = await postDeviceCommand(address, port, `manager-register ${managerUrl}`, this.deviceWebAuth())
+    }
+
+    return {
+      status: claimed.status,
+      deviceId,
+      claimed,
+      deviceCommand
+    }
+  }
+
   recordDiscoveredDevice (body) {
     const incoming = normalizeDiscoveryBody(body)
     const id = sanitizeDeviceId(incoming.id || incoming.deviceId)
@@ -488,7 +603,7 @@ class EspDispManager {
       ...(existing.identity || {}),
       id: deviceId,
       name: body.name || discovered.name || existing.name || deviceId,
-      board: discovered.board || existing.board || null,
+      board: discovered.board || discovered.board_id || existing.board || null,
       display: discovered.display || existing.display || null,
       firmware: discovered.firmware || existing.firmware || null,
       capabilities: discovered.capabilities || existing.capabilities || {}
@@ -1143,6 +1258,79 @@ class EspDispManager {
     return clone(this.store.firmware)
   }
 
+  firmwareUpgradeMatrix () {
+    const artifacts = this.store.firmware.artifacts
+      .slice()
+      .sort(compareFirmwareArtifacts)
+    const jobs = this.store.jobs.jobs
+    const devices = Object.values(this.store.registry.devices)
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .map((device) => {
+        const currentVersion = firmwareVersionFromDevice(device)
+        const board = device.board ||
+          (device.identity && (device.identity.board || device.identity.board_id)) ||
+          null
+        const chip = device.identity && device.identity.chip ? device.identity.chip : null
+        const compatibleArtifacts = artifacts
+          .map((artifact) => {
+            const compatibility = this.firmwareCompatibility(device, artifact)
+            return {
+              ...clone(artifact),
+              compatible: compatibility.compatible,
+              reason: compatibility.reason,
+              sameVersion: Boolean(currentVersion && artifact.firmware && artifact.firmware.version === currentVersion)
+            }
+          })
+          .filter((artifact) => artifact.compatible)
+        const availableArtifacts = compatibleArtifacts.filter((artifact) => !artifact.sameVersion)
+        const activeJobs = jobs
+          .filter((job) => job.deviceId === device.id && !['confirmed', 'failed', 'cancelled'].includes(job.status))
+          .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+        const latest = availableArtifacts[0] || null
+        return {
+          deviceId: device.id,
+          name: device.name || device.id,
+          online: isDeviceOnline(device, this.options.heartbeatMs),
+          board,
+          chip,
+          currentVersion,
+          firmware: clone(device.firmware || null),
+          compatibleArtifacts,
+          availableArtifacts,
+          latestArtifact: latest,
+          upgradable: Boolean(latest),
+          activeJobs,
+          status: activeJobs.length > 0
+            ? 'update queued'
+            : latest
+              ? 'upgrade available'
+              : compatibleArtifacts.length > 0
+                ? 'current'
+                : 'no compatible artifact'
+        }
+      })
+    return {
+      generatedAt: now(),
+      devices,
+      artifacts: clone(artifacts),
+      upgradable: devices.filter((device) => device.upgradable).length
+    }
+  }
+
+  firmwareCompatibility (device, artifact) {
+    try {
+      this.validateFirmwareCompatibility(device, artifact)
+      return { compatible: true }
+    } catch (err) {
+      return {
+        compatible: false,
+        reason: err && err.payload && err.payload.error
+          ? err.payload.error.message
+          : err.message
+      }
+    }
+  }
+
   async refreshFirmwareFromGithub (fetchImpl) {
     const cfg = this.options.firmware.github
     if (!cfg.enabled) return this.listFirmware()
@@ -1453,7 +1641,7 @@ class EspDispManager {
   validateFirmwareCompatibility (device, artifact) {
     const compatibility = artifact.compatibility || {}
     if (compatibility.boards && compatibility.boards.length > 0) {
-      const board = device.board || (device.identity && device.identity.board)
+      const board = device.board || (device.identity && (device.identity.board || device.identity.board_id))
       if (!compatibility.boards.includes(board)) {
         throw httpError(409, 'incompatible_firmware', 'firmware board is not compatible', {
           board,
@@ -1583,8 +1771,8 @@ class EspDispManager {
 function normalizeOptions (options) {
   return {
     serverId: options.serverId || 'signalk-espdisp-manager',
-    heartbeatMs: Number(options.heartbeatMs || 5000),
-    commandPollMs: Number(options.commandPollMs || 1000),
+    heartbeatMs: Math.max(Number(options.heartbeatMs || 30000), 30000),
+    commandPollMs: Math.max(Number(options.commandPollMs || 15000), 15000),
     auth: {
       mode: options.auth && options.auth.mode ? options.auth.mode : 'dev-shared-token',
       devToken: options.auth && options.auth.devToken ? options.auth.devToken : 'espdisp-dev',
@@ -2024,13 +2212,13 @@ function normalizeDiscoveryBody (body) {
   }
 }
 
-function httpGetJson (url, auth) {
+function httpGetJson (url, auth, timeoutMs) {
   return new Promise((resolve, reject) => {
     const headers = {}
     if (auth && auth.enabled && auth.username && auth.password) {
       headers.Authorization = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`
     }
-    const req = http.get(url, { headers, timeout: 3000 }, (res) => {
+    const req = http.get(url, { headers, timeout: timeoutMs || 3000 }, (res) => {
       let body = ''
       res.setEncoding('utf8')
       res.on('data', (chunk) => {
@@ -2052,6 +2240,211 @@ function httpGetJson (url, auth) {
     req.on('timeout', () => req.destroy(new Error('device request timeout')))
     req.on('error', (err) => reject(httpError(502, 'device_unreachable', err.message)))
   })
+}
+
+function postDeviceCommand (host, port, line, auth) {
+  return new Promise((resolve, reject) => {
+    const body = String(line || '')
+    const headers = {
+      'Content-Type': 'text/plain',
+      'Content-Length': Buffer.byteLength(body)
+    }
+    if (auth && auth.enabled && auth.username && auth.password) {
+      headers.Authorization = `Basic ${Buffer.from(`${auth.username}:${auth.password}`).toString('base64')}`
+    }
+    const req = http.request({
+      host,
+      port,
+      path: '/api/cmd',
+      method: 'POST',
+      headers,
+      timeout: 3000
+    }, (res) => {
+      let response = ''
+      res.setEncoding('utf8')
+      res.on('data', (chunk) => {
+        response += chunk
+        if (response.length > 64 * 1024) req.destroy(new Error('device response too large'))
+      })
+      res.on('end', () => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          reject(httpError(res.statusCode, 'device_http_error', `device returned HTTP ${res.statusCode}`))
+          return
+        }
+        resolve({
+          status: 'sent',
+          httpStatus: res.statusCode,
+          command: body,
+          response
+        })
+      })
+    })
+    req.on('timeout', () => req.destroy(new Error('device request timeout')))
+    req.on('error', (err) => reject(httpError(502, 'device_unreachable', err.message)))
+    req.write(body)
+    req.end()
+  })
+}
+
+function discoveryDeviceFromState (state, host, port) {
+  if (!state || !state.device || !state.device.id) return null
+  if (!state.wifi && !state.manager && !state.screen) return null
+  return {
+    id: state.device.id,
+    deviceId: state.device.id,
+    name: state.device.name || state.device.id,
+    source: 'ip-scan',
+    address: host,
+    port,
+    transport: 'http',
+    authRequired: Boolean(state.webAuth && state.webAuth.enabled),
+    display: state.display
+      ? {
+          width: Number(state.display.width || state.display.w || 0) || undefined,
+          height: Number(state.display.height || state.display.h || 0) || undefined,
+          rotation: Number(state.display.rotation || 0) || 0,
+          brightness: state.display.brightness
+        }
+      : null,
+    firmware: state.device.build ? { build: state.device.build } : null,
+    capabilities: {
+      web: true,
+      manager: Boolean(state.manager),
+      touch: Boolean(state.touch)
+    },
+    services: [
+      { type: '_espdisp._tcp', port }
+    ]
+  }
+}
+
+function scanCandidates (value, store, limit) {
+  const seen = new Set()
+  const out = []
+  const add = (host) => {
+    host = String(host || '').trim()
+    if (!isIpv4(host) || seen.has(host) || out.length >= limit) return
+    seen.add(host)
+    out.push(host)
+  }
+  const raw = Array.isArray(value) ? value.join(',') : String(value || '').trim()
+  const tokens = raw
+    ? raw.split(/[\s,]+/).filter(Boolean)
+    : defaultScanTargets(store)
+  tokens.forEach((token) => expandScanToken(token, add, limit))
+  return out
+}
+
+function defaultScanTargets (store) {
+  const targets = []
+  for (const iface of Object.values(os.networkInterfaces())) {
+    for (const addr of iface || []) {
+      if (addr.family !== 'IPv4' || addr.internal || !isIpv4(addr.address)) continue
+      const parts = addr.address.split('.')
+      targets.push(`${parts[0]}.${parts[1]}.${parts[2]}.0/24`)
+    }
+  }
+  for (const device of Object.values((store.discovery && store.discovery.devices) || {})) {
+    if (device.address) targets.push(device.address)
+  }
+  for (const device of Object.values((store.registry && store.registry.devices) || {})) {
+    const ip = device.discovery && device.discovery.address
+      ? device.discovery.address
+      : device.networkIdentity && device.networkIdentity.lastResolvedAddress
+    if (ip) targets.push(ip)
+  }
+  return targets
+}
+
+function expandScanToken (token, add, limit) {
+  if (token.includes('/')) {
+    const [base, prefixRaw] = token.split('/')
+    const prefix = Number(prefixRaw)
+    if (!isIpv4(base) || !Number.isInteger(prefix) || prefix < 24 || prefix > 32) return
+    const count = Math.min(2 ** (32 - prefix), limit)
+    const start = ipv4ToInt(base) & (0xffffffff << (32 - prefix))
+    for (let i = 1; i < count - 1; i++) add(intToIpv4(start + i))
+    if (prefix === 32) add(base)
+    return
+  }
+  if (token.includes('-')) {
+    const [startRaw, endRaw] = token.split('-')
+    if (!isIpv4(startRaw)) return
+    const startParts = startRaw.split('.').map(Number)
+    const end = isIpv4(endRaw)
+      ? Number(endRaw.split('.')[3])
+      : Number(endRaw)
+    if (!Number.isInteger(end) || end < 0 || end > 255) return
+    const lo = Math.min(startParts[3], end)
+    const hi = Math.max(startParts[3], end)
+    for (let last = lo; last <= hi; last++) {
+      add(`${startParts[0]}.${startParts[1]}.${startParts[2]}.${last}`)
+    }
+    return
+  }
+  add(token)
+}
+
+function parseScanPorts (value) {
+  const ports = (Array.isArray(value) ? value : String(value).split(/[\s,]+/))
+    .map((port) => Number(port))
+    .filter((port) => Number.isInteger(port) && port > 0 && port <= 65535)
+  return ports.length ? Array.from(new Set(ports)).slice(0, 8) : [80]
+}
+
+async function mapLimit (items, limit, fn) {
+  let index = 0
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const current = index++
+      if (current >= items.length) return
+      await fn(items[current])
+    }
+  })
+  await Promise.all(workers)
+}
+
+function isIpv4 (value) {
+  const parts = String(value || '').split('.')
+  return parts.length === 4 && parts.every((part) => {
+    if (!/^\d+$/.test(part)) return false
+    const n = Number(part)
+    return n >= 0 && n <= 255
+  })
+}
+
+function ipv4ToInt (ip) {
+  return ip.split('.').reduce((acc, part) => ((acc << 8) + Number(part)) >>> 0, 0)
+}
+
+function intToIpv4 (value) {
+  return [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join('.')
+}
+
+function firmwareVersionFromDevice (device) {
+  const firmware = device.firmware || {}
+  const identity = device.identity || {}
+  return firmware.version ||
+    firmware.semver ||
+    firmware.build ||
+    identity.firmware_version ||
+    identity.firmwareVersion ||
+    (identity.firmware && identity.firmware.version) ||
+    null
+}
+
+function compareFirmwareArtifacts (a, b) {
+  const uploaded = String(b.uploadedAt || '').localeCompare(String(a.uploadedAt || ''))
+  if (uploaded !== 0) return uploaded
+  const av = a.firmware && a.firmware.version ? String(a.firmware.version) : ''
+  const bv = b.firmware && b.firmware.version ? String(b.firmware.version) : ''
+  return bv.localeCompare(av, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function isDeviceOnline (device, heartbeatMs) {
+  const lastSeenMs = device.lastSeen ? Date.parse(device.lastSeen) : 0
+  if (!lastSeenMs) return false
+  return Date.now() - lastSeenMs <= Math.max(Number(heartbeatMs || 0) * 3, 15000)
 }
 
 function summarizeDevice (device) {
