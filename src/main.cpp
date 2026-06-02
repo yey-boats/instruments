@@ -1708,6 +1708,7 @@ static void ui_refresh(lv_timer_t *) {
 
     t = micros();
     mob_refresh();
+    sk::pollStallTelemetry();
     alarm_check();
     note_slow_section("ui:overlays", micros() - t);
 

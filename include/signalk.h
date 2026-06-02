@@ -37,6 +37,18 @@ void copyData(Data &out);
 uint32_t loopIters();
 uint32_t loopMaxUs();
 
+// Forensic stall telemetry. Call this once per UI tick (alongside the
+// alarm_check that drives the "SIGNALK STALLED" banner). On each
+// transition into or out of the stalled state, emits one net::logf line
+// capturing all four staleness signals (last-update age, last-frame
+// age, connect-time age, WS connected bit), the sk_task iteration delta
+// and peak ws.loop() duration since the previous transition, and the
+// WiFi state + RSSI at that instant. Cheap on no-transition (one mutex
+// snapshot, a few comparisons). Output lands in the UDP log stream
+// (port 9999) and BLE NUS notifications, so a stall recorded in the
+// field leaves a forensic trail without needing the device live.
+void pollStallTelemetry();
+
 // mDNS auto-discovery. When no manual host has been set, the SK task
 // periodically queries _signalk-ws._tcp.local. and uses the first
 // record. `manual` mode disables discovery so the saved host wins.

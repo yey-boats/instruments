@@ -358,6 +358,65 @@ void loop() {
     // Arduino loop and starving lv_timer_handler.
 }
 
+// Stall telemetry state. Lives next to the loop counters since it
+// samples them on every transition. Only mutated from the UI task
+// (pollStallTelemetry caller), so no extra synchronization needed.
+static bool s_prev_stalled = false;
+static uint32_t s_stall_begin_ms = 0;
+static uint32_t s_stall_iters_baseline = 0;
+
+void pollStallTelemetry() {
+    String status = connectionStatus();
+    bool now_stalled = (status == "stalled");
+    if (now_stalled == s_prev_stalled) return;
+
+    uint32_t now = millis();
+
+    bool connected;
+    uint32_t last_update, ws_last_frame, connected_since;
+    if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+    connected = data.connected;
+    last_update = data.lastUpdateMs;
+    ws_last_frame = data.wsLastFrameMs;
+    connected_since = data.connectedSinceMs;
+    if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+
+    uint32_t iters_now = s_loop_iters;
+    uint32_t iters_delta = iters_now - s_stall_iters_baseline;
+    s_stall_iters_baseline = iters_now;
+    // Snapshot the peak without resetting it - /api/state still owns the
+    // reset semantics. (loopMaxUs() resets; reading s_loop_max_us
+    // directly does not.)
+    uint32_t peak_us = s_loop_max_us;
+
+    // Age helper: -1 sentinel for "never stamped" so the log line
+    // distinguishes a freshly-cleared timestamp from a 0-ms-old one.
+    auto age = [&](uint32_t t) -> long {
+        return t ? (long)(now - t) : -1L;
+    };
+
+    if (now_stalled) {
+        s_stall_begin_ms = now;
+        net::logf("[sk] STALL begin connected=%d last_update_age=%ld "
+                  "last_frame_age=%ld connect_age=%ld iters_delta=%u "
+                  "peak_us=%u wifi=%s rssi=%d host=%s:%u",
+                  (int)connected, age(last_update), age(ws_last_frame),
+                  age(connected_since), (unsigned)iters_delta,
+                  (unsigned)peak_us, net::wifiStateName(), net::rssi(),
+                  s_host.c_str(), (unsigned)s_port);
+    } else {
+        uint32_t dur = s_stall_begin_ms ? (now - s_stall_begin_ms) : 0;
+        net::logf("[sk] STALL end after %u ms status=%s connected=%d "
+                  "last_update_age=%ld last_frame_age=%ld iters_delta=%u "
+                  "peak_us=%u rssi=%d",
+                  (unsigned)dur, status.c_str(), (int)connected,
+                  age(last_update), age(ws_last_frame),
+                  (unsigned)iters_delta, (unsigned)peak_us, net::rssi());
+        s_stall_begin_ms = 0;
+    }
+    s_prev_stalled = now_stalled;
+}
+
 uint32_t loopIters() {
     return s_loop_iters;
 }
