@@ -40,6 +40,7 @@ const char *logTagFilter();
 struct LogEntry {
     uint32_t seq;
     uint32_t ms;
+    uint8_t level;  // see LogLevel; 0 == legacy/INFO
     char line[192];
 };
 

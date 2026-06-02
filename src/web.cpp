@@ -904,7 +904,24 @@ static void handle_logs() {
     if (!require_api_auth()) return;
     uint32_t since = 0;
     if (server.hasArg("since")) since = (uint32_t)strtoul(server.arg("since").c_str(), nullptr, 10);
-    net::LogEntry entries[96];
+    // The full ring is ~19 KiB (96 * 200 B). The web task has an 8 KiB
+    // stack and stack-canary checks are off in sdkconfig, so allocating
+    // this on the stack silently corrupts whatever sits above it and
+    // panics the device the next time that memory is touched. Move to
+    // PSRAM (plenty of room, slower access is fine for a debug endpoint
+    // that runs at human-poll rates).
+    net::LogEntry *entries =
+        (net::LogEntry *)heap_caps_malloc(sizeof(net::LogEntry) * 96, MALLOC_CAP_SPIRAM);
+    if (!entries) {
+        // Fall back to internal heap if PSRAM is exhausted (unlikely);
+        // 19 KiB is still well within the ~150 KiB free internal heap
+        // budget this firmware runs with.
+        entries = (net::LogEntry *)malloc(sizeof(net::LogEntry) * 96);
+    }
+    if (!entries) {
+        server.send(503, "text/plain", "no memory for log buffer");
+        return;
+    }
     size_t n = net::copyLogs(entries, 96, since);
 
     JsonDocument doc;
@@ -919,7 +936,14 @@ static void handle_logs() {
     }
     doc["lastSeq"] = last;
     doc["truncated"] = since && n == 96;
+    // serialize FIRST, then free. ArduinoJson v7 stores `const char *`
+    // values as pointers (zero-copy), so the entries buffer must stay
+    // alive until serializeJson() (inside send_json) finishes reading
+    // it. The earlier version of this fix freed before send_json and
+    // serialized dangling pointers - manifested as /api/logs hangs
+    // while other endpoints still worked.
     send_json(200, doc);
+    free(entries);
 }
 
 // ---- root HTML page ----------------------------------------------------

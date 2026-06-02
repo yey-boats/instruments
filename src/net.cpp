@@ -587,6 +587,27 @@ static void wifi_manager_task(void *) {
         }
         printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(), WiFi.SSID().c_str(),
                WiFi.RSSI());
+#ifdef ESPDISP_DEBUG_UDP_LOG
+        // Replay any log lines that were written before WiFi came up
+        // (most importantly the `[boot] reset_reason=...` line that
+        // emits in net::setup() before broadcastAddr is valid). One-shot
+        // - new lines from this point on broadcast normally via the
+        // standard logf() path.
+        bool ringLocked = false;
+        if (s_log_mtx && xSemaphoreTake(s_log_mtx, pdMS_TO_TICKS(50)) == pdTRUE) {
+            ringLocked = true;
+        }
+        uint32_t first_seq = s_log_seq >= s_log_count ? s_log_seq - s_log_count + 1 : 1;
+        for (uint32_t seq = first_seq; seq <= s_log_seq; ++seq) {
+            const LogEntry &entry = s_log_ring[(seq - 1) % LOG_RING_CAP];
+            if (entry.seq != seq) continue;
+            int len = (int)strnlen(entry.line, sizeof(entry.line));
+            if (len <= 0) continue;
+            uint8_t lvl = entry.level ? entry.level : (uint8_t)LOG_INFO;
+            udp_log_emit(lvl, entry.line, len);
+        }
+        if (ringLocked) xSemaphoreGive(s_log_mtx);
+#endif
         if (MDNS.begin(s_device_id.c_str())) {
             s_mdns_started = true;
             s_mdns_services_registered = false;
@@ -752,12 +773,13 @@ void saveWifi(const String &ssid, const String &pass) {
     ESP.restart();
 }
 
-static void append_log_locked(const char *line, int n) {
+static void append_log_locked(const char *line, int n, uint8_t level) {
     if (!line || n <= 0) return;
     size_t idx = s_log_seq % LOG_RING_CAP;
     LogEntry &entry = s_log_ring[idx];
     entry.seq = ++s_log_seq;
     entry.ms = millis();
+    entry.level = level;
     size_t copy = n < (int)sizeof(entry.line) ? (size_t)n : sizeof(entry.line) - 1;
     memcpy(entry.line, line, copy);
     entry.line[copy] = 0;
@@ -806,7 +828,7 @@ static void log_emit(uint8_t level, const char *fmt, va_list ap) {
     if (s_log_mtx && xSemaphoreTake(s_log_mtx, pdMS_TO_TICKS(50)) == pdTRUE) {
         locked = true;
     }
-    append_log_locked(buf, n);
+    append_log_locked(buf, n, level);
     fwrite(buf, 1, n, stdout);
     if (buf[n - 1] != '\n') putchar('\n');
 
