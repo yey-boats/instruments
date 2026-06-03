@@ -57,8 +57,18 @@ constexpr uint32_t MIN_HEARTBEAT_MS = 30000;
 constexpr uint32_t MIN_COMMAND_POLL_MS = 15000;
 constexpr uint32_t TRANSPORT_FAILURE_BACKOFF_MS = 60000;
 constexpr uint32_t LOW_HEAP_BACKOFF_MS = 60000;
-constexpr size_t MIN_MANAGER_INTERNAL_HEAP = 24 * 1024;
-constexpr size_t MIN_MANAGER_INTERNAL_BLOCK = 8 * 1024;
+// Tuned against this firmware's observed steady-state on the Sunton
+// 4848S040 (internal heap ~10-15 KiB free, largest block ~6 KiB at
+// idle once LVGL+WiFi+BLE+SK are all running). The original
+// 24 KiB free / 8 KiB largest values guarded too aggressively - the
+// manager backed off on every heartbeat because the device just never
+// has that much internal heap. Now that the JSON tree lives in PSRAM
+// and the HTTP body streams, do_heartbeat itself only needs a few KiB
+// of internal heap (HTTPClient instance + transient send/recv buffers).
+// 6 KiB free / 3 KiB largest leaves enough headroom for HTTPClient's
+// own internal allocations without choking the WiFi stack.
+constexpr size_t MIN_MANAGER_INTERNAL_HEAP = 6 * 1024;
+constexpr size_t MIN_MANAGER_INTERNAL_BLOCK = 3 * 1024;
 constexpr uint16_t HTTP_CONNECT_TIMEOUT_MS = 1000;
 constexpr uint16_t HTTP_READ_TIMEOUT_MS = 1500;
 
