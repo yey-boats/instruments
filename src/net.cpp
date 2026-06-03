@@ -334,25 +334,82 @@ static void bleSetup() {
 }
 
 // ---- WiFi / OTA ----
+
+static TaskHandle_t s_ota_task = nullptr;
+
+// Drains ArduinoOTA on its own core-0 task. Previously this lived in
+// net::loop() which runs from the Arduino main task alongside LVGL
+// + touch + UI refresh; during a flash the main loop's LVGL work
+// could starve ArduinoOTA.handle() for hundreds of ms, so the device
+// would receive ~10 KiB then drop the TCP connection ("Error Uploading"
+// on the host side after the first ~10 dots of espota.py output).
+// Pinning OTA to core 0 with vTaskDelay(1) gives a tight ~1 ms poll
+// regardless of what the UI is doing.
+static void ota_task(void *) {
+    for (;;) {
+        if (ota_started) ArduinoOTA.handle();
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+}
+
+static const char *ota_error_name(ota_error_t e) {
+    switch (e) {
+    case OTA_AUTH_ERROR:
+        return "AUTH";
+    case OTA_BEGIN_ERROR:
+        return "BEGIN";
+    case OTA_CONNECT_ERROR:
+        return "CONNECT";
+    case OTA_RECEIVE_ERROR:
+        return "RECEIVE";
+    case OTA_END_ERROR:
+        return "END";
+    default:
+        return "?";
+    }
+}
+
 static void otaSetup() {
     ArduinoOTA.setHostname(s_device_id.c_str());
     if (strlen(OTA_PASSWORD) > 0) ArduinoOTA.setPassword(OTA_PASSWORD);
+    // All OTA lifecycle events log at WARN so they pass the default
+    // UDP filter and land in the lab logger - critical for diagnosing
+    // failed flashes (the previous build only printf'd to UART, which
+    // is invisible on the field device).
     ArduinoOTA.onStart([]() {
-        printf("[ota] start (%s)\n", ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs");
+        logf_at(LOG_WARN, "[ota] start cmd=%s free_heap=%u",
+                ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs",
+                (unsigned)esp_get_free_heap_size());
     });
-    ArduinoOTA.onEnd([]() { puts("[ota] end"); });
+    ArduinoOTA.onEnd(
+        []() { logf_at(LOG_WARN, "[ota] end free_heap=%u", (unsigned)esp_get_free_heap_size()); });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
-        static unsigned int last = 0;
+        // 10% milestones at WARN so we know how far the upload got
+        // even when it later fails. Smaller increments would flood
+        // the UDP path with low value.
+        static unsigned int last_decile = 0xFFu;
         unsigned int pct = (p * 100) / t;
-        if (pct != last) {
-            printf("[ota] %u%%\n", pct);
-            last = pct;
+        unsigned int decile = pct / 10;
+        if (decile != last_decile) {
+            logf_at(LOG_WARN, "[ota] %u%% (%u/%u) heap=%u", pct, p, t,
+                    (unsigned)esp_get_free_heap_size());
+            last_decile = decile;
         }
     });
-    ArduinoOTA.onError([](ota_error_t e) { printf("[ota] error %d\n", e); });
+    ArduinoOTA.onError([](ota_error_t e) {
+        logf_at(LOG_WARN, "[ota] error %d (%s) free_heap=%u largest=%u", (int)e, ota_error_name(e),
+                (unsigned)esp_get_free_heap_size(),
+                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    });
     ArduinoOTA.begin();
     ota_started = true;
-    printf("[ota] ready at %s.local\n", s_device_id.c_str());
+    // Pin the OTA pump to core 0 (network core) at the same priority as
+    // sk_task. 4 KiB stack is plenty - Update class uses its own buffers
+    // and ArduinoOTA.handle() doesn't recurse.
+    if (!s_ota_task) {
+        xTaskCreatePinnedToCore(ota_task, "ota", 4096, nullptr, 2, &s_ota_task, 0);
+    }
+    logf_at(LOG_WARN, "[ota] ready at %s.local task_pinned=core0", s_device_id.c_str());
 }
 
 // Try one network with a 10s timeout. Returns true on association.
@@ -729,7 +786,11 @@ bool dispatchCommand(const String &line) {
 }
 
 void loop() {
-    if (ota_started) ArduinoOTA.handle();
+    // ArduinoOTA.handle() lives on the dedicated `ota` task pinned to
+    // core 0 - see ota_task() above. Calling it from here too would
+    // be redundant and (more importantly) couples OTA receive timing
+    // to the Arduino main loop's LVGL/touch workload, which was the
+    // observed cause of "Error Uploading" after ~10 KiB.
     if (s_mdns_started && wifiUp()) {
         uint32_t now = millis();
         if (s_mdns_refresh_due ||
