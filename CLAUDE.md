@@ -132,6 +132,38 @@ Pick the right handler: `net` (connectivity/identity), `sk` (SignalK target),
 (UI actions like `view`, `demo`). It will automatically be reachable from
 serial **and** BLE NUS via `net::dispatchCommand`.
 
+## Session workflow (for AI agents)
+
+`CLAUDE-orch.md` at the repo root describes the broader orchestration
+pattern (Beads, Gastown, slash-command health workflows). The parts
+that apply to *this* firmware repo, distilled:
+
+- **Work is not done until `git push` succeeds.** After committing any
+  task, push to origin in the same turn. Leaving commits stranded
+  locally counts as incomplete — the next session has no way to know
+  they exist. The only exception is when the user explicitly says
+  "don't push yet" or similar.
+- **Gather context before changing anything.** Read the file you're
+  about to edit, grep for the symbol's other call sites, check `git log`
+  for recent activity in that area. This is doubly important for the
+  memory-trap-laden modules (see above).
+- **Library-first for >20 lines of new logic.** Check if the
+  PlatformIO/Arduino ecosystem already has a maintained library before
+  writing it from scratch.
+- **Do, don't ask.** Anything the agent can do unattended (commit,
+  push, lint, build, run tests, OTA-flash via `make ota-verify`, recover
+  the device via `python3 tools/espdisp.py recover`) should happen
+  without prompting the user. Only ask when a decision is genuinely
+  the user's (security tradeoff, design choice, missing credential).
+- **Verify after acting.** Read the modified file. Run `make pre-commit`
+  + `pio test -e native` + a build for the affected env before claiming
+  the change works. For firmware changes, `make ota-verify` confirms
+  the new binary actually booted on the device.
+
+`CLAUDE-orch.md` itself is generic across projects in this fleet; the
+firmware-specific contracts (memory traps, dispatch funnel, layout
+PSRAM rule) in this file win where the two overlap.
+
 ## Conventions
 
 - **Commits**: Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`,
