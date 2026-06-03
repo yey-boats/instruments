@@ -113,47 +113,81 @@ That's the intended behavior: skip the call rather than crash.
 
 6. **Cannot validate live yet.** See below.
 
-## Why we can't live-test yet
+## OTA breakthrough + live test results
 
-`tools/ota_flash.sh` reports the device runs `Jun 2 2026 21:07:05`
-every time, never `Jun 3 2026 01:41:25` (the new build). Observed
-pattern: espota prints `Sending invitation ..........` (10 dots,
-~10 KiB of the 1.94 MiB image) then `Error Uploading`. Device stays
-on prior firmware (bootloader rollback worked — partition not
-corrupted).
+OTA was previously failing deterministically at ~10 KiB because
+`ArduinoOTA.handle()` ran on the Arduino main loop alongside LVGL.
+Commit `86bd56f` moves it to a dedicated core-0 task with 1 ms
+polling. After USB-equivalent recovery (espota with `-d` debug-mode
+logging, which slowed the host side enough for the pre-fix device
+to keep up — one-shot bootstrap), every subsequent OTA goes through
+cleanly. Verified by flashing `Jun 3 2026 12:56:20` over plain
+espota without the debug workaround.
 
-ArduinoOTA's receive path allocates a multi-KiB TCP receive buffer
-plus a flash write staging buffer, both from internal heap. With the
-pre-fix manager doing 32 KiB `String` allocations on internal heap
-and the heap idling at 15 KiB free, those OTA allocations almost
-certainly fail.
+### Manager threshold tuning
 
-**This is the same bug.** OTA can't deliver the fix because the bug
-is preventing OTA from running. USB recovery is the only path that
-breaks the cycle for now:
+Initial `MIN_MANAGER_INTERNAL_HEAP=24 KiB / MIN_MANAGER_INTERNAL_BLOCK=8 KiB`
+backed off on *every* heartbeat (`[mgr] skip heartbeat: low internal
+heap free=14488 largest=6388`). The device's actual steady state is
+**10–15 KiB free, ~6 KiB largest block** — the threshold was
+unreachable. Commit `2e74da7` drops them to 6 KiB / 3 KiB. After
+that, manager actually attempts heartbeats and `recentErrors` stays
+empty.
 
-```sh
-make flash ENV=esp32-4848s040-debug   # USB cable required
+### Live capture (debug FW, post-all-fixes)
+
+Captured via `espdisp watch --interval 10` on the flashed device:
+
+```
+heap=11k psram=7511k sk=live task_iters=20204 mgr.hb=-1 uptime=290s
+heap=11k psram=7517k sk=live task_iters=21227 mgr.hb=-1 uptime=301s
+!! REBOOTED (prev_uptime=301s)
+heap=12k psram=7517k sk=live task_iters=394   mgr.hb=0  uptime=5s
+... 53s of clean running ...
+!! REBOOTED (prev_uptime=58s)
+heap=12k psram=7517k sk=live task_iters=385   mgr.hb=0  uptime=5s
 ```
 
-Once the new firmware is on the device, OTA will work normally going
-forward (the fix prevents the pressure spiral).
+Two spontaneous reboots in a 90 s window — uptime regression
+detected automatically by the new `espdisp watch` tool. So:
 
-## Benchmark plan for once a USB recovery flashes the fix
+- **PSRAM-JSON fix is doing its job.** No more "skip heartbeat: low
+  heap" entries. Manager reaches the heartbeat call.
+- **OTA fix is doing its job.** Plain espota now works.
+- **The underlying reboot bug is *not* manager-allocation.** With
+  the manager fully relieved of internal-heap pressure the device
+  still reboots — sometimes within 60 s of boot. The remaining
+  culprit is in another consumer (WebServer, NimBLE pools,
+  WebSocketsClient, lwIP TCP buffers, or LVGL).
 
-1. `python3 tools/espdisp.py watch --interval 5 --device-ip <ip> --remote <relay>`
-   for 10 minutes. Compare `heap_free` against the pre-fix capture
-   above. Expect the post-fix value to climb (manager no longer
-   eating into it).
-2. `python3 tools/espdisp.py state --field manager.lastHeartbeatCode`
-   periodically — expect `200`, not `-1`.
-3. Check the new heartbeat status fields: `internal_min_free_kb`
-   over a 10-minute run should stay above ~20 KiB if the fix is
-   doing its job.
-4. Force config fetch via the manager plugin and time it. Expect
-   end-to-end latency to increase by < 100 ms vs the (working)
-   pre-fix path, due to PSRAM JSON parse overhead.
-5. Hammer `/api/logs?since=0&limit=96` in a loop. Pre-fix wedged
-   at ~12 req before TCP sockets exhausted (separate fix already
-   landed). Post-fix path is unchanged but the lower internal-heap
-   pressure should let lwIP recover faster between bursts.
+### Web-stack instability
+
+Independent of the reboot loop, the device's *TCP listener* dies
+while WiFi/ping keep working. Symptoms after ~5 min uptime:
+
+- `ping 10.42.0.67` → 0% loss
+- `curl http://10.42.0.67/` → connection refused or timeout
+- BLE NUS still responds; `[sk] WS disconnected` repeats
+
+So `/api/state` and `/api/logs` become unreachable even though
+RTOS, WiFi, BLE, and the SK reconnect loop are all alive. lwIP's
+TCP control blocks or accept queue exhaustion is the most likely
+candidate — needs a separate investigation. The PSRAM fix doesn't
+address this.
+
+### Recommended next steps (out of scope for this fix)
+
+1. Instrument the lwIP TCP listener and capture which alloc/state
+   fails when /api/state stops accepting connections.
+2. Audit WebServer's connection handling — it's the only TCP server
+   we own; SK uses an outbound WebSocketsClient.
+3. Capture `[boot] reset_reason=X` after the next spontaneous
+   reboot via the BLE log stream (the in-memory ring is wiped on
+   reset; the RTC `[prevboot]` ring survives but lab-logger UDP
+   capture is needed to get it cleanly).
+
+The PSRAM fix's static analysis remains accurate. Its live behavior
+is correct (manager backoff is rare; heartbeats fire). It's
+**necessary** as part of stabilizing the device, but **not
+sufficient** on its own — there's at least one more reboot trigger
+in the network/TCP path.
