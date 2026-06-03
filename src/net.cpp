@@ -67,10 +67,25 @@ RTC_NOINIT_ATTR static uint32_t s_rtc_magic;
 RTC_NOINIT_ATTR static uint32_t s_rtc_last_uptime_ms;
 RTC_NOINIT_ATTR static uint32_t s_rtc_min_free_heap;
 RTC_NOINIT_ATTR static uint32_t s_rtc_ring_head;
+
+// Re-entrancy guard for the boot-time dump path. While we walk the
+// RTC ring and re-emit each entry as `[prevboot] ...`, those log lines
+// themselves go through log_emit() which calls crash_ring_append().
+// Without this guard the new boot's ring fills with `[prevboot] `
+// prefixed copies of the previous boot's content, and on the NEXT
+// reset we end up with `[prevboot] [prevboot] [prevboot] ...` nested
+// recursively, destroying the actual log content. Setting this to
+// true around the dump tells crash_ring_append to skip - the in-memory
+// log ring still captures everything for /api/logs.
+static volatile bool s_rtc_dumping = false;
 RTC_NOINIT_ATTR static char s_rtc_ring[CRASH_RING_CAP];
 
 static void crash_ring_append(const char *buf, int n) {
     if (n <= 0) return;
+    // Skip while we're dumping the previous-boot ring - otherwise the
+    // dump's own log lines feed back into the ring and recurse on next
+    // boot. See s_rtc_dumping declaration above.
+    if (s_rtc_dumping) return;
     // Treat s_rtc_ring as a circular byte stream; head is the write
     // position. We don't track a separate tail - reader walks the
     // whole buffer at boot. Lines are NUL-separated so a torn write
@@ -727,6 +742,13 @@ void setup() {
             // Walk the RTC ring from oldest to newest. head points at
             // the next write slot; the byte before it is the most
             // recently written. Lines are '\n'-terminated.
+            //
+            // Set s_rtc_dumping so crash_ring_append() skips while
+            // we're emitting. Otherwise each `[prevboot] %s` line
+            // feeds back into the ring and on the next reset we get
+            // `[prevboot] [prevboot] [prevboot] ...` nested recursively,
+            // destroying the actual log content (bug observed 2026-06-03).
+            s_rtc_dumping = true;
             uint32_t head = s_rtc_ring_head % CRASH_RING_CAP;
             char line[200];
             size_t lp = 0;
@@ -747,6 +769,7 @@ void setup() {
                 line[lp] = 0;
                 logf_at(LOG_WARN, "[prevboot] %s", line);
             }
+            s_rtc_dumping = false;
         } else {
             logf_at(LOG_WARN, "[boot] reset_reason=%s (cold start, no prev trail) free_heap=%u",
                     reset_reason_name(reason), (unsigned)free_now);
