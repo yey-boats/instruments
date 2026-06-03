@@ -1,0 +1,373 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>espdisp layout editor</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #141d2f;
+    --panel-edge: #25304a;
+    --fg: #e4ecff;
+    --fg-dim: #8794b2;
+    --accent: #57c7d8;
+    --accent-2: #7df3a6;
+    --warn: #ffb84d;
+    --bad: #ff6b6b;
+  }
+  body { margin: 0; padding: 24px; font: 14px/1.4 system-ui, -apple-system, sans-serif;
+         background: var(--bg); color: var(--fg); }
+  h1 { margin: 0 0 16px 0; font-size: 22px; color: var(--accent); }
+  h2 { margin: 24px 0 12px 0; font-size: 16px; color: var(--fg-dim); text-transform: uppercase;
+       letter-spacing: 0.08em; }
+  .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; padding: 12px;
+             background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px; }
+  .toolbar label { display: flex; align-items: center; gap: 8px; }
+  .toolbar select, .toolbar input, .toolbar button { background: #1c2741; color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 6px 10px; border-radius: 4px; font: inherit; }
+  .toolbar button { cursor: pointer; }
+  .toolbar button.primary { background: var(--accent); color: #001218; font-weight: 600; }
+  .toolbar button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .toolbar .status { margin-left: auto; color: var(--fg-dim); font-size: 13px; }
+  .toolbar .status.ok { color: var(--accent-2); }
+  .toolbar .status.err { color: var(--bad); }
+  .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+             gap: 16px; }
+  .screen { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px;
+            padding: 16px; }
+  .screen header { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  .screen header input { flex: 1; background: #1c2741; color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 4px 8px; border-radius: 4px; font: inherit; }
+  .screen header select { background: #1c2741; color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 4px 8px; border-radius: 4px; font: inherit; }
+  .screen header button.del { background: transparent; border: 1px solid var(--panel-edge);
+    color: var(--bad); padding: 4px 8px; border-radius: 4px; cursor: pointer; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .tiles.full { grid-template-columns: 1fr; }
+  .tile { background: #1c2741; border: 1px dashed var(--panel-edge); border-radius: 6px;
+          padding: 10px; min-height: 56px; }
+  .tile select { width: 100%; background: #0b1220; color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 4px 6px; border-radius: 4px; font: inherit; }
+  .tile .meta { display: flex; gap: 6px; margin-top: 6px; }
+  .tile .meta input { flex: 1; background: #0b1220; color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 3px 6px; border-radius: 4px; font: 12px inherit; }
+  .add-screen { background: transparent; border: 2px dashed var(--panel-edge); color: var(--fg-dim);
+    border-radius: 8px; padding: 24px; cursor: pointer; font: inherit; }
+  .add-screen:hover { border-color: var(--accent); color: var(--accent); }
+  .json-view { margin-top: 24px; padding: 12px; background: #06090f; border-radius: 6px;
+               white-space: pre-wrap; font: 12px ui-monospace, monospace; color: var(--fg-dim);
+               max-height: 280px; overflow: auto; }
+  details summary { cursor: pointer; color: var(--fg-dim); margin-top: 16px; }
+</style>
+
+<h1>espdisp visual layout editor</h1>
+
+<div class="toolbar">
+  <label>Profile:
+    <select id="profile-select"></select>
+  </label>
+  <button id="reload-btn">Reload</button>
+  <button id="save-btn" class="primary" disabled>Save changes</button>
+  <span id="status" class="status">loading…</span>
+</div>
+
+<h2>Screens</h2>
+<div id="screens" class="screens"></div>
+
+<details>
+  <summary>Raw dashboard JSON (read-only preview)</summary>
+  <pre id="json-view" class="json-view"></pre>
+</details>
+
+<script>
+'use strict';
+
+// --- API client ---------------------------------------------------------
+//
+// All requests need the SignalK admin Authorization bearer (we read it
+// from the user's existing session cookie via fetch credentials) and
+// the X-EspDisp-Authorization shared dev token. The plugin's auth path
+// accepts either Bearer for the JWT or X-EspDisp-Authorization for the
+// dev shared token; we send both so the editor works whether the user
+// is logged into the SignalK admin UI OR has set the X-EspDisp token
+// in localStorage.
+//
+// For deploys where the SignalK admin login cookie covers /plugins/*
+// the X-EspDisp header is redundant but harmless. For deploys where
+// the bearer isn't auto-injected, localStorage.SK_TOKEN provides the
+// override.
+
+const API_BASE = '/plugins/espdisp-manager';
+
+function authHeaders () {
+  const headers = { 'content-type': 'application/json' };
+  const skToken = localStorage.getItem('SK_TOKEN');
+  if (skToken) headers['authorization'] = 'Bearer ' + skToken;
+  const devToken = localStorage.getItem('ESPDISP_DEV_TOKEN') || 'espdisp-dev';
+  headers['x-espdisp-authorization'] = 'Bearer ' + devToken;
+  return headers;
+}
+
+async function api (path, opts) {
+  const r = await fetch(API_BASE + path, {
+    credentials: 'include',
+    headers: authHeaders(),
+    ...opts,
+  });
+  if (!r.ok) throw new Error(path + ' -> ' + r.status);
+  const ct = r.headers.get('content-type') || '';
+  return ct.includes('application/json') ? r.json() : r.text();
+}
+
+// --- State --------------------------------------------------------------
+
+const state = {
+  profileId: 'default',
+  profileNames: {},
+  doc: null,        // current dashboard doc loaded from server
+  dirty: false,     // unsaved changes flag
+  widgetTypes: ['numeric', 'text', 'gauge', 'compass', 'windRose', 'trend', 'bar', 'button', 'autopilot'],
+  screenTypes: ['grid'],
+};
+
+// --- DOM helpers --------------------------------------------------------
+
+function el (tag, props, ...children) {
+  const node = Object.assign(document.createElement(tag), props || {});
+  for (const child of children) {
+    if (child == null) continue;
+    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+function setStatus (msg, kind) {
+  const s = document.getElementById('status');
+  s.textContent = msg;
+  s.className = 'status ' + (kind || '');
+}
+
+function markDirty () {
+  state.dirty = true;
+  document.getElementById('save-btn').disabled = false;
+  setStatus('unsaved changes', 'err');
+}
+
+function markClean () {
+  state.dirty = false;
+  document.getElementById('save-btn').disabled = true;
+}
+
+// --- Render -------------------------------------------------------------
+
+function dashboardDoc () {
+  // Normalize the loaded shape - the import format wraps it as { kind,
+  // preset, dashboard } but the per-profile fetch returns the same.
+  if (!state.doc) return { settings: {}, layout: { screens: [] } };
+  if (state.doc.dashboard) return state.doc.dashboard;
+  return state.doc;
+}
+
+function ensureScreensArray () {
+  const d = dashboardDoc();
+  if (!d.layout) d.layout = { version: 1, screens: [] };
+  if (!Array.isArray(d.layout.screens)) d.layout.screens = [];
+  return d.layout.screens;
+}
+
+function renderJsonView () {
+  document.getElementById('json-view').textContent = JSON.stringify(dashboardDoc(), null, 2);
+}
+
+function renderScreens () {
+  const root = document.getElementById('screens');
+  root.replaceChildren();
+  const screens = ensureScreensArray();
+  screens.forEach((screen, i) => root.append(renderScreen(screen, i)));
+  root.append(el('button', {
+    className: 'add-screen',
+    onclick: addScreen,
+  }, '+ Add screen'));
+}
+
+function renderScreen (screen, idx) {
+  const tiles = Array.isArray(screen.tiles) ? screen.tiles : [];
+  const tilesGrid = el('div', { className: 'tiles' + (tiles.length === 1 ? ' full' : '') });
+  // Always show at least 4 slots for a grid screen so the operator
+  // can drop in widgets without having to first "add tile".
+  const visibleTiles = tiles.length < 4 ? tiles.concat(Array(4 - tiles.length).fill(null)) : tiles;
+  visibleTiles.forEach((tile, ti) => tilesGrid.append(renderTile(tile, idx, ti)));
+  return el('div', { className: 'screen' },
+    el('header', null,
+      el('input', {
+        value: screen.id || '',
+        placeholder: 'screen id (e.g. dashboard)',
+        oninput: (e) => { screen.id = e.target.value; markDirty(); },
+      }),
+      el('select', {
+        onchange: (e) => { screen.type = e.target.value; markDirty(); },
+      }, ...state.screenTypes.map((t) => {
+        const opt = el('option', { value: t }, t);
+        if (screen.type === t || (!screen.type && t === 'grid')) opt.selected = true;
+        return opt;
+      })),
+      el('button', {
+        className: 'del',
+        onclick: () => {
+          if (!confirm('Delete screen "' + (screen.id || 'unnamed') + '"?')) return;
+          ensureScreensArray().splice(idx, 1);
+          markDirty();
+          renderScreens();
+          renderJsonView();
+        },
+      }, '×'),
+    ),
+    tilesGrid,
+  );
+}
+
+function renderTile (tile, screenIdx, tileIdx) {
+  const currentWidget = (tile && tile.widget) || '';
+  // Build widget options. The plugin's catalog is type-based; let
+  // the operator type a widget id (e.g. "windRose-1") OR pick a type.
+  // For MVP we keep it simple: a select of known types and let the
+  // value be the widget id used later in widgetItems.
+  const sel = el('select', {
+    onchange: (e) => {
+      const screens = ensureScreensArray();
+      const screen = screens[screenIdx];
+      if (!Array.isArray(screen.tiles)) screen.tiles = [];
+      while (screen.tiles.length <= tileIdx) screen.tiles.push({});
+      if (!e.target.value) {
+        screen.tiles[tileIdx] = {};
+      } else {
+        screen.tiles[tileIdx] = { ...screen.tiles[tileIdx], widget: e.target.value };
+      }
+      markDirty();
+      renderJsonView();
+    },
+  }, el('option', { value: '' }, '— empty —'),
+     ...state.widgetTypes.map((t) => {
+       const opt = el('option', { value: t }, t);
+       if (currentWidget === t) opt.selected = true;
+       return opt;
+     }));
+  const titleInput = el('input', {
+    value: (tile && tile.title) || '',
+    placeholder: 'title (optional)',
+    oninput: (e) => {
+      const screens = ensureScreensArray();
+      const screen = screens[screenIdx];
+      if (!Array.isArray(screen.tiles)) screen.tiles = [];
+      while (screen.tiles.length <= tileIdx) screen.tiles.push({});
+      screen.tiles[tileIdx] = { ...screen.tiles[tileIdx], title: e.target.value };
+      markDirty();
+    },
+  });
+  return el('div', { className: 'tile' },
+    sel,
+    el('div', { className: 'meta' }, titleInput));
+}
+
+function addScreen () {
+  const screens = ensureScreensArray();
+  screens.push({
+    id: 'screen' + (screens.length + 1),
+    type: 'grid',
+    tiles: [{}, {}, {}, {}],
+  });
+  markDirty();
+  renderScreens();
+  renderJsonView();
+}
+
+// --- Load / save --------------------------------------------------------
+
+async function loadProfileList () {
+  // The plugin exposes /profiles -> { profiles: [{ id, name, ... }] }.
+  // Fall back to a synthetic "default" if the call fails so the editor
+  // is still usable for a brand-new install.
+  try {
+    const d = await api('/profiles');
+    const list = (d && Array.isArray(d.profiles)) ? d.profiles : [];
+    if (list.length) {
+      state.profileNames = {};
+      list.forEach((p) => { state.profileNames[p.id] = p.name || p.id; });
+      if (!state.profileNames[state.profileId]) state.profileId = list[0].id;
+    } else {
+      state.profileNames = { default: 'Default ESP Display' };
+    }
+  } catch (e) {
+    state.profileNames = { default: 'Default ESP Display' };
+  }
+  const sel = document.getElementById('profile-select');
+  sel.replaceChildren(...Object.entries(state.profileNames).map(([id, name]) => {
+    const o = el('option', { value: id }, name + ' (' + id + ')');
+    if (id === state.profileId) o.selected = true;
+    return o;
+  }));
+}
+
+async function loadProfile () {
+  setStatus('loading ' + state.profileId + '…');
+  try {
+    state.doc = await api('/profiles/' + encodeURIComponent(state.profileId) + '/dashboard.json');
+    markClean();
+    setStatus('loaded ' + state.profileId, 'ok');
+    renderScreens();
+    renderJsonView();
+  } catch (e) {
+    setStatus('load failed: ' + e.message, 'err');
+  }
+}
+
+async function save () {
+  if (!state.dirty) return;
+  setStatus('saving…');
+  try {
+    // The plugin's import-dashboard endpoint accepts the same envelope
+    // we already have, with an optional presetId to write to. Send the
+    // full doc shape including the wrapper so it round-trips identically.
+    const payload = state.doc.dashboard
+      ? { presetId: state.profileId, ...state.doc }
+      : { presetId: state.profileId, dashboard: state.doc, kind: 'espdisp.dashboard.v1' };
+    await api('/profiles/import-dashboard', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    markClean();
+    setStatus('saved ' + state.profileId + ' ✓', 'ok');
+    await loadProfile();
+  } catch (e) {
+    setStatus('save failed: ' + e.message, 'err');
+  }
+}
+
+// --- Wire up ------------------------------------------------------------
+
+document.getElementById('profile-select').addEventListener('change', (e) => {
+  if (state.dirty && !confirm('Discard unsaved changes?')) {
+    e.target.value = state.profileId;
+    return;
+  }
+  state.profileId = e.target.value;
+  loadProfile();
+});
+
+document.getElementById('reload-btn').addEventListener('click', () => {
+  if (state.dirty && !confirm('Discard unsaved changes and reload?')) return;
+  loadProfile();
+});
+
+document.getElementById('save-btn').addEventListener('click', save);
+
+window.addEventListener('beforeunload', (e) => {
+  if (state.dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+(async () => {
+  await loadProfileList();
+  await loadProfile();
+})();
+</script>
