@@ -1076,7 +1076,43 @@ class EspDispManager {
   }
 
   listProfiles () {
+    // Auto-seed the default profile's layout on first inspection if
+    // the operator hasn't touched it yet. Without this, every fresh
+    // install shows an empty layout-editor page with no screens to
+    // edit - exactly the "layouts not rendered" complaint. We only
+    // seed if the layout is missing OR has no screens; once the
+    // operator has any screens we never overwrite.
+    const def = this.store.profiles.profiles.default
+    if (def && this.shouldSeedDefaultLayout(def)) {
+      this.seedDefaultLayout(def)
+    }
     return { profiles: Object.values(this.store.profiles.profiles) }
+  }
+
+  shouldSeedDefaultLayout (profile) {
+    if (!profile || !profile.config) return true
+    const layout = profile.config.layout
+    if (!layout) return true
+    if (!Array.isArray(layout.screens)) return true
+    return layout.screens.length === 0
+  }
+
+  seedDefaultLayout (profile) {
+    // The default profile is display-class-agnostic at registration,
+    // so we seed with the 4-tile sunton (square) catalogue - it
+    // degrades gracefully on wide displays (still renders, just
+    // empty space). Wide-display devices get their own profile
+    // recommendation in the editor's display-class selector.
+    const presets = require('./screen-presets')
+    const screens = presets.getPresetsForClass('sunton-480')
+    if (!profile.config) profile.config = {}
+    profile.config.layout = { version: 1, screens }
+    profile.version = Number(profile.version || 1) + 1
+    profile.updatedAt = now()
+    profile.hash = sha256Json(profile.config)
+    this.store.profiles.profiles[profile.id] = profile
+    this.store.saveProfiles()
+    this.store.audit('profile.seeded', profile.id, { screens: screens.length })
   }
 
   upsertProfile (profile) {
@@ -1088,6 +1124,49 @@ class EspDispManager {
     this.store.saveProfiles()
     this.store.audit('profile.upserted', profile.id)
     return profile
+  }
+
+  // Device cleanup: remove a device from the registry + any pending
+  // commands + its discovery record. Idempotent - missing device is
+  // not an error so the form can return the operator to a clean
+  // list without races.
+  deleteDevice (id) {
+    if (!this.store.registry.devices[id]) return { id, removed: false }
+    delete this.store.registry.devices[id]
+    // Drop pending commands aimed at this device.
+    if (this.store.commands && this.store.commands.queues) {
+      delete this.store.commands.queues[id]
+    }
+    // Drop discovery record so it doesn't reappear with stale state.
+    if (this.store.discovery && this.store.discovery.devices) {
+      Object.keys(this.store.discovery.devices).forEach((key) => {
+        const rec = this.store.discovery.devices[key]
+        if (rec && rec.deviceId === id) delete this.store.discovery.devices[key]
+      })
+    }
+    this.store.saveRegistry()
+    if (this.store.saveCommands) this.store.saveCommands()
+    if (this.store.saveDiscovery) this.store.saveDiscovery()
+    this.store.audit('device.deleted', id)
+    return { id, removed: true }
+  }
+
+  // Firmware artifact cleanup: drop an artifact from the catalog.
+  // Active jobs that referenced it keep going to completion; we
+  // just stop offering it to new updates.
+  deleteFirmwareArtifact (artifactId) {
+    if (!this.store.firmware || !this.store.firmware.artifacts) {
+      return { artifactId, removed: false }
+    }
+    const before = this.store.firmware.artifacts.length
+    this.store.firmware.artifacts = this.store.firmware.artifacts
+      .filter((a) => a.artifactId !== artifactId)
+    const removed = before !== this.store.firmware.artifacts.length
+    if (removed) {
+      this.store.saveFirmware()
+      this.store.audit('firmware.artifact.deleted', artifactId)
+    }
+    return { artifactId, removed }
   }
 
   matchProfileForDevice (device) {

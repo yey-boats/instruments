@@ -446,9 +446,47 @@ function registerRoutes (router, getManager) {
     res.end(renderUi(manager, 'discovery', req))
   }))
 
+  // Cleanup endpoints: device removal + artifact removal. JSON for
+  // automation, form-redirect for the UI buttons.
+  router.delete('/devices/:id', wrap(getManager, (manager, req, res) => {
+    res.json(manager.deleteDevice(req.params.id))
+  }))
+  router.post('/ui/devices/:id/delete', wrap(getManager, (manager, req, res) => {
+    manager.deleteDevice(req.params.id)
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/espdisp-manager/ui/devices')
+    res.end()
+  }))
+  router.delete('/firmware/artifacts/:artifactId', wrap(getManager, (manager, req, res) => {
+    res.json(manager.deleteFirmwareArtifact(req.params.artifactId))
+  }))
+  router.post('/ui/firmware/artifacts/:artifactId/delete', wrap(getManager, (manager, req, res) => {
+    manager.deleteFirmwareArtifact(req.params.artifactId)
+    res.statusCode = 303
+    res.setHeader('location', '/plugins/espdisp-manager/ui/firmware')
+    res.end()
+  }))
+
   router.get('/ui/profiles', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'profiles', req))
+  }))
+
+  // Layout editor lives in public/layout-editor.html. We serve it
+  // inside the standard renderUiShell so the nav stays consistent
+  // and operators see the same header/links as on every other page.
+  // The editor iframe stretches to fill the panel; the editor itself
+  // owns its own toolbar inside that.
+  router.get('/ui/layout', wrap(getManager, (manager, req, res) => {
+    res.setHeader('content-type', 'text/html; charset=utf-8')
+    const dashboard = manager.dashboard()
+    const body = `
+      <section class="panel" style="padding: 0; overflow: hidden;">
+        <iframe src="/signalk-espdisp-manager/layout-editor.html"
+                style="width: 100%; height: calc(100vh - 220px); border: 0; display: block;"
+                title="Layout editor"></iframe>
+      </section>`
+    res.end(renderUiShell('Layout editor', body, dashboard, 'layout'))
   }))
 
   router.get('/ui/profiles/:id', wrap(getManager, (manager, req, res) => {
@@ -888,10 +926,12 @@ function renderUiShell (title, body, dashboard, page = '') {
 }
 
 function renderPage (manager, dashboard, page, req) {
-  if (page === 'devices') return renderDevicesPage(dashboard.devices, req)
+  if (page === 'devices') return renderDevicesPage(dashboard.devices, req, manager)
   if (page === 'device') return renderDevicePage(manager, req.params.id)
   if (page === 'deviceConfig') return renderDeviceConfigPage(manager, req.params.id)
-  if (page === 'discovery') return renderDiscoveryPage(manager, manager.listDiscoveredDevices().devices)
+  // Legacy /ui/discovery URL stays valid; it just renders the same
+  // page as /ui/devices now. Old bookmarks keep working.
+  if (page === 'discovery') return renderDevicesPage(dashboard.devices, req, manager)
   if (page === 'profiles') return renderProfilesPage(manager.listProfiles().profiles, dashboard.devices)
   if (page === 'preset') return renderPresetPage(manager, req.params.id, dashboard.devices)
   if (page === 'firmware') return renderFirmwarePage(manager.listFirmware(), dashboard.recentFirmwareJobs, manager.firmwareUpgradeMatrix())
@@ -914,18 +954,53 @@ function renderOverviewPage (dashboard) {
     </section>`
 }
 
-function renderDevicesPage (devices, req) {
+function renderDevicesPage (devices, req, manager) {
+  // Discovery + registered devices on one page. Previous two-page
+  // layout forced operators to bounce between Discovery (to find
+  // and claim a device) and Devices (to inspect/configure it).
+  // Now the discovery list lives at the top of this same page,
+  // grouped under "Pending" - anything not yet registered. Claimed
+  // devices drop into the registered table without a navigation
+  // switch.
   const host = req && req.headers && req.headers.host ? req.headers.host : ''
   const managerUrl = host ? `http://${host}/plugins/espdisp-manager` : '/plugins/espdisp-manager'
+  const discovered = manager ? manager.listDiscoveredDevices().devices : []
+  const pendingDevices = discovered.filter((d) => !d.registered)
   return `
     <section class="panel">
-      <h2>Registered devices</h2>
+      <h2>Devices</h2>
+      <p class="muted">${devices.length} registered · ${pendingDevices.length} pending</p>
       <div class="actions">
         <a href="/plugins/espdisp-manager/ui/devices">Refresh</a>
       </div>
-      ${renderSignalKRegisterForm(managerUrl)}
+      ${pendingDevices.length ? renderPendingDiscoverySection(manager, pendingDevices) : ''}
+      <h3 style="margin-top:24px;">Registered (${devices.length})</h3>
       ${deviceTable(devices)}
+      <details style="margin-top:20px;"><summary>Register through SignalK / scan network</summary>
+        ${renderSignalKRegisterForm(managerUrl)}
+        ${renderDiscoveryScanForm()}
+      </details>
     </section>`
+}
+
+function renderPendingDiscoverySection (manager, pendingDevices) {
+  const profiles = manager.listProfiles().profiles
+  const rows = pendingDevices.map((device) => `
+        <tr>
+          <td><strong>${escapeHtml(device.name || device.deviceId)}</strong><br><span>${escapeHtml(device.deviceId)}</span></td>
+          <td>${escapeHtml(device.address || '')}:${escapeHtml(device.port || '')}</td>
+          <td>${escapeHtml(device.source || '')}</td>
+          <td>${escapeHtml(firmwareLabel(device.firmware))}</td>
+          <td>${device.stale ? '<span class="status bad">stale</span>' : '<span class="status ok">fresh</span>'}</td>
+          <td>${renderDiscoveryClaimControl(device, profiles)}</td>
+        </tr>`).join('')
+  return `
+      <h3>Pending (${pendingDevices.length})</h3>
+      <p class="muted">Devices found on the network but not yet registered. Click "claim" to register.</p>
+      <table>
+        <thead><tr><th>Device</th><th>Address</th><th>Source</th><th>Firmware</th><th>Freshness</th><th>Action</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`
 }
 
 function renderSignalKRegisterForm (managerUrl) {
@@ -1975,6 +2050,13 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
           <td>${escapeHtml(artifact.product && artifact.product.id)}</td>
           <td>${escapeHtml(firmwareSourceLabel(artifact))}</td>
           <td><code>${escapeHtml(artifact.file && artifact.file.sha256)}</code></td>
+          <td>
+            <form method="post" action="/plugins/espdisp-manager/ui/firmware/artifacts/${encodeURIComponent(artifact.artifactId)}/delete"
+                  onsubmit="return confirm('Remove ${escapeHtml(artifact.firmware && artifact.firmware.version || artifact.artifactId)} from catalogue?')"
+                  style="margin:0;display:inline;">
+              <button type="submit" style="background:#c0392b;border-color:#a82716;">Delete</button>
+            </form>
+          </td>
         </tr>`).join('')
   const upgradeRows = ((upgrades && upgrades.devices) || []).map((device) => {
     const versions = device.compatibleArtifacts.length > 0
@@ -2018,10 +2100,11 @@ function renderFirmwarePage (catalog, jobs, upgrades) {
         <thead><tr><th>Device</th><th>Board</th><th>Current firmware</th><th>Available versions</th><th>Status</th><th>Action</th></tr></thead>
         <tbody>${upgradeRows || '<tr><td colspan="6">No devices registered.</td></tr>'}</tbody>
       </table>
-      <h2>Firmware artifacts</h2>
+      <h2>Firmware catalogue (${(catalog.artifacts || []).length})</h2>
+      <p class="muted">Build artefacts available for OTA. Use Delete to remove an old version from this catalogue (does not delete the binary; active jobs keep running).</p>
       <table>
-        <thead><tr><th>Firmware</th><th>Vendor</th><th>Product</th><th>Source</th><th>SHA-256</th></tr></thead>
-        <tbody>${artifactRows || '<tr><td colspan="5">No firmware artifacts.</td></tr>'}</tbody>
+        <thead><tr><th>Firmware</th><th>Vendor</th><th>Product</th><th>Source</th><th>SHA-256</th><th></th></tr></thead>
+        <tbody>${artifactRows || '<tr><td colspan="6">No firmware artifacts.</td></tr>'}</tbody>
       </table>
       <h2>Recent jobs</h2>
       ${firmwareJobTable(jobs || [])}
@@ -2039,6 +2122,13 @@ function deviceTable (devices) {
           <td>${escapeHtml(device.desiredConfig.widgetVariant || '')}</td>
           <td>${device.configDrift ? 'yes' : 'no'}</td>
           <td>${device.pendingCommands}<br><span><a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">config</a></span></td>
+          <td>
+            <form method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/delete"
+                  onsubmit="return confirm('Remove ${escapeHtml(device.name || device.id)}? Pending commands are dropped.')"
+                  style="margin:0;display:inline;">
+              <button type="submit" style="background:#c0392b;border-color:#a82716;">Remove</button>
+            </form>
+          </td>
         </tr>`).join('')
   return `
     <table>
@@ -2052,9 +2142,10 @@ function deviceTable (devices) {
           <th>Widgets</th>
           <th>Drift</th>
           <th>Pending</th>
+          <th></th>
         </tr>
       </thead>
-      <tbody>${rows || '<tr><td colspan="8">No devices registered.</td></tr>'}</tbody>
+      <tbody>${rows || '<tr><td colspan="9">No devices registered.</td></tr>'}</tbody>
     </table>`
 }
 
@@ -2082,12 +2173,19 @@ function firmwareJobTable (jobs) {
 }
 
 function nav (active) {
+  // Reorganised 2026-06-04: discovery folded into devices, layout
+  // editor surfaced as a top-level nav item. Editor link uses the
+  // /plugins/.../ui/layout route which serves the editor INSIDE
+  // the same iframe shell as the rest of the UI - linking directly
+  // to /signalk-espdisp-manager/layout-editor.html would break out
+  // of the iframe and confuse the SK admin sidebar's "back to
+  // plugin" affordance.
   const items = [
-    ['overview', '/plugins/espdisp-manager/ui', 'Overview'],
     ['devices', '/plugins/espdisp-manager/ui/devices', 'Devices'],
-    ['discovery', '/plugins/espdisp-manager/ui/discovery', 'Discovery'],
     ['profiles', '/plugins/espdisp-manager/ui/profiles', 'Presets'],
-    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware']
+    ['layout', '/plugins/espdisp-manager/ui/layout', 'Layout editor'],
+    ['firmware', '/plugins/espdisp-manager/ui/firmware', 'Firmware'],
+    ['overview', '/plugins/espdisp-manager/ui', 'Overview']
   ]
   return `<nav>${items.map(([id, href, label]) => `<a class="${active === id ? 'active' : ''}" href="${href}">${label}</a>`).join('')}</nav>`
 }
