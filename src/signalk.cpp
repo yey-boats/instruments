@@ -152,10 +152,26 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
     case WStype_TEXT:
         onText(payload, len);
         break;
+    case WStype_BIN:
+        // SignalK sometimes sends binary frames for keepalive; treat
+        // them as link activity but don't try to parse.
+        data.wsLastFrameMs = millis();
+        break;
+    case WStype_PING:
+        // The lib auto-replies with PONG; log at DEBUG so we can
+        // verify pings are arriving without flooding INFO/WARN.
+        net::logf_at(net::LOG_DEBUG, "[sk] WS ping (%u B)", (unsigned)len);
+        data.wsLastFrameMs = millis();
+        break;
+    case WStype_PONG:
+        net::logf_at(net::LOG_DEBUG, "[sk] WS pong");
+        data.wsLastFrameMs = millis();
+        break;
     case WStype_ERROR:
         net::logf("[sk] WS error: %.*s", (int)len, (const char *)payload);
         break;
     default:
+        net::logf_at(net::LOG_DEBUG, "[sk] WS unhandled event type=%d", (int)type);
         break;
     }
 }
@@ -186,7 +202,14 @@ static void start_ws() {
     ws.begin(s_host.c_str(), s_port, path.c_str());
     ws.onEvent(onEvent);
     ws.setReconnectInterval(5000);
-    ws.enableHeartbeat(15000, 3000, 2);
+    // ws.enableHeartbeat(pingInterval, pongTimeout, missedPongs).
+    // Was (15000, 3000, 2). Live observation showed a connect/disconnect
+    // flap every ~10-20s against the lab SignalK server even though
+    // ss/tcpdump showed an ESTABLISHED TCP connection - the SK server's
+    // WS handler doesn't always reply to PONG inside 3s under load.
+    // Widen the pong window to 8s and tolerate 3 misses so a busy server
+    // gets ~24s of grace before the device decides the link is dead.
+    ws.enableHeartbeat(15000, 8000, 3);
     s_ws_started = true;
     net::logf("[sk] ws begin %s:%u token_len=%u", s_host.c_str(), s_port,
               (unsigned)s_token.length());
