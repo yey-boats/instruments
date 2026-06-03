@@ -417,8 +417,20 @@ def cmd_watch(args) -> int:
         return 1
     prev: dict = {}
     while True:
-        doc = http_get_json(f"http://{ip}/api/state", args.timeout, args.remote) or {}
+        doc = http_get_json(f"http://{ip}/api/state", args.timeout, args.remote)
         ts = datetime.datetime.now().isoformat(timespec="seconds")
+        if doc is None:
+            # /api/state didn't respond - DON'T mistake this for a
+            # reboot. The web stack going quiet (TCP wedge / TIME_WAIT
+            # pool exhaustion) trivially shows as no JSON; without
+            # this guard we'd flag "uptime=0" against the previous
+            # poll's uptime and print spurious `!! REBOOTED` lines.
+            # Real reboots show a positive-but-smaller uptime in a
+            # subsequent successful poll; that path still fires below.
+            sys.stdout.write(f"{ts}  (/api/state unreachable)\n")
+            sys.stdout.flush()
+            time.sleep(args.interval)
+            continue
         dev = doc.get("device", {})
         mgr = doc.get("manager", {})
         sk = doc.get("sk", {})
@@ -427,9 +439,11 @@ def cmd_watch(args) -> int:
                 f"sk={sk.get('state')} task_iters={sk.get('task_iters')} "
                 f"mgr.hb={mgr.get('lastHeartbeatCode')} "
                 f"uptime={dev.get('uptime_ms', 0) // 1000}s")
-        # Flag uptime regression (device rebooted) loud.
+        # Flag uptime regression (device rebooted) loud. Only meaningful
+        # when both prev and current polls succeeded.
         prev_up = prev.get("device", {}).get("uptime_ms", 0)
-        if prev_up and dev.get("uptime_ms", 0) < prev_up:
+        cur_up = dev.get("uptime_ms", 0)
+        if prev_up and cur_up and cur_up < prev_up:
             sys.stdout.write(f"!! REBOOTED (prev_uptime={prev_up // 1000}s)\n")
         sys.stdout.write(line + "\n")
         sys.stdout.flush()
