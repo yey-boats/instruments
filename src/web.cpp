@@ -28,6 +28,7 @@
 #include "config_runtime.h"
 #include <esp_heap_caps.h>
 #include "build_version.h"
+#include "psram_json.h"
 
 // Gesture diagnostics live in main.cpp (top-level - not in any namespace).
 extern "C" {
@@ -109,7 +110,13 @@ static bool require_api_auth() {
 
 static void handle_state() {
     if (!require_api_auth()) return;
-    JsonDocument doc;
+    // /api/state builds a doc with ~80 fields across device/wifi/sk/manager/
+    // gestures/errors. On internal heap (the ArduinoJson v7 default) this
+    // is a multi-KiB allocation on a heap that idles at 11-15 KiB free -
+    // the same root cause as the manager bug fixed in f3c3c26. Route the
+    // tree through PSRAM via the shared allocator so frequent web-UI
+    // polling doesn't fragment internal SRAM.
+    JsonDocument doc(&espdisp::psram_json);
     JsonObject dev = doc["device"].to<JsonObject>();
     dev["id"] = net::deviceId();
     dev["uptime_ms"] = (uint32_t)millis();

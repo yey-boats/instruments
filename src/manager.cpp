@@ -1,5 +1,12 @@
 #include "manager.h"
 
+// Defined exactly once for the whole firmware here, so the shared
+// PSRAM allocator lives at root namespace scope and links the same
+// across manager.cpp + web.cpp + anything else that needs it.
+#define PSRAM_JSON_DEFINE_SHARED
+#include "psram_json.h"
+#undef PSRAM_JSON_DEFINE_SHARED
+
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
@@ -72,24 +79,14 @@ constexpr size_t MIN_MANAGER_INTERNAL_BLOCK = 3 * 1024;
 constexpr uint16_t HTTP_CONNECT_TIMEOUT_MS = 1000;
 constexpr uint16_t HTTP_READ_TIMEOUT_MS = 1500;
 
-class PsramJsonAllocator : public ArduinoJson::Allocator {
-  public:
-    void *allocate(size_t size) override {
-        void *ptr = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!ptr) ptr = heap_caps_malloc(size, MALLOC_CAP_8BIT);
-        return ptr;
-    }
+// PsramJsonAllocator moved to include/psram_json.h. The shared
+// definition lives at file scope (outside both `namespace manager`
+// and the anonymous namespace) further down so the symbol resolves
+// to `::espdisp::psram_json` and other TUs (notably web.cpp's
+// handle_state) can link against the same instance.
 
-    void deallocate(void *ptr) override { heap_caps_free(ptr); }
-
-    void *reallocate(void *ptr, size_t new_size) override {
-        void *out = heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!out) out = heap_caps_realloc(ptr, new_size, MALLOC_CAP_8BIT);
-        return out;
-    }
-};
-
-PsramJsonAllocator s_json_allocator;
+// Local alias to keep the existing call sites short.
+auto &s_json_allocator = ::espdisp::psram_json;
 
 String s_endpoint;
 String s_token;     // device/dev/provision token sent as X-EspDisp-Authorization
