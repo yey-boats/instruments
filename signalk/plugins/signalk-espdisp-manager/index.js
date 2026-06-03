@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const { EspDispManager } = require('./lib/manager')
+const presets = require('./lib/screen-presets')
 const pluginPackage = require('./package.json')
 
 module.exports = function espdispManagerPlugin (app) {
@@ -356,6 +357,26 @@ function registerRoutes (router, getManager) {
   router.get('/capabilities', wrap(getManager, (manager, req, res) => {
     res.json(manager.pluginCapabilities())
   }))
+
+  // ---- screen-preset catalogue (read-only) ------------------------------
+  // Powers the visual layout editor: GET /presets/screens?board=<id> (or
+  // ?displayClass=<id>) returns a curated list of starter screens that
+  // match the device's display geometry. The editor inserts the chosen
+  // screen verbatim into the active profile.
+  router.get('/presets/displays', (req, res) => {
+    res.json({ displayClasses: presets.listDisplayClasses() })
+  })
+  router.get('/presets/widgets', (req, res) => {
+    res.json({ widgetTypes: presets.listWidgetTypes(), paths: presets.ALL_PATHS })
+  })
+  router.get('/presets/screens', (req, res) => {
+    const displayClass = req.query.displayClass ||
+                        (req.query.board ? presets.classifyBoard(String(req.query.board)) : 'sunton-480')
+    res.json({
+      displayClass,
+      screens: presets.getPresetsForClass(String(displayClass))
+    })
+  })
 
   router.get('/dashboard', wrap(getManager, (manager, req, res) => {
     res.json(manager.dashboard())

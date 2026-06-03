@@ -1,10 +1,11 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>espdisp layout editor</title>
+<title>espdisp visual layout editor</title>
 <style>
   :root {
     --bg: #0b1220;
     --panel: #141d2f;
+    --panel-2: #1c2741;
     --panel-edge: #25304a;
     --fg: #e4ecff;
     --fg-dim: #8794b2;
@@ -13,58 +14,88 @@
     --warn: #ffb84d;
     --bad: #ff6b6b;
   }
+  * { box-sizing: border-box; }
   body { margin: 0; padding: 24px; font: 14px/1.4 system-ui, -apple-system, sans-serif;
          background: var(--bg); color: var(--fg); }
   h1 { margin: 0 0 16px 0; font-size: 22px; color: var(--accent); }
-  h2 { margin: 24px 0 12px 0; font-size: 16px; color: var(--fg-dim); text-transform: uppercase;
-       letter-spacing: 0.08em; }
-  .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; padding: 12px;
-             background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px; }
-  .toolbar label { display: flex; align-items: center; gap: 8px; }
-  .toolbar select, .toolbar input, .toolbar button { background: #1c2741; color: var(--fg);
-    border: 1px solid var(--panel-edge); padding: 6px 10px; border-radius: 4px; font: inherit; }
-  .toolbar button { cursor: pointer; }
-  .toolbar button.primary { background: var(--accent); color: #001218; font-weight: 600; }
-  .toolbar button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
-  .toolbar .status { margin-left: auto; color: var(--fg-dim); font-size: 13px; }
+  h2 { margin: 24px 0 12px 0; font-size: 14px; color: var(--fg-dim);
+       text-transform: uppercase; letter-spacing: 0.08em; }
+  button, select, input { font: inherit; }
+  input, select { background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 6px 8px; border-radius: 4px; }
+  button { background: var(--panel-2); color: var(--fg);
+    border: 1px solid var(--panel-edge); padding: 6px 12px; border-radius: 4px;
+    cursor: pointer; }
+  button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); color: #001218; font-weight: 600;
+    border-color: var(--accent); }
+  button.primary:disabled { opacity: 0.35; cursor: not-allowed; }
+  button.ghost { background: transparent; }
+  button.danger { color: var(--bad); border-color: transparent; }
+  .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+             margin-bottom: 20px; padding: 12px; background: var(--panel);
+             border: 1px solid var(--panel-edge); border-radius: 8px; }
+  .toolbar label { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); }
+  .toolbar .status { margin-left: auto; font-size: 13px; color: var(--fg-dim); }
   .toolbar .status.ok { color: var(--accent-2); }
   .toolbar .status.err { color: var(--bad); }
-  .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  .toolbar .status.warn { color: var(--warn); }
+  .screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
              gap: 16px; }
-  .screen { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px;
-            padding: 16px; }
-  .screen header { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
-  .screen header input { flex: 1; background: #1c2741; color: var(--fg);
-    border: 1px solid var(--panel-edge); padding: 4px 8px; border-radius: 4px; font: inherit; }
-  .screen header select { background: #1c2741; color: var(--fg);
-    border: 1px solid var(--panel-edge); padding: 4px 8px; border-radius: 4px; font: inherit; }
-  .screen header button.del { background: transparent; border: 1px solid var(--panel-edge);
-    color: var(--bad); padding: 4px 8px; border-radius: 4px; cursor: pointer; }
-  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  .tiles.full { grid-template-columns: 1fr; }
-  .tile { background: #1c2741; border: 1px dashed var(--panel-edge); border-radius: 6px;
-          padding: 10px; min-height: 56px; }
-  .tile select { width: 100%; background: #0b1220; color: var(--fg);
-    border: 1px solid var(--panel-edge); padding: 4px 6px; border-radius: 4px; font: inherit; }
-  .tile .meta { display: flex; gap: 6px; margin-top: 6px; }
-  .tile .meta input { flex: 1; background: #0b1220; color: var(--fg);
-    border: 1px solid var(--panel-edge); padding: 3px 6px; border-radius: 4px; font: 12px inherit; }
-  .add-screen { background: transparent; border: 2px dashed var(--panel-edge); color: var(--fg-dim);
-    border-radius: 8px; padding: 24px; cursor: pointer; font: inherit; }
-  .add-screen:hover { border-color: var(--accent); color: var(--accent); }
+  .screen { background: var(--panel); border: 1px solid var(--panel-edge);
+            border-radius: 8px; padding: 16px; }
+  .screen header { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+  .screen header .id { flex: 1; }
+  .screen header button.del { color: var(--bad); border-color: transparent; padding: 4px 8px; }
+  .screen .meta { color: var(--fg-dim); font-size: 12px; margin-bottom: 12px; }
+  .tiles { display: grid; gap: 8px; }
+  .tiles[data-rows="2"][data-cols="2"] { grid-template-columns: 1fr 1fr; }
+  .tiles[data-rows="2"][data-cols="3"] { grid-template-columns: 1fr 1fr 1fr; }
+  .tile { background: var(--panel-2); border: 1px dashed var(--panel-edge);
+          border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .tile.empty { opacity: 0.5; }
+  .tile .row { display: flex; gap: 6px; }
+  .tile .row label { color: var(--fg-dim); font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.04em; display: block; }
+  .tile select, .tile input { background: var(--bg); width: 100%;
+    border: 1px solid var(--panel-edge); padding: 3px 6px; font-size: 12px; }
+  .tile .help { font-size: 11px; color: var(--fg-dim); }
+  .actions { display: flex; gap: 8px; margin-top: 24px; flex-wrap: wrap; }
+  .actions .grow { flex: 1; }
+  .preset-picker { position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+                   display: none; align-items: center; justify-content: center;
+                   z-index: 10; }
+  .preset-picker.show { display: flex; }
+  .preset-picker .modal { background: var(--panel); border: 1px solid var(--panel-edge);
+    border-radius: 8px; padding: 20px; max-width: 600px; width: 90%;
+    max-height: 80vh; overflow: auto; }
+  .preset-picker .modal h3 { margin: 0 0 12px 0; color: var(--accent); }
+  .preset-picker .modal .preset-list { display: grid; gap: 10px; margin: 16px 0; }
+  .preset-picker .preset-item { background: var(--panel-2); border: 1px solid var(--panel-edge);
+    border-radius: 6px; padding: 12px; cursor: pointer; }
+  .preset-picker .preset-item:hover { border-color: var(--accent); }
+  .preset-picker .preset-item h4 { margin: 0 0 4px 0; color: var(--accent); }
+  .preset-picker .preset-item .desc { color: var(--fg-dim); font-size: 12px; }
+  .preset-picker .preset-item .tiles-preview { display: grid; gap: 4px; margin-top: 8px;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
+  .preset-picker .preset-item .tiles-preview span { background: var(--bg);
+    border-radius: 3px; padding: 4px 6px; font-size: 11px; color: var(--fg-dim); }
+  .preset-picker .modal-close { float: right; }
   .json-view { margin-top: 24px; padding: 12px; background: #06090f; border-radius: 6px;
-               white-space: pre-wrap; font: 12px ui-monospace, monospace; color: var(--fg-dim);
-               max-height: 280px; overflow: auto; }
-  details summary { cursor: pointer; color: var(--fg-dim); margin-top: 16px; }
+    white-space: pre-wrap; font: 12px ui-monospace, monospace; color: var(--fg-dim);
+    max-height: 280px; overflow: auto; }
+  details summary { cursor: pointer; color: var(--fg-dim); margin-top: 20px; }
 </style>
 
 <h1>espdisp visual layout editor</h1>
 
 <div class="toolbar">
-  <label>Profile:
-    <select id="profile-select"></select>
-  </label>
+  <label>Profile <select id="profile-select"></select></label>
+  <label>Display <select id="display-select"></select></label>
   <button id="reload-btn">Reload</button>
+  <button id="insert-preset-btn">+ Insert preset screen</button>
+  <button id="add-empty-btn">+ Empty screen</button>
+  <span class="grow"></span>
   <button id="save-btn" class="primary" disabled>Save changes</button>
   <span id="status" class="status">loading…</span>
 </div>
@@ -77,42 +108,38 @@
   <pre id="json-view" class="json-view"></pre>
 </details>
 
+<div class="preset-picker" id="preset-picker">
+  <div class="modal">
+    <button class="ghost modal-close" id="preset-close">×</button>
+    <h3>Insert a preset screen</h3>
+    <p style="color: var(--fg-dim); margin: 0;">
+      Filtered for display class: <strong id="preset-display-label">…</strong>
+    </p>
+    <div class="preset-list" id="preset-list"></div>
+  </div>
+</div>
+
+<!-- shared <datalist> of SK paths, populated from /presets/widgets -->
+<datalist id="sk-paths"></datalist>
+
 <script>
 'use strict';
 
 // --- API client ---------------------------------------------------------
-//
-// All requests need the SignalK admin Authorization bearer (we read it
-// from the user's existing session cookie via fetch credentials) and
-// the X-EspDisp-Authorization shared dev token. The plugin's auth path
-// accepts either Bearer for the JWT or X-EspDisp-Authorization for the
-// dev shared token; we send both so the editor works whether the user
-// is logged into the SignalK admin UI OR has set the X-EspDisp token
-// in localStorage.
-//
-// For deploys where the SignalK admin login cookie covers /plugins/*
-// the X-EspDisp header is redundant but harmless. For deploys where
-// the bearer isn't auto-injected, localStorage.SK_TOKEN provides the
-// override.
 
-const API_BASE = '/plugins/espdisp-manager';
+const API = '/plugins/espdisp-manager';
 
 function authHeaders () {
-  const headers = { 'content-type': 'application/json' };
-  const skToken = localStorage.getItem('SK_TOKEN');
-  if (skToken) headers['authorization'] = 'Bearer ' + skToken;
-  const devToken = localStorage.getItem('ESPDISP_DEV_TOKEN') || 'espdisp-dev';
-  headers['x-espdisp-authorization'] = 'Bearer ' + devToken;
-  return headers;
+  const h = { 'content-type': 'application/json' };
+  const t = localStorage.getItem('SK_TOKEN');
+  if (t) h.authorization = 'Bearer ' + t;
+  h['x-espdisp-authorization'] = 'Bearer ' + (localStorage.getItem('ESPDISP_DEV_TOKEN') || 'espdisp-dev');
+  return h;
 }
 
 async function api (path, opts) {
-  const r = await fetch(API_BASE + path, {
-    credentials: 'include',
-    headers: authHeaders(),
-    ...opts,
-  });
-  if (!r.ok) throw new Error(path + ' -> ' + r.status);
+  const r = await fetch(API + path, { credentials: 'include', headers: authHeaders(), ...opts });
+  if (!r.ok) throw new Error(path + ' → ' + r.status);
   const ct = r.headers.get('content-type') || '';
   return ct.includes('application/json') ? r.json() : r.text();
 }
@@ -122,19 +149,28 @@ async function api (path, opts) {
 const state = {
   profileId: 'default',
   profileNames: {},
-  doc: null,        // current dashboard doc loaded from server
-  dirty: false,     // unsaved changes flag
-  widgetTypes: ['numeric', 'text', 'gauge', 'compass', 'windRose', 'trend', 'bar', 'button', 'autopilot'],
-  screenTypes: ['grid'],
+  displayClass: 'sunton-480',     // currently-targeted display
+  displayClasses: [],             // catalogue from /presets/displays
+  doc: null,
+  dirty: false,
+  widgetTypes: [],                // [{ id, label, metrics: {...} }]
+  widgetTypesById: {},
+  paths: [],                      // string[] from /presets/widgets
+  presetsByClass: {},             // displayClass -> screens[]
 };
 
 // --- DOM helpers --------------------------------------------------------
 
 function el (tag, props, ...children) {
   const node = Object.assign(document.createElement(tag), props || {});
+  for (const k in (props && props.dataset || {})) node.dataset[k] = props.dataset[k];
   for (const child of children) {
-    if (child == null) continue;
-    node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    if (child == null || child === false) continue;
+    if (Array.isArray(child)) {
+      for (const c of child) if (c) node.append(c.nodeType ? c : document.createTextNode(String(c)));
+    } else {
+      node.append(child.nodeType ? child : document.createTextNode(String(child)));
+    }
   }
   return node;
 }
@@ -144,34 +180,28 @@ function setStatus (msg, kind) {
   s.textContent = msg;
   s.className = 'status ' + (kind || '');
 }
+function markDirty () { state.dirty = true; document.getElementById('save-btn').disabled = false;
+  setStatus('unsaved changes', 'warn'); }
+function markClean () { state.dirty = false; document.getElementById('save-btn').disabled = true; }
 
-function markDirty () {
-  state.dirty = true;
-  document.getElementById('save-btn').disabled = false;
-  setStatus('unsaved changes', 'err');
-}
-
-function markClean () {
-  state.dirty = false;
-  document.getElementById('save-btn').disabled = true;
-}
-
-// --- Render -------------------------------------------------------------
+// --- Doc accessors ------------------------------------------------------
 
 function dashboardDoc () {
-  // Normalize the loaded shape - the import format wraps it as { kind,
-  // preset, dashboard } but the per-profile fetch returns the same.
   if (!state.doc) return { settings: {}, layout: { screens: [] } };
   if (state.doc.dashboard) return state.doc.dashboard;
   return state.doc;
 }
-
-function ensureScreensArray () {
+function ensureScreens () {
   const d = dashboardDoc();
   if (!d.layout) d.layout = { version: 1, screens: [] };
   if (!Array.isArray(d.layout.screens)) d.layout.screens = [];
   return d.layout.screens;
 }
+function displayClassMeta () {
+  return state.displayClasses.find((c) => c.id === state.displayClass) || { tilesPerScreen: 4, gridCols: 2, gridRows: 2 };
+}
+
+// --- Rendering ----------------------------------------------------------
 
 function renderJsonView () {
   document.getElementById('json-view').textContent = JSON.stringify(dashboardDoc(), null, 2);
@@ -180,111 +210,212 @@ function renderJsonView () {
 function renderScreens () {
   const root = document.getElementById('screens');
   root.replaceChildren();
-  const screens = ensureScreensArray();
+  const screens = ensureScreens();
   screens.forEach((screen, i) => root.append(renderScreen(screen, i)));
-  root.append(el('button', {
-    className: 'add-screen',
-    onclick: addScreen,
-  }, '+ Add screen'));
+  if (!screens.length) {
+    root.append(el('div', { className: 'screen', style: 'opacity:0.6;text-align:center;color:var(--fg-dim);' },
+      'No screens yet. Click "+ Insert preset screen" to add a curated one, or "+ Empty screen" to start blank.'));
+  }
 }
 
 function renderScreen (screen, idx) {
-  const tiles = Array.isArray(screen.tiles) ? screen.tiles : [];
-  const tilesGrid = el('div', { className: 'tiles' + (tiles.length === 1 ? ' full' : '') });
-  // Always show at least 4 slots for a grid screen so the operator
-  // can drop in widgets without having to first "add tile".
-  const visibleTiles = tiles.length < 4 ? tiles.concat(Array(4 - tiles.length).fill(null)) : tiles;
-  visibleTiles.forEach((tile, ti) => tilesGrid.append(renderTile(tile, idx, ti)));
+  const meta = displayClassMeta();
+  const expectedTiles = meta.tilesPerScreen;
+  if (!Array.isArray(screen.tiles)) screen.tiles = [];
+  while (screen.tiles.length < expectedTiles) screen.tiles.push(null);
+  const tilesDiv = el('div', {
+    className: 'tiles',
+    dataset: { rows: String(meta.gridRows), cols: String(meta.gridCols) },
+  });
+  screen.tiles.slice(0, expectedTiles).forEach((tile, ti) => {
+    tilesDiv.append(renderTile(tile, idx, ti));
+  });
   return el('div', { className: 'screen' },
     el('header', null,
       el('input', {
-        value: screen.id || '',
+        className: 'id', value: screen.id || '',
         placeholder: 'screen id (e.g. dashboard)',
         oninput: (e) => { screen.id = e.target.value; markDirty(); },
       }),
-      el('select', {
-        onchange: (e) => { screen.type = e.target.value; markDirty(); },
-      }, ...state.screenTypes.map((t) => {
-        const opt = el('option', { value: t }, t);
-        if (screen.type === t || (!screen.type && t === 'grid')) opt.selected = true;
-        return opt;
-      })),
+      el('input', {
+        value: screen.title || '', placeholder: 'title',
+        style: 'flex:1;', oninput: (e) => { screen.title = e.target.value; markDirty(); },
+      }),
       el('button', {
         className: 'del',
+        title: 'Delete screen',
         onclick: () => {
           if (!confirm('Delete screen "' + (screen.id || 'unnamed') + '"?')) return;
-          ensureScreensArray().splice(idx, 1);
-          markDirty();
-          renderScreens();
-          renderJsonView();
+          ensureScreens().splice(idx, 1);
+          markDirty(); renderScreens(); renderJsonView();
         },
       }, '×'),
     ),
-    tilesGrid,
+    el('div', { className: 'meta' }, `${meta.gridCols}×${meta.gridRows} grid · ${expectedTiles} tiles`),
+    tilesDiv,
   );
 }
 
 function renderTile (tile, screenIdx, tileIdx) {
-  const currentWidget = (tile && tile.widget) || '';
-  // Build widget options. The plugin's catalog is type-based; let
-  // the operator type a widget id (e.g. "windRose-1") OR pick a type.
-  // For MVP we keep it simple: a select of known types and let the
-  // value be the widget id used later in widgetItems.
-  const sel = el('select', {
+  if (!tile) tile = {};
+  const tileObj = tile;
+  // Widget type select
+  const typeSel = el('select', {
     onchange: (e) => {
-      const screens = ensureScreensArray();
+      const screens = ensureScreens();
       const screen = screens[screenIdx];
       if (!Array.isArray(screen.tiles)) screen.tiles = [];
-      while (screen.tiles.length <= tileIdx) screen.tiles.push({});
+      while (screen.tiles.length <= tileIdx) screen.tiles.push(null);
       if (!e.target.value) {
-        screen.tiles[tileIdx] = {};
+        screen.tiles[tileIdx] = null;
       } else {
         screen.tiles[tileIdx] = { ...screen.tiles[tileIdx], widget: e.target.value };
       }
-      markDirty();
-      renderJsonView();
-    },
-  }, el('option', { value: '' }, '— empty —'),
-     ...state.widgetTypes.map((t) => {
-       const opt = el('option', { value: t }, t);
-       if (currentWidget === t) opt.selected = true;
-       return opt;
-     }));
-  const titleInput = el('input', {
-    value: (tile && tile.title) || '',
-    placeholder: 'title (optional)',
-    oninput: (e) => {
-      const screens = ensureScreensArray();
-      const screen = screens[screenIdx];
-      if (!Array.isArray(screen.tiles)) screen.tiles = [];
-      while (screen.tiles.length <= tileIdx) screen.tiles.push({});
-      screen.tiles[tileIdx] = { ...screen.tiles[tileIdx], title: e.target.value };
-      markDirty();
+      markDirty(); renderScreens(); renderJsonView();
     },
   });
-  return el('div', { className: 'tile' },
-    sel,
-    el('div', { className: 'meta' }, titleInput));
+  typeSel.append(el('option', { value: '' }, '— empty —'));
+  state.widgetTypes.forEach((w) => {
+    const opt = el('option', { value: w.id }, w.label);
+    if (tileObj.widget === w.id) opt.selected = true;
+    typeSel.append(opt);
+  });
+
+  const children = [
+    el('div', { className: 'row' }, el('div', null,
+      el('label', null, 'Widget'), typeSel)),
+  ];
+
+  if (tileObj.widget) {
+    const meta = state.widgetTypesById[tileObj.widget];
+    // Title row
+    children.push(el('div', { className: 'row' }, el('div', { style: 'flex:1;' },
+      el('label', null, 'Title'),
+      el('input', {
+        value: tileObj.title || '',
+        placeholder: '(optional)',
+        oninput: (e) => {
+          tileObj.title = e.target.value;
+          ensureScreens()[screenIdx].tiles[tileIdx] = tileObj;
+          markDirty(); renderJsonView();
+        },
+      }))));
+    // Metric rows (primary, secondary) per widget meta
+    if (meta && meta.metrics) {
+      for (const key of ['primary', 'secondary']) {
+        const metricMeta = meta.metrics[key];
+        if (!metricMeta) continue;
+        children.push(el('div', { className: 'row' }, el('div', { style: 'flex:1;' },
+          el('label', null, metricMeta.label + (metricMeta.required ? ' *' : '')),
+          el('input', {
+            list: 'sk-paths',
+            value: tileObj[key] || '',
+            placeholder: 'navigation.speedOverGround',
+            oninput: (e) => {
+              tileObj[key] = e.target.value;
+              ensureScreens()[screenIdx].tiles[tileIdx] = tileObj;
+              markDirty(); renderJsonView();
+            },
+          }))));
+      }
+    }
+    if (meta && meta.description) {
+      children.push(el('div', { className: 'help' }, meta.description));
+    }
+  } else {
+    children.push(el('div', { className: 'help' }, 'Pick a widget type to configure this tile.'));
+  }
+  return el('div', { className: 'tile' + (tileObj.widget ? '' : ' empty') }, ...children);
 }
 
-function addScreen () {
-  const screens = ensureScreensArray();
+// --- Preset picker ------------------------------------------------------
+
+async function openPresetPicker () {
+  const picker = document.getElementById('preset-picker');
+  const list = document.getElementById('preset-list');
+  document.getElementById('preset-display-label').textContent =
+    displayClassMeta().label || state.displayClass;
+  // Lazy-load presets for this display class
+  if (!state.presetsByClass[state.displayClass]) {
+    try {
+      const r = await api('/presets/screens?displayClass=' + encodeURIComponent(state.displayClass));
+      state.presetsByClass[state.displayClass] = r.screens || [];
+    } catch (e) {
+      list.replaceChildren(el('p', { style: 'color:var(--bad);' }, 'Failed to load presets: ' + e.message));
+      picker.classList.add('show');
+      return;
+    }
+  }
+  const presets = state.presetsByClass[state.displayClass];
+  list.replaceChildren(...presets.map((p) => el('div', {
+    className: 'preset-item',
+    onclick: () => {
+      const screens = ensureScreens();
+      // Deep-clone the preset so further edits don't mutate the cached one
+      screens.push(JSON.parse(JSON.stringify(p)));
+      markDirty(); renderScreens(); renderJsonView();
+      picker.classList.remove('show');
+    },
+  },
+    el('h4', null, p.title || p.id),
+    el('div', { className: 'desc' }, p.id + ' · ' + (p.type || 'grid') + ' · ' + (p.tiles || []).length + ' tile(s)'),
+    el('div', { className: 'tiles-preview' },
+      ...(p.tiles || []).map((t) => el('span', null,
+        (t.title || '') + (t.widget ? ' [' + t.widget + ']' : ''))),
+    ),
+  )));
+  picker.classList.add('show');
+}
+
+function addEmptyScreen () {
+  const screens = ensureScreens();
+  const meta = displayClassMeta();
+  const tiles = Array(meta.tilesPerScreen).fill(null);
   screens.push({
     id: 'screen' + (screens.length + 1),
+    title: 'Screen ' + (screens.length + 1),
     type: 'grid',
-    tiles: [{}, {}, {}, {}],
+    tiles,
   });
-  markDirty();
-  renderScreens();
-  renderJsonView();
+  markDirty(); renderScreens(); renderJsonView();
 }
 
 // --- Load / save --------------------------------------------------------
 
+async function loadCatalogue () {
+  // /presets/displays and /presets/widgets are public-ish but require
+  // SignalK auth in this lab. Failure -> graceful fallback to a tiny
+  // built-in catalog so the editor degrades but stays usable.
+  try {
+    const [d, w] = await Promise.all([
+      api('/presets/displays'),
+      api('/presets/widgets'),
+    ]);
+    state.displayClasses = d.displayClasses || [];
+    state.widgetTypes = w.widgetTypes || [];
+    state.paths = w.paths || [];
+  } catch (e) {
+    state.displayClasses = [
+      { id: 'sunton-480', label: 'Sunton 480×480 (fallback)', tilesPerScreen: 4, gridCols: 2, gridRows: 2 },
+    ];
+    state.widgetTypes = ['numeric', 'compass', 'windRose'].map((id) => ({
+      id, label: id, metrics: { primary: { required: true, label: 'Metric path' } },
+    }));
+    state.paths = [];
+    setStatus('catalogue offline; using built-ins', 'warn');
+  }
+  state.widgetTypesById = Object.fromEntries(state.widgetTypes.map((w) => [w.id, w]));
+  const dl = document.getElementById('sk-paths');
+  dl.replaceChildren(...state.paths.map((p) => el('option', { value: p })));
+  const dispSel = document.getElementById('display-select');
+  dispSel.replaceChildren(...state.displayClasses.map((c) => {
+    const o = el('option', { value: c.id }, c.label || c.id);
+    if (c.id === state.displayClass) o.selected = true;
+    return o;
+  }));
+}
+
 async function loadProfileList () {
-  // The plugin exposes /profiles -> { profiles: [{ id, name, ... }] }.
-  // Fall back to a synthetic "default" if the call fails so the editor
-  // is still usable for a brand-new install.
   try {
     const d = await api('/profiles');
     const list = (d && Array.isArray(d.profiles)) ? d.profiles : [];
@@ -310,10 +441,8 @@ async function loadProfile () {
   setStatus('loading ' + state.profileId + '…');
   try {
     state.doc = await api('/profiles/' + encodeURIComponent(state.profileId) + '/dashboard.json');
-    markClean();
-    setStatus('loaded ' + state.profileId, 'ok');
-    renderScreens();
-    renderJsonView();
+    markClean(); setStatus('loaded ' + state.profileId, 'ok');
+    renderScreens(); renderJsonView();
   } catch (e) {
     setStatus('load failed: ' + e.message, 'err');
   }
@@ -323,18 +452,11 @@ async function save () {
   if (!state.dirty) return;
   setStatus('saving…');
   try {
-    // The plugin's import-dashboard endpoint accepts the same envelope
-    // we already have, with an optional presetId to write to. Send the
-    // full doc shape including the wrapper so it round-trips identically.
     const payload = state.doc.dashboard
       ? { presetId: state.profileId, ...state.doc }
       : { presetId: state.profileId, dashboard: state.doc, kind: 'espdisp.dashboard.v1' };
-    await api('/profiles/import-dashboard', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
-    markClean();
-    setStatus('saved ' + state.profileId + ' ✓', 'ok');
+    await api('/profiles/import-dashboard', { method: 'POST', body: JSON.stringify(payload) });
+    markClean(); setStatus('saved ' + state.profileId + ' ✓', 'ok');
     await loadProfile();
   } catch (e) {
     setStatus('save failed: ' + e.message, 'err');
@@ -345,28 +467,34 @@ async function save () {
 
 document.getElementById('profile-select').addEventListener('change', (e) => {
   if (state.dirty && !confirm('Discard unsaved changes?')) {
-    e.target.value = state.profileId;
-    return;
+    e.target.value = state.profileId; return;
   }
   state.profileId = e.target.value;
   loadProfile();
 });
-
+document.getElementById('display-select').addEventListener('change', (e) => {
+  state.displayClass = e.target.value;
+  // Just re-render so tile grids reflow; don't touch the doc.
+  renderScreens();
+});
 document.getElementById('reload-btn').addEventListener('click', () => {
   if (state.dirty && !confirm('Discard unsaved changes and reload?')) return;
   loadProfile();
 });
-
+document.getElementById('insert-preset-btn').addEventListener('click', openPresetPicker);
+document.getElementById('add-empty-btn').addEventListener('click', addEmptyScreen);
+document.getElementById('preset-close').addEventListener('click', () =>
+  document.getElementById('preset-picker').classList.remove('show'));
+document.getElementById('preset-picker').addEventListener('click', (e) => {
+  if (e.target.id === 'preset-picker') e.target.classList.remove('show');
+});
 document.getElementById('save-btn').addEventListener('click', save);
-
 window.addEventListener('beforeunload', (e) => {
-  if (state.dirty) {
-    e.preventDefault();
-    e.returnValue = '';
-  }
+  if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
 });
 
 (async () => {
+  await loadCatalogue();
   await loadProfileList();
   await loadProfile();
 })();
