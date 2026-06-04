@@ -78,6 +78,15 @@ jobs:
             exit 1
           fi
           echo "Using boot_app0.bin from: $BOOT_APP0"
+          # Diagnostic: list everything PIO produced. v0.3.1 failed here
+          # because the cp couldn't find bootloader.bin under
+          # .pio/build/release-esp32-4848s040/ - the build log shows it
+          # WAS produced, so we need to see the actual on-disk layout
+          # before the next attempt to know whether PIO 6.1.19 + this
+          # arduino-espressif32 version puts it elsewhere now.
+          echo "== .pio/build tree =="
+          find .pio/build -maxdepth 2 -type f \( -name '*.bin' -o -name '*.elf' \) | sort || true
+          echo "== end =="
           targets=(
             esp32-4848s040:release-esp32-4848s040
             waveshare-touch-lcd-4:release-waveshare-touch-lcd-4
@@ -91,7 +100,22 @@ jobs:
           for entry in "${targets[@]}"; do
             public="${entry%%:*}"
             env="${entry##*:}"
-            cp ".pio/build/$env/bootloader.bin" "$out/$public-bootloader.bin"
+            # Bootloader naming changed in arduino-espressif32 3.x: the
+            # per-env bootloader.bin may not be regenerated if a cached
+            # one from the framework matches. Fall back to the framework
+            # default if the per-env copy is missing.
+            if [ -f ".pio/build/$env/bootloader.bin" ]; then
+              cp ".pio/build/$env/bootloader.bin" "$out/$public-bootloader.bin"
+            else
+              fwbl=$(find "$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/bin" \
+                       -name 'bootloader_qio_80m.bin' -print -quit 2>/dev/null)
+              if [ -z "$fwbl" ]; then
+                echo "::error::no bootloader.bin for $env and no framework fallback"
+                exit 1
+              fi
+              echo "fallback bootloader for $env: $fwbl"
+              cp "$fwbl" "$out/$public-bootloader.bin"
+            fi
             cp ".pio/build/$env/partitions.bin" "$out/$public-partitions.bin"
             cp ".pio/build/$env/firmware.bin"   "$out/$public-firmware.bin"
             cp ".pio/build/$env/firmware.elf"   "$out/$public-firmware.elf"
