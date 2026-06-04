@@ -456,10 +456,15 @@ static bool try_join(const char *ssid, const char *pass) {
     // with "Should enable WiFi modem sleep when both WiFi and Bluetooth
     // are enabled" the moment BLE is also up - and BLE is the lab's
     // primary diagnostic channel so we can't drop it. Stay on the
-    // default WIFI_PS_MIN_MODEM. The intermittent AP-side ARP-FAILED
-    // state during sustained traffic appears to be heap-driven (lwIP
-    // can't get a TX buffer), tracked via the [heap] watermark log
-    // emitted from sk_task below.
+    // default WIFI_PS_MIN_MODEM.
+    //
+    // Pin TX power to the default 19.5 dBm. Some Arduino-ESP32 builds
+    // drop the default to 11 dBm to reduce thermal load; we'd rather
+    // pay the heat to keep the link to the AP solid. (setListenInterval
+    // would also be nice here for explicit responsiveness, but the
+    // Arduino-ESP32 version on this build doesn't expose it; lower
+    // levels would need esp_wifi_set_config(WIFI_IF_STA, ...) directly.)
+    WiFi.setTxPower(WIFI_POWER_19_5dBm);
     printf("[wifi] trying '%s' (pass len %u)\n", ssid, (unsigned)strlen(pass ? pass : ""));
     if (pass && *pass)
         WiFi.begin(ssid, pass);
