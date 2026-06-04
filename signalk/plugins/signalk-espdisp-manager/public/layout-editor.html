@@ -1,21 +1,34 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>espdisp visual layout editor</title>
+<!-- Match the device font (LVGL renders Montserrat 14/20/28/48). Loading
+     the WOFF2 from Google Fonts so the editor previews use the same
+     letterforms the operator sees on the panel. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;700&display=swap">
 <style>
   :root {
-    --bg: #0b1220;
-    --panel: #141d2f;
-    --panel-2: #1c2741;
-    --panel-edge: #25304a;
-    --fg: #e4ecff;
-    --fg-dim: #8794b2;
+    /* Palette synced to src/ui/ui_theme.cpp::use_night() so widget
+       previews look identical to the device. */
+    --bg: #06110f;
+    --panel: #10201f;
+    --panel-2: #142a28;
+    --panel-edge: #34504d;
+    --fg: #f3f7f2;
+    --fg-dim: #8fa59d;
     --accent: #57c7d8;
-    --accent-2: #7df3a6;
+    --accent-2: #39d98a;
     --warn: #ffb84d;
-    --bad: #ff6b6b;
+    --bad: #ff4058;
+    --port: #ff4d6d;
+    --starboard: #39d98a;
+    --tide: #288cff;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 24px; font: 14px/1.4 system-ui, -apple-system, sans-serif;
+  body { margin: 0; padding: 24px;
+         font: 14px/1.4 'Montserrat', system-ui, -apple-system, sans-serif;
          background: var(--bg); color: var(--fg); }
   h1 { margin: 0 0 16px 0; font-size: 22px; color: var(--accent); }
   h2 { margin: 24px 0 12px 0; font-size: 14px; color: var(--fg-dim);
@@ -136,6 +149,9 @@
     padding: 8px 16px; font-weight: 700; font-size: 13px; }
   .wpreview .trend svg { width: 100%; height: 56px; }
   .wpreview.empty { color: var(--fg-dim); font-style: italic; min-height: 60px; }
+  /* windDial fills the whole tile width and stays square */
+  .wpreview.wd-wrap { min-height: 0; padding: 0; }
+  .wpreview.wd-wrap svg { width: 100%; max-width: 360px; aspect-ratio: 1 / 1; }
   .preset-picker .modal-close { float: right; }
   .json-view { margin-top: 24px; padding: 12px; background: #06090f; border-radius: 6px;
     white-space: pre-wrap; font: 12px ui-monospace, monospace; color: var(--fg-dim);
@@ -368,6 +384,93 @@ function widgetPreview (widget, tile) {
     case 'windRose':
       return el('div', { className: 'wpreview' },
         el('div', { className: 'rose' }, 'AWS 9.7'));
+    case 'windDial': {
+      // Full-screen wind dial preview that matches the device's
+      // src/ui/screen_wind.cpp render: outer bezel ring, N/E/S/W
+      // cardinals + intercardinals, close-hauled red/green arcs at
+      // ±30° from bow, bow-relative wind-angle scale (30..150),
+      // apparent + true wind markers, tide arrow, center readouts.
+      // Sample values picked to match a recognizable beam reach.
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 480 480');
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      // Build SVG by string for compactness; the markup mirrors the
+      // LVGL element list in screen_wind.cpp::build_bezel et al.
+      const CX = 240, CY = 240, R = 218, RC = 175, RF = 190, RM = 200;
+      const sampleHdg = 47, sampleAWA = 50, sampleTWA = 75;
+      function polar (cx, cy, deg, r) {
+        const a = (deg - 90) * Math.PI / 180;
+        return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+      }
+      const ticks = [];
+      for (let d = 22.5; d < 360; d += 45) {
+        const [x1, y1] = polar(CX, CY, d - sampleHdg, R - 16);
+        const [x2, y2] = polar(CX, CY, d - sampleHdg, R - 6);
+        ticks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#8fa59d" stroke-width="2"/>`);
+      }
+      function card (label, deg, big) {
+        const [x, y] = polar(CX, CY, deg - sampleHdg, R - 22);
+        const f = big ? 24 : 16;
+        const c = big ? '#f3f7f2' : '#8fa59d';
+        return `<text x="${x}" y="${y + f * 0.35}" font-family="Montserrat" font-weight="700" font-size="${f}" fill="${c}" text-anchor="middle">${label}</text>`;
+      }
+      // Numeric wind-angle scale (bow-relative, so NOT rotated with bezel).
+      const scaleNums = [];
+      for (const d of [30, 60, 90, 120, 150]) {
+        for (const sign of [-1, 1]) {
+          const [x, y] = polar(CX, CY, sign * d, RF - 26);
+          scaleNums.push(`<text x="${x}" y="${y + 4}" font-family="Montserrat" font-size="13" fill="#8fa59d" text-anchor="middle">${d}</text>`);
+        }
+      }
+      const [awaX, awaY] = polar(CX, CY, sampleAWA, RM - 14);
+      const [twaX, twaY] = polar(CX, CY, sampleTWA, RM - 14);
+      svg.innerHTML = `
+        <!-- bezel rim -->
+        <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="#34504d" stroke-width="6"/>
+        <circle cx="${CX}" cy="${CY}" r="${R + 10}" fill="none" stroke="#111a26" stroke-width="2"/>
+        <circle cx="${CX}" cy="${CY}" r="${R - 14}" fill="none" stroke="#0c1828" stroke-width="1"/>
+        <!-- dark face -->
+        <circle cx="${CX}" cy="${CY}" r="${RF}" fill="#06110f"/>
+        <!-- ticks + cardinals (rotated as a group to mirror device bezel rotation by -hdg) -->
+        ${ticks.join('')}
+        ${card('N', 0, true)}${card('E', 90, true)}${card('S', 180, true)}${card('W', 270, true)}
+        ${card('NE', 45)}${card('SE', 135)}${card('SW', 225)}${card('NW', 315)}
+        <!-- bow notch outside the bezel (always at top) -->
+        <rect x="${CX - 4}" y="${CY - R - 14}" width="8" height="12" fill="#f3f7f2" rx="2"/>
+        <!-- close-hauled arcs (red port, green starboard) -->
+        <path d="M ${polar(CX,CY,-30,RC).join(' ')} A ${RC} ${RC} 0 0 1 ${polar(CX,CY,0,RC).join(' ')}" fill="none" stroke="#ff4d6d" stroke-width="6" opacity="0.7"/>
+        <path d="M ${polar(CX,CY,0,RC).join(' ')} A ${RC} ${RC} 0 0 1 ${polar(CX,CY,30,RC).join(' ')}" fill="none" stroke="#39d98a" stroke-width="6" opacity="0.7"/>
+        <!-- bow-relative wind-angle scale -->
+        ${scaleNums.join('')}
+        <!-- boat hull outline (semi-transparent) -->
+        <path d="M ${CX-28},${CY+63} L ${CX-28},${CY-7} L ${CX-22},${CY-42} L ${CX},${CY-92} L ${CX+22},${CY-42} L ${CX+28},${CY-7} L ${CX+28},${CY+63}"
+              fill="none" stroke="#f3f7f2" stroke-opacity="0.3" stroke-width="3" stroke-linejoin="round"/>
+        <!-- AWA marker (apparent wind, amber) -->
+        <rect x="${awaX - 14}" y="${awaY - 16}" width="28" height="32" rx="6"
+              fill="#ffb84d" stroke="#34504d" stroke-width="1"/>
+        <text x="${awaX}" y="${awaY + 6}" font-family="Montserrat" font-size="18" font-weight="700"
+              fill="#06110f" text-anchor="middle">A</text>
+        <!-- TWA marker (true wind, cyan) -->
+        <rect x="${twaX - 14}" y="${twaY - 16}" width="28" height="32" rx="6"
+              fill="#57c7d8" stroke="#34504d" stroke-width="1"/>
+        <text x="${twaX}" y="${twaY + 6}" font-family="Montserrat" font-size="18" font-weight="700"
+              fill="#06110f" text-anchor="middle">T</text>
+        <!-- Center readouts (AWS / TWS) -->
+        <text x="${CX}" y="${CY - 6}" font-family="Montserrat" font-size="38" font-weight="700"
+              fill="#57c7d8" text-anchor="middle">9.7</text>
+        <text x="${CX}" y="${CY + 18}" font-family="Montserrat" font-size="14"
+              fill="#8fa59d" text-anchor="middle">AWS kn</text>
+        <text x="${CX}" y="${CY + 42}" font-family="Montserrat" font-size="16" font-weight="500"
+              fill="#39d98a" text-anchor="middle">TWS 11.2</text>
+        <!-- HDG label at bow (rotates with bezel; sampleHdg here means
+             the bezel rotated -47°, so the cardinal at top is roughly 47°) -->
+        <text x="${CX}" y="${CY - R + 32}" font-family="Montserrat" font-size="14"
+              fill="#f3f7f2" text-anchor="middle">HDG ${String(sampleHdg).padStart(3,'0')}°</text>`;
+      const wrap = el('div', { className: 'wpreview wd-wrap' });
+      wrap.append(svg);
+      return wrap;
+    }
     case 'gauge': {
       // Simple SVG arc gauge with needle at 65%.
       const svgNS = 'http://www.w3.org/2000/svg';
@@ -558,12 +661,14 @@ function renderTile (tile, screenIdx, tileIdx) {
           markDirty(); renderJsonView();
         },
       }))));
-    // Metric rows (primary, secondary) per widget meta. Each row uses
-    // the searchable combobox so the operator can see the whole SK path
-    // catalogue and filter as they type, rather than relying on the
-    // native datalist hint.
+    // Metric rows per widget meta. Each row uses the searchable
+    // combobox so the operator can see the whole SK path catalogue and
+    // filter as they type, rather than relying on the native datalist
+    // hint. Iterate ALL metric keys defined by the widget (not just
+    // primary/secondary) so windDial-style widgets with awa/aws/twa/...
+    // surface every slot.
     if (meta && meta.metrics) {
-      for (const key of ['primary', 'secondary']) {
+      for (const key of Object.keys(meta.metrics)) {
         const metricMeta = meta.metrics[key];
         if (!metricMeta) continue;
         children.push(el('div', { className: 'row' }, el('div', { style: 'flex:1;' },

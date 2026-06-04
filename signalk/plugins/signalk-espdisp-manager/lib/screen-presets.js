@@ -173,6 +173,23 @@ const WIDGET_TYPES = {
       primary: { required: true, label: 'AP state' },
       secondary: { required: false, label: 'AP target heading' }
     }
+  },
+  windDial: {
+    label: 'Wind dial (full-screen)',
+    description: 'Rotating bezel with cardinals, close-hauled arcs, '
+      + 'apparent + true wind markers, tide vector. Matches the '
+      + "device's screen_wind.cpp render.",
+    fullscreen: true,
+    metrics: {
+      awa: { required: true,  label: 'Apparent wind angle (rad)' },
+      aws: { required: true,  label: 'Apparent wind speed (m/s)' },
+      twa: { required: false, label: 'True wind angle (rad)' },
+      tws: { required: false, label: 'True wind speed (m/s)' },
+      heading: { required: false, label: 'Heading (rad, rotates bezel)' },
+      cog: { required: false, label: 'Course over ground (rad)' },
+      currentSet: { required: false, label: 'Current set (rad, tide vector)' },
+      currentDrift: { required: false, label: 'Current drift (m/s)' }
+    }
   }
 }
 
@@ -213,16 +230,26 @@ function dashboardWide () {
 }
 
 function fullscreenWind () {
+  // Single fullscreen wind dial tile that matches the device's
+  // src/ui/screen_wind.cpp rendering: rotating bezel with cardinals,
+  // close-hauled red/green arcs, apparent + true wind markers, tide
+  // vector. The dial is one logical tile because it fills the screen.
   return {
     id: 'wind',
     title: 'Wind',
-    type: 'grid',
-    tiles: [
-      { widget: 'windRose', title: '',     primary: SK.awa, secondary: SK.aws },
-      { widget: 'numeric',  title: 'AWS',  primary: SK.aws },
-      { widget: 'numeric',  title: 'TWS',  primary: SK.tws },
-      { widget: 'numeric',  title: 'TWA',  primary: SK.twa }
-    ]
+    type: 'fullscreen',
+    tiles: [{
+      widget: 'windDial',
+      title: '',
+      awa: SK.awa,
+      aws: SK.aws,
+      twa: SK.twa,
+      tws: SK.tws,
+      heading: SK.heading,
+      cog: SK.cog,
+      currentSet: SK.currentSet,
+      currentDrift: SK.currentDrift
+    }]
   }
 }
 
