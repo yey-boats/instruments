@@ -1,6 +1,6 @@
 {
   "name": "signalk-espdisp-manager",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "SignalK plugin for managing ESP display devices.",
   "main": "index.js",

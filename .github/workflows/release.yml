@@ -53,40 +53,14 @@ jobs:
       - name: Build supported firmware environments
         run: |
           set -euo pipefail
-          targets=(
-            release-esp32-4848s040
-            release-waveshare-touch-lcd-4
-            release-waveshare-touch-lcd-4_3
-            release-waveshare-touch-lcd-4_3b
-            release-waveshare-touch-lcd-5_800x480
-            release-waveshare-touch-lcd-5_1024x600
-            release-waveshare-touch-lcd-7_800x480
-            release-waveshare-touch-lcd-7b_1024x600
-          )
-          for env in "${targets[@]}"; do
-            ESPDISP_VERSION="${TAG_NAME#v}" pio run -e "$env"
-          done
-
-      - name: Stage release artifacts
-        run: |
-          set -euo pipefail
-          out="release-staging"
-          mkdir -p "$out"
-          BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin -print -quit 2>/dev/null)
-          if [ -z "$BOOT_APP0" ]; then
-            echo "::error::boot_app0.bin not found under ~/.platformio/packages"
-            exit 1
-          fi
-          echo "Using boot_app0.bin from: $BOOT_APP0"
-          # Diagnostic: list everything PIO produced. v0.3.1 failed here
-          # because the cp couldn't find bootloader.bin under
-          # .pio/build/release-esp32-4848s040/ - the build log shows it
-          # WAS produced, so we need to see the actual on-disk layout
-          # before the next attempt to know whether PIO 6.1.19 + this
-          # arduino-espressif32 version puts it elsewhere now.
-          echo "== .pio/build tree =="
-          find .pio/build -maxdepth 2 -type f \( -name '*.bin' -o -name '*.elf' \) | sort || true
-          echo "== end =="
+          # Stage each env's artifacts IMMEDIATELY after building - the
+          # previous flow (build all, then cp at the end) lost the first
+          # env's bootloader.bin somewhere between the build step and
+          # the stage step (only release-esp32-4848s040 was ever
+          # affected; all 7 waveshare envs had complete artifacts at
+          # stage time). Whatever was wiping the sunton build dir
+          # can't get at the files once they live under release-staging.
+          mkdir -p release-staging
           targets=(
             esp32-4848s040:release-esp32-4848s040
             waveshare-touch-lcd-4:release-waveshare-touch-lcd-4
@@ -100,25 +74,29 @@ jobs:
           for entry in "${targets[@]}"; do
             public="${entry%%:*}"
             env="${entry##*:}"
-            # Bootloader naming changed in arduino-espressif32 3.x: the
-            # per-env bootloader.bin may not be regenerated if a cached
-            # one from the framework matches. Fall back to the framework
-            # default if the per-env copy is missing.
-            if [ -f ".pio/build/$env/bootloader.bin" ]; then
-              cp ".pio/build/$env/bootloader.bin" "$out/$public-bootloader.bin"
-            else
-              fwbl=$(find "$HOME/.platformio/packages/framework-arduinoespressif32/tools/sdk/esp32s3/bin" \
-                       -name 'bootloader_qio_80m.bin' -print -quit 2>/dev/null)
-              if [ -z "$fwbl" ]; then
-                echo "::error::no bootloader.bin for $env and no framework fallback"
-                exit 1
-              fi
-              echo "fallback bootloader for $env: $fwbl"
-              cp "$fwbl" "$out/$public-bootloader.bin"
-            fi
-            cp ".pio/build/$env/partitions.bin" "$out/$public-partitions.bin"
-            cp ".pio/build/$env/firmware.bin"   "$out/$public-firmware.bin"
-            cp ".pio/build/$env/firmware.elf"   "$out/$public-firmware.elf"
+            ESPDISP_VERSION="${TAG_NAME#v}" pio run -e "$env"
+            # Snapshot artifacts immediately. cp errors out (set -e) if
+            # anything is missing, so a missing bootloader.bin fails the
+            # right env's step rather than 10 minutes later.
+            cp ".pio/build/$env/bootloader.bin" "release-staging/$public-bootloader.bin"
+            cp ".pio/build/$env/partitions.bin" "release-staging/$public-partitions.bin"
+            cp ".pio/build/$env/firmware.bin"   "release-staging/$public-firmware.bin"
+            cp ".pio/build/$env/firmware.elf"   "release-staging/$public-firmware.elf"
+          done
+
+      - name: Merge bootloader+partitions+firmware per env
+        run: |
+          set -euo pipefail
+          out="release-staging"
+          BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin -print -quit 2>/dev/null)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "::error::boot_app0.bin not found under ~/.platformio/packages"
+            exit 1
+          fi
+          echo "Using boot_app0.bin from: $BOOT_APP0"
+          for f in "$out"/*-firmware.bin; do
+            base="${f##*/}"
+            public="${base%-firmware.bin}"
             esptool.py --chip esp32s3 merge_bin \
               -o "$out/$public-merged_firmware.bin" \
               --flash_mode qio --flash_size 16MB \
