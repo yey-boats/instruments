@@ -87,7 +87,7 @@ const DISPLAY_CLASSES = {
   'waveshare-5-1024x600': {
     label: 'Waveshare 5" — 1024×600 wide',
     width: 1024, height: 600, shape: 'wide',
-    tilesPerScreen: 6, gridCols: 3, gridRows: 2
+    tilesPerScreen: 8, gridCols: 4, gridRows: 2
   },
   'waveshare-7-800x480': {
     label: 'Waveshare 7" — 800×480 wide',
@@ -97,7 +97,7 @@ const DISPLAY_CLASSES = {
   'waveshare-7b-1024x600': {
     label: 'Waveshare 7"B — 1024×600 wide',
     width: 1024, height: 600, shape: 'wide',
-    tilesPerScreen: 6, gridCols: 3, gridRows: 2
+    tilesPerScreen: 8, gridCols: 4, gridRows: 2
   }
 }
 
@@ -199,6 +199,17 @@ const WIDGET_TYPES = {
 // `widgetIdPrefix` lets us inject preset-scoped widget ids so two
 // instances of the same preset on different screens don't collide.
 
+// Three tile-count tiers cover the supported boards:
+//   - quad:   480×480 sunton + waveshare-4 (2×2, 4 tiles)
+//   - wide:   800×480 (3×2, 6 tiles)
+//   - xwide:  1024×600 waveshare-5 + 7B (4×2, 8 tiles)
+// `tileCount(displayClass)` returns the budget for the picked class.
+
+function tileCount (displayClass) {
+  const meta = DISPLAY_CLASSES[displayClass]
+  return (meta && meta.tilesPerScreen) || 4
+}
+
 function dashboardQuad () {
   return {
     id: 'dashboard',
@@ -229,6 +240,27 @@ function dashboardWide () {
   }
 }
 
+function dashboardXwide () {
+  // 4×2 grid for 1024×600 panels: dashboardWide() + 2 extras using the
+  // additional column. Tank gauges + autopilot state fill the room
+  // without overloading the helmsman's view.
+  return {
+    id: 'dashboard',
+    title: 'Dashboard',
+    type: 'grid',
+    tiles: [
+      { widget: 'windRose', title: 'WIND',    primary: SK.awa, secondary: SK.aws },
+      { widget: 'compass',  title: 'COURSE',  primary: SK.heading, secondary: SK.cog },
+      { widget: 'numeric',  title: 'SOG',     primary: SK.sog },
+      { widget: 'numeric',  title: 'STW',     primary: SK.stw },
+      { widget: 'numeric',  title: 'DEPTH',   primary: SK.depth },
+      { widget: 'numeric',  title: 'H2O',     primary: SK.waterTemp },
+      { widget: 'bar',      title: 'BATT',    primary: SK.battSoc },
+      { widget: 'text',     title: 'AP',      primary: SK.apState }
+    ]
+  }
+}
+
 function fullscreenWind () {
   // Single fullscreen wind dial tile that matches the device's
   // src/ui/screen_wind.cpp rendering: rotating bezel with cardinals,
@@ -253,101 +285,135 @@ function fullscreenWind () {
   }
 }
 
-function fullscreenNav () {
-  return {
-    id: 'nav',
-    title: 'Nav',
-    type: 'grid',
-    tiles: [
-      { widget: 'compass',  title: '',    primary: SK.heading, secondary: SK.cog },
-      { widget: 'numeric',  title: 'SOG', primary: SK.sog },
-      { widget: 'numeric',  title: 'COG', primary: SK.cog },
-      { widget: 'text',     title: 'POS', primary: SK.position }
-    ]
+function fullscreenNav (displayClass) {
+  const tiles = [
+    { widget: 'compass',  title: '',    primary: SK.heading, secondary: SK.cog },
+    { widget: 'numeric',  title: 'SOG', primary: SK.sog },
+    { widget: 'numeric',  title: 'COG', primary: SK.cog },
+    { widget: 'text',     title: 'POS', primary: SK.position }
+  ]
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'numeric', title: 'STW', primary: SK.stw })
+    tiles.push({ widget: 'numeric', title: 'XTE', primary: SK.xte })
   }
+  if (n >= 8) {
+    tiles.push({ widget: 'numeric', title: 'VMG', primary: SK.vmg })
+    tiles.push({ widget: 'numeric', title: 'BTW', primary: SK.btw })
+  }
+  return { id: 'nav', title: 'Nav', type: 'grid', tiles }
 }
 
-function depthTempScreen () {
-  return {
-    id: 'depth',
-    title: 'Depth',
-    type: 'grid',
-    tiles: [
-      { widget: 'numeric', title: 'DEPTH',    primary: SK.depth },
-      { widget: 'numeric', title: 'BELOW K',  primary: SK.depthKeel },
-      { widget: 'numeric', title: 'H2O TEMP', primary: SK.waterTemp },
-      { widget: 'trend',   title: 'DEPTH 5m', primary: SK.depth }
-    ]
+function depthTempScreen (displayClass) {
+  const tiles = [
+    { widget: 'numeric', title: 'DEPTH',    primary: SK.depth },
+    { widget: 'numeric', title: 'BELOW K',  primary: SK.depthKeel },
+    { widget: 'numeric', title: 'H2O TEMP', primary: SK.waterTemp },
+    { widget: 'trend',   title: 'DEPTH 5m', primary: SK.depth }
+  ]
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'numeric', title: 'AIR TEMP', primary: SK.airTemp })
+    tiles.push({ widget: 'trend',   title: 'H2O 5m',   primary: SK.waterTemp })
   }
+  if (n >= 8) {
+    tiles.push({ widget: 'trend',   title: 'TEMP 5m',  primary: SK.airTemp })
+    tiles.push({ widget: 'numeric', title: 'SOG',      primary: SK.sog })
+  }
+  return { id: 'depth', title: 'Depth', type: 'grid', tiles }
 }
 
-function steeringScreen () {
-  return {
-    id: 'steering',
-    title: 'Steering',
-    type: 'grid',
-    tiles: [
-      { widget: 'compass', title: 'HDG / CTS', primary: SK.heading, secondary: SK.cts },
-      { widget: 'numeric', title: 'XTE',       primary: SK.xte },
-      { widget: 'numeric', title: 'VMG',       primary: SK.vmg },
-      { widget: 'numeric', title: 'BTW',       primary: SK.btw }
-    ]
+function steeringScreen (displayClass) {
+  const tiles = [
+    { widget: 'compass', title: 'HDG / CTS', primary: SK.heading, secondary: SK.cts },
+    { widget: 'numeric', title: 'XTE',       primary: SK.xte },
+    { widget: 'numeric', title: 'VMG',       primary: SK.vmg },
+    { widget: 'numeric', title: 'BTW',       primary: SK.btw }
+  ]
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'numeric', title: 'COG', primary: SK.cog })
+    tiles.push({ widget: 'numeric', title: 'DTW', primary: SK.dtw })
   }
+  if (n >= 8) {
+    tiles.push({ widget: 'numeric', title: 'SOG', primary: SK.sog })
+    tiles.push({ widget: 'numeric', title: 'STW', primary: SK.stw })
+  }
+  return { id: 'steering', title: 'Steering', type: 'grid', tiles }
 }
 
-function routeScreen () {
-  return {
-    id: 'route',
-    title: 'Route',
-    type: 'grid',
-    tiles: [
-      { widget: 'numeric', title: 'DTW', primary: SK.dtw },
-      { widget: 'numeric', title: 'BTW', primary: SK.btw },
-      { widget: 'numeric', title: 'XTE', primary: SK.xte },
-      { widget: 'numeric', title: 'VMG', primary: SK.vmg }
-    ]
+function routeScreen (displayClass) {
+  const tiles = [
+    { widget: 'numeric', title: 'DTW', primary: SK.dtw },
+    { widget: 'numeric', title: 'BTW', primary: SK.btw },
+    { widget: 'numeric', title: 'XTE', primary: SK.xte },
+    { widget: 'numeric', title: 'VMG', primary: SK.vmg }
+  ]
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'numeric', title: 'CTS', primary: SK.cts })
+    tiles.push({ widget: 'numeric', title: 'SOG', primary: SK.sog })
   }
+  if (n >= 8) {
+    tiles.push({ widget: 'numeric', title: 'COG', primary: SK.cog })
+    tiles.push({ widget: 'text',    title: 'POS', primary: SK.position })
+  }
+  return { id: 'route', title: 'Route', type: 'grid', tiles }
 }
 
-function tripScreen () {
-  return {
-    id: 'trip',
-    title: 'Trip',
-    type: 'grid',
-    tiles: [
-      { widget: 'numeric', title: 'SOG',     primary: SK.sog },
-      { widget: 'numeric', title: 'STW',     primary: SK.stw },
-      { widget: 'numeric', title: 'CURRENT', primary: SK.currentDrift },
-      { widget: 'numeric', title: 'SET',     primary: SK.currentSet }
-    ]
+function tripScreen (displayClass) {
+  const tiles = [
+    { widget: 'numeric', title: 'SOG',     primary: SK.sog },
+    { widget: 'numeric', title: 'STW',     primary: SK.stw },
+    { widget: 'numeric', title: 'CURRENT', primary: SK.currentDrift },
+    { widget: 'numeric', title: 'SET',     primary: SK.currentSet }
+  ]
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'trend',   title: 'SOG 5m', primary: SK.sog })
+    tiles.push({ widget: 'numeric', title: 'VMG',    primary: SK.vmg })
   }
+  if (n >= 8) {
+    tiles.push({ widget: 'numeric', title: 'COG',    primary: SK.cog })
+    tiles.push({ widget: 'numeric', title: 'HDG',    primary: SK.heading })
+  }
+  return { id: 'trip', title: 'Trip', type: 'grid', tiles }
 }
 
-function autopilotScreen () {
-  return {
-    id: 'autopilot',
-    title: 'Autopilot',
-    type: 'grid',
-    tiles: [
-      { widget: 'autopilot', title: 'AP',     primary: SK.apState, secondary: SK.apTarget },
-      { widget: 'compass',   title: 'COURSE', primary: SK.heading, secondary: SK.apTarget },
-      { widget: 'numeric',   title: 'XTE',    primary: SK.xte },
-      { widget: 'button',    title: 'STBY',   payload: { command: 'autopilot.standby' } }
-    ]
+function autopilotScreen (displayClass) {
+  const tiles = [
+    { widget: 'autopilot', title: 'AP',     primary: SK.apState, secondary: SK.apTarget },
+    { widget: 'compass',   title: 'COURSE', primary: SK.heading, secondary: SK.apTarget },
+    { widget: 'numeric',   title: 'XTE',    primary: SK.xte },
+    { widget: 'button',    title: 'STBY',   payload: { command: 'autopilot.standby' } }
+  ]
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'numeric', title: 'BTW', primary: SK.btw })
+    tiles.push({ widget: 'numeric', title: 'CTS', primary: SK.cts })
   }
+  if (n >= 8) {
+    tiles.push({ widget: 'button',  title: 'AUTO', payload: { command: 'autopilot.auto' } })
+    tiles.push({ widget: 'numeric', title: 'VMG',  primary: SK.vmg })
+  }
+  return { id: 'autopilot', title: 'Autopilot', type: 'grid', tiles }
 }
 
 function systemScreen (displayClass) {
-  // Wide displays get extra tiles to use the room; square shows 4.
   const tiles = [
     { widget: 'bar',     title: 'BATT SOC',   primary: SK.battSoc },
     { widget: 'numeric', title: 'BATT V',     primary: SK.battV },
     { widget: 'bar',     title: 'FUEL',       primary: SK.fuel },
     { widget: 'bar',     title: 'FRESH H2O',  primary: SK.freshwater }
   ]
-  if (DISPLAY_CLASSES[displayClass] && DISPLAY_CLASSES[displayClass].tilesPerScreen === 6) {
-    tiles.push({ widget: 'text', title: 'STATUS', primary: SK.apState })
+  const n = tileCount(displayClass)
+  if (n >= 6) {
+    tiles.push({ widget: 'text',    title: 'STATUS',   primary: SK.apState })
     tiles.push({ widget: 'numeric', title: 'AIR TEMP', primary: SK.airTemp })
+  }
+  if (n >= 8) {
+    tiles.push({ widget: 'numeric', title: 'H2O TEMP', primary: SK.waterTemp })
+    tiles.push({ widget: 'numeric', title: 'DEPTH',    primary: SK.depth })
   }
   return { id: 'system', title: 'System', type: 'grid', tiles }
 }
@@ -355,17 +421,20 @@ function systemScreen (displayClass) {
 // ---- Per-class preset list ---------------------------------------------
 
 function getPresetsForClass (displayClass) {
-  const isWide = DISPLAY_CLASSES[displayClass] &&
-                 DISPLAY_CLASSES[displayClass].tilesPerScreen === 6
+  const n = tileCount(displayClass)
+  let dash
+  if (n >= 8) dash = dashboardXwide()
+  else if (n >= 6) dash = dashboardWide()
+  else dash = dashboardQuad()
   return [
-    isWide ? dashboardWide() : dashboardQuad(),
+    dash,
     fullscreenWind(),
-    fullscreenNav(),
-    depthTempScreen(),
-    steeringScreen(),
-    routeScreen(),
-    tripScreen(),
-    autopilotScreen(),
+    fullscreenNav(displayClass),
+    depthTempScreen(displayClass),
+    steeringScreen(displayClass),
+    routeScreen(displayClass),
+    tripScreen(displayClass),
+    autopilotScreen(displayClass),
     systemScreen(displayClass)
   ]
 }

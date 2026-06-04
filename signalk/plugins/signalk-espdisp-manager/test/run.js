@@ -13,6 +13,7 @@ require('./ui-config-widget.test')
 require('./dashboard-import-export.test')
 require('./dashboard-editor-form.test')
 require('./widget-parity.test')
+require('./preset-coverage.test')
 Promise.all([
   require('./github-firmware.test'),
   require('./udp-discovery.test'),
