@@ -69,7 +69,10 @@ struct Data {
 // pairs that matched a known field and were applied to `out`.
 //   = 0  ->  no relevant values (e.g. hello / keepalive)
 //   < 0  ->  JSON parse error
-int applyDelta(const char *json, size_t len, Data &out);
+// Pass `alloc` (e.g. &espdisp::psram_json) to keep the parser's working
+// buffer off internal heap on the device; nullptr (default) uses the
+// internal-heap allocator, which host tests rely on.
+int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc = nullptr);
 
 // Apply a single path/value pair. Public for unit testing.
 void applyValue(const char *path, JsonVariant val, Data &out);

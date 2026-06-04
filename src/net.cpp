@@ -443,6 +443,14 @@ static bool try_join(const char *ssid, const char *pass) {
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(true);
     WiFi.setHostname(s_device_id.c_str());
+    // WiFi power-save: WIFI_PS_NONE is NOT viable here. ESP-IDF aborts
+    // with "Should enable WiFi modem sleep when both WiFi and Bluetooth
+    // are enabled" the moment BLE is also up - and BLE is the lab's
+    // primary diagnostic channel so we can't drop it. Stay on the
+    // default WIFI_PS_MIN_MODEM. The intermittent AP-side ARP-FAILED
+    // state during sustained traffic appears to be heap-driven (lwIP
+    // can't get a TX buffer), tracked via the [heap] watermark log
+    // emitted from sk_task below.
     printf("[wifi] trying '%s' (pass len %u)\n", ssid, (unsigned)strlen(pass ? pass : ""));
     if (pass && *pass)
         WiFi.begin(ssid, pass);

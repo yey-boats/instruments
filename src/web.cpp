@@ -120,6 +120,14 @@ static void build_state_doc(JsonDocument &doc) {
     dev["uptime_ms"] = (uint32_t)millis();
     dev["heap_free"] = (uint32_t)ESP.getFreeHeap();
     dev["psram_free"] = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    // Fragmentation + watermark visibility for diagnosing slow leaks /
+    // big-alloc failures (the symptom is "WiFi quietly disassociates"
+    // because lwIP can't get a TX buffer). Cheap to read.
+    dev["heap_internal_free"] =
+        (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    dev["heap_internal_largest"] =
+        (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    dev["heap_min_ever"] = (uint32_t)esp_get_minimum_free_heap_size();
     {
         float tC = board::chipTempC();
         if (!isnan(tC)) dev["chip_temp_c"] = tC;

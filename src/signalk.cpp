@@ -1,6 +1,7 @@
 #include "signalk.h"
 #include "board.h"
 #include "build_config.h"
+#include "psram_json.h"
 #include "signalk_parser.h"
 #include "source_signalk.h"
 #include "net.h"
@@ -12,6 +13,8 @@
 #include <WiFiUdp.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -103,7 +106,7 @@ static void subscribe() {
 
 static void onText(uint8_t *payload, size_t len) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    int n = applyDelta((const char *)payload, len, data);
+    int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json);
     uint32_t now = millis();
     // Always tick the WS frame timestamp: any TEXT we receive proves
     // the link is alive even if applyDelta found no value-bearing path
@@ -338,6 +341,7 @@ bool tryAutoDiscover(uint32_t now_ms) {
 // through s_data_mtx and remain safe for UI/web readers.
 static void sk_task(void *) {
     s_running = true;
+    uint32_t next_heap_log_ms = 0;
     for (;;) {
         // Try auto-discovery whenever we have no target yet.
         if (!s_ws_started) tryAutoDiscover(millis());
@@ -346,6 +350,27 @@ static void sk_task(void *) {
         uint32_t dt = micros() - t0;
         s_loop_iters++;
         if (dt > s_loop_max_us) s_loop_max_us = dt;
+
+        // Forensic heap+temp watermark every 60s. Captures the slow-leak
+        // trend that makes the device drop off WiFi after hours: free /
+        // largest_free_block / min_ever / chip_temp_c. Cheap reads
+        // (heap_caps API is a few atomic loads each). Emitted at INFO
+        // so it shows up on the UDP log without an operator widening
+        // the level; the lab logger keeps a rolling history.
+        uint32_t now_ms = millis();
+        if ((int32_t)(now_ms - next_heap_log_ms) >= 0) {
+            next_heap_log_ms = now_ms + 60000;
+            size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            size_t largest_int =
+                heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+            size_t min_ever = esp_get_minimum_free_heap_size();
+            size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+            float tC = board::chipTempC();
+            net::logf("[heap] int_free=%u int_largest=%u min_ever=%u psram=%uK temp=%.1fC",
+                      (unsigned)free_int, (unsigned)largest_int, (unsigned)min_ever,
+                      (unsigned)(psram_free / 1024), isnan(tC) ? 0.0f : tC);
+        }
+
         // 10 ms cadence is plenty for WS frame draining and matches what
         // the old main-loop call site achieved via the loop's delay(5).
         vTaskDelay(pdMS_TO_TICKS(10));

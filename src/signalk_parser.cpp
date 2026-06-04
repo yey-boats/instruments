@@ -92,8 +92,22 @@ void applyValue(const char *path, JsonVariant val, Data &out) {
     }
 }
 
-int applyDelta(const char *json, size_t len, Data &out) {
+static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc);
+
+int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc) {
+    // alloc==nullptr -> default (internal heap) allocator. The device
+    // build passes &espdisp::psram_json so 1+ Hz SK deltas don't churn
+    // the tiny internal heap (largest free block was ~7 KB at idle).
+    // Host tests pass nullptr and use the default.
+    if (alloc) {
+        JsonDocument doc(alloc);
+        return apply_delta_impl(json, len, out, doc);
+    }
     JsonDocument doc;
+    return apply_delta_impl(json, len, out, doc);
+}
+
+static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc) {
     DeserializationError err = deserializeJson(doc, json, len);
     if (err) return -1;
     JsonArray updates = doc["updates"].as<JsonArray>();
