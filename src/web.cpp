@@ -918,9 +918,21 @@ static void handle_config_status() {
 
 static void handle_screenshot() {
     if (!require_api_auth()) return;
+    // In-flight guard: only one screenshot at a time. A second request
+    // landing while we're still chunking would starve WiFi twice and
+    // confuse serve_pending().
+    static volatile bool s_in_flight = false;
+    if (s_in_flight) {
+        server.send(429, "text/plain", "screenshot busy");
+        return;
+    }
+    s_in_flight = true;
+
     uint8_t *bmp = nullptr;
     size_t len = 0;
-    if (!screenshot::request(2500, &bmp, &len) || !bmp || len == 0) {
+    bool ok = screenshot::request(2500, &bmp, &len);
+    if (!ok || !bmp || len == 0) {
+        s_in_flight = false;
         server.send(504, "text/plain", "snapshot timeout");
         return;
     }
@@ -928,18 +940,29 @@ static void handle_screenshot() {
     server.sendHeader("Cache-Control", "no-store");
     server.setContentLength(len);
     server.send(200, "image/bmp", "");
-    // Chunked write so we don't blast a 460+ kB payload in one shot.
+
+    // Chunked write with a per-write timeout AND a periodic yield so
+    // the WiFi task gets CPU. Without the yield, blasting ~460 kB on
+    // this task starves WiFi keepalives and the AP can drop the
+    // station mid-transfer (observed: device disappears from the AP's
+    // ARP table for ~30s after a single /api/screenshot.bmp hit).
     WiFiClient client = server.client();
+    client.setTimeout(2000);                    // 2s per write before we bail
+    const uint32_t deadline = millis() + 8000;  // 8s total budget
     const uint8_t *p = bmp;
     size_t left = len;
     while (left && client.connected()) {
+        if ((int32_t)(millis() - deadline) > 0) break;
         size_t chunk = left > 1460 ? 1460 : left;
         size_t w = client.write(p, chunk);
         if (w == 0) break;
         p += w;
         left -= w;
+        // Yield every ~16 kB so WiFi/lwIP get scheduled.
+        if ((((size_t)(p - bmp)) & 0x3FFF) == 0) vTaskDelay(1);
     }
     heap_caps_free(bmp);
+    s_in_flight = false;
 }
 
 static void handle_logs() {
