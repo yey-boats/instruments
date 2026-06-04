@@ -848,6 +848,7 @@ enum AlarmId {
     ALARM_NONE = 0,
     ALARM_DEPTH_SHALLOW,
     ALARM_SK_STALLED,
+    ALARM_SK_NODATA,
     ALARM_BATT_LOW,
     ALARM_MGR_OVERLAY
 };
@@ -1059,9 +1060,16 @@ static void alarm_check() {
         alarm_set(ALARM_DEPTH_SHALLOW, "SHALLOW WATER");
         return;
     }
-    if (sk::connectionStatus() == "stalled") {
-        alarm_set(ALARM_SK_STALLED, "SIGNALK STALLED");
-        return;
+    {
+        String sk_state = sk::connectionStatus();
+        if (sk_state == "stalled") {
+            alarm_set(ALARM_SK_STALLED, "SIGNALK STALLED");
+            return;
+        }
+        if (sk_state == "no-data") {
+            alarm_set(ALARM_SK_NODATA, "SIGNALK NO DATA");
+            return;
+        }
     }
     if (!isnan(sk::data.battVoltage) && sk::data.battVoltage < ui::battery_alarm_v()) {
         alarm_set(ALARM_BATT_LOW, "BATTERY LOW");

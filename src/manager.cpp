@@ -580,7 +580,9 @@ void build_status_body(JsonDocument &doc) {
     String sk_state = sk::connectionStatus();
     sk_o["state"] = sk_state;
     JsonObject signalk_o = doc["signalk"].to<JsonObject>();
-    signalk_o["connected"] = sk_state == "live";
+    // "live" and "no-data" both mean the WS link is up; only
+    // "disconnected"/"stalled" should report connected=false upstream.
+    signalk_o["connected"] = (sk_state == "live" || sk_state == "no-data");
     signalk_o["state"] = sk_state;
 
     JsonObject ui_o = doc["ui"].to<JsonObject>();

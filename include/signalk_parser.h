@@ -79,9 +79,12 @@ void applyValue(const char *path, JsonVariant val, Data &out);
 //
 // Returns:
 //   "disconnected" -> WS not connected.
-//   "live"         -> WS connected and at least one of {value-bearing
-//                     delta, any WS TEXT frame, connection establishment}
-//                     happened within stallMs.
+//   "live"         -> WS connected and at least one value-bearing delta
+//                     has been received (lastUpdateMs != 0), with link
+//                     activity within stallMs.
+//   "no-data"      -> WS connected and frames flowing, but no
+//                     value-bearing delta yet AND we've been connected
+//                     longer than noDataMs (server has no producers).
 //   "stalled"      -> WS connected but no WS activity at all within
 //                     stallMs of nowMs.
 //
@@ -95,7 +98,11 @@ void applyValue(const char *path, JsonVariant val, Data &out);
 // horizon (15s ping x 2 retries + 3s pong wait ~= 33s). Shorter
 // thresholds reliably alarm before the WS library has even decided
 // whether the link is alive.
+//
+// noDataMs default of 10000 gives a fresh connection a 10s warmup
+// before being downgraded from "live" to "no-data".
 const char *classifyStatus(bool connected, uint32_t lastUpdateMs, uint32_t connectedSinceMs,
-                           uint32_t wsLastFrameMs, uint32_t nowMs, uint32_t stallMs = 30000);
+                           uint32_t wsLastFrameMs, uint32_t nowMs, uint32_t stallMs = 30000,
+                           uint32_t noDataMs = 10000);
 
 }  // namespace sk

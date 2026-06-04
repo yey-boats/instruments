@@ -228,8 +228,14 @@ void refresh() {
         set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "\xCE\x94 ---\xC2\xB0");
     }
 
-    const char *status =
-        (sk::connectionStatus() == "live") ? "SignalK live" : sk::connectionStatus().c_str();
+    String sk_state = sk::connectionStatus();
+    const char *status;
+    if (sk_state == "live")
+        status = "SignalK live";
+    else if (sk_state == "no-data")
+        status = "SignalK no data";
+    else
+        status = sk_state.c_str();
     set_text_if_changed(lbl_status, s_last_status, sizeof(s_last_status), status);
 }
 

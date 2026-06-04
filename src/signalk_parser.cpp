@@ -113,7 +113,8 @@ int applyDelta(const char *json, size_t len, Data &out) {
 }
 
 const char *classifyStatus(bool connected, uint32_t lastUpdateMs, uint32_t connectedSinceMs,
-                           uint32_t wsLastFrameMs, uint32_t nowMs, uint32_t stallMs) {
+                           uint32_t wsLastFrameMs, uint32_t nowMs, uint32_t stallMs,
+                           uint32_t noDataMs) {
     if (!connected) return "disconnected";
     // Pick the freshest of the three signals as the staleness reference.
     // wsLastFrameMs catches link activity that doesn't tick lastUpdateMs
@@ -131,7 +132,15 @@ const char *classifyStatus(bool connected, uint32_t lastUpdateMs, uint32_t conne
     bump(connectedSinceMs);
     if (ref == 0) return "live";
     uint32_t ago = nowMs - ref;
-    return ago > stallMs ? "stalled" : "live";
+    if (ago > stallMs) return "stalled";
+    // Link is up and frames are flowing, but if no value-bearing delta
+    // has ever landed after the warmup window the server has no
+    // producers - surface that as a distinct state so the UI can show
+    // "no data" instead of silent dashes.
+    if (lastUpdateMs == 0 && connectedSinceMs != 0 &&
+        (uint32_t)(nowMs - connectedSinceMs) > noDataMs)
+        return "no-data";
+    return "live";
 }
 
 }  // namespace sk

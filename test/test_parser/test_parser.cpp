@@ -249,14 +249,42 @@ static void test_status_handles_millis_wrap() {
     TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, last, last, last, now, 10000));
 }
 
-// New: WS link activity (hello, subscription ack, envelope-only delta)
-// happened within the window but no value-bearing delta did. Before the
-// fix this would alarm because only lastUpdateMs was checked. Now the
-// wsLastFrameMs activity holds the status at "live".
+// WS link activity (hello, subscription ack, envelope-only delta)
+// happened within the window but no value-bearing delta did, and we're
+// still inside the no-data grace window. Holds the status at "live".
 static void test_status_live_when_frames_arrive_without_values() {
-    // lastUpdateMs=0 (no values ever), wsLastFrameMs=49000 (recent frame),
-    // connectedSinceMs=1000, now=50000 -> last frame 1s ago.
-    TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 0, 1000, 49000, 50000, 10000));
+    // connectedSinceMs=45000, wsLastFrame=49000, now=50000 -> 5s connected,
+    // last frame 1s ago. stall=10s, no-data grace=60s (long).
+    TEST_ASSERT_EQUAL_STRING("live",
+                             sk::classifyStatus(true, 0, 45000, 49000, 50000, 10000, 60000));
+}
+
+// New: WS connected and frames flowing, but no value-bearing delta has
+// landed AND we've been connected longer than the no-data grace window.
+// This is the "server has no producers" case the user hit.
+static void test_status_no_data_after_grace() {
+    // connectedSinceMs=1000, wsLastFrame=49000, lastUpdate=0, now=50000,
+    // stall=30s (frames are 1s old -> not stalled), no-data grace=10s.
+    // Connected 49s with no values -> "no-data".
+    TEST_ASSERT_EQUAL_STRING("no-data",
+                             sk::classifyStatus(true, 0, 1000, 49000, 50000, 30000, 10000));
+}
+
+// no-data only fires after the grace window; before that we're "live".
+static void test_status_live_within_no_data_grace() {
+    // connectedSinceMs=45000, wsLastFrame=49000, now=50000 -> 5s connected.
+    // Grace=10s -> still "live".
+    TEST_ASSERT_EQUAL_STRING("live",
+                             sk::classifyStatus(true, 0, 45000, 49000, 50000, 30000, 10000));
+}
+
+// stalled wins over no-data: if the WS link itself goes silent, that's
+// the higher-severity state.
+static void test_status_stalled_beats_no_data() {
+    // No frames for 40s, no values ever, connected since 1000, now=50000,
+    // stall=30s -> "stalled", not "no-data".
+    TEST_ASSERT_EQUAL_STRING("stalled",
+                             sk::classifyStatus(true, 0, 1000, 1000, 50000, 30000, 10000));
 }
 
 // New: no WS activity of any kind within the window -> stalled even if
@@ -311,6 +339,9 @@ int main(int, char **) {
     RUN_TEST(test_status_reconnect_resets_warmup);
     RUN_TEST(test_status_handles_millis_wrap);
     RUN_TEST(test_status_live_when_frames_arrive_without_values);
+    RUN_TEST(test_status_no_data_after_grace);
+    RUN_TEST(test_status_live_within_no_data_grace);
+    RUN_TEST(test_status_stalled_beats_no_data);
     RUN_TEST(test_status_stalled_when_all_signals_stale);
     RUN_TEST(test_status_frames_more_recent_than_values);
     RUN_TEST(test_status_default_threshold_is_30s);
