@@ -13,6 +13,7 @@
 #include <WiFiUdp.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
+#include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <freertos/FreeRTOS.h>
@@ -339,66 +340,145 @@ bool tryAutoDiscover(uint32_t now_ms) {
 // stall lv_timer_handler on core 1. The event callbacks (onEvent /
 // onText / subscribe()) execute on this task; sk::data writes go
 // through s_data_mtx and remain safe for UI/web readers.
-// Auto-recovery escalation when connectionStatus() stays "stalled" for
-// a long time. Lab evidence shows the device sometimes wedges in this
-// state without ever resolving on its own (BLE says STA + IP + good
-// RSSI but no SK frames arrive); a manual reboot fixes it. These
-// thresholds drive a two-step escalation so we don't need the user
-// in the loop.
+// Auto-recovery escalation triggered by missing value-bearing SK
+// deltas (lastUpdateMs not advancing). Lab evidence: device wedged
+// with BLE-reported STA + IP + good RSSI but no fresh data arriving;
+// only a manual reboot recovered. The escalation ladder fires AT MOST
+// ONCE per level per stall episode and resets the moment a delta
+// advances lastUpdateMs.
 //
-//   - STALL_WS_RESTART_MS  (60 s): the WebSocketsClient sometimes
-//     wedges its TCP socket after a server-side timeout. Disconnecting
-//     and reopening the WS clears that without touching WiFi.
-//   - STALL_WIFI_RECONNECT_MS (180 s): if a WS restart didn't help,
-//     the link itself is likely a "ghost association" (AP-side
-//     ARP-FAILED while STA still thinks it's online). Trigger a
-//     wifi-reconnect via the net dispatch funnel, same path the
-//     manual `wifi-reconnect` console command uses.
+//   - DATA_STALE_WIFI_RECONNECT_MS  (5 s, ~3-5 missed beats at 1 Hz):
+//     dispatch `wifi-reconnect`. Soft reassociation, keeps WiFi state.
+//   - DATA_STALE_WIFI_RESET_MS     (30 s): hard WiFi.disconnect(true,
+//     true) then re-trigger join. Releases lwIP state, fresh DHCP.
+//   - DATA_STALE_DEVICE_RESET_MS   (60 s): ESP.restart(). Last resort.
 //
-// Both escalations fire AT MOST ONCE per stall episode; the flags
-// reset when the status leaves "stalled".
-static constexpr uint32_t STALL_WS_RESTART_MS = 60000;
-static constexpr uint32_t STALL_WIFI_RECONNECT_MS = 180000;
-static uint32_t s_stall_began_ms = 0;
-static bool s_stall_ws_recovery_tried = false;
-static bool s_stall_wifi_recovery_tried = false;
+// Guarded:
+//   * lastUpdateMs == 0 -> we've never had data. That's "no-data"
+//     (server has no producers) or warmup, not a stall - skip.
+//   * net::otaInProgress()  -> an inbound OTA upload is mid-flight;
+//     do nothing so the Update class isn't kicked.
+//   * connected == false   -> WS not even up; wifi-reconnect is the
+//     manager's job, not this path's.
+static constexpr uint32_t DATA_STALE_WIFI_RECONNECT_MS = 5000;
+static constexpr uint32_t DATA_STALE_WIFI_RESET_MS = 30000;
+static constexpr uint32_t DATA_STALE_DEVICE_RESET_MS = 60000;
+
+// Boot-loop guard for the device-reset escalation: refuse to restart
+// if we've already done so MAX_RECOVERY_RESTARTS times without a
+// healthy uptime stretch in between. RTC_NOINIT_ATTR survives soft
+// resets but reads garbage on power-on; the magic gates that.
+//
+// "Healthy uptime" = at the time of the next restart, millis() was
+// >= RECOVERY_HEALTHY_UPTIME_MS. If we got that far the device was
+// genuinely up for a while, so we reset the counter (the stall is
+// new rather than a chronic re-fire).
+static constexpr uint32_t RECOVERY_RTC_MAGIC = 0x52455630;  // "REV0"
+static constexpr uint32_t MAX_RECOVERY_RESTARTS = 3;
+static constexpr uint32_t RECOVERY_HEALTHY_UPTIME_MS = 5 * 60 * 1000;
+RTC_NOINIT_ATTR static uint32_t s_rtc_recovery_magic;
+RTC_NOINIT_ATTR static uint32_t s_rtc_recovery_count;
+RTC_NOINIT_ATTR static uint32_t s_rtc_recovery_last_uptime_ms;
+
+static bool s_data_recovery_wifi_reconnect_tried = false;
+static bool s_data_recovery_wifi_reset_tried = false;
+static uint32_t s_last_seen_update_ms = 0;
+
+// Attempt a device reset for stall recovery. Returns true if we
+// actually restarted (unreachable); false if the boot-loop guard
+// refused. Caller logs accordingly.
+static bool recovery_restart_or_skip(uint32_t age_ms) {
+    uint32_t up = millis();
+    if (s_rtc_recovery_magic != RECOVERY_RTC_MAGIC) {
+        s_rtc_recovery_magic = RECOVERY_RTC_MAGIC;
+        s_rtc_recovery_count = 0;
+    }
+    if (up >= RECOVERY_HEALTHY_UPTIME_MS) {
+        // Long healthy stretch before this restart - treat as a fresh
+        // first attempt rather than incrementing the rapid-fire count.
+        s_rtc_recovery_count = 1;
+    } else {
+        s_rtc_recovery_count++;
+    }
+    s_rtc_recovery_last_uptime_ms = up;
+    if (s_rtc_recovery_count > MAX_RECOVERY_RESTARTS) {
+        net::logf_at(net::LOG_WARN,
+                     "[sk] data stale %u ms but recovery-restart cap reached "
+                     "(%u consecutive); NOT restarting - waiting for external recovery",
+                     (unsigned)age_ms, (unsigned)s_rtc_recovery_count);
+        return false;
+    }
+    net::logf_at(net::LOG_WARN,
+                 "[sk] data stale %u ms -> ESP.restart() "
+                 "(recovery attempt %u/%u, last_uptime=%u ms)",
+                 (unsigned)age_ms, (unsigned)s_rtc_recovery_count, (unsigned)MAX_RECOVERY_RESTARTS,
+                 (unsigned)up);
+    delay(200);  // let the log line flush via UDP/BLE
+    ESP.restart();
+    return true;  // unreachable
+}
 
 static void check_stall_autorecover(uint32_t now_ms) {
-    String status = connectionStatus();
-    if (status != "stalled") {
-        if (s_stall_began_ms) {
-            // We exited stall on our own (or via a recovery we
-            // triggered). Reset the escalation state.
-            net::logf("[sk] stall cleared after %u ms (status=%s)",
-                      (unsigned)(now_ms - s_stall_began_ms), status.c_str());
-            s_stall_began_ms = 0;
-            s_stall_ws_recovery_tried = false;
-            s_stall_wifi_recovery_tried = false;
+    uint32_t last_update;
+    bool connected;
+    if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+    last_update = data.lastUpdateMs;
+    connected = data.connected;
+    if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+
+    if (!connected || last_update == 0) {
+        // WS down or never had data: not our path. Clear escalation
+        // flags so we re-arm fresh once data starts flowing.
+        s_data_recovery_wifi_reconnect_tried = false;
+        s_data_recovery_wifi_reset_tried = false;
+        s_last_seen_update_ms = 0;
+        return;
+    }
+
+    if (last_update != s_last_seen_update_ms) {
+        // A fresh value-bearing delta landed since last check. Clear
+        // any prior escalation and remember this anchor for next call.
+        if (s_data_recovery_wifi_reconnect_tried || s_data_recovery_wifi_reset_tried) {
+            net::logf("[sk] data recovered (lastUpdate advanced) - clearing escalation");
         }
+        s_data_recovery_wifi_reconnect_tried = false;
+        s_data_recovery_wifi_reset_tried = false;
+        s_last_seen_update_ms = last_update;
         return;
     }
-    if (!s_stall_began_ms) {
-        s_stall_began_ms = now_ms;
-        return;
-    }
-    uint32_t stalled_for = now_ms - s_stall_began_ms;
-    if (!s_stall_ws_recovery_tried && stalled_for >= STALL_WS_RESTART_MS) {
-        s_stall_ws_recovery_tried = true;
-        net::logf_at(net::LOG_WARN, "[sk] stall %u ms -> WS restart (disconnect + reopen)",
-                     (unsigned)stalled_for);
-        if (s_host.length() > 0) {
-            ws.disconnect();
-            s_ws_started = false;
-            subscribed = false;
-            start_ws();
+
+    uint32_t age_ms = now_ms - last_update;
+    if (age_ms >= DATA_STALE_DEVICE_RESET_MS) {
+        // Boot-loop guarded restart. Returns false if cap reached; we
+        // just keep the device alive and log loudly so external
+        // recovery (operator, lab, watchdog above us) can step in.
+        if (!recovery_restart_or_skip(age_ms)) {
+            // Don't keep checking every 5 s once the cap is hit -
+            // burn it down by pretending we've already restarted.
+            // The escalation flags reset only when lastUpdateMs
+            // advances, so the moment data flows again we re-arm.
+            return;
         }
+        return;  // unreachable on the restart path
+    }
+    if (!s_data_recovery_wifi_reset_tried && age_ms >= DATA_STALE_WIFI_RESET_MS) {
+        s_data_recovery_wifi_reset_tried = true;
+        net::logf_at(net::LOG_WARN,
+                     "[sk] data stale %u ms -> WiFi reset (disconnect+erase, reassoc)",
+                     (unsigned)age_ms);
+        // Tear down STA fully, then let the wifi state machine rejoin.
+        // True/true: wifi off + erase config. Followed by a fresh
+        // dispatch so wifi-reconnect re-applies the saved network.
+        WiFi.disconnect(true /*wifioff*/, true /*eraseap*/);
+        delay(150);
+        WiFi.mode(WIFI_STA);
+        net::dispatchCommand("wifi-reconnect");
         return;
     }
-    if (!s_stall_wifi_recovery_tried && stalled_for >= STALL_WIFI_RECONNECT_MS) {
-        s_stall_wifi_recovery_tried = true;
-        net::logf_at(net::LOG_WARN, "[sk] stall %u ms -> wifi-reconnect", (unsigned)stalled_for);
-        // Route through the dispatch funnel so the wifi state machine
-        // sees this exactly like a manual console request.
+    if (!s_data_recovery_wifi_reconnect_tried && age_ms >= DATA_STALE_WIFI_RECONNECT_MS) {
+        s_data_recovery_wifi_reconnect_tried = true;
+        net::logf_at(net::LOG_WARN, "[sk] data stale %u ms -> wifi-reconnect (soft)",
+                     (unsigned)age_ms);
         net::dispatchCommand("wifi-reconnect");
         return;
     }
