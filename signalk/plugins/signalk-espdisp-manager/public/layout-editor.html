@@ -106,9 +106,11 @@
   .mp-combo .opts-none { padding: 8px 10px; color: var(--fg-dim); font-style: italic; font-size: 12px; }
   /* Widget visual preview - approximates the device LVGL render so the
      editor canvas matches what the panel will show. */
+  /* Use Montserrat to match LVGL's lv_font_montserrat_* render on the
+     device. Inter was a leftover from before the font sync. */
   .wpreview { display: flex; align-items: center; justify-content: center;
-    min-height: 96px; padding: 8px; background: #001012; border: 1px solid var(--panel-edge);
-    border-radius: 4px; margin: 8px 0 4px 0; font-family: 'Inter', system-ui, sans-serif;
+    min-height: 96px; padding: 8px; background: var(--bg); border: 1px solid var(--panel-edge);
+    border-radius: 4px; margin: 8px 0 4px 0; font-family: 'Montserrat', system-ui, sans-serif;
     color: var(--fg); overflow: hidden; }
   .wpreview .num-stack { display: flex; flex-direction: column; align-items: center; gap: 2px; }
   .wpreview .num-primary { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; color: var(--accent); }
@@ -478,7 +480,7 @@ function widgetPreview (widget, tile) {
       svg.setAttribute('viewBox', '0 0 100 100');
       svg.innerHTML = '<path d="M10 80 A 40 40 0 0 1 90 80" fill="none" stroke="#52736f" stroke-width="8"/>' +
                       '<path d="M10 80 A 40 40 0 0 1 75 30" fill="none" stroke="#57c7d8" stroke-width="8"/>' +
-                      '<text x="50" y="62" font-family="Inter" font-size="22" font-weight="700" fill="#57c7d8" text-anchor="middle">65%</text>';
+                      '<text x="50" y="62" font-family="Montserrat" font-size="22" font-weight="700" fill="#57c7d8" text-anchor="middle">65%</text>';
       const wrap = el('div', { className: 'wpreview' });
       const gauge = el('div', { className: 'gauge' });
       gauge.append(svg);

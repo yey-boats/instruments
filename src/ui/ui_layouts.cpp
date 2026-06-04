@@ -290,28 +290,33 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
 
     // Primary value. If extras are present, shrink + pin to upper area
     // so the extras have room below. Otherwise it stays large + centered.
+    // Primary value uses accent color to match the editor preview
+    // (.num-primary { color: var(--accent) }). Editor uses 34px in a small
+    // card; on a real 2x2 tile we go bigger but keep the accent so the
+    // visual cue is consistent with the editor canvas.
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     const lv_font_t *primary_font = has_extras ? &lv_font_montserrat_28 : &lv_font_montserrat_48;
     lv_obj_set_style_text_font(t.value, primary_font, 0);
-    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.fg), 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
     if (has_extras) {
         lv_obj_align(t.value, LV_ALIGN_TOP_LEFT, 12, 26);
     } else {
-        lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
+        lv_obj_align(t.value, LV_ALIGN_CENTER, 0, -6);
     }
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
-    // Unit.
+    // Unit sits to the right of the value, baseline-aligned (matches the
+    // editor's inline `<span class="num-unit">` next to .num-primary).
     if (m.unit && m.unit[0]) {
         t.unit = lv_label_create(t.root);
         lv_label_set_text(t.unit, m.unit);
         lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
         if (has_extras) {
-            lv_obj_align(t.unit, LV_ALIGN_TOP_LEFT, 12 + 90, 32);
+            lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, 0);
         } else {
-            lv_obj_align(t.unit, LV_ALIGN_CENTER, 0, 30);
+            lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -4);
         }
         lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
     }
@@ -479,7 +484,8 @@ static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spe
     st->primary_value = lv_label_create(hero);
     lv_label_set_text(st->primary_value, "--");
     lv_obj_set_style_text_font(st->primary_value, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(st->primary_value, lv_color_hex(theme.fg), 0);
+    // Accent color matches editor preview's .num-primary.
+    lv_obj_set_style_text_color(st->primary_value, lv_color_hex(theme.accent), 0);
     lv_obj_align(st->primary_value, LV_ALIGN_CENTER, -30, -10);
 
     if (st->metric.unit && st->metric.unit[0]) {
