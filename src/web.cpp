@@ -1,7 +1,7 @@
 #include "web.h"
 
 #include <Arduino.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
 #include <DNSServer.h>
 #include <WiFi.h>
 #include "storage.h"
@@ -15,6 +15,7 @@
 #include "ui_screens.h"
 #include "board.h"
 #include "board_pins.h"
+#include <mbedtls/base64.h>
 #include "wifi_store.h"
 #include "boat_data.h"
 #include "source_nmea_wifi.h"
@@ -47,7 +48,7 @@ const char *main_touch_mode();
 
 namespace web {
 
-static WebServer server(80);
+static AsyncWebServer server(80);
 static DNSServer dns;
 static bool started = false;
 static bool captive_active = false;  // only true when in AP mode
@@ -69,26 +70,30 @@ static bool is_captive_probe_path(const String &p) {
 // block). Both forward decl and definition need consistent linkage.
 extern const char INDEX_HTML[];
 
-static void send_captive_page(const char *why) {
-    net::logf("[web] captive serve uri=%s host=%s why=%s", server.uri().c_str(),
-              server.hostHeader().c_str(), why);
-    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
-    server.sendHeader("Pragma", "no-cache");
-    server.send(200, "text/html", FPSTR(INDEX_HTML));
+static void send_captive_page(AsyncWebServerRequest *request, const char *why) {
+    net::logf("[web] captive serve uri=%s host=%s why=%s", request->url().c_str(),
+              request->host().c_str(), why);
+    auto *res = request->beginResponse(200, "text/html", FPSTR(INDEX_HTML));
+    res->addHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res->addHeader("Pragma", "no-cache");
+    request->send(res);
 }
 
 // ---- helpers -----------------------------------------------------------
 
-static void send_json(int code, const String &body) {
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-store");
-    server.send(code, "application/json", body);
+// Standard CORS+no-store JSON response. Async API requires headers
+// attached to a response object before send().
+static void send_json(AsyncWebServerRequest *request, int code, const String &body) {
+    auto *res = request->beginResponse(code, "application/json", body);
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    res->addHeader("Cache-Control", "no-store");
+    request->send(res);
 }
 
-static void send_json(int code, JsonDocument &doc) {
+static void send_json(AsyncWebServerRequest *request, int code, JsonDocument &doc) {
     String out;
     serializeJson(doc, out);
-    send_json(code, out);
+    send_json(request, code, out);
 }
 
 // Internal-heap watermark below which we refuse expensive endpoints so a
@@ -113,13 +118,15 @@ enum HeapWeight {
     HEAP_HEAVY = 2,   // /api/screenshot.bmp (460 kB BMP)
 };
 
-static bool heap_ok(HeapWeight weight) {
+static bool heap_ok(AsyncWebServerRequest *request, HeapWeight weight) {
     // During an inbound OTA upload, all but the lightest endpoints back
     // off. The Update class holds 4-8 kB of internal-heap working
     // buffers and the WiFi TX queue is saturated.
     if (net::otaInProgress() && weight != HEAP_LIGHT) {
-        server.sendHeader("Retry-After", "10");
-        server.send(503, "text/plain", "ota upload in progress; try again shortly");
+        auto *res =
+            request->beginResponse(503, "text/plain", "ota upload in progress; try again shortly");
+        res->addHeader("Retry-After", "10");
+        request->send(res);
         return false;
     }
     size_t min_free, min_block;
@@ -150,10 +157,14 @@ static bool heap_ok(HeapWeight weight) {
     net::logf_at(net::LOG_WARN,
                  "[web] 503 heap-breaker uri=%s weight=%d free=%u largest=%u "
                  "min_free=%u min_block=%u",
-                 server.uri().c_str(), (int)weight, (unsigned)free_int, (unsigned)largest,
+                 request->url().c_str(), (int)weight, (unsigned)free_int, (unsigned)largest,
                  (unsigned)min_free, (unsigned)min_block);
-    server.sendHeader("Retry-After", "5");
-    server.send(503, "text/plain", "low internal heap; try again shortly");
+    {
+        auto *res =
+            request->beginResponse(503, "text/plain", "low internal heap; try again shortly");
+        res->addHeader("Retry-After", "5");
+        request->send(res);
+    }
     return false;
 }
 
@@ -162,14 +173,14 @@ static bool api_auth_required() {
     return p.get_u8("auth", 0) != 0;
 }
 
-static bool require_api_auth() {
+static bool require_api_auth(AsyncWebServerRequest *request) {
     if (!api_auth_required()) return true;
     storage::Namespace p("web", true);
     String user = String(p.get_string("user", "espdisp").c_str());
     String pass = String(p.get_string("pass", "").c_str());
     if (user.length() == 0 || pass.length() == 0) return true;
-    if (server.authenticate(user.c_str(), pass.c_str())) return true;
-    server.requestAuthentication(BASIC_AUTH, "espdisp", "auth required");
+    if (request->authenticate(user.c_str(), pass.c_str())) return true;
+    request->requestAuthentication("espdisp");
     return false;
 }
 
@@ -288,12 +299,12 @@ static void build_state_doc(JsonDocument &doc) {
     }
 }
 
-static void handle_state() {
-    if (!require_api_auth()) return;
-    if (!heap_ok(HEAP_LIGHT)) return;
+static void handle_state(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!heap_ok(request, HEAP_LIGHT)) return;
     JsonDocument doc(&espdisp::psram_json);
     build_state_doc(doc);
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
 // /api/diag - debug/forensic fields that aren't worth polling at the
@@ -301,9 +312,9 @@ static void handle_state() {
 // manager command + OTA detail, recent error ring. The web UI only
 // hits this when a diagnostics view is open; the lab logger fetches
 // it on demand.
-static void handle_diag() {
-    if (!require_api_auth()) return;
-    if (!heap_ok(HEAP_MEDIUM)) return;
+static void handle_diag(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!heap_ok(request, HEAP_MEDIUM)) return;
     JsonDocument doc(&espdisp::psram_json);
 
     {
@@ -358,13 +369,13 @@ static void handle_diag() {
     touch["gt_ready"] = ::main_gt_ready_count();
     touch["gt_points"] = ::main_gt_points_count();
 
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
 // ---- /api/screens, /api/screen/<id> ------------------------------------
 
-static void handle_screens() {
-    if (!require_api_auth()) return;
+static void handle_screens(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     JsonDocument doc(&espdisp::psram_json);
     JsonArray arr = doc.to<JsonArray>();
     int active = ui::current_index();
@@ -380,15 +391,15 @@ static void handle_screens() {
         s["hidden"] = hidden;
         s["active"] = (active == (int)i);
     }
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
-static void handle_screen_set() {
-    if (!require_api_auth()) return;
-    String id = server.uri();
+static void handle_screen_set(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    String id = request->url();
     int slash = id.lastIndexOf('/');
     if (slash < 0) {
-        server.send(400, "text/plain", "missing id");
+        request->send(400, "text/plain", "missing id");
         return;
     }
     id = id.substring(slash + 1);
@@ -399,13 +410,13 @@ static void handle_screen_set() {
     cmd.type = app::CommandType::ShowScreen;
     strncpy(cmd.a, id.c_str(), sizeof(cmd.a) - 1);
     if (!app::post(cmd, 50)) {
-        server.send(503, "text/plain", "ui queue full");
+        request->send(503, "text/plain", "ui queue full");
         return;
     }
     JsonDocument doc(&espdisp::psram_json);
     doc["queued"] = true;
     doc["target"] = id;
-    send_json(202, doc);
+    send_json(request, 202, doc);
 }
 
 // ---- /api/sk -----------------------------------------------------------
@@ -414,8 +425,8 @@ static void put_double(JsonObject o, const char *k, double v) {
     if (!isnan(v)) o[k] = v;
 }
 
-static void handle_sk_data() {
-    if (!require_api_auth()) return;
+static void handle_sk_data(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     sk::Data d_snap;
     sk::copyData(d_snap);
     const sk::Data &d = d_snap;
@@ -458,7 +469,7 @@ static void handle_sk_data() {
     doc["connected"] = d.connected;
     doc["lastUpdateAgeMs"] = d.lastUpdateMs ? (uint32_t)(millis() - d.lastUpdateMs) : (uint32_t)0;
 
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
 // ---- /api/boat ---------------------------------------------------------
@@ -466,8 +477,8 @@ static void handle_sk_data() {
 // use this to verify that priority + freshness routes the right
 // source-of-truth to renderers.
 
-static void handle_boat() {
-    if (!require_api_auth()) return;
+static void handle_boat(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     boat::Snapshot s;
     boat::copy_snapshot(s);
     boat::Timeouts t = boat::get_timeouts();
@@ -549,7 +560,7 @@ static void handle_boat() {
         n2["last_rx_age_ms"] = st.last_rx_ms ? (uint32_t)(now - st.last_rx_ms) : 0;
     }
 
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
 // ---- /api/commands -----------------------------------------------------
@@ -557,8 +568,8 @@ static void handle_boat() {
 // accepts. Useful for tooling, plugin auto-discovery, and the
 // /help/commands HTML page rendered below.
 
-static void handle_commands_json() {
-    if (!require_api_auth()) return;
+static void handle_commands_json(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     JsonDocument doc(&espdisp::psram_json);
     JsonArray arr = doc["commands"].to<JsonArray>();
     const auto *list = cmd_catalog::entries();
@@ -574,11 +585,11 @@ static void handle_commands_json() {
     doc["count"] = n;
     doc["note"] = "Commands with http=false are reachable only over BLE "
                   "NUS / USB serial. /api/cmd returns 403 for those.";
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
 // HTML help page - groups by category, marks BLE/serial-only commands.
-static void handle_commands_html() {
+static void handle_commands_html(AsyncWebServerRequest *request) {
     String html;
     html.reserve(8 * 1024);
     html += F("<!doctype html>\n<meta charset=\"utf-8\">\n"
@@ -638,43 +649,42 @@ static void handle_commands_html() {
               "view and <code>POST /api/cmd</code> for HTTP-allowed commands."
               "</p>\n");
 
-    server.send(200, "text/html", html);
+    request->send(200, "text/html", html);
 }
 
 // ---- /api/layout (GET / PUT) -------------------------------------------
 
-static void handle_layout_get() {
-    if (!require_api_auth()) return;
+static void handle_layout_get(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     String body;
     if (!layout::copy_last_json(body)) {
-        server.send(404, "text/plain", "no layout loaded");
+        request->send(404, "text/plain", "no layout loaded");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", body);
+    send_json(request, 200, body);
 }
 
-static void handle_layout_put() {
-    if (!require_api_auth()) return;
-    if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "empty body");
+static void handle_layout_put(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!request->hasArg("plain")) {
+        request->send(400, "text/plain", "empty body");
         return;
     }
-    const String &body = server.arg("plain");
+    const String &body = request->arg("plain");
     size_t len = body.length();
     if (len == 0) {
-        server.send(400, "text/plain", "empty body");
+        request->send(400, "text/plain", "empty body");
         return;
     }
     if (len > 32 * 1024) {
-        server.send(413, "text/plain", "layout too large (32 KB max)");
+        request->send(413, "text/plain", "layout too large (32 KB max)");
         return;
     }
     // Copy into a PSRAM-backed buffer; ownership transfers to the queue.
     // Pump frees on completion.
     void *blob = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!blob) {
-        server.send(503, "text/plain", "blob alloc failed");
+        request->send(503, "text/plain", "blob alloc failed");
         return;
     }
     memcpy(blob, body.c_str(), len);
@@ -684,13 +694,13 @@ static void handle_layout_put() {
     cmd.blob_len = len;
     if (!app::post(cmd, 50)) {
         heap_caps_free(blob);
-        server.send(503, "text/plain", "ui queue full");
+        request->send(503, "text/plain", "ui queue full");
         return;
     }
     JsonDocument doc(&espdisp::psram_json);
     doc["queued"] = true;
     doc["size"] = (uint32_t)len;
-    send_json(202, doc);
+    send_json(request, 202, doc);
 }
 
 // ---- /api/dashboard/config.{json,yaml} --------------------------------
@@ -699,28 +709,29 @@ static void handle_layout_put() {
 // serves and accepts JSON-compatible YAML (JSON syntax is valid YAML 1.2),
 // keeping the ESP32 parser small and deterministic.
 
-static void handle_dashboard_config_get_json() {
-    handle_layout_get();
+static void handle_dashboard_config_get_json(AsyncWebServerRequest *request) {
+    handle_layout_get(request);
 }
 
-static void handle_dashboard_config_get_yaml() {
-    if (!require_api_auth()) return;
+static void handle_dashboard_config_get_yaml(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     String body;
     if (!layout::copy_last_json(body)) {
-        server.send(404, "text/plain", "no dashboard config loaded");
+        request->send(404, "text/plain", "no dashboard config loaded");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-store");
-    server.send(200, "application/yaml", body);
+    auto *res = request->beginResponse(200, "application/yaml", body);
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    res->addHeader("Cache-Control", "no-store");
+    request->send(res);
 }
 
-static void handle_dashboard_config_put() {
-    handle_layout_put();
+static void handle_dashboard_config_put(AsyncWebServerRequest *request) {
+    handle_layout_put(request);
 }
 
-static void handle_security() {
-    if (!require_api_auth()) return;
+static void handle_security(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     JsonDocument doc(&espdisp::psram_json);
     JsonObject web = doc["web"].to<JsonObject>();
     web["bind"] = net::wifiUp() ? "station-ip" : "setup-ap";
@@ -748,39 +759,39 @@ static void handle_security() {
     signalk["manager_auth"] = "SignalK bearer token plus device token";
     signalk["device_pull_header"] = "X-EspDisp-Authorization";
     signalk["dashboard_config_command"] = "config.reload";
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
 // ---- /api/wifi/scan, /networks, /connect -------------------------------
 
 static bool s_scan_started = false;
 
-static void handle_wifi_scan() {
-    if (!require_api_auth()) return;
+static void handle_wifi_scan(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     // Async kick. Returns immediately; result is fetched via /api/wifi/networks.
     int r = WiFi.scanComplete();
     if (r == WIFI_SCAN_RUNNING) {
-        send_json(202, "{\"running\":true}");
+        send_json(request, 202, "{\"running\":true}");
         return;
     }
     WiFi.scanNetworks(true /* async */, true /* show hidden */);
     s_scan_started = true;
-    send_json(202, "{\"running\":true,\"started\":true}");
+    send_json(request, 202, "{\"running\":true,\"started\":true}");
 }
 
-static void handle_wifi_networks() {
-    if (!require_api_auth()) return;
+static void handle_wifi_networks(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     int n = WiFi.scanComplete();
     JsonDocument doc(&espdisp::psram_json);
     if (n == WIFI_SCAN_RUNNING) {
         doc["running"] = true;
-        send_json(200, doc);
+        send_json(request, 200, doc);
         return;
     }
     if (n == WIFI_SCAN_FAILED || n < 0) {
         doc["running"] = false;
         doc["error"] = (int)n;
-        send_json(200, doc);
+        send_json(request, 200, doc);
         return;
     }
     doc["running"] = false;
@@ -793,28 +804,28 @@ static void handle_wifi_networks() {
         o["secured"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
     }
     // Don't auto-delete; let the next /scan call replace.
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
-static void handle_wifi_connect() {
-    if (!require_api_auth()) return;
-    if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "json body required");
+static void handle_wifi_connect(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!request->hasArg("plain")) {
+        request->send(400, "text/plain", "json body required");
         return;
     }
-    if (server.arg("plain").length() > 1024) {
-        server.send(413, "text/plain", "body too large (1 KB max)");
+    if (request->arg("plain").length() > 1024) {
+        request->send(413, "text/plain", "body too large (1 KB max)");
         return;
     }
     JsonDocument doc(&espdisp::psram_json);
-    if (deserializeJson(doc, server.arg("plain"))) {
-        server.send(400, "text/plain", "bad json");
+    if (deserializeJson(doc, request->arg("plain"))) {
+        request->send(400, "text/plain", "bad json");
         return;
     }
     const char *ssid = doc["ssid"];
     const char *pass = doc["password"] | "";
     if (!ssid || !*ssid) {
-        server.send(400, "text/plain", "ssid required");
+        request->send(400, "text/plain", "ssid required");
         return;
     }
     // Queue for the net worker (it'll save to NVS and reboot). Avoids
@@ -824,46 +835,45 @@ static void handle_wifi_connect() {
     strncpy(cmd.a, ssid, sizeof(cmd.a) - 1);
     strncpy(cmd.b, pass, sizeof(cmd.b) - 1);
     if (!app::post_net(cmd, 50)) {
-        server.send(503, "text/plain", "net queue full");
+        request->send(503, "text/plain", "net queue full");
         return;
     }
     JsonDocument out(&espdisp::psram_json);
     out["queued"] = true;
     out["rebooting"] = true;
     out["ssid"] = ssid;
-    send_json(202, out);
+    send_json(request, 202, out);
 }
 
-static void handle_wifi_forget() {
-    if (!require_api_auth()) return;
+static void handle_wifi_forget(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     // Route through the net worker queue; wifi-forget reboots, which
     // would otherwise happen on the web task and cut off the response.
     app::Command cmd;
     cmd.type = app::CommandType::RunCommand;
     strncpy(cmd.a, "wifi-forget", sizeof(cmd.a) - 1);
     if (!app::post_net(cmd, 50)) {
-        server.send(503, "text/plain", "net queue full");
+        request->send(503, "text/plain", "net queue full");
         return;
     }
     JsonDocument out(&espdisp::psram_json);
     out["queued"] = true;
     out["rebooting"] = true;
-    send_json(202, out);
+    send_json(request, 202, out);
 }
 
-static void handle_wifi_saved_get() {
-    if (!require_api_auth()) return;
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.send(200, "application/json", wifi_store::to_json(false));
+static void handle_wifi_saved_get(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    send_json(request, 200, wifi_store::to_json(false));
 }
 
-static void handle_wifi_saved_delete() {
-    if (!require_api_auth()) return;
+static void handle_wifi_saved_delete(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     // URI form: /api/wifi/saved/<ssid>
-    String u = server.uri();
+    String u = request->url();
     int slash = u.lastIndexOf('/');
     if (slash < 0 || slash == (int)u.length() - 1) {
-        server.send(400, "text/plain", "ssid required in path");
+        request->send(400, "text/plain", "ssid required in path");
         return;
     }
     String ssid = u.substring(slash + 1);
@@ -874,35 +884,35 @@ static void handle_wifi_saved_delete() {
     out["ok"] = ok;
     out["ssid"] = ssid;
     out["count"] = (uint32_t)wifi_store::count();
-    send_json(ok ? 200 : 404, out);
+    send_json(request, ok ? 200 : 404, out);
 }
 
 // ---- /api/cmd ----------------------------------------------------------
 
-static void handle_cmd() {
-    if (!require_api_auth()) return;
-    if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "empty body");
+static void handle_cmd(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!request->hasArg("plain")) {
+        request->send(400, "text/plain", "empty body");
         return;
     }
-    String line = server.arg("plain");
+    String line = request->arg("plain");
     // Hard cap: command lines are routed through app::Command.a (256 B).
     // Reject oversized bodies before allocating the queue slot so a
     // hostile client can't flood the heap.
     if (line.length() > 512) {
-        server.send(413, "text/plain", "command too long (512 B max)");
+        request->send(413, "text/plain", "command too long (512 B max)");
         return;
     }
     line.trim();
     if (line.length() == 0) {
-        server.send(400, "text/plain", "empty command");
+        request->send(400, "text/plain", "empty command");
         return;
     }
     // Touch/gesture injection is intentionally NOT reachable over IP -
     // these commands run from BLE NUS / USB serial only. A network
     // attacker on the LAN should not be able to drive the UI.
     if (input_test::is_injection_command(line)) {
-        server.send(403, "text/plain", "injection commands are BLE/serial only");
+        request->send(403, "text/plain", "injection commands are BLE/serial only");
         return;
     }
     // Queue for the UI task. Many console commands touch LVGL state
@@ -912,13 +922,13 @@ static void handle_cmd() {
     cmd.type = app::CommandType::RunCommand;
     strncpy(cmd.a, line.c_str(), sizeof(cmd.a) - 1);
     if (!app::post(cmd, 50)) {
-        server.send(503, "text/plain", "ui queue full");
+        request->send(503, "text/plain", "ui queue full");
         return;
     }
     JsonDocument doc(&espdisp::psram_json);
     doc["queued"] = true;
     doc["cmd"] = line;
-    send_json(202, doc);
+    send_json(request, 202, doc);
 }
 
 // ---- /api/config -------------------------------------------------------
@@ -938,8 +948,8 @@ static void emit_meta(JsonObject &dst, ::config::Domain d) {
     if (m.last_error[0]) dst["last_error"] = m.last_error;
 }
 
-static void handle_config() {
-    if (!require_api_auth()) return;
+static void handle_config(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     ::config::UiConfig ui = ::config::ui();
     ::config::AlarmConfig al = ::config::alarms();
     ::config::SignalKConfig sk = ::config::signalk();
@@ -973,11 +983,11 @@ static void handle_config() {
     JsonObject sk_m = sk_obj["meta"].to<JsonObject>();
     emit_meta(sk_m, ::config::Domain::SignalK);
 
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
-static void handle_config_status() {
-    if (!require_api_auth()) return;
+static void handle_config_status(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     JsonDocument doc(&espdisp::psram_json);
     JsonObject root = doc.to<JsonObject>();
     root["jobs_queued"] = ::config::persist_jobs_queued();
@@ -991,21 +1001,22 @@ static void handle_config_status() {
     emit_meta(a, ::config::Domain::Alarms);
     JsonObject k = domains["signalk"].to<JsonObject>();
     emit_meta(k, ::config::Domain::SignalK);
-    send_json(200, doc);
+    send_json(request, 200, doc);
 }
 
-// ---- /api/screenshot.png -----------------------------------------------
-// PNG-encoded LVGL snapshot. The encoder lives in screenshot.cpp using
-// ROM miniz; output is typically 20-60 kB for a 480x480 UI screen,
-// small enough to fit in a single TCP send window (so the chunked-
-// streaming wedge that breaks the .bmp endpoint never triggers).
+// ---- /api/screenshot.json ----------------------------------------------
+// JSON-wrapped PNG. Bypasses the Arduino-ESP32 WebServer binary-body
+// delivery wedge by going through the same JSON send path that already
+// works for every other endpoint. Body shape:
+//   {"format":"png","width":480,"height":480,"len":<N>,"data":"<base64 PNG>"}
+// Clients decode the data field with standard base64.
 
-static void handle_screenshot_png() {
-    if (!require_api_auth()) return;
-    if (!heap_ok(HEAP_MEDIUM)) return;
+static void handle_screenshot_json(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!heap_ok(request, HEAP_MEDIUM)) return;
     static volatile bool s_in_flight = false;
     if (s_in_flight) {
-        server.send(429, "text/plain", "screenshot busy");
+        request->send(429, "application/json", "{\"error\":\"busy\"}");
         return;
     }
     s_in_flight = true;
@@ -1014,42 +1025,101 @@ static void handle_screenshot_png() {
     bool ok = screenshot::request(5000, &png, &len, screenshot::Format::Png);
     if (!ok || !png || len == 0) {
         s_in_flight = false;
-        server.send(504, "text/plain", "snapshot timeout");
+        request->send(504, "application/json", "{\"error\":\"timeout\"}");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-store");
-    // Use the String(uint8_t*, len) constructor which preserves NULs
-    // and bundles everything into a single server.send() call. That's
-    // the only path on Arduino-ESP32 WebServer that reliably delivers
-    // a body - sendContent / send_P / direct WiFiClient.write all
-    // dropped bytes silently (~4 kB through, then nothing) with this
-    // version of the library.
-    String body((const uint8_t *)png, len);
-    // Diag: try application/octet-stream to rule out content-type-based
-    // filtering in WebServer or its TLS/middleware path. Image/png with
-    // identical body went out as HTTP 200 + Content-Length but with
-    // 0 bytes received downstream.
-    server.send(200, "application/octet-stream", body);
+    // base64 expands 3 bytes -> 4 chars; +pad/null. PSRAM, plenty.
+    size_t b64_cap = ((len + 2) / 3) * 4 + 4;
+    uint8_t *b64 = (uint8_t *)heap_caps_malloc(b64_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!b64) {
+        heap_caps_free(png);
+        s_in_flight = false;
+        request->send(503, "application/json", "{\"error\":\"oom\"}");
+        return;
+    }
+    size_t b64_len = 0;
+    if (mbedtls_base64_encode(b64, b64_cap, &b64_len, png, len) != 0) {
+        heap_caps_free(png);
+        heap_caps_free(b64);
+        s_in_flight = false;
+        request->send(500, "application/json", "{\"error\":\"b64\"}");
+        return;
+    }
     heap_caps_free(png);
+    // Build via JsonDocument so the JSON path the rest of /api/* uses
+    // handles delivery. The PNG width/height are LVGL-snapshot defaults
+    // (active screen size); embed them so the client can render
+    // without parsing the PNG itself.
+    JsonDocument doc(&espdisp::psram_json);
+    doc["format"] = "png";
+    doc["width"] = (uint32_t)LCD_W;
+    doc["height"] = (uint32_t)LCD_H;
+    doc["len"] = (uint32_t)len;
+    doc["data"] = (const char *)b64;
+    send_json(request, 200, doc);
+    heap_caps_free(b64);
+    s_in_flight = false;
+}
+
+// ---- /api/screenshot.png -----------------------------------------------
+// PNG-encoded LVGL snapshot. The encoder lives in screenshot.cpp using
+// ROM miniz; output is typically 20-60 kB for a 480x480 UI screen,
+// small enough to fit in a single TCP send window (so the chunked-
+// streaming wedge that breaks the .bmp endpoint never triggers).
+
+static void handle_screenshot_png(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    if (!heap_ok(request, HEAP_MEDIUM)) return;
+    static volatile bool s_in_flight = false;
+    if (s_in_flight) {
+        request->send(429, "text/plain", "screenshot busy");
+        return;
+    }
+    s_in_flight = true;
+    uint8_t *png = nullptr;
+    size_t len = 0;
+    bool ok = screenshot::request(5000, &png, &len, screenshot::Format::Png);
+    if (!ok || !png || len == 0) {
+        s_in_flight = false;
+        request->send(504, "text/plain", "snapshot timeout");
+        return;
+    }
+    // AsyncWebServer streams the body via a callback that we feed from
+    // the PSRAM-allocated PNG buffer. Lambda capture keeps the buffer
+    // alive; onDisconnect cleans it up after the response has finished
+    // flushing. This is the entire reason we migrated off the stock
+    // Arduino-ESP32 WebServer - this path is what reliably delivers
+    // binary bodies of any size.
+    auto *res = request->beginResponse(
+        "image/png", len, [png, len](uint8_t *out, size_t maxLen, size_t index) -> size_t {
+            if (index >= len) return 0;
+            size_t remaining = len - index;
+            size_t to_write = remaining < maxLen ? remaining : maxLen;
+            memcpy(out, png + index, to_write);
+            return to_write;
+        });
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    res->addHeader("Cache-Control", "no-store");
+    request->onDisconnect([png]() { heap_caps_free(png); });
+    request->send(res);
     s_in_flight = false;
 }
 
 // ---- /api/screenshot.bmp -----------------------------------------------
 // LVGL snapshot of the active screen. Requires LV_USE_SNAPSHOT in lv_conf.h.
 
-static void handle_screenshot() {
-    if (!require_api_auth()) return;
+static void handle_screenshot(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     // Screenshot is the most heap-hostile endpoint we serve (~460 kB
     // PSRAM BMP + sustained socket writes that block the WiFi task).
     // Guard with the heap breaker first.
-    if (!heap_ok(HEAP_HEAVY)) return;
+    if (!heap_ok(request, HEAP_HEAVY)) return;
     // In-flight guard: only one screenshot at a time. A second request
     // landing while we're still chunking would starve WiFi twice and
     // confuse serve_pending().
     static volatile bool s_in_flight = false;
     if (s_in_flight) {
-        server.send(429, "text/plain", "screenshot busy");
+        request->send(429, "text/plain", "screenshot busy");
         return;
     }
     s_in_flight = true;
@@ -1059,47 +1129,38 @@ static void handle_screenshot() {
     bool ok = screenshot::request(2500, &bmp, &len);
     if (!ok || !bmp || len == 0) {
         s_in_flight = false;
-        server.send(504, "text/plain", "snapshot timeout");
+        request->send(504, "text/plain", "snapshot timeout");
         return;
     }
-    // Chunked write with a per-write timeout AND a periodic yield so
-    // the WiFi task gets CPU. Without the yield, blasting ~460 kB on
-    // this task starves WiFi keepalives and the AP can drop the
-    // station mid-transfer. This still has issues streaming the full
-    // 460 kB through Arduino-ESP32 WebServer's chunked path (see the
-    // E2E test in tools/test-screenshot.sh) but a 503/timeout is
-    // safer than the prior wedged-WiFi state.
-    server.sendHeader("Access-Control-Allow-Origin", "*");
-    server.sendHeader("Cache-Control", "no-store");
-    server.setContentLength(len);
-    server.send(200, "image/bmp", "");
-    WiFiClient client = server.client();
-    client.setTimeout(2000);
-    const uint32_t deadline = millis() + 8000;
-    const uint8_t *p = bmp;
-    size_t left = len;
-    while (left && client.connected()) {
-        if ((int32_t)(millis() - deadline) > 0) break;
-        size_t chunk = left > 1460 ? 1460 : left;
-        size_t w = client.write(p, chunk);
-        if (w == 0) break;
-        p += w;
-        left -= w;
-        if ((((size_t)(p - bmp)) & 0x3FFF) == 0) vTaskDelay(1);
-    }
-    heap_caps_free(bmp);
+    // AsyncWebServer chunked callback: feeds 460 kB BMP from PSRAM
+    // through the TCP send window without ever needing a contiguous
+    // internal-heap copy. The lambda captures the buffer; onDisconnect
+    // frees it after the response has fully flushed.
+    auto *res = request->beginResponse(
+        "image/bmp", len, [bmp, len](uint8_t *out, size_t maxLen, size_t index) -> size_t {
+            if (index >= len) return 0;
+            size_t remaining = len - index;
+            size_t to_write = remaining < maxLen ? remaining : maxLen;
+            memcpy(out, bmp + index, to_write);
+            return to_write;
+        });
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    res->addHeader("Cache-Control", "no-store");
+    request->onDisconnect([bmp]() { heap_caps_free(bmp); });
+    request->send(res);
     s_in_flight = false;
 }
 
-static void handle_logs() {
-    if (!require_api_auth()) return;
+static void handle_logs(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
     // /api/logs serializes the entire requested slice as one JSON
     // payload; a `limit=96` response is ~19 kB and serializeJson grows
     // its String buffer on internal heap. Apply the heap breaker so a
     // dashboard polling logs doesn't tip the device over the cliff.
-    if (!heap_ok(HEAP_MEDIUM)) return;
+    if (!heap_ok(request, HEAP_MEDIUM)) return;
     uint32_t since = 0;
-    if (server.hasArg("since")) since = (uint32_t)strtoul(server.arg("since").c_str(), nullptr, 10);
+    if (request->hasArg("since"))
+        since = (uint32_t)strtoul(request->arg("since").c_str(), nullptr, 10);
     // `?limit=N` caps how many entries we return in one response. Default
     // is 32 (~6 KiB JSON, fits comfortably in an lwIP TCP send window) so
     // polling clients keep each request cheap and the lwIP socket pool
@@ -1110,8 +1171,8 @@ static void handle_logs() {
     // returned every call - smaller pages avoid that.
     constexpr size_t kRingCap = 96;
     size_t limit = 32;
-    if (server.hasArg("limit")) {
-        unsigned long lv = strtoul(server.arg("limit").c_str(), nullptr, 10);
+    if (request->hasArg("limit")) {
+        unsigned long lv = strtoul(request->arg("limit").c_str(), nullptr, 10);
         if (lv == 0) lv = 32;
         if (lv > kRingCap) lv = kRingCap;
         limit = (size_t)lv;
@@ -1131,7 +1192,7 @@ static void handle_logs() {
         entries = (net::LogEntry *)malloc(sizeof(net::LogEntry) * limit);
     }
     if (!entries) {
-        server.send(503, "text/plain", "no memory for log buffer");
+        request->send(503, "text/plain", "no memory for log buffer");
         return;
     }
     size_t n = net::copyLogs(entries, limit, since);
@@ -1154,7 +1215,7 @@ static void handle_logs() {
     // it. The earlier version of this fix freed before send_json and
     // serialized dangling pointers - manifested as /api/logs hangs
     // while other endpoints still worked.
-    send_json(200, doc);
+    send_json(request, 200, doc);
     free(entries);
 }
 
@@ -1441,30 +1502,31 @@ setInterval(refreshLogs, 1000);
 </script>
 )HTML";
 
-static void handle_root() {
-    if (!require_api_auth()) return;
-    server.sendHeader("Cache-Control", "no-store");
-    server.send(200, "text/html", FPSTR(INDEX_HTML));
+static void handle_root(AsyncWebServerRequest *request) {
+    if (!require_api_auth(request)) return;
+    auto *res = request->beginResponse(200, "text/html", FPSTR(INDEX_HTML));
+    res->addHeader("Cache-Control", "no-store");
+    request->send(res);
 }
 
 // ---- setup / loop ------------------------------------------------------
 
 // In captive mode, ensure we also explicitly answer the well-known probe
 // paths (some clients require an exact route match, not catch-all).
-static void handle_probe() {
+static void handle_probe(AsyncWebServerRequest *request) {
     if (captive_active) {
-        send_captive_page("probe-explicit");
+        send_captive_page(request, "probe-explicit");
     } else {
         // STA mode: be nice and return the OS-expected no-captive response
         // so devices proxying through us don't mis-detect a captive portal.
-        String u = server.uri();
+        String u = request->url();
         if (u == "/generate_204" || u == "/gen_204") {
-            server.send(204);
+            request->send(204);
         } else if (u == "/hotspot-detect.html") {
-            server.send(200, "text/html",
-                        "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
+            request->send(200, "text/html",
+                          "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>");
         } else {
-            server.send(200, "text/plain", "Microsoft NCSI");
+            request->send(200, "text/plain", "Microsoft NCSI");
         }
     }
 }
@@ -1508,20 +1570,22 @@ static void bind_routes() {
     server.on("/api/wifi/saved", HTTP_GET, handle_wifi_saved_get);
     server.on("/api/screenshot.bmp", HTTP_GET, handle_screenshot);
     server.on("/api/screenshot.png", HTTP_GET, handle_screenshot_png);
-    server.onNotFound([]() {
-        if (server.method() == HTTP_POST && server.uri().startsWith("/api/screen/")) {
-            handle_screen_set();
+    server.on("/api/screenshot.json", HTTP_GET, handle_screenshot_json);
+    server.onNotFound([](AsyncWebServerRequest *request) {
+        if (request->method() == HTTP_POST && request->url().startsWith("/api/screen/")) {
+            handle_screen_set(request);
             return;
         }
-        if (server.method() == HTTP_DELETE && server.uri().startsWith("/api/wifi/saved/")) {
-            handle_wifi_saved_delete();
+        if (request->method() == HTTP_DELETE && request->url().startsWith("/api/wifi/saved/")) {
+            handle_wifi_saved_delete(request);
             return;
         }
-        if (server.method() == HTTP_OPTIONS) {
-            server.sendHeader("Access-Control-Allow-Origin", "*");
-            server.sendHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-            server.sendHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-            server.send(204);
+        if (request->method() == HTTP_OPTIONS) {
+            auto *res = request->beginResponse(204);
+            res->addHeader("Access-Control-Allow-Origin", "*");
+            res->addHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
+            res->addHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+            request->send(res);
             return;
         }
         // Captive portal: in AP mode, serve the config page inline for
@@ -1530,16 +1594,16 @@ static void bind_routes() {
         // normal browser would, so we skip the redirect step entirely.
         if (captive_active) {
             IPAddress ap_ip = WiFi.softAPIP();
-            String host = server.hostHeader();
+            String host = request->host();
             host.toLowerCase();
             String ap = ap_ip.toString();
             bool foreign_host = host.length() > 0 && host != ap;
-            if (is_captive_probe_path(server.uri()) || foreign_host) {
-                send_captive_page(foreign_host ? "foreign-host" : "probe-path");
+            if (is_captive_probe_path(request->url()) || foreign_host) {
+                send_captive_page(request, foreign_host ? "foreign-host" : "probe-path");
                 return;
             }
         }
-        server.send(404, "text/plain", "not found");
+        request->send(404, "text/plain", "not found");
     });
 }
 
@@ -1587,15 +1651,15 @@ static void sync_captive_dns() {
 }
 
 static void web_task(void *) {
-    // Defer server.begin() until sync_captive_dns() sees WiFi reach
-    // StaUp or ApSetup - by then lwIP's TCPIP task is up. Calling
-    // begin() here while state is still Idle asserts inside lwIP.
-    net::logf("[web] http task on core %d (deferring bind until wifi up)", xPortGetCoreID());
+    // AsyncWebServer runs on AsyncTCP's own task; we only manage the
+    // DNS responder + captive-state sync here. server.begin() is still
+    // deferred until WiFi reaches a usable state (sync_captive_dns
+    // does that).
+    net::logf("[web] http task on core %d (async; deferring bind until wifi up)", xPortGetCoreID());
     for (;;) {
         sync_captive_dns();
         if (captive_active) dns.processNextRequest();
-        server.handleClient();
-        vTaskDelay(pdMS_TO_TICKS(2));
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
