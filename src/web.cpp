@@ -91,6 +91,66 @@ static void send_json(int code, JsonDocument &doc) {
     send_json(code, out);
 }
 
+// Internal-heap watermark below which we refuse expensive endpoints so a
+// transient burst doesn't tip lwIP's TX-buffer pool over the cliff and
+// drop the AP association. 8 KB largest + 12 KB total is conservative;
+// the WiFi driver typically needs ~6 KB contiguous for a TX buffer.
+//
+// Cheap endpoints (auth check, simple commands) skip this guard - the
+// goal is to protect the device from blasting a 460 KB BMP or building
+// a 30+ field /api/state doc while the heap is already low. Returns
+// true if the request should proceed; returns false (and sends a 503)
+// when the breaker trips.
+// Tiered heap-low circuit breaker. Heavy endpoints get a higher
+// threshold because their internal-heap working set is larger. /api/state
+// is the diagnostic surface that has to stay readable even when the
+// device is in trouble - it only allocates ~1 KB of String for the
+// serialized JSON (the doc itself is in PSRAM via psram_json) so it
+// gets the lowest threshold.
+enum HeapWeight {
+    HEAP_LIGHT = 0,   // /api/state, small JSON responses
+    HEAP_MEDIUM = 1,  // /api/diag, /api/logs
+    HEAP_HEAVY = 2,   // /api/screenshot.bmp (460 kB BMP)
+};
+
+static bool heap_ok(HeapWeight weight) {
+    // During an inbound OTA upload, all but the lightest endpoints back
+    // off. The Update class holds 4-8 kB of internal-heap working
+    // buffers and the WiFi TX queue is saturated.
+    if (net::otaInProgress() && weight != HEAP_LIGHT) {
+        server.sendHeader("Retry-After", "10");
+        server.send(503, "text/plain", "ota upload in progress; try again shortly");
+        return false;
+    }
+    size_t min_free, min_block;
+    switch (weight) {
+    case HEAP_LIGHT:
+        min_free = 4 * 1024;
+        min_block = 3 * 1024;
+        break;
+    case HEAP_MEDIUM:
+        min_free = 8 * 1024;
+        min_block = 6 * 1024;
+        break;
+    case HEAP_HEAVY:
+    default:
+        min_free = 12 * 1024;
+        min_block = 8 * 1024;
+        break;
+    }
+    size_t free_int = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (free_int >= min_free && largest >= min_block) return true;
+    net::logf_at(net::LOG_WARN,
+                 "[web] 503 heap-breaker uri=%s weight=%d free=%u largest=%u "
+                 "min_free=%u min_block=%u",
+                 server.uri().c_str(), (int)weight, (unsigned)free_int, (unsigned)largest,
+                 (unsigned)min_free, (unsigned)min_block);
+    server.sendHeader("Retry-After", "5");
+    server.send(503, "text/plain", "low internal heap; try again shortly");
+    return false;
+}
+
 static bool api_auth_required() {
     storage::Namespace p("web", true);
     return p.get_u8("auth", 0) != 0;
@@ -224,6 +284,7 @@ static void build_state_doc(JsonDocument &doc) {
 
 static void handle_state() {
     if (!require_api_auth()) return;
+    if (!heap_ok(HEAP_LIGHT)) return;
     JsonDocument doc(&espdisp::psram_json);
     build_state_doc(doc);
     send_json(200, doc);
@@ -236,6 +297,7 @@ static void handle_state() {
 // it on demand.
 static void handle_diag() {
     if (!require_api_auth()) return;
+    if (!heap_ok(HEAP_MEDIUM)) return;
     JsonDocument doc(&espdisp::psram_json);
 
     {
@@ -759,7 +821,7 @@ static void handle_wifi_connect() {
         server.send(503, "text/plain", "net queue full");
         return;
     }
-    JsonDocument out;
+    JsonDocument out(&espdisp::psram_json);
     out["queued"] = true;
     out["rebooting"] = true;
     out["ssid"] = ssid;
@@ -777,7 +839,7 @@ static void handle_wifi_forget() {
         server.send(503, "text/plain", "net queue full");
         return;
     }
-    JsonDocument out;
+    JsonDocument out(&espdisp::psram_json);
     out["queued"] = true;
     out["rebooting"] = true;
     send_json(202, out);
@@ -802,7 +864,7 @@ static void handle_wifi_saved_delete() {
     // URL-decode minimally (replace +)
     ssid.replace("+", " ");
     bool ok = wifi_store::remove(ssid.c_str());
-    JsonDocument out;
+    JsonDocument out(&espdisp::psram_json);
     out["ok"] = ok;
     out["ssid"] = ssid;
     out["count"] = (uint32_t)wifi_store::count();
@@ -931,6 +993,10 @@ static void handle_config_status() {
 
 static void handle_screenshot() {
     if (!require_api_auth()) return;
+    // Screenshot is the most heap-hostile endpoint we serve (~460 kB
+    // PSRAM BMP + sustained socket writes that block the WiFi task).
+    // Guard with the heap breaker first.
+    if (!heap_ok(HEAP_HEAVY)) return;
     // In-flight guard: only one screenshot at a time. A second request
     // landing while we're still chunking would starve WiFi twice and
     // confuse serve_pending().
@@ -980,6 +1046,11 @@ static void handle_screenshot() {
 
 static void handle_logs() {
     if (!require_api_auth()) return;
+    // /api/logs serializes the entire requested slice as one JSON
+    // payload; a `limit=96` response is ~19 kB and serializeJson grows
+    // its String buffer on internal heap. Apply the heap breaker so a
+    // dashboard polling logs doesn't tip the device over the cliff.
+    if (!heap_ok(HEAP_MEDIUM)) return;
     uint32_t since = 0;
     if (server.hasArg("since")) since = (uint32_t)strtoul(server.arg("since").c_str(), nullptr, 10);
     // `?limit=N` caps how many entries we return in one response. Default

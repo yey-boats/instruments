@@ -102,4 +102,12 @@ bool dispatchCommand(const String &line);
 using ExtraCommandHandler = bool (*)(const String &line);
 void setExtraCommandHandler(ExtraCommandHandler h);
 
+// True while an inbound espota upload is in flight (between onStart and
+// onEnd/onError). Heap-pressuring subsystems (manager heartbeat loop,
+// SK delta JsonDocument churn, web heavy endpoints) should back off
+// while this is set so the OTA stream gets uninterrupted WiFi TX
+// bandwidth and the internal heap stays headroom-safe for the Update
+// class's working buffers.
+bool otaInProgress();
+
 }  // namespace net

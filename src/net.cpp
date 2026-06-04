@@ -14,6 +14,7 @@
 #include <freertos/semphr.h>
 
 #include "board.h"
+#include "psram_json.h"
 #include "secrets.h"
 #include "signalk.h"
 #include "layout_loader.h"
@@ -36,6 +37,10 @@ namespace net {
 
 static IPAddress broadcastAddr;
 static bool ota_started = false;
+// True only while an espota upload is in flight (between OTA onStart and
+// onEnd / onError). Other tasks back off heap-pressuring work to give
+// the upload uninterrupted bandwidth; see net::otaInProgress() callers.
+static volatile bool s_ota_in_progress = false;
 
 // Runtime log filter knobs. Honored only when ESPDISP_DEBUG_UDP_LOG is
 // compiled in; in release builds the UDP path is gone entirely so these
@@ -402,12 +407,15 @@ static void otaSetup() {
     // failed flashes (the previous build only printf'd to UART, which
     // is invisible on the field device).
     ArduinoOTA.onStart([]() {
+        s_ota_in_progress = true;
         logf_at(LOG_WARN, "[ota] start cmd=%s free_heap=%u",
                 ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs",
                 (unsigned)esp_get_free_heap_size());
     });
-    ArduinoOTA.onEnd(
-        []() { logf_at(LOG_WARN, "[ota] end free_heap=%u", (unsigned)esp_get_free_heap_size()); });
+    ArduinoOTA.onEnd([]() {
+        s_ota_in_progress = false;
+        logf_at(LOG_WARN, "[ota] end free_heap=%u", (unsigned)esp_get_free_heap_size());
+    });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
         // 10% milestones at WARN so we know how far the upload got
         // even when it later fails. Smaller increments would flood
@@ -422,6 +430,7 @@ static void otaSetup() {
         }
     });
     ArduinoOTA.onError([](ota_error_t e) {
+        s_ota_in_progress = false;
         logf_at(LOG_WARN, "[ota] error %d (%s) free_heap=%u largest=%u", (int)e, ota_error_name(e),
                 (unsigned)esp_get_free_heap_size(),
                 (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
@@ -616,7 +625,7 @@ static void send_discovery_announcement() {
     }
 
     device_discovery::Info info = discovery_info();
-    JsonDocument doc;
+    JsonDocument doc(&espdisp::psram_json);
     device_discovery::build_announcement(doc, info);
     char buf[512];
     size_t n = serializeJson(doc, buf, sizeof(buf));
@@ -850,6 +859,10 @@ void loop() {
 
 bool wifiUp() {
     return WiFi.status() == WL_CONNECTED;
+}
+
+bool otaInProgress() {
+    return s_ota_in_progress;
 }
 String ipString() {
     return ap_mode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();

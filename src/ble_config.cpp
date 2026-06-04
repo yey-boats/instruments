@@ -1,5 +1,6 @@
 #include "ble_config.h"
 #include "net.h"
+#include "psram_json.h"
 #include "signalk.h"
 #include "layout_loader.h"
 #include "app_events.h"
@@ -17,7 +18,7 @@ static NimBLECharacteristic *s_config = nullptr;
 
 // Build the JSON document returned on CONNECTION reads.
 static String connectionJson() {
-    JsonDocument doc;
+    JsonDocument doc(&espdisp::psram_json);
     JsonObject wifi = doc["wifi"].to<JsonObject>();
     wifi["mode"] = net::wifiUp() ? "STA" : "AP";
     wifi["ssid"] = WiFi.SSID();
@@ -47,7 +48,7 @@ static String connectionJson() {
 //   {"wifi":{"ssid":"X","password":"Y"}, "sk":{"host":"...","port":3000}}
 // Empty / missing fields are left alone.
 static void applyConnectionWrite(const std::string &data) {
-    JsonDocument doc;
+    JsonDocument doc(&espdisp::psram_json);
     if (deserializeJson(doc, data)) {
         net::logf("[bleconfig] connection write: invalid JSON");
         return;
@@ -131,7 +132,7 @@ class ConfigCb : public NimBLECharacteristicCallbacks {
             return;
         }
         // Fall back to summary: total size + screen list
-        JsonDocument doc;
+        JsonDocument doc(&espdisp::psram_json);
         doc["truncated"] = true;
         doc["size"] = (uint32_t)(have ? body.length() : 0);
         if (layout::loaded()) {

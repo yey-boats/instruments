@@ -59,7 +59,7 @@ static constexpr const char *DISCOVERY_QUERY = "espdisp.signalk.discover.v1";
 
 static void subscribe() {
     if (subscribed) return;
-    JsonDocument sub;
+    JsonDocument sub(&espdisp::psram_json);
     sub["context"] = "vessels.self";
     JsonArray arr = sub["subscribe"].to<JsonArray>();
     const char *paths[] = {
@@ -270,7 +270,7 @@ static bool tryUdpDiscover() {
         if (n <= 0) continue;
         buf[n] = 0;
 
-        JsonDocument doc;
+        JsonDocument doc(&espdisp::psram_json);
         if (deserializeJson(doc, buf) != DeserializationError::Ok) {
             net::logf("[sk] UDP discovery: ignored non-json reply");
             continue;

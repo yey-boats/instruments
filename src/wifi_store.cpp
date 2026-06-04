@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "net.h"
+#include "psram_json.h"
 #include "storage.h"
 
 namespace wifi_store {
@@ -12,7 +13,7 @@ static Network s_nets[MAX_NETWORKS];
 static size_t s_count = 0;
 
 static void save_to_nvs() {
-    JsonDocument doc;
+    JsonDocument doc(&espdisp::psram_json);
     JsonArray arr = doc.to<JsonArray>();
     for (size_t i = 0; i < s_count; ++i) {
         JsonObject o = arr.add<JsonObject>();
@@ -30,7 +31,7 @@ static void load_from_nvs() {
     storage::Namespace p("wifi", true);
     std::string raw = p.get_string("nets", "");
     if (raw.empty()) return;
-    JsonDocument doc;
+    JsonDocument doc(&espdisp::psram_json);
     if (deserializeJson(doc, raw.c_str(), raw.size())) return;
     for (JsonObject o : doc.as<JsonArray>()) {
         if (s_count >= MAX_NETWORKS) break;
@@ -111,7 +112,7 @@ void clear_all() {
 }
 
 String to_json(bool with_passwords) {
-    JsonDocument doc;
+    JsonDocument doc(&espdisp::psram_json);
     JsonArray arr = doc.to<JsonArray>();
     for (size_t i = 0; i < s_count; ++i) {
         JsonObject o = arr.add<JsonObject>();

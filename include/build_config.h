@@ -34,3 +34,15 @@
 #ifndef ESPDISP_ENABLE_TOUCH_CAL_UI
 #define ESPDISP_ENABLE_TOUCH_CAL_UI 1
 #endif
+
+// Manager provisioning token sent as `X-EspDisp-Authorization: Bearer <tok>`
+// on the very first /devices/register call when the device has no saved
+// device token. The plugin's default `dev-shared-token` mode accepts
+// "espdisp-dev" as a valid provisioning credential AND issues it back as
+// the device token, so a fresh device can self-provision. In production
+// builds override via -D MANAGER_PROVISION_TOKEN=\"...\" with whatever the
+// admin configured as the plugin's auth.devToken (or batch provision
+// token). Set to "" to opt out of auto-provisioning entirely.
+#ifndef MANAGER_PROVISION_TOKEN
+#define MANAGER_PROVISION_TOKEN "espdisp-dev"
+#endif

@@ -1,4 +1,5 @@
 #include "manager.h"
+#include "build_config.h"
 
 // Defined exactly once for the whole firmware here, so the shared
 // PSRAM allocator lives at root namespace scope and links the same
@@ -377,14 +378,22 @@ void record_error(const char *fmt, ...) {
 // standard Authorization header; the plugin itself reads X-EspDisp-Authorization
 // first (see signalk-espdisp-manager index.js authFrom). When the device only
 // has one token (e.g. talking to the standalone mock), both headers carry it.
+//
+// Bootstrap: when s_token is empty (fresh device, no NVS entry) we
+// fall back to MANAGER_PROVISION_TOKEN for the X-EspDisp-Authorization
+// slot. The plugin's dev-shared-token mode accepts that as a valid
+// provisioning credential on /devices/register and echoes it back as
+// the device token. Without this fallback the very first register call
+// 401s and the worker churns the heap retrying every 5 s forever.
 void add_auth_headers(HTTPClient &http) {
     if (s_sk_token.length()) {
         http.addHeader("Authorization", String("Bearer ") + s_sk_token);
     } else if (s_token.length()) {
         http.addHeader("Authorization", String("Bearer ") + s_token);
     }
-    if (s_token.length()) {
-        http.addHeader("X-EspDisp-Authorization", String("Bearer ") + s_token);
+    const char *plugin_tok = s_token.length() ? s_token.c_str() : MANAGER_PROVISION_TOKEN;
+    if (plugin_tok && *plugin_tok) {
+        http.addHeader("X-EspDisp-Authorization", String("Bearer ") + plugin_tok);
     }
 }
 
@@ -1720,6 +1729,16 @@ void worker(void *) {
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
+        // Skip the entire HTTP cycle while an espota upload is in flight.
+        // Heartbeat + register + config-fetch + command-poll all
+        // allocate HTTPClient + JSON buffers; doing that while the OTA
+        // stream is consuming the WiFi TX queue (and the Update class
+        // holds large internal-heap buffers) is the fastest way to
+        // disassociate the station mid-upload. Re-check in 1 s.
+        if (net::otaInProgress()) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
         uint32_t now = millis();
         if (now < next_manager_http_ms) {
             vTaskDelay(pdMS_TO_TICKS(500));
@@ -1779,9 +1798,16 @@ void worker(void *) {
                     next_manager_http_ms = 0;
                 } else {
                     // Longer delay on real transport errors so we don't
-                    // pound an unreachable peer.
+                    // pound an unreachable peer. 401/403 (HttpError) means
+                    // the bootstrap provisioning credential is wrong - no
+                    // point retrying every 5 s, that just churns the
+                    // tiny internal heap. 30 s gives the operator time
+                    // to fix the token via `manager-token <tok>`.
                     bool transport = r.burned_transport() || r.status == ManagerStatus::WifiDown;
-                    next_register_attempt_ms = now + (transport ? 10000 : 5000);
+                    bool auth_problem = r.status == ManagerStatus::HttpError &&
+                                        (r.http_code == 401 || r.http_code == 403);
+                    uint32_t retry_in = transport ? 10000 : (auth_problem ? 30000 : 5000);
+                    next_register_attempt_ms = now + retry_in;
                     apply_backoff(r);
                 }
             }
