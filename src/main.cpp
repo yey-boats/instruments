@@ -1241,6 +1241,13 @@ static void bench_dump() {
               (unsigned)(heap_lowwater / 1024));
     net::logf("[bench] psram free=%u / %u KB", (unsigned)(psram_free / 1024),
               (unsigned)(psram_total / 1024));
+    {
+        float tC = board::chipTempC();
+        if (!isnan(tC))
+            net::logf("[bench] chip temp=%.1f C", tC);
+        else
+            net::logf("[bench] chip temp=n/a");
+    }
     net::logf("[bench] queues ui=%u (hi=%lu)  net=%u (hi=%lu)", (unsigned)app::ui_queue_depth(),
               (unsigned long)app::ui_high_water(), (unsigned)app::net_queue_depth(),
               (unsigned long)app::net_high_water());

@@ -1,4 +1,5 @@
 #include "signalk.h"
+#include "board.h"
 #include "build_config.h"
 #include "signalk_parser.h"
 #include "source_signalk.h"
@@ -424,13 +425,14 @@ void pollStallTelemetry() {
     // level. Routine [sk] traffic stays at INFO and doesn't get broadcast.
     if (now_stalled) {
         s_stall_begin_ms = now;
+        float tC = board::chipTempC();
         net::logf_at(net::LOG_WARN,
                      "[sk] STALL begin connected=%d last_update_age=%ld "
                      "last_frame_age=%ld connect_age=%ld iters_delta=%u "
-                     "peak_us=%u wifi=%s rssi=%d host=%s:%u",
+                     "peak_us=%u wifi=%s rssi=%d temp=%.1fC host=%s:%u",
                      (int)connected, age(last_update), age(ws_last_frame), age(connected_since),
                      (unsigned)iters_delta, (unsigned)peak_us, net::wifiStateName(), net::rssi(),
-                     s_host.c_str(), (unsigned)s_port);
+                     isnan(tC) ? 0.0f : tC, s_host.c_str(), (unsigned)s_port);
     } else {
         uint32_t dur = s_stall_begin_ms ? (now - s_stall_begin_ms) : 0;
         net::logf_at(net::LOG_WARN,

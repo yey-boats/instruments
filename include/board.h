@@ -84,6 +84,13 @@ const char *display_bus_name(DisplayBus bus);
 // Console handler - "board" or "board bright <0-255>".
 bool handleSerialCommand(const class String &line);
 
+// Read the SoC's internal junction-temperature sensor (degrees Celsius).
+// Returns NaN if the board build doesn't support it. The sensor has a
+// ~10C absolute accuracy but is the right tool for diagnosing thermal
+// runaway (hot WiFi/radio die under heavy load) - the relative trend
+// is what matters, not the absolute value.
+float chipTempC();
+
 }  // namespace board
 
 namespace ui {

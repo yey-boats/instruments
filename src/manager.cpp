@@ -617,6 +617,10 @@ void build_status_body(JsonDocument &doc) {
     mem["internal_min_free_kb"] =
         (uint32_t)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) / 1024);
     mem["psram_free_kb"] = (uint32_t)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024);
+    {
+        float tC = board::chipTempC();
+        if (!isnan(tC)) mem["chip_temp_c"] = tC;
+    }
 
     JsonObject fw = doc["firmware"].to<JsonObject>();
     fw["version"] = id.firmware_version;

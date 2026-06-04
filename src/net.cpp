@@ -13,6 +13,7 @@
 #include <esp_heap_caps.h>
 #include <freertos/semphr.h>
 
+#include "board.h"
 #include "secrets.h"
 #include "signalk.h"
 #include "layout_loader.h"
@@ -305,7 +306,7 @@ class RxCb : public NimBLECharacteristicCallbacks {
                           line == "bench" ||
 #endif
                           line == "screen" || line == "sk-status" || line == "sk-dump" ||
-                          line == "wifi-list" || line == "bright");
+                          line == "temp" || line == "wifi-list" || line == "bright");
         if (inline_ok) {
             if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
                 !layout::handleSerialCommand(line)) {
@@ -1151,6 +1152,14 @@ bool handleSerialCommand(const String &line) {
     }
     if (line == "ip") {
         logf("ip=%s  mode=%s  rssi=%d", ipString().c_str(), ap_mode ? "AP" : "STA", WiFi.RSSI());
+        return true;
+    }
+    if (line == "temp") {
+        float tC = board::chipTempC();
+        if (isnan(tC))
+            logf("[temp] chip temp unavailable");
+        else
+            logf("[temp] chip=%.1f C", tC);
         return true;
     }
     if (line == "reboot") {

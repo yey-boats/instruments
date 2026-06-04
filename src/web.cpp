@@ -13,6 +13,7 @@
 #include "signalk.h"
 #include "layout_loader.h"
 #include "ui_screens.h"
+#include "board.h"
 #include "board_pins.h"
 #include "wifi_store.h"
 #include "boat_data.h"
@@ -119,6 +120,10 @@ static void build_state_doc(JsonDocument &doc) {
     dev["uptime_ms"] = (uint32_t)millis();
     dev["heap_free"] = (uint32_t)ESP.getFreeHeap();
     dev["psram_free"] = (uint32_t)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    {
+        float tC = board::chipTempC();
+        if (!isnan(tC)) dev["chip_temp_c"] = tC;
+    }
     // __DATE__ __TIME__ is the per-TU compile timestamp; kept for back
     // compat with tools/ota_flash.sh which greps it out of the binary
     // to verify a flash landed. The richer fields below come from
