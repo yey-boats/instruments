@@ -378,6 +378,60 @@ function registerRoutes (router, getManager) {
     })
   })
 
+  // GET /devices/proxy/screenshot.png?url=http://<device-host>[:port]
+  //
+  // Pulls /api/screenshot.png from the device and streams the body back
+  // to the editor. Lets the layout-editor UI work even when the browser
+  // can't directly reach the device (e.g. browser on a different VLAN
+  // than the device, but the SignalK host can route to both).
+  //
+  // Allows only http/https URLs to private-network targets (RFC 1918 +
+  // link-local + loopback). No public-internet SSRF.
+  function isPrivateHost (host) {
+    if (!host) return false
+    if (host === 'localhost' || host.endsWith('.local')) return true
+    const v4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+    if (!v4) return false
+    const o = v4.slice(1, 5).map((n) => parseInt(n, 10))
+    if (o.some((x) => isNaN(x) || x < 0 || x > 255)) return false
+    if (o[0] === 10) return true
+    if (o[0] === 192 && o[1] === 168) return true
+    if (o[0] === 172 && o[1] >= 16 && o[1] <= 31) return true
+    if (o[0] === 169 && o[1] === 254) return true
+    if (o[0] === 127) return true
+    return false
+  }
+  router.get('/devices/proxy/screenshot.png', async (req, res) => {
+    try {
+      const raw = String(req.query.url || '').trim()
+      if (!raw) { res.status(400).json({ error: 'missing url' }); return }
+      const u = new URL(/^https?:\/\//i.test(raw) ? raw : 'http://' + raw)
+      if (!/^https?:$/i.test(u.protocol)) {
+        res.status(400).json({ error: 'unsupported scheme' })
+        return
+      }
+      if (!isPrivateHost(u.hostname)) {
+        res.status(403).json({ error: 'only private-network hosts allowed' })
+        return
+      }
+      // node 18+ has global fetch; SignalK ships node 20.
+      const upstream = await fetch(u.origin + '/api/screenshot.png', {
+        signal: AbortSignal.timeout(10000)
+      })
+      if (!upstream.ok) {
+        res.status(upstream.status).json({ error: 'device returned ' + upstream.status })
+        return
+      }
+      res.setHeader('Content-Type', 'image/png')
+      res.setHeader('Cache-Control', 'no-store')
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      const buf = Buffer.from(await upstream.arrayBuffer())
+      res.end(buf)
+    } catch (e) {
+      res.status(502).json({ error: e.message || String(e) })
+    }
+  })
+
   router.get('/dashboard', wrap(getManager, (manager, req, res) => {
     res.json(manager.dashboard())
   }))

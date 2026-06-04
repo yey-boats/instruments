@@ -156,6 +156,17 @@
   <span id="status" class="status">loading…</span>
 </div>
 
+<!-- Device preview: fetch /api/screenshot.png from the live device URL
+     so the operator can see what's actually on the panel before/after
+     a Save. URL persisted in localStorage as 'espdisp.deviceUrl'. -->
+<div class="controls" style="border-top: 1px solid var(--panel-edge); margin-top: 8px; padding-top: 12px;">
+  <label>Device URL <input id="device-url" placeholder="http://10.42.0.67" style="width: 220px;"></label>
+  <button id="device-refresh-btn">Refresh device preview</button>
+  <button id="device-clear-btn" class="ghost">Clear</button>
+  <span id="device-status" class="status" style="margin-left: auto;"></span>
+</div>
+<div id="device-preview" style="margin: 8px 0; min-height: 0;"></div>
+
 <h2>Screens</h2>
 <div id="screens" class="screens"></div>
 
@@ -705,9 +716,74 @@ async function save () {
     await api('/profiles/import-dashboard', { method: 'POST', body: JSON.stringify(payload) });
     markClean(); setStatus('saved ' + state.profileId + ' ✓', 'ok');
     await loadProfile();
+    // After save, kick off a device-preview refresh on a small delay so
+    // the panel has time to receive + apply the new config. No-op if no
+    // device URL is configured.
+    if (state.deviceUrl) setTimeout(() => fetchDevicePreview('post-save'), 1500);
   } catch (e) {
     setStatus('save failed: ' + e.message, 'err');
   }
+}
+
+// --- Device screenshot preview ----------------------------------------------
+// Fetches /api/screenshot.png from the configured device URL (set in the
+// "Device URL" input, persisted in localStorage). Same-origin CORS isn't
+// possible since the plugin runs on the SignalK host and the device is on
+// its own IP, but the device's web layer sets Access-Control-Allow-Origin:*
+// so direct cross-origin fetch works. PNG body is small (~10-50 kB after
+// the async migration + ROM-miniz encoder).
+function setDeviceStatus (msg, kind) {
+  const s = document.getElementById('device-status');
+  s.textContent = msg || '';
+  s.className = 'status ' + (kind || '');
+}
+
+async function fetchDevicePreview (why) {
+  if (!state.deviceUrl) { setDeviceStatus('no device URL'); return; }
+  let url = state.deviceUrl.trim().replace(/\/$/, '');
+  if (!/^https?:\/\//.test(url)) url = 'http://' + url;
+  setDeviceStatus('fetching ' + url + (why ? ' (' + why + ')' : '') + '…');
+  // Bust browser cache so each refresh re-pulls. Route through the
+  // plugin proxy so the browser doesn't have to share a network with
+  // the device - the SignalK host does the fetch and streams the body
+  // back same-origin to the editor.
+  const stamp = Date.now();
+  const proxyUrl = '/plugins/espdisp-manager/devices/proxy/screenshot.png?url=' +
+                   encodeURIComponent(url) + '&t=' + stamp;
+  try {
+    const r = await fetch(proxyUrl, { cache: 'no-store' });
+    if (!r.ok) {
+      let detail = '';
+      try { const j = await r.json(); detail = j.error || ''; } catch {}
+      setDeviceStatus('proxy ' + r.status + (detail ? ' (' + detail + ')' : ''), 'err');
+      return;
+    }
+    const blob = await r.blob();
+    const objUrl = URL.createObjectURL(blob);
+    const wrap = document.getElementById('device-preview');
+    // Revoke any prior object URL to free memory before swapping in the new one.
+    const prior = wrap.querySelector('img');
+    if (prior && prior.dataset.objurl) URL.revokeObjectURL(prior.dataset.objurl);
+    wrap.replaceChildren(
+      el('div', { style: 'display:flex;align-items:flex-start;gap:12px;' },
+        el('img', { src: objUrl, style: 'max-width:480px;border:1px solid var(--panel-edge);border-radius:4px;', alt: 'device frame' }),
+        el('div', { style: 'color:var(--fg-dim);font-size:12px;' },
+          el('div', null, 'fetched: ' + new Date(stamp).toLocaleTimeString()),
+          el('div', null, 'size: ' + (blob.size / 1024).toFixed(1) + ' kB')))
+    );
+    wrap.querySelector('img').dataset.objurl = objUrl;
+    setDeviceStatus('ok (' + (blob.size / 1024).toFixed(1) + ' kB)', 'ok');
+  } catch (e) {
+    setDeviceStatus('error: ' + e.message, 'err');
+  }
+}
+
+function clearDevicePreview () {
+  const wrap = document.getElementById('device-preview');
+  const prior = wrap.querySelector('img');
+  if (prior && prior.dataset.objurl) URL.revokeObjectURL(prior.dataset.objurl);
+  wrap.replaceChildren();
+  setDeviceStatus('');
 }
 
 // --- Wire up ------------------------------------------------------------
@@ -736,6 +812,23 @@ document.getElementById('preset-picker').addEventListener('click', (e) => {
   if (e.target.id === 'preset-picker') e.target.classList.remove('show');
 });
 document.getElementById('save-btn').addEventListener('click', save);
+// Device preview controls. URL persists in localStorage so the operator
+// doesn't have to re-type after every page load.
+{
+  const urlInput = document.getElementById('device-url');
+  state.deviceUrl = localStorage.getItem('espdisp.deviceUrl') || '';
+  urlInput.value = state.deviceUrl;
+  urlInput.addEventListener('change', () => {
+    state.deviceUrl = urlInput.value.trim();
+    localStorage.setItem('espdisp.deviceUrl', state.deviceUrl);
+  });
+  document.getElementById('device-refresh-btn').addEventListener('click', () => {
+    state.deviceUrl = urlInput.value.trim();
+    localStorage.setItem('espdisp.deviceUrl', state.deviceUrl);
+    fetchDevicePreview('manual');
+  });
+  document.getElementById('device-clear-btn').addEventListener('click', clearDevicePreview);
+}
 window.addEventListener('beforeunload', (e) => {
   if (state.dirty) { e.preventDefault(); e.returnValue = ''; }
 });
@@ -744,5 +837,8 @@ window.addEventListener('beforeunload', (e) => {
   await loadCatalogue();
   await loadProfileList();
   await loadProfile();
+  // Auto-pull a device preview on load if a URL is persisted. Failure
+  // is silent (the device-status indicator surfaces it).
+  if (state.deviceUrl) fetchDevicePreview('initial');
 })();
 </script>
