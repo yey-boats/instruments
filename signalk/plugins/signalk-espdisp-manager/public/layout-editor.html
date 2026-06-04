@@ -80,6 +80,62 @@
     grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); }
   .preset-picker .preset-item .tiles-preview span { background: var(--bg);
     border-radius: 3px; padding: 4px 6px; font-size: 11px; color: var(--fg-dim); }
+  .mp-combo { position: relative; }
+  .mp-combo input { width: 100%; box-sizing: border-box; }
+  .mp-combo .opts { position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+    background: var(--panel-2); border: 1px solid var(--accent); border-top: 0;
+    max-height: 240px; overflow-y: auto; display: none; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+  .mp-combo .opts.show { display: block; }
+  .mp-combo .opt { padding: 6px 10px; cursor: pointer; font-family: ui-monospace, monospace; font-size: 13px; }
+  .mp-combo .opt:hover, .mp-combo .opt.active { background: var(--accent); color: #001218; }
+  .mp-combo .opt .matchhi { background: rgba(87, 199, 216, 0.45); border-radius: 2px; }
+  .mp-combo .opt:hover .matchhi, .mp-combo .opt.active .matchhi { background: rgba(0, 0, 0, 0.25); }
+  .mp-combo .opts-none { padding: 8px 10px; color: var(--fg-dim); font-style: italic; font-size: 12px; }
+  /* Widget visual preview - approximates the device LVGL render so the
+     editor canvas matches what the panel will show. */
+  .wpreview { display: flex; align-items: center; justify-content: center;
+    min-height: 96px; padding: 8px; background: #001012; border: 1px solid var(--panel-edge);
+    border-radius: 4px; margin: 8px 0 4px 0; font-family: 'Inter', system-ui, sans-serif;
+    color: var(--fg); overflow: hidden; }
+  .wpreview .num-stack { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .wpreview .num-primary { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; color: var(--accent); }
+  .wpreview .num-unit { font-size: 13px; color: var(--fg-dim); margin-left: 4px; }
+  .wpreview .num-row { display: flex; align-items: baseline; }
+  .wpreview .num-secondary { font-size: 12px; color: var(--fg-dim); }
+  .wpreview .compass { position: relative; width: 88px; height: 88px;
+    border: 2px solid var(--accent); border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; }
+  .wpreview .compass .heading { color: var(--accent); font-weight: 700; font-size: 18px; }
+  .wpreview .compass .marker { position: absolute; top: -6px; left: 50%; transform: translateX(-50%);
+    color: #ffb84d; font-size: 13px; }
+  .wpreview .compass .cts { position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%);
+    color: #ffb84d; font-size: 10px; }
+  .wpreview .rose { position: relative; width: 88px; height: 88px;
+    border: 2px dashed #ffb84d; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; color: #ffb84d; font-weight: 700; font-size: 12px; }
+  .wpreview .rose::before { content: "S"; position: absolute; top: -10px; font-size: 11px; }
+  .wpreview .rose::after { content: "P"; position: absolute; top: -10px; right: 10px; font-size: 11px; color: #c0392b; }
+  .wpreview .bar { width: 100%; max-width: 220px; }
+  .wpreview .bar-row { display: flex; justify-content: space-between; font-size: 11px;
+    color: var(--fg-dim); margin-bottom: 4px; }
+  .wpreview .bar-outer { width: 100%; height: 20px; background: #001a20;
+    border: 1px solid var(--panel-edge); border-radius: 3px; overflow: hidden; }
+  .wpreview .bar-fill { height: 100%; background: linear-gradient(90deg, #39d98a, #57c7d8); width: 65%; }
+  .wpreview .gauge { width: 88px; height: 88px; position: relative; }
+  .wpreview .gauge svg { width: 100%; height: 100%; }
+  .wpreview .ap { display: flex; flex-direction: column; gap: 3px; width: 100%; max-width: 220px; }
+  .wpreview .ap-state { background: #143b2a; color: #39d98a; border: 1px solid #39d98a;
+    text-align: center; padding: 3px 0; border-radius: 3px; font-weight: 700; font-size: 13px; }
+  .wpreview .ap-target { text-align: center; color: var(--fg-dim); font-size: 12px; }
+  .wpreview .ap-btns { display: flex; gap: 4px; }
+  .wpreview .ap-btn { flex: 1; background: var(--panel-edge); color: var(--fg); border-radius: 3px;
+    text-align: center; padding: 4px 0; font-size: 11px; }
+  .wpreview .text-val { font-size: 16px; font-family: ui-monospace, monospace; color: var(--accent);
+    text-align: center; line-height: 1.3; }
+  .wpreview .btn-bubble { background: var(--accent); color: #001218; border-radius: 16px;
+    padding: 8px 16px; font-weight: 700; font-size: 13px; }
+  .wpreview .trend svg { width: 100%; height: 56px; }
+  .wpreview.empty { color: var(--fg-dim); font-style: italic; min-height: 60px; }
   .preset-picker .modal-close { float: right; }
   .json-view { margin-top: 24px; padding: 12px; background: #06090f; border-radius: 6px;
     white-space: pre-wrap; font: 12px ui-monospace, monospace; color: var(--fg-dim);
@@ -193,6 +249,177 @@ function el (tag, props, ...children) {
     }
   }
   return node;
+}
+
+// --- Searchable metric-path combobox ----------------------------------------
+// Replaces the native <input list="sk-paths"> + <datalist> pair, which only
+// surfaces suggestions while typing and never shows the full set. This widget
+// always exposes the full SK path list, filters as the user types, supports
+// arrow-key navigation + enter to select, and highlights the matched substring
+// so the operator can see why a result is in the list.
+function metricPathCombobox (value, placeholder, onChange) {
+  const root = el('div', { className: 'mp-combo' });
+  const input = el('input', { value: value || '', placeholder: placeholder || 'navigation.speedOverGround' });
+  const opts = el('div', { className: 'opts' });
+  root.append(input, opts);
+  let activeIdx = -1;
+
+  function close () { opts.classList.remove('show'); opts.replaceChildren(); activeIdx = -1; }
+  function render (filter) {
+    opts.replaceChildren();
+    const q = (filter || '').trim().toLowerCase();
+    const all = state.paths || [];
+    const matches = q ? all.filter((p) => p.toLowerCase().includes(q)) : all;
+    if (!matches.length) {
+      opts.append(el('div', { className: 'opts-none' }, q ? 'no match' : 'no paths loaded'));
+      opts.classList.add('show');
+      return;
+    }
+    // Cap the rendered list to keep DOM cost reasonable; ~200 is more than
+    // any realistic SK path catalogue and the user can keep typing to narrow.
+    matches.slice(0, 200).forEach((p, i) => {
+      let display = document.createTextNode(p);
+      if (q) {
+        const idx = p.toLowerCase().indexOf(q);
+        if (idx >= 0) {
+          const frag = document.createDocumentFragment();
+          frag.append(document.createTextNode(p.slice(0, idx)));
+          frag.append(el('span', { className: 'matchhi' }, p.slice(idx, idx + q.length)));
+          frag.append(document.createTextNode(p.slice(idx + q.length)));
+          display = frag;
+        }
+      }
+      const opt = el('div', { className: 'opt' });
+      opt.append(display);
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();  // keep input focus
+        input.value = p;
+        if (onChange) onChange(p);
+        close();
+      });
+      opts.append(opt);
+    });
+    opts.classList.add('show');
+    activeIdx = -1;
+  }
+  function highlight (n) {
+    const items = opts.querySelectorAll('.opt');
+    if (!items.length) return;
+    items.forEach((el) => el.classList.remove('active'));
+    activeIdx = ((n % items.length) + items.length) % items.length;
+    items[activeIdx].classList.add('active');
+    items[activeIdx].scrollIntoView({ block: 'nearest' });
+  }
+
+  input.addEventListener('focus', () => render(input.value));
+  input.addEventListener('input', () => { render(input.value); if (onChange) onChange(input.value); });
+  input.addEventListener('blur', () => setTimeout(close, 100));  // allow mousedown to fire
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault();
+      if (!opts.classList.contains('show')) render(input.value);
+      highlight(activeIdx + 1);
+    } else if (e.key === 'ArrowUp') { e.preventDefault(); highlight(activeIdx - 1); }
+    else if (e.key === 'Enter') {
+      const items = opts.querySelectorAll('.opt');
+      if (activeIdx >= 0 && items[activeIdx]) {
+        const text = items[activeIdx].textContent;
+        input.value = text; if (onChange) onChange(text); close(); e.preventDefault();
+      }
+    } else if (e.key === 'Escape') { close(); }
+  });
+  return root;
+}
+
+// --- Per-widget visual preview ---------------------------------------------
+// Renders an HTML/CSS approximation of what the device's LVGL renderer
+// draws for this widget type, so the editor canvas matches the panel.
+// Uses representative sample values so the operator sees the shape
+// (digit size, compass bezel, sparkline, etc.) without needing live data.
+function widgetPreview (widget, tile) {
+  if (!widget) {
+    return el('div', { className: 'wpreview empty' }, 'pick a widget type');
+  }
+  const title = (tile && tile.title) ? tile.title.toUpperCase() : '';
+  switch (widget) {
+    case 'numeric':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'num-stack' },
+          el('div', { className: 'num-row' },
+            el('span', { className: 'num-primary' }, '9.7'),
+            el('span', { className: 'num-unit' }, 'kn')),
+          el('div', { className: 'num-secondary' }, title || 'sample value')));
+    case 'compass':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'compass' },
+          el('div', { className: 'marker' }, '▲'),
+          el('div', { className: 'heading' }, '047'),
+          el('div', { className: 'cts' }, 'CTS 052')));
+    case 'windRose':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'rose' }, 'AWS 9.7'));
+    case 'gauge': {
+      // Simple SVG arc gauge with needle at 65%.
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 100 100');
+      svg.innerHTML = '<path d="M10 80 A 40 40 0 0 1 90 80" fill="none" stroke="#52736f" stroke-width="8"/>' +
+                      '<path d="M10 80 A 40 40 0 0 1 75 30" fill="none" stroke="#57c7d8" stroke-width="8"/>' +
+                      '<text x="50" y="62" font-family="Inter" font-size="22" font-weight="700" fill="#57c7d8" text-anchor="middle">65%</text>';
+      const wrap = el('div', { className: 'wpreview' });
+      const gauge = el('div', { className: 'gauge' });
+      gauge.append(svg);
+      wrap.append(gauge);
+      return wrap;
+    }
+    case 'bar':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'bar' },
+          el('div', { className: 'bar-row' },
+            el('span', null, title || 'level'),
+            el('span', null, '65%')),
+          el('div', { className: 'bar-outer' },
+            el('div', { className: 'bar-fill' }))));
+    case 'trend': {
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 220 56');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      // Pseudo-random sparkline so each preview is visually distinct.
+      const pts = [];
+      for (let x = 0; x <= 220; x += 11) {
+        const y = 28 + 18 * Math.sin(x / 18) + 6 * Math.sin(x / 6);
+        pts.push(`${x},${y.toFixed(1)}`);
+      }
+      svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="#57c7d8" stroke-width="2"/>` +
+                      `<polyline points="0,56 ${pts.join(' ')} 220,56" fill="rgba(87,199,216,0.15)" stroke="none"/>`;
+      const wrap = el('div', { className: 'wpreview' });
+      const trend = el('div', { className: 'trend' });
+      trend.append(svg);
+      wrap.append(trend);
+      return wrap;
+    }
+    case 'autopilot':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'ap' },
+          el('div', { className: 'ap-state' }, 'AUTO'),
+          el('div', { className: 'ap-target' }, 'target 048°'),
+          el('div', { className: 'ap-btns' },
+            el('div', { className: 'ap-btn' }, '-10'),
+            el('div', { className: 'ap-btn' }, '-1'),
+            el('div', { className: 'ap-btn' }, '+1'),
+            el('div', { className: 'ap-btn' }, '+10'))));
+    case 'text':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'text-val' },
+          '41°23.16\'N',
+          el('br'),
+          '2°10.43\'E'));
+    case 'button':
+      return el('div', { className: 'wpreview' },
+        el('div', { className: 'btn-bubble' }, title || 'TAP'));
+    default:
+      return el('div', { className: 'wpreview empty' }, widget + ' (no preview)');
+  }
 }
 
 function setStatus (msg, kind) {
@@ -320,22 +547,20 @@ function renderTile (tile, screenIdx, tileIdx) {
           markDirty(); renderJsonView();
         },
       }))));
-    // Metric rows (primary, secondary) per widget meta
+    // Metric rows (primary, secondary) per widget meta. Each row uses
+    // the searchable combobox so the operator can see the whole SK path
+    // catalogue and filter as they type, rather than relying on the
+    // native datalist hint.
     if (meta && meta.metrics) {
       for (const key of ['primary', 'secondary']) {
         const metricMeta = meta.metrics[key];
         if (!metricMeta) continue;
         children.push(el('div', { className: 'row' }, el('div', { style: 'flex:1;' },
           el('label', null, metricMeta.label + (metricMeta.required ? ' *' : '')),
-          el('input', {
-            list: 'sk-paths',
-            value: tileObj[key] || '',
-            placeholder: 'navigation.speedOverGround',
-            oninput: (e) => {
-              tileObj[key] = e.target.value;
-              ensureScreens()[screenIdx].tiles[tileIdx] = tileObj;
-              markDirty(); renderJsonView();
-            },
+          metricPathCombobox(tileObj[key] || '', 'navigation.speedOverGround', (v) => {
+            tileObj[key] = v;
+            ensureScreens()[screenIdx].tiles[tileIdx] = tileObj;
+            markDirty(); renderJsonView();
           }))));
       }
     }
@@ -345,6 +570,8 @@ function renderTile (tile, screenIdx, tileIdx) {
   } else {
     children.push(el('div', { className: 'help' }, 'Pick a widget type to configure this tile.'));
   }
+  // Visual preview of the widget as it will render on the device.
+  children.push(widgetPreview(tileObj.widget, tileObj));
   return el('div', { className: 'tile' + (tileObj.widget ? '' : ' empty') }, ...children);
 }
 
