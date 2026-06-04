@@ -1622,15 +1622,15 @@ static void sync_captive_dns() {
     net::WifiState state = net::wifiState();
     if (state != s_bound_state &&
         (state == net::WifiState::StaUp || state == net::WifiState::ApSetup)) {
-        // Bind once the actual STA/AP interface is up. Calling
-        // server.begin() before lwIP's TCPIP task is initialized
-        // (i.e., before WiFi.mode/begin) trips "Invalid mbox" in
-        // tcpip_send_msg_wait_sem and panics the device.
+        // AsyncTCP's begin is idempotent across calls and doesn't trip
+        // the "Invalid mbox" lwIP panic that the sync WebServer did
+        // when called pre-init, so we can safely call it on every
+        // WiFi state change. The log line is informational only.
         server.begin();
         bool first = (s_bound_state == net::WifiState::Idle);
         s_bound_state = state;
-        net::logf("[web] http %s on :80 for wifi=%s", first ? "bound" : "rebound",
-                  net::wifiStateName());
+        net::logf_at(net::LOG_WARN, "[web] http %s on :80 for wifi=%s", first ? "bound" : "rebound",
+                     net::wifiStateName());
     }
 
     bool want_captive = (state == net::WifiState::ApSetup);
