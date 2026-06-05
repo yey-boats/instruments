@@ -307,9 +307,11 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     const lv_font_t *vfont = &lv_font_montserrat_48;
     if (h < 160) vfont = &lv_font_montserrat_38;
     if (h < 110 || has_extras) vfont = &lv_font_montserrat_28;
-    const lv_font_t *ufont = (vfont == &lv_font_montserrat_48)   ? &lv_font_montserrat_20
-                             : (vfont == &lv_font_montserrat_38) ? &lv_font_montserrat_18
-                                                                 : &lv_font_montserrat_16;
+    // Unit font: only 14/20 enabled to keep LVGL glyph cache off
+    // internal heap (16/18 sizes blew int_largest from 7668 -> 1908 bytes
+    // and starved the network task; see USB-flash diagnostic).
+    const lv_font_t *ufont =
+        (vfont == &lv_font_montserrat_28) ? &lv_font_montserrat_14 : &lv_font_montserrat_20;
 
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
