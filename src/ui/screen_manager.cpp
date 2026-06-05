@@ -7,14 +7,54 @@ namespace ui {
 static Screen s_screens[MAX_SCREENS];
 static size_t s_count = 0;
 static int s_index = 0;
+static ScreenPostBuildCb s_post_build_cb = nullptr;
+
+void set_post_build_cb(ScreenPostBuildCb cb) {
+    s_post_build_cb = cb;
+    // Apply to any already-built screens (eager registrations made
+    // before main installed the callback get the post-build hook
+    // retroactively so gesture handlers etc. land on them too).
+    for (size_t i = 0; i < s_count; ++i) {
+        if (s_screens[i].root && s_post_build_cb)
+            s_post_build_cb(s_screens[i].root, s_screens[i].id);
+    }
+}
 
 void register_screen(const Screen &s) {
     if (s_count >= MAX_SCREENS) return;
     s_screens[s_count++] = s;
-    if (s_count == 1) {
+    if (s_count == 1 && s.root) {
         lv_screen_load(s.root);
         s_index = 0;
     }
+    if (s.root && s_post_build_cb) s_post_build_cb(s.root, s.id);
+}
+
+void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_fn)(lv_obj_t *),
+                          void (*refresh_fn)(), bool hidden) {
+    if (s_count >= MAX_SCREENS || !build_fn) return;
+    Screen s = {};
+    s.id = id;
+    s.title = title;
+    s.root = nullptr;
+    s.refresh = refresh_fn;
+    s.hidden = hidden;
+    s.build_fn = build_fn;
+    s_screens[s_count++] = s;
+    // Don't lv_screen_load on registration - first show() builds + loads.
+}
+
+// Build the screen's LVGL tree on demand and cache the root. No-op if
+// already built or if this is an eager-registered screen (build_fn=NULL).
+// Fires the post-build callback so main.cpp can attach the gesture
+// handler (lazy screens otherwise miss the boot-time attachment pass).
+static void ensure_built(size_t i) {
+    if (i >= s_count) return;
+    if (s_screens[i].root) return;
+    if (!s_screens[i].build_fn) return;
+    s_screens[i].root = s_screens[i].build_fn(nullptr);
+    net::logf("[ui] lazy-built screen %s root=%p", s_screens[i].id, s_screens[i].root);
+    if (s_screens[i].root && s_post_build_cb) s_post_build_cb(s_screens[i].root, s_screens[i].id);
 }
 
 bool replace_screen(const char *id, const Screen &s) {
@@ -46,6 +86,11 @@ void show(int index) {
     if (s_count == 0) return;
     if (index < 0) index = 0;
     if (index >= (int)s_count) index = (int)s_count - 1;
+    ensure_built((size_t)index);
+    if (!s_screens[index].root) {
+        net::logf("[ui] show: screen %s has no root (build failed?)", s_screens[index].id);
+        return;
+    }
     if (lv_screen_active() == s_screens[index].root && index == s_index) return;
     s_index = index;
     lv_screen_load(s_screens[s_index].root);

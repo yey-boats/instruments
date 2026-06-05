@@ -1905,41 +1905,52 @@ void setup() {
     // manager swaps via lv_screen_load, so only the active screen lives
     // in the render tree at any time. Possible now that LVGL pool sits in
     // PSRAM (8 MB) - all 10 screen trees fit with room to spare.
-    ui::register_screen(
-        {"dashboard", "Dashboard", ui::dashboard::build(NULL), ui::dashboard::refresh, false});
-    ui::register_screen({"wind", "Wind", ui::wind::build(NULL), ui::wind::refresh, false});
-    ui::register_screen({"nav", "Nav", ui::nav::build(NULL), ui::nav::refresh, false});
-    ui::register_screen({"depth", "Depth", ui::depth::build(NULL), ui::depth::refresh, false});
-    ui::register_screen(
-        {"steering", "Steering", ui::steering::build(NULL), ui::steering::refresh, false});
-    ui::register_screen({"route", "Route", ui::route::build(NULL), ui::route::refresh, false});
-    ui::register_screen(
-        {"autopilot", "Autopilot", ui::autopilot::build(NULL), ui::autopilot::refresh, false});
-    ui::register_screen({"trip", "Trip", ui::trip::build(NULL), ui::trip::refresh, false});
-    ui::register_screen(
-        {"status", "System", ui::status_panel::build(NULL), ui::status_panel::refresh, false});
-    ui::register_screen(
-        {"wifi", "WiFi Setup", ui::wifi_setup::build(NULL), ui::wifi_setup::refresh, true});
-    ui::register_screen(
-        {"settings", "Settings", ui::settings::build(NULL), ui::settings::refresh, true});
-#if ESPDISP_ENABLE_TOUCH_CAL_UI
-    ui::register_screen({"touch_cal", "Touch Cal", ui::touch_cal_screen::build(NULL),
-                         ui::touch_cal_screen::refresh, true});
-#endif
-    ui::register_screen({"touch_grid", "Touch Grid", ui::touch_grid_screen::build(NULL),
-                         ui::touch_grid_screen::refresh, true});
-    ui::register_screen(
-        {"demo_grid", "Demo Grid", ui::demo_grid::build(NULL), ui::demo_grid::refresh, true});
+    // Boot-time eager build for dashboard (first frame after boot must
+    // show something). All other screens are lazy: their LVGL trees only
+    // get allocated when the operator navigates to them, freeing boot heap
+    // for SK websocket buffers and OTA. Once visited, the root is cached
+    // for the session - no rebuild on subsequent visits.
+    ui::Screen dash = {};
+    dash.id = "dashboard";
+    dash.title = "Dashboard";
+    dash.root = ui::dashboard::build(NULL);
+    dash.refresh = ui::dashboard::refresh;
+    ui::register_screen(dash);
 
-    // Attach the gesture handler to EVERY screen root. LVGL routes
-    // LV_EVENT_GESTURE to the currently loaded screen (or the widget
-    // the touch landed on), not to lv_layer_top - so without
-    // per-screen handlers swipes that started on empty screen area
-    // silently dropped.
-    for (size_t i = 0; i < ui::screen_count(); ++i) {
-        lv_obj_t *root = ui::screen_root((int)i);
-        if (root) lv_obj_add_event_cb(root, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
-    }
+    ui::register_screen_lazy("wind", "Wind", ui::wind::build, ui::wind::refresh, false);
+    ui::register_screen_lazy("nav", "Nav", ui::nav::build, ui::nav::refresh, false);
+    ui::register_screen_lazy("depth", "Depth", ui::depth::build, ui::depth::refresh, false);
+    ui::register_screen_lazy("steering", "Steering", ui::steering::build, ui::steering::refresh,
+                             false);
+    ui::register_screen_lazy("route", "Route", ui::route::build, ui::route::refresh, false);
+    ui::register_screen_lazy("autopilot", "Autopilot", ui::autopilot::build, ui::autopilot::refresh,
+                             false);
+    ui::register_screen_lazy("trip", "Trip", ui::trip::build, ui::trip::refresh, false);
+    ui::register_screen_lazy("status", "System", ui::status_panel::build, ui::status_panel::refresh,
+                             false);
+    ui::register_screen_lazy("wifi", "WiFi Setup", ui::wifi_setup::build, ui::wifi_setup::refresh,
+                             true);
+    ui::register_screen_lazy("settings", "Settings", ui::settings::build, ui::settings::refresh,
+                             true);
+#if ESPDISP_ENABLE_TOUCH_CAL_UI
+    ui::register_screen_lazy("touch_cal", "Touch Cal", ui::touch_cal_screen::build,
+                             ui::touch_cal_screen::refresh, true);
+#endif
+    ui::register_screen_lazy("touch_grid", "Touch Grid", ui::touch_grid_screen::build,
+                             ui::touch_grid_screen::refresh, true);
+    ui::register_screen_lazy("demo_grid", "Demo Grid", ui::demo_grid::build, ui::demo_grid::refresh,
+                             true);
+
+    // Attach the gesture handler to EVERY screen root via a post-build
+    // hook. LVGL routes LV_EVENT_GESTURE to the currently loaded screen
+    // (or the widget the touch landed on), not to lv_layer_top - so
+    // without per-screen handlers swipes that started on empty screen
+    // area silently dropped. set_post_build_cb retroactively fires for
+    // already-built (eager) screens AND fires for each lazy screen
+    // when its root is built on first activation.
+    ui::set_post_build_cb([](lv_obj_t *root, const char * /*id*/) {
+        lv_obj_add_event_cb(root, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
+    });
 
     // Global overlays + gestures also live on lv_layer_top() so they
     // survive screen swaps and catch gestures that landed on overlay

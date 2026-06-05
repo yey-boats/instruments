@@ -17,16 +17,31 @@ namespace ui {
 constexpr size_t MAX_SCREENS = 16;
 
 struct Screen {
-    const char *id;     // short canonical id, e.g. "wind"
-    const char *title;  // human label, e.g. "Wind"
-    lv_obj_t *root;     // fullscreen object (must be a child of lv_screen_active())
-    void (*refresh)();  // called from the global 5 Hz refresh when this screen is visible
-    bool hidden;        // if true, skip in swipe cycle (still reachable by id)
+    const char *id;                     // short canonical id, e.g. "wind"
+    const char *title;                  // human label, e.g. "Wind"
+    lv_obj_t *root;                     // fullscreen object (NULL until lazy-built)
+    void (*refresh)();                  // called from the global 5 Hz refresh when visible
+    bool hidden;                        // if true, skip in swipe cycle
+    lv_obj_t *(*build_fn)(lv_obj_t *);  // lazy builder; NULL = eager (root pre-supplied)
 };
 
 // Register a fullscreen panel. Must be called after the root LVGL object
 // has been created. Order of registration defines navigation order.
 void register_screen(const Screen &s);
+
+// Register a panel whose LVGL tree is built lazily on first activation.
+// Saves boot-time heap pressure: only the initial screen + ones the user
+// navigates to actually allocate LVGL widgets. `build_fn` is invoked the
+// first time `show()` lands on the index; the returned root is cached.
+void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_fn)(lv_obj_t *),
+                          void (*refresh_fn)(), bool hidden);
+
+// Install a callback that runs every time a screen's root is built
+// (both eager registrations and lazy ones, called once per screen).
+// Use this to wire post-build setup like gesture handlers without each
+// screen module having to know about main.cpp internals.
+typedef void (*ScreenPostBuildCb)(lv_obj_t *root, const char *id);
+void set_post_build_cb(ScreenPostBuildCb cb);
 
 // Replace an already-registered screen in place. Useful for generated screens
 // whose LVGL root can change after a central config reload.
