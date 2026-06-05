@@ -289,48 +289,71 @@ static double scalar_unit_fraction(MetricSource src, double v) {
 // chrome is already in place. They populate the t.value / t.unit /
 // t.secondary / t.aux slots their updater will reach for.
 
-static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int /*w*/, int /*h*/) {
+// Layout strategy: the chrome caption already lives at the tile's
+// top-left (handled by build_tile). Inside the body we mirror the
+// editor's `.num-stack` flex-column-center: value+unit row centered,
+// secondary line directly below it. Secondary tracks the value rather
+// than pinning to a corner so the label moves with the number when the
+// number's pixel width changes ("9.7" vs "12.74"). Value size scales
+// with tile area so the number takes ~60% of the vertical content
+// region (the "75% of dedicated space" rule in the goal).
+static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     bool has_extras = (m.extras_count > 0);
-    // Primary value uses accent color to match the editor preview
-    // (.num-primary { color: var(--accent) }). Editor uses 34px in a small
-    // card; on a real 2x2 tile we go bigger but keep the accent.
+
+    // Pick value font based on tile height. On 480x480 sunton the quad
+    // grid gives ~200 px tiles -> montserrat_48 (24% h, ~60% of inner
+    // content area after caption + secondary stripes). Smaller tiles
+    // fall back to 38 then 28.
+    const lv_font_t *vfont = &lv_font_montserrat_48;
+    if (h < 160) vfont = &lv_font_montserrat_38;
+    if (h < 110 || has_extras) vfont = &lv_font_montserrat_28;
+    const lv_font_t *ufont = (vfont == &lv_font_montserrat_48)   ? &lv_font_montserrat_20
+                             : (vfont == &lv_font_montserrat_38) ? &lv_font_montserrat_18
+                                                                 : &lv_font_montserrat_16;
+
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
-    const lv_font_t *primary_font = has_extras ? &lv_font_montserrat_28 : &lv_font_montserrat_48;
-    lv_obj_set_style_text_font(t.value, primary_font, 0);
+    lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
-    if (has_extras)
-        lv_obj_align(t.value, LV_ALIGN_TOP_LEFT, 12, 26);
-    else
-        lv_obj_align(t.value, LV_ALIGN_CENTER, 0, -6);
+    // Centered horizontally + vertically; offset upward when we have a
+    // secondary label so the pair stays balanced around the tile center.
+    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, has_extras ? -28 : -12);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
     if (m.unit && m.unit[0]) {
         t.unit = lv_label_create(t.root);
         lv_label_set_text(t.unit, m.unit);
-        lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(t.unit, ufont, 0);
         lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
-        if (has_extras)
-            lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, 0);
-        else
-            lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -4);
+        // Baseline-align inline-right of the value (mirrors editor's
+        // <span class="num-unit"> next to .num-primary).
+        lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -4);
         lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
     }
 
     if (!has_extras) {
+        // Secondary tracks the value: it sits directly below, centered.
+        // This is the editor's `.num-secondary` placement, NOT the prior
+        // bottom-right corner pin. The label follows the number's
+        // horizontal center even as the number widens/shrinks.
         t.secondary = lv_label_create(t.root);
         lv_label_set_text(t.secondary, "");
         lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(t.secondary, LV_ALIGN_BOTTOM_RIGHT, -4, -4);
+        lv_obj_align_to(t.secondary, t.value, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
         lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
     } else {
+        // Multi-row tile: extras stacked below the (shrunken) value.
+        // Center extras horizontally; spacing scales with tile height.
+        int row_h = (h < 160) ? 16 : 20;
+        int first_y = (h < 160) ? 60 : 76;
+        (void)w;
         for (uint8_t i = 0; i < m.extras_count && i < 4; ++i) {
             t.extras[i] = lv_label_create(t.root);
             lv_label_set_text(t.extras[i], "");
             lv_obj_set_style_text_font(t.extras[i], &lv_font_montserrat_14, 0);
             lv_obj_set_style_text_color(t.extras[i], lv_color_hex(theme.fg), 0);
-            lv_obj_align(t.extras[i], LV_ALIGN_TOP_LEFT, 12, 76 + i * 22);
+            lv_obj_align(t.extras[i], LV_ALIGN_TOP_MID, 0, first_y + i * row_h);
             lv_obj_clear_flag(t.extras[i], LV_OBJ_FLAG_CLICKABLE);
         }
     }
@@ -340,11 +363,14 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int /*w*
 // center, small "▲" marker at top, CTS label at bottom. Mirrors editor
 // .wpreview .compass.
 static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    // Ring size: reserve top 24 px for chrome caption + marker, bottom
+    // 22 px for CTS label. Diameter = min(w,h) - 56 keeps the heading
+    // text from colliding with cardinals at 14 px.
     int dia = (w < h ? w : h) - 56;
-    if (dia < 64) dia = 64;
+    if (dia < 72) dia = 72;
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
-    lv_obj_align(ring, LV_ALIGN_CENTER, 0, 6);
+    lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
     lv_obj_set_style_bg_color(ring, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(ring, lv_color_hex(theme.accent), 0);
@@ -360,49 +386,55 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_label_set_text(marker, "^");
     lv_obj_set_style_text_font(marker, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(marker, lv_color_hex(theme.warn), 0);
-    lv_obj_align_to(marker, ring, LV_ALIGN_OUT_TOP_MID, 0, 4);
+    lv_obj_align_to(marker, ring, LV_ALIGN_OUT_TOP_MID, 0, 2);
     lv_obj_clear_flag(marker, LV_OBJ_FLAG_CLICKABLE);
 
-    // N/E/S/W cardinal labels on the ring perimeter for at-a-glance
-    // orientation (matches editor .compass .card-* placement).
+    // N/E/S/W cardinals: padded in from the ring border so they don't
+    // visually merge with the heading number (which is centered).
     static const char *cardinals[4] = {"N", "E", "S", "W"};
     static const lv_align_t aligns[4] = {LV_ALIGN_TOP_MID, LV_ALIGN_RIGHT_MID, LV_ALIGN_BOTTOM_MID,
                                          LV_ALIGN_LEFT_MID};
+    static const int xs[4] = {0, -6, 0, 6};
+    static const int ys[4] = {4, 0, -4, 0};
     for (int i = 0; i < 4; ++i) {
         lv_obj_t *c = lv_label_create(ring);
         lv_label_set_text(c, cardinals[i]);
         lv_obj_set_style_text_font(c, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(c, lv_color_hex(i == 0 ? theme.fg : theme.fg_dim), 0);
-        lv_obj_align(c, aligns[i], 0, 0);
+        lv_obj_align(c, aligns[i], xs[i], ys[i]);
         lv_obj_clear_flag(c, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    // Center heading text.
+    // Center heading - the dominant element. Font scales with ring
+    // diameter: small tiles -> 28, medium -> 38, large -> 48.
+    const lv_font_t *vfont = &lv_font_montserrat_28;
+    if (dia >= 110) vfont = &lv_font_montserrat_38;
+    if (dia >= 160) vfont = &lv_font_montserrat_48;
     t.value = lv_label_create(ring);
     lv_label_set_text(t.value, "--");
-    lv_obj_set_style_text_font(t.value, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
-    // CTS-style secondary line (e.g., "CTS 052") under the ring.
+    // CTS line tracks the ring's bottom (label-tracks-number geometry).
     t.secondary = lv_label_create(t.root);
     lv_label_set_text(t.secondary, "");
     lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.warn), 0);
-    lv_obj_align_to(t.secondary, ring, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+    lv_obj_align_to(t.secondary, ring, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
     lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
 }
 
 // Gauge widget: LVGL arc spanning 270° with the value fill in accent
 // and a center percent label. Mirrors editor .wpreview .gauge.
-static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_gauge_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
     int dia = (w < h ? w : h) - 56;
-    if (dia < 80) dia = 80;
+    if (dia < 88) dia = 88;
     lv_obj_t *arc = lv_arc_create(t.root);
     lv_obj_set_size(arc, dia, dia);
-    lv_obj_align(arc, LV_ALIGN_CENTER, 0, 6);
-    lv_arc_set_bg_angles(arc, 135, 45);  // 270 degree sweep (bottom open)
+    lv_obj_align(arc, LV_ALIGN_CENTER, 0, 4);
+    lv_arc_set_bg_angles(arc, 135, 45);  // 270 degree sweep, bottom open
     lv_arc_set_range(arc, 0, 100);
     lv_arc_set_value(arc, 0);
     lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
@@ -415,12 +447,10 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
     t.aux = arc;
 
-    // Tick marks at 0/25/50/75/100% improve at-a-glance readability so
-    // the operator can tell where the needle sits relative to range.
-    // Use lv_scale for the tick ring (LVGL 9 native scale widget).
+    // Tick marks at 0/25/50/75/100% (LVGL 9 lv_scale).
     lv_obj_t *scale = lv_scale_create(t.root);
     lv_obj_set_size(scale, dia, dia);
-    lv_obj_align(scale, LV_ALIGN_CENTER, 0, 6);
+    lv_obj_align(scale, LV_ALIGN_CENTER, 0, 4);
     lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
     lv_scale_set_angle_range(scale, 270);
     lv_scale_set_rotation(scale, 135);
@@ -435,40 +465,45 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_obj_clear_flag(scale, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(scale, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Center percent label + small caption underneath = bound metric path tail.
+    // Percent label is the gauge's hero number, sized to dominate the
+    // arc's open bottom. NO second caption beneath - the chrome already
+    // carries the metric label in the tile's top-left (removed the
+    // duplicate `cap` label that overlapped the percent on small tiles).
+    const lv_font_t *vfont = &lv_font_montserrat_28;
+    if (dia >= 110) vfont = &lv_font_montserrat_38;
+    if (dia >= 160) vfont = &lv_font_montserrat_48;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
-    lv_obj_set_style_text_font(t.value, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
-    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 4);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *cap = lv_label_create(t.root);
-    lv_label_set_text(cap, (m.label && m.label[0]) ? m.label : "");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap, LV_ALIGN_CENTER, 0, 22);
-    lv_obj_clear_flag(cap, LV_OBJ_FLAG_CLICKABLE);
 }
 
 // Bar widget: title row (label left, percent right) + LVGL bar fill.
 // Mirrors editor .wpreview .bar.
-static void paint_bar_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
-    int bar_h = 22;
+static void paint_bar_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
+    // Bar tile: percent number is the hero element (centered, big), bar
+    // sits below it. Percent dominates the tile so the operator can
+    // read SOC / fuel / fresh-water at a glance, like editor's preview.
+    int bar_h = h < 130 ? 18 : 22;
     int bar_w = w - 32;
 
-    // Percent label (top-right of tile area).
+    const lv_font_t *vfont = &lv_font_montserrat_38;
+    if (h < 140) vfont = &lv_font_montserrat_28;
+    if (h >= 180) vfont = &lv_font_montserrat_48;
+
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--%");
-    lv_obj_set_style_text_font(t.value, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(t.value, LV_ALIGN_TOP_RIGHT, -12, 4);
+    lv_obj_set_style_text_font(t.value, vfont, 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
+    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, -18);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
-    // Bar widget centered below.
     lv_obj_t *bar = lv_bar_create(t.root);
     lv_obj_set_size(bar, bar_w, bar_h);
-    lv_obj_align(bar, LV_ALIGN_CENTER, 0, h / 6);
+    // Bar sits in the lower third, tracking under the percent number.
+    lv_obj_align_to(bar, t.value, LV_ALIGN_OUT_BOTTOM_MID, 0, 16);
     lv_bar_set_range(bar, 0, 100);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar, lv_color_hex(0x001a20), LV_PART_MAIN);
@@ -479,18 +514,17 @@ static void paint_bar_body(QuadGridTile &t, const MetricBinding &m, int w, int h
     lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
     t.aux = bar;
-    (void)m;
 }
 
 // Wind rose: dashed warn ring with center AWS value. Mirrors editor
 // .wpreview .rose - small visual stand-in; the fullscreen wind dial
 // (screen_wind.cpp) is the high-fidelity render.
 static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
-    int dia = (w < h ? w : h) - 60;
-    if (dia < 64) dia = 64;
+    int dia = (w < h ? w : h) - 56;
+    if (dia < 80) dia = 80;
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
-    lv_obj_align(ring, LV_ALIGN_CENTER, 0, 6);
+    lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
     lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_color(ring, lv_color_hex(theme.warn), 0);
     lv_obj_set_style_border_width(ring, 2, 0);
@@ -500,20 +534,29 @@ static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
     t.aux = ring;
 
+    // Wind speed (AWS) is the hero number, sized to dominate the ring.
+    const lv_font_t *vfont = &lv_font_montserrat_28;
+    if (dia >= 110) vfont = &lv_font_montserrat_38;
+    if (dia >= 160) vfont = &lv_font_montserrat_48;
     t.value = lv_label_create(ring);
     lv_label_set_text(t.value, "--");
-    lv_obj_set_style_text_font(t.value, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.warn), 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 }
 
 // Text widget: monospace value centered. Mirrors editor .wpreview .text-val.
-static void paint_text_body(QuadGridTile &t, const MetricBinding & /*m*/, int /*w*/, int /*h*/) {
+static void paint_text_body(QuadGridTile &t, const MetricBinding & /*m*/, int /*w*/, int h) {
+    // Text widget covers multi-line values like position (lat / lon on
+    // two lines). Pick a font that won't overflow short tiles.
+    const lv_font_t *vfont = &lv_font_montserrat_20;
+    if (h >= 160) vfont = &lv_font_montserrat_28;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
-    lv_obj_set_style_text_font(t.value, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
+    lv_obj_set_style_text_align(t.value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 6);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 }

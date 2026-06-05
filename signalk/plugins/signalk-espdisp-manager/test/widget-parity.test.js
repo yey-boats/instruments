@@ -126,10 +126,15 @@ assert.ok(/font-family:[^;]*Montserrat/i.test(wpreviewRule[1]),
 
 // The device build_tile + hero_plus + status_list use lv_font_montserrat_*.
 // Spot-check that no foreign font has snuck in:
+// Match lv_conf.h's enabled Montserrat sizes. Adding a size here must
+// also be matched by `#define LV_FONT_MONTSERRAT_<n> 1` in lv_conf.h.
 const allowedFonts = [
   'lv_font_montserrat_14',
+  'lv_font_montserrat_16',
+  'lv_font_montserrat_18',
   'lv_font_montserrat_20',
   'lv_font_montserrat_28',
+  'lv_font_montserrat_38',
   'lv_font_montserrat_48'
 ]
 const fontRefs = [...layoutsCpp.matchAll(/&(lv_font_[a-z0-9_]+)/g)].map((m) => m[1])

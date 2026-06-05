@@ -20,6 +20,7 @@
     --fg-dim: #8fa59d;
     --accent: #57c7d8;
     --accent-2: #39d98a;
+    --good: #39d98a;
     --warn: #ffb84d;
     --bad: #ff4058;
     --port: #ff4d6d;
@@ -108,59 +109,77 @@
      editor canvas matches what the panel will show. */
   /* Use Montserrat to match LVGL's lv_font_montserrat_* render on the
      device. Inter was a leftover from before the font sync. */
+  /* Preview tile geometry mirrors the device QuadGrid tile: a fixed
+     aspect box that scales with the editor card so what the operator
+     sees in the editor matches the pixels the panel will draw. Sizes
+     are device's actual font scale divided by 4 (sunton 198 px tile ->
+     ~50 px preview height, montserrat_38 -> 24 px CSS). */
   .wpreview { display: flex; align-items: center; justify-content: center;
-    min-height: 96px; padding: 8px; background: var(--bg); border: 1px solid var(--panel-edge);
-    border-radius: 4px; margin: 8px 0 4px 0; font-family: 'Montserrat', system-ui, sans-serif;
-    color: var(--fg); overflow: hidden; }
-  .wpreview .num-stack { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-  .wpreview .num-primary { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; color: var(--accent); }
-  .wpreview .num-unit { font-size: 13px; color: var(--fg-dim); margin-left: 4px; }
+    min-height: 132px; padding: 10px; background: var(--bg); border: 1px solid var(--panel-edge);
+    border-radius: 6px; margin: 8px 0 4px 0; font-family: 'Montserrat', system-ui, sans-serif;
+    color: var(--fg); overflow: hidden; position: relative; }
+  /* Chrome caption matches the device tile's top-left caption (montserrat_14). */
+  .wpreview .chrome-cap { position: absolute; top: 8px; left: 10px;
+    font-size: 12px; color: var(--fg-dim); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.04em; }
+  .wpreview .num-stack { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  /* num-primary matches montserrat_38 on device (1:1 px). */
+  .wpreview .num-primary { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; color: var(--accent); }
+  .wpreview .num-unit { font-size: 18px; color: var(--fg-dim); margin-left: 6px; }
   .wpreview .num-row { display: flex; align-items: baseline; }
-  .wpreview .num-secondary { font-size: 12px; color: var(--fg-dim); }
-  /* Compass: round bezel with N/E/S/W cardinals on the ring + center
-     heading + marker triangle + CTS text below. Larger ring + bigger
-     number makes the heading scannable at a glance. */
-  .wpreview .compass { position: relative; width: 110px; height: 110px;
+  /* Secondary tracks the number (centered below, not pinned to corner). */
+  .wpreview .num-secondary { font-size: 14px; color: var(--fg-dim); text-align: center; }
+  /* Compass mirrors device paint_compass_body. Ring diameter and font
+     match the device's montserrat_38 center heading (38 px CSS = 38 px
+     LVGL on device). Cardinals padded in to clear the heading. */
+  .wpreview .compass { position: relative; width: 112px; height: 112px;
     border: 2px solid var(--accent); border-radius: 50%; display: flex;
     align-items: center; justify-content: center;
     background: rgba(87, 199, 216, 0.04); }
-  .wpreview .compass .heading { color: var(--accent); font-weight: 700; font-size: 26px;
-    letter-spacing: -0.02em; }
-  .wpreview .compass .marker { position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
-    color: var(--warn); font-size: 16px; font-weight: 700; }
-  .wpreview .compass .cts { position: absolute; bottom: -14px; left: 50%; transform: translateX(-50%);
-    color: var(--warn); font-size: 11px; font-weight: 500; }
-  .wpreview .compass .card { position: absolute; color: var(--fg-dim); font-size: 11px;
-    font-weight: 700; }
-  .wpreview .compass .card-n { top: 4px; left: 50%; transform: translateX(-50%); color: var(--fg); }
-  .wpreview .compass .card-e { right: 6px; top: 50%; transform: translateY(-50%); }
-  .wpreview .compass .card-s { bottom: 4px; left: 50%; transform: translateX(-50%); }
-  .wpreview .compass .card-w { left: 6px; top: 50%; transform: translateY(-50%); }
-  .wpreview .rose { position: relative; width: 88px; height: 88px;
-    border: 2px dashed #ffb84d; border-radius: 50%; display: flex;
-    align-items: center; justify-content: center; color: #ffb84d; font-weight: 700; font-size: 12px; }
-  .wpreview .rose::before { content: "S"; position: absolute; top: -10px; font-size: 11px; }
-  .wpreview .rose::after { content: "P"; position: absolute; top: -10px; right: 10px; font-size: 11px; color: #c0392b; }
-  .wpreview .bar { width: 100%; max-width: 220px; }
-  .wpreview .bar-row { display: flex; justify-content: space-between; font-size: 11px;
-    color: var(--fg-dim); margin-bottom: 4px; }
-  .wpreview .bar-outer { width: 100%; height: 20px; background: #001a20;
+  .wpreview .compass .heading { color: var(--accent); font-weight: 700; font-size: 38px;
+    letter-spacing: -0.02em; line-height: 1; }
+  .wpreview .compass .marker { position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+    color: var(--warn); font-size: 14px; font-weight: 700; }
+  .wpreview .compass .cts { position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
+    color: var(--warn); font-size: 14px; font-weight: 500; }
+  .wpreview .compass .card { position: absolute; color: var(--fg-dim); font-size: 14px;
+    font-weight: 700; line-height: 1; }
+  .wpreview .compass .card-n { top: 6px; left: 50%; transform: translateX(-50%); color: var(--fg); }
+  .wpreview .compass .card-e { right: 8px; top: 50%; transform: translateY(-50%); }
+  .wpreview .compass .card-s { bottom: 6px; left: 50%; transform: translateX(-50%); }
+  .wpreview .compass .card-w { left: 8px; top: 50%; transform: translateY(-50%); }
+  /* WindRose mirrors device paint_wind_rose_body: AWS dominant. */
+  .wpreview .rose { position: relative; width: 112px; height: 112px;
+    border: 2px solid var(--warn); border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; color: var(--warn); font-weight: 700; font-size: 38px;
+    line-height: 1; }
+  /* Bar: percent is the hero number above the bar; matches device
+     paint_bar_body (montserrat_38 percent + ~22 px bar). */
+  .wpreview .bar { width: 100%; max-width: 220px; display: flex;
+    flex-direction: column; align-items: center; gap: 12px; }
+  .wpreview .bar-row { font-size: 38px; font-weight: 700; color: var(--accent);
+    line-height: 1; letter-spacing: -0.02em; }
+  .wpreview .bar-outer { width: 100%; height: 22px; background: #001a20;
     border: 1px solid var(--panel-edge); border-radius: 3px; overflow: hidden; }
-  .wpreview .bar-fill { height: 100%; background: linear-gradient(90deg, #39d98a, #57c7d8); width: 65%; }
-  .wpreview .gauge { width: 88px; height: 88px; position: relative; }
+  .wpreview .bar-fill { height: 100%; background: var(--good); width: 65%; }
+  .wpreview .gauge { width: 132px; height: 132px; position: relative; }
   .wpreview .gauge svg { width: 100%; height: 100%; }
-  .wpreview .ap { display: flex; flex-direction: column; gap: 3px; width: 100%; max-width: 220px; }
-  .wpreview .ap-state { background: #143b2a; color: #39d98a; border: 1px solid #39d98a;
-    text-align: center; padding: 3px 0; border-radius: 3px; font-weight: 700; font-size: 13px; }
-  .wpreview .ap-target { text-align: center; color: var(--fg-dim); font-size: 12px; }
+  .wpreview .ap { display: flex; flex-direction: column; gap: 6px; width: 100%; max-width: 240px; }
+  .wpreview .ap-state { background: #143b2a; color: var(--good); border: 1px solid var(--good);
+    text-align: center; padding: 6px 0; border-radius: 4px; font-weight: 700; font-size: 20px;
+    letter-spacing: 0.04em; }
+  .wpreview .ap-target { text-align: center; color: var(--fg-dim); font-size: 14px; }
   .wpreview .ap-btns { display: flex; gap: 4px; }
   .wpreview .ap-btn { flex: 1; background: var(--panel-edge); color: var(--fg); border-radius: 3px;
-    text-align: center; padding: 4px 0; font-size: 11px; }
-  .wpreview .text-val { font-size: 16px; font-family: ui-monospace, monospace; color: var(--accent);
-    text-align: center; line-height: 1.3; }
-  .wpreview .btn-bubble { background: var(--accent); color: #001218; border-radius: 16px;
-    padding: 8px 16px; font-weight: 700; font-size: 13px; }
-  .wpreview .trend svg { width: 100%; height: 56px; }
+    text-align: center; padding: 6px 0; font-size: 14px; font-weight: 500; }
+  /* Text widget: matches device montserrat_20+ at center; preserve
+     newlines in textContent (lat\nlon). */
+  .wpreview .text-val { font-size: 20px; font-family: 'Montserrat', system-ui, sans-serif;
+    color: var(--accent); text-align: center; line-height: 1.25;
+    white-space: pre-line; font-weight: 600; }
+  .wpreview .btn-bubble { background: var(--accent); color: #001218; border-radius: 20px;
+    padding: 10px 22px; font-weight: 700; font-size: 16px; letter-spacing: 0.04em; }
+  .wpreview .trend svg { width: 100%; height: 72px; }
   .wpreview.empty { color: var(--fg-dim); font-style: italic; min-height: 60px; }
   /* windDial fills the whole tile width and stays square */
   .wpreview.wd-wrap { min-height: 0; padding: 0; }
@@ -419,6 +438,19 @@ function sampleFor (tile, fallback) {
   return fallback || { value: '--', unit: '', percent: 0 };
 }
 
+// Short tile caption used by the .chrome-cap overlay - mirrors the
+// device tile's montserrat_14 top-left caption set by build_tile().
+function chromeCapText (tile) {
+  if (!tile) return '';
+  if (tile.title) return tile.title.toUpperCase();
+  if (tile.primary) return tile.primary.split('.').pop().toUpperCase();
+  return '';
+}
+function chromeCap (tile) {
+  const t = chromeCapText(tile);
+  return t ? el('div', { className: 'chrome-cap' }, t) : null;
+}
+
 function widgetPreview (widget, tile) {
   if (!widget) {
     return el('div', { className: 'wpreview empty' }, 'pick a widget type');
@@ -427,31 +459,37 @@ function widgetPreview (widget, tile) {
   switch (widget) {
     case 'numeric': {
       const s = sampleFor(tile, { value: '9.7', unit: 'kn' });
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'num-stack' },
-          el('div', { className: 'num-row' },
-            el('span', { className: 'num-primary' }, s.value),
-            el('span', { className: 'num-unit' }, s.unit)),
-          el('div', { className: 'num-secondary' }, title || (tile && tile.primary) || 'sample value')));
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      wrap.append(el('div', { className: 'num-stack' },
+        el('div', { className: 'num-row' },
+          el('span', { className: 'num-primary' }, s.value),
+          el('span', { className: 'num-unit' }, s.unit)),
+        el('div', { className: 'num-secondary' }, (tile && tile.primary) ? tile.primary.split('.').pop() : 'sample value')));
+      return wrap;
     }
     case 'compass': {
       const s = sampleFor(tile, { value: '047' });
       const cts = (tile && tile.secondary && PATH_SAMPLES[tile.secondary])
         ? 'CTS ' + PATH_SAMPLES[tile.secondary].value : 'CTS 052';
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'compass' },
-          el('div', { className: 'marker' }, '▲'),
-          el('div', { className: 'card card-n' }, 'N'),
-          el('div', { className: 'card card-e' }, 'E'),
-          el('div', { className: 'card card-s' }, 'S'),
-          el('div', { className: 'card card-w' }, 'W'),
-          el('div', { className: 'heading' }, s.value),
-          el('div', { className: 'cts' }, cts)));
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      wrap.append(el('div', { className: 'compass' },
+        el('div', { className: 'marker' }, '▲'),
+        el('div', { className: 'card card-n' }, 'N'),
+        el('div', { className: 'card card-e' }, 'E'),
+        el('div', { className: 'card card-s' }, 'S'),
+        el('div', { className: 'card card-w' }, 'W'),
+        el('div', { className: 'heading' }, s.value),
+        el('div', { className: 'cts' }, cts)));
+      return wrap;
     }
     case 'windRose': {
       const s = sampleFor(tile, { value: '9.7' });
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'rose' }, 'AWS ' + s.value));
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      wrap.append(el('div', { className: 'rose' }, s.value));
+      return wrap;
     }
     case 'windDial': {
       // Full-screen wind dial preview that matches the device's
@@ -571,13 +609,16 @@ function widgetPreview (widget, tile) {
         const [tx2, ty2] = polar(a, 30);
         ticks += `<line x1="${tx}" y1="${ty}" x2="${tx2}" y2="${ty2}" stroke="#8fa59d" stroke-width="1"/>`;
       }
+      // Percent label only - the metric label lives in chrome-cap so it
+      // doesn't duplicate inside the arc. Matches device paint_gauge_body
+      // after removing the second caption that overlapped the percent.
       svg.innerHTML =
         `<path d="${arcPath(A0, A1, 40)}" fill="none" stroke="#52736f" stroke-width="8" stroke-linecap="round"/>` +
         `<path d="${arcPath(A0, fillEnd, 40)}" fill="none" stroke="#57c7d8" stroke-width="8" stroke-linecap="round"/>` +
         ticks +
-        `<text x="50" y="58" font-family="Montserrat" font-size="22" font-weight="700" fill="#57c7d8" text-anchor="middle">${pct}%</text>` +
-        `<text x="50" y="74" font-family="Montserrat" font-size="9" fill="#8fa59d" text-anchor="middle">${title || (tile && tile.primary && tile.primary.split('.').pop()) || ''}</text>`;
+        `<text x="50" y="60" font-family="Montserrat" font-size="28" font-weight="700" fill="#57c7d8" text-anchor="middle">${pct}%</text>`;
       const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
       const gauge = el('div', { className: 'gauge' });
       gauge.append(svg);
       wrap.append(gauge);
@@ -588,12 +629,14 @@ function widgetPreview (widget, tile) {
       const pct = Math.max(0, Math.min(100, s.percent || 0));
       const fill = el('div', { className: 'bar-fill' });
       fill.style.width = pct + '%';
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'bar' },
-          el('div', { className: 'bar-row' },
-            el('span', null, title || (tile && tile.primary && tile.primary.split('.').pop()) || 'level'),
-            el('span', null, pct + '%')),
-          el('div', { className: 'bar-outer' }, fill)));
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      // Hero percent number sits above the bar (mirrors device
+      // paint_bar_body: big accent percent + smaller bar beneath).
+      wrap.append(el('div', { className: 'bar' },
+        el('div', { className: 'bar-row' }, pct + '%'),
+        el('div', { className: 'bar-outer' }, fill)));
+      return wrap;
     }
     case 'trend': {
       const svgNS = 'http://www.w3.org/2000/svg';
@@ -609,30 +652,40 @@ function widgetPreview (widget, tile) {
       svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="#57c7d8" stroke-width="2"/>` +
                       `<polyline points="0,56 ${pts.join(' ')} 220,56" fill="rgba(87,199,216,0.15)" stroke="none"/>`;
       const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
       const trend = el('div', { className: 'trend' });
       trend.append(svg);
       wrap.append(trend);
       return wrap;
     }
-    case 'autopilot':
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'ap' },
-          el('div', { className: 'ap-state' }, 'AUTO'),
-          el('div', { className: 'ap-target' }, 'target 048°'),
-          el('div', { className: 'ap-btns' },
-            el('div', { className: 'ap-btn' }, '-10'),
-            el('div', { className: 'ap-btn' }, '-1'),
-            el('div', { className: 'ap-btn' }, '+1'),
-            el('div', { className: 'ap-btn' }, '+10'))));
-    case 'text':
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'text-val' },
-          '41°23.16\'N',
-          el('br'),
-          '2°10.43\'E'));
-    case 'button':
-      return el('div', { className: 'wpreview' },
-        el('div', { className: 'btn-bubble' }, title || 'TAP'));
+    case 'autopilot': {
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      wrap.append(el('div', { className: 'ap' },
+        el('div', { className: 'ap-state' }, 'AUTO'),
+        el('div', { className: 'ap-target' }, 'target 048°'),
+        el('div', { className: 'ap-btns' },
+          el('div', { className: 'ap-btn' }, '-10'),
+          el('div', { className: 'ap-btn' }, '-1'),
+          el('div', { className: 'ap-btn' }, '+1'),
+          el('div', { className: 'ap-btn' }, '+10'))));
+      return wrap;
+    }
+    case 'text': {
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      const s = sampleFor(tile, { value: "41°23.16'N\n2°10.43'E" });
+      const tv = el('div', { className: 'text-val' });
+      tv.textContent = s.value;
+      wrap.append(tv);
+      return wrap;
+    }
+    case 'button': {
+      const wrap = el('div', { className: 'wpreview' });
+      const cc = chromeCap(tile); if (cc) wrap.append(cc);
+      wrap.append(el('div', { className: 'btn-bubble' }, title || 'TAP'));
+      return wrap;
+    }
     default:
       return el('div', { className: 'wpreview empty' }, widget + ' (no preview)');
   }
