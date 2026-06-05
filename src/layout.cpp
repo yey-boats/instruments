@@ -66,6 +66,11 @@ static void parse_tile(JsonObjectConst t, Tile &out) {
     copy_str(out.title, STR_LEN, t["title"].as<const char *>());
     out.type = parse_tile_type(t["type"].as<const char *>());
     parse_paths(t["paths"], out.paths, out.path_count, MAX_PATHS_PER_OBJECT);
+    // Editor-style fields: `widget` is the per-tile widget id string,
+    // `primary` and `secondary` are the bound SK paths.
+    copy_str(out.widget, STR_LEN, t["widget"].as<const char *>());
+    copy_str(out.primary_path, PATH_LEN, t["primary"].as<const char *>());
+    copy_str(out.secondary_path, PATH_LEN, t["secondary"].as<const char *>());
 }
 
 static void parse_screen(JsonObjectConst s, Screen &out) {

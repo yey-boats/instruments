@@ -1,0 +1,174 @@
+#include "layout_renderer.h"
+
+#include "layout_loader.h"
+#include "ui_screens.h"
+#include "ui_theme.h"
+#include "ui_data.h"
+#include "signalk.h"
+#include "net.h"
+
+#include <string.h>
+
+namespace ui::layout_render {
+
+using ui::layouts::MetricBinding;
+using ui::layouts::MetricSource;
+using ui::layouts::ScreenVariantSpec;
+using ui::layouts::TemplateId;
+using ui::layouts::WidgetKind;
+
+WidgetKind widget_to_kind(const char *widget) {
+    if (!widget || !widget[0]) return WidgetKind::Numeric;
+    if (strcmp(widget, "compass") == 0) return WidgetKind::Compass;
+    if (strcmp(widget, "gauge") == 0) return WidgetKind::Gauge;
+    if (strcmp(widget, "bar") == 0) return WidgetKind::Bar;
+    if (strcmp(widget, "windRose") == 0) return WidgetKind::WindRose;
+    if (strcmp(widget, "autopilot") == 0) return WidgetKind::Autopilot;
+    if (strcmp(widget, "text") == 0) return WidgetKind::Text;
+    if (strcmp(widget, "button") == 0) return WidgetKind::Button;
+    if (strcmp(widget, "trend") == 0) return WidgetKind::Trend;
+    return WidgetKind::Numeric;
+}
+
+MetricSource path_to_source(const char *p) {
+    if (!p || !p[0]) return MetricSource::None;
+    if (strcmp(p, "environment.wind.speedApparent") == 0) return MetricSource::AWS_kn;
+    if (strcmp(p, "environment.wind.angleApparent") == 0) return MetricSource::AWA_deg;
+    if (strcmp(p, "environment.wind.speedTrue") == 0) return MetricSource::TWS_kn;
+    if (strcmp(p, "environment.wind.angleTrueWater") == 0) return MetricSource::TWA_deg;
+    if (strcmp(p, "navigation.speedOverGround") == 0) return MetricSource::SOG_kn;
+    if (strcmp(p, "navigation.courseOverGroundTrue") == 0) return MetricSource::COG_deg;
+    if (strcmp(p, "navigation.headingTrue") == 0) return MetricSource::HDG_deg;
+    if (strcmp(p, "navigation.position") == 0) return MetricSource::Position;
+    if (strcmp(p, "environment.depth.belowTransducer") == 0) return MetricSource::Depth_m;
+    if (strcmp(p, "environment.depth.belowKeel") == 0) return MetricSource::Depth_m;
+    if (strcmp(p, "environment.water.temperature") == 0) return MetricSource::WaterTemp_C;
+    if (strcmp(p, "electrical.batteries.house.voltage") == 0) return MetricSource::BatteryV;
+    if (strcmp(p, "electrical.batteries.house.stateOfCharge") == 0)
+        return MetricSource::BatterySOC_pct;
+    if (strcmp(p, "navigation.courseRhumbline.nextPoint.distance") == 0) return MetricSource::DTW;
+    if (strcmp(p, "navigation.courseRhumbline.nextPoint.bearingTrue") == 0)
+        return MetricSource::BTW_deg;
+    if (strcmp(p, "navigation.courseRhumbline.crossTrackError") == 0) return MetricSource::XTE;
+    if (strcmp(p, "navigation.courseRhumbline.velocityMadeGood") == 0) return MetricSource::VMG_kn;
+    if (strcmp(p, "steering.autopilot.state") == 0) return MetricSource::APState;
+    return MetricSource::None;
+}
+
+// Bounded pool: one renderer slot per layout::MAX_SCREENS so the
+// MetricBinding tables stay alive for the screen's lifetime without
+// dynamic allocation each apply.
+struct RendererSlot {
+    char screen_id[layout::STR_LEN];
+    char screen_title[layout::STR_LEN];
+    MetricBinding tiles[layout::MAX_TILES_PER_SCREEN];
+    char tile_labels[layout::MAX_TILES_PER_SCREEN][layout::STR_LEN];
+    ScreenVariantSpec spec;
+    bool in_use;
+};
+
+static RendererSlot s_slots[layout::MAX_SCREENS];
+
+// Owning state for a built layout screen: keeps the spec + bindings
+// alive for the screen's lifetime and gives the refresh callback a
+// stable pointer to feed update().
+struct LayoutScreenState {
+    lv_obj_t *root;
+    RendererSlot *slot;
+};
+
+static LayoutScreenState s_states[layout::MAX_SCREENS];
+
+// Refresh trampolines - one per slot since ui::Screen.refresh has no
+// user_data parameter. The slot index is baked into each function.
+template <int N> static void refresh_slot() {
+    if (!s_states[N].root || !s_states[N].slot) return;
+    sk::Data d;
+    sk::copyData(d);
+    ui::layouts::update(s_states[N].root, s_states[N].slot->spec, d);
+}
+
+static void (*const refresh_fns[layout::MAX_SCREENS])() = {
+    refresh_slot<0>, refresh_slot<1>, refresh_slot<2>, refresh_slot<3>,
+    refresh_slot<4>, refresh_slot<5>, refresh_slot<6>, refresh_slot<7>,
+};
+
+static lv_obj_t *build_slot(RendererSlot *slot, size_t slot_index) {
+    lv_obj_t *root = ui::layouts::create(nullptr, slot->spec);
+    s_states[slot_index].root = root;
+    s_states[slot_index].slot = slot;
+    return root;
+}
+
+size_t apply() {
+    if (!layout::loaded()) return 0;
+    const layout::Config &cfg = layout::current();
+    size_t replaced = 0;
+
+    // Walk every layout screen and translate tiles into a slot. Skip
+    // screens that have no editor-style widget bindings (so the user's
+    // hardcoded screen keeps rendering its own tiles).
+    for (size_t i = 0; i < cfg.screen_count && i < layout::MAX_SCREENS; ++i) {
+        const layout::Screen &ls = cfg.screens[i];
+        if (ls.tile_count == 0) continue;
+
+        // Detect editor-shape: at least one tile has a `widget` string.
+        bool editor_shape = false;
+        for (size_t t = 0; t < ls.tile_count && !editor_shape; ++t)
+            if (ls.tiles[t].widget[0]) editor_shape = true;
+        if (!editor_shape) continue;
+
+        RendererSlot &slot = s_slots[i];
+        strncpy(slot.screen_id, ls.id, sizeof(slot.screen_id) - 1);
+        slot.screen_id[sizeof(slot.screen_id) - 1] = 0;
+        strncpy(slot.screen_title, ls.title[0] ? ls.title : ls.id, sizeof(slot.screen_title) - 1);
+        slot.screen_title[sizeof(slot.screen_title) - 1] = 0;
+
+        uint8_t count = ls.tile_count < layout::MAX_TILES_PER_SCREEN
+                            ? (uint8_t)ls.tile_count
+                            : (uint8_t)layout::MAX_TILES_PER_SCREEN;
+        for (uint8_t t = 0; t < count; ++t) {
+            const layout::Tile &lt = ls.tiles[t];
+            MetricBinding &mb = slot.tiles[t];
+            mb = MetricBinding{};
+            // Tile caption: prefer explicit title, then last segment of path.
+            const char *label = lt.title[0] ? lt.title : lt.id;
+            strncpy(slot.tile_labels[t], label, sizeof(slot.tile_labels[t]) - 1);
+            slot.tile_labels[t][sizeof(slot.tile_labels[t]) - 1] = 0;
+            mb.id = slot.screen_id;  // safe static-ish reference
+            mb.label = slot.tile_labels[t];
+            mb.unit = "";
+            mb.source = path_to_source(lt.primary_path);
+            mb.accent = 0x57c7d8;
+            mb.target_screen = nullptr;
+            mb.extras_count = 0;
+            mb.kind = widget_to_kind(lt.widget);
+        }
+        slot.spec.screen_id = slot.screen_id;
+        slot.spec.title = slot.screen_title;
+        slot.spec.template_id = TemplateId::QuadGrid;
+        slot.spec.metrics = slot.tiles;
+        slot.spec.metric_count = count;
+        slot.spec.variant_flags = 0;
+        slot.in_use = true;
+
+        // Build the new root from the slot and replace the registered screen.
+        lv_obj_t *root = build_slot(&slot, i);
+        if (!root) continue;
+        ui::Screen new_screen = {};
+        new_screen.id = slot.screen_id;
+        new_screen.title = slot.screen_title;
+        new_screen.root = root;
+        new_screen.refresh = refresh_fns[i];
+        new_screen.hidden = false;
+        new_screen.build_fn = nullptr;
+        if (ui::replace_screen(ls.id, new_screen)) {
+            ++replaced;
+            net::logf("[layout-render] replaced screen %s (%u tiles, editor-shape)", ls.id,
+                      (unsigned)count);
+        }
+    }
+    return replaced;
+}
+
+}  // namespace ui::layout_render

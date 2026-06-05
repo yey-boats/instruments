@@ -16,6 +16,7 @@
 #include "ui_screens.h"
 #include "ui_theme.h"
 #include "layout_loader.h"
+#include "layout_renderer.h"
 #include "manager_config.h"
 #include "manager_screens.h"
 
@@ -192,6 +193,15 @@ void pump() {
                 bool ok = layout::apply_json((const char *)cmd.blob, cmd.blob_len);
                 net::logf("[app] apply_layout %u bytes -> %s", (unsigned)cmd.blob_len,
                           ok ? "ok" : "fail");
+                if (ok) {
+                    // Pump runs on the LVGL task, so building LVGL widgets
+                    // from the new layout::Config is safe here. Editor-shape
+                    // screens swap their roots; legacy-shape screens keep
+                    // their hardcoded MetricBinding tables.
+                    size_t replaced = ui::layout_render::apply();
+                    if (replaced)
+                        net::logf("[app] layout-render: %u screens replaced", (unsigned)replaced);
+                }
             }
             break;
         }

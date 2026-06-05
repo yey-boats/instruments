@@ -57,6 +57,15 @@ struct Tile {
     TileType type = TILE_UNKNOWN;
     PathBinding paths[MAX_PATHS_PER_OBJECT];
     size_t path_count = 0;
+    // Editor-style tile fields. `widget` is the same string the layout
+    // editor emits ("numeric", "compass", "gauge", "bar", "windRose",
+    // "autopilot", "text", "button", "trend"). `primary_path` /
+    // `secondary_path` carry SK path strings the editor binds to the
+    // tile. Empty strings mean the field is unbound; the renderer
+    // falls back to the legacy TileType + paths[] map.
+    char widget[STR_LEN] = {0};
+    char primary_path[PATH_LEN] = {0};
+    char secondary_path[PATH_LEN] = {0};
 };
 
 struct Screen {
