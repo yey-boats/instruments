@@ -313,23 +313,37 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     const lv_font_t *ufont =
         (vfont == &lv_font_montserrat_28) ? &lv_font_montserrat_14 : &lv_font_montserrat_20;
 
-    t.value = lv_label_create(t.root);
+    // Flex row container holds value + unit so they're true bottom-aligned
+    // (baselines match for digit fonts since there are no descenders).
+    // Previous LV_ALIGN_OUT_RIGHT_BOTTOM put the unit's TOP at the value's
+    // BOTTOM corner which made the unit drop below the digits and crowd
+    // the next character - that's the overlap users saw.
+    lv_obj_t *row = lv_obj_create(t.root);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_style_pad_column(row, 8, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_align(row, LV_ALIGN_CENTER, 0, has_extras ? -28 : -8);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+
+    t.value = lv_label_create(row);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
-    // Centered horizontally + vertically; offset upward when we have a
-    // secondary label so the pair stays balanced around the tile center.
-    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, has_extras ? -28 : -12);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
     if (m.unit && m.unit[0]) {
-        t.unit = lv_label_create(t.root);
+        t.unit = lv_label_create(row);
         lv_label_set_text(t.unit, m.unit);
         lv_obj_set_style_text_font(t.unit, ufont, 0);
         lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
-        // Baseline-align inline-right of the value (mirrors editor's
-        // <span class="num-unit"> next to .num-primary).
-        lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -4);
+        // The flex row's cross-axis ALIGN_END pulls the unit to the
+        // bottom edge of the row's content box - same baseline as the
+        // taller value since digits have no descenders.
         lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
     }
 
@@ -342,7 +356,7 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
         lv_label_set_text(t.secondary, "");
         lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align_to(t.secondary, t.value, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
+        lv_obj_align_to(t.secondary, row, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
         lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
     } else {
         // Multi-row tile: extras stacked below the (shrunken) value.
@@ -675,9 +689,9 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
 
     t.cap = lv_label_create(t.root);
     lv_label_set_text(t.cap, m.label ? m.label : "");
-    lv_obj_set_style_text_font(t.cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(t.cap, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(t.cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_set_pos(t.cap, 12, 4);
+    lv_obj_set_pos(t.cap, 10, 2);
     lv_obj_clear_flag(t.cap, LV_OBJ_FLAG_CLICKABLE);
 
     // --- Body: dispatched per widget kind ---

@@ -358,7 +358,7 @@ static void make_data_box(lv_obj_t *parent, const char *label, const char *unit,
     lv_obj_set_size(box, w, h);
     lv_obj_set_pos(box, x, y);
     lv_obj_set_style_bg_color(box, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(box, LV_OPA_80, 0);
+    lv_obj_set_style_bg_opa(box, LV_OPA_60, 0);
     lv_obj_set_style_border_color(box, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_opa(box, LV_OPA_70, 0);
     lv_obj_set_style_border_width(box, 1, 0);
@@ -392,7 +392,7 @@ static void make_data_box(lv_obj_t *parent, const char *label, const char *unit,
 
     lv_obj_t *val = lv_label_create(box);
     lv_label_set_text(val, "-");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(val, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(value_color), 0);
     lv_obj_align(val, LV_ALIGN_BOTTOM_LEFT, 10, 0);
     *out_value = val;
@@ -450,17 +450,20 @@ lv_obj_t *build(lv_obj_t *parent) {
     // (LV_ALIGN_TOP_RIGHT -6, 6, 56x56, on lv_layer_top) so TWS is
     // shifted down below the safe zone. Keep visual pairing by also
     // pushing AWS slightly so they share a baseline.
-    make_data_box(s_root, "AWS", "kn", 14, 12, 96, 58, &lbl_aws_value, theme.fg, 0xf6a21a);
-    make_data_box(s_root, "TWS", "kn", LCD_W - 110, 72, 96, 58, &lbl_tws_value, theme.fg,
+    // Corner boxes sized to 88×54 so their inner corners clear the bezel ring.
+    // AWA/TWA moved from y=211 (right on the 90° scale text) to y=265
+    // (below the 90° zone at y≈230-250, above the 120° zone at y≈322).
+    make_data_box(s_root, "AWS", "kn", 12, 10, 88, 54, &lbl_aws_value, theme.fg, 0xf6a21a);
+    make_data_box(s_root, "TWS", "kn", LCD_W - 100, 70, 88, 54, &lbl_tws_value, theme.fg,
                   theme.fg_dim);
-    // Mid-left: AWA  /  Mid-right: TWA
-    make_data_box(s_root, "AWA", "deg", 14, 211, 96, 58, &lbl_awa_value, 0xf6a21a, 0xf6a21a);
-    make_data_box(s_root, "TWA", "deg", LCD_W - 110, 211, 96, 58, &lbl_twa_value, theme.fg,
+    // Mid-left: AWA  /  Mid-right: TWA  (below the 90° wind-scale labels)
+    make_data_box(s_root, "AWA", "deg", 12, 265, 88, 54, &lbl_awa_value, 0xf6a21a, 0xf6a21a);
+    make_data_box(s_root, "TWA", "deg", LCD_W - 100, 265, 88, 54, &lbl_twa_value, theme.fg,
                   theme.fg_dim);
     // Bottom-left: HDG  /  Bottom-right: COG
-    make_data_box(s_root, "HDG", "T", 14, LCD_H - 68, 96, 58, &lbl_hdg_value, theme.accent,
+    make_data_box(s_root, "HDG", "T", 12, LCD_H - 68, 88, 54, &lbl_hdg_value, theme.accent,
                   theme.accent);
-    make_data_box(s_root, "COG", "T", LCD_W - 110, LCD_H - 68, 96, 58, &lbl_cog_value, theme.fg,
+    make_data_box(s_root, "COG", "T", LCD_W - 100, LCD_H - 68, 88, 54, &lbl_cog_value, theme.fg,
                   theme.fg_dim);
 
     return s_root;
