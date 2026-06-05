@@ -66,6 +66,9 @@ bool replace_screen(const char *id, const Screen &s) {
         s_screens[i] = s;
         if (active) lv_screen_load(s.root);
         if (old_root && old_root != s.root) lv_obj_delete(old_root);
+        // Fire the post-build callback so swipes work on the new root
+        // (the gesture handler attached to the deleted old_root is gone).
+        if (s.root && s_post_build_cb) s_post_build_cb(s.root, s_screens[i].id);
         net::logf("[ui] screen replaced: %s", id);
         return true;
     }
