@@ -93,6 +93,126 @@ review, and imported back into the manager. Devices expose matching local web
 endpoints for dashboard config import/export when direct bench configuration is
 needed.
 
+## Visual Layout Builder
+
+Status: planned. The implemented dashboard editor is a structured form/table
+editor, not a visual drag/drop builder.
+
+Current implemented editor:
+
+- assigns a preset/profile to one device
+- edits device overrides for theme, brightness, default screen, NMEA, autopilot,
+  debug/touch options, and widget font sizes
+- adds/removes widget definitions with id, title, type, SignalK path, unit,
+  precision, and value font size
+- edits screen ids and tile placement through row/column fields
+- saves the current device settings or stores them as a reusable preset
+- exports/imports presets through `espdisp.dashboard.v1` JSON/YAML
+
+The visual layout builder should sit on top of the same dashboard schema. It
+should not introduce a second config format. Its job is to make common layout
+changes visible and safe while still producing the existing `widgets.items` and
+`layout.screens[].tiles[]` structures consumed by firmware.
+
+Planned operator experience:
+
+1. Select a target device or display class.
+2. Show a canvas whose aspect ratio, resolution label, rotation, and supported
+   widget list come from registered device geometry/capabilities.
+3. Add widgets from a palette of supported widget types.
+4. Pick SignalK paths from known/self vessel paths, recently seen paths, or
+   typed fallback input.
+5. Drag widgets onto a grid, resize/reorder them, and switch between screens.
+6. Preview day/night theme, font sizing, and unsupported-widget filtering.
+7. Save as device override, save as preset, or save and send `config.reload`.
+
+Required controls:
+
+- device/display selector
+- screen tabs with add/duplicate/delete
+- widget palette grouped by numeric, text, gauge, bar, compass, wind, trend,
+  button, and autopilot widgets
+- property inspector for the selected widget/tile
+- SignalK path picker with unit and precision hints
+- grid snap controls and density presets
+- validation panel for errors and warnings
+- JSON/YAML export for review/debug
+
+Validation rules:
+
+- widget ids must be unique and firmware-safe
+- every tile must reference an existing widget
+- tile positions must fit the selected screen grid
+- overlapping tiles should be rejected unless the layout type explicitly
+  supports stacking
+- unsupported widget types must be hidden or flagged before save
+- required SignalK paths should be present or marked as unresolved
+- font sizes should resolve to device-supported values before send
+
+Implementation outline:
+
+1. Extract a small dashboard model module from the current form parsing logic.
+   It should normalize widget ids, screens, tiles, variants, font sizes, and
+   validation messages without depending on HTML rendering.
+2. Add API endpoints for editor metadata: registered display classes, supported
+   widget types, discovered SignalK paths, templates, and validation.
+3. Build the visual editor as progressive enhancement for the existing server
+   UI path. A non-JavaScript form fallback should remain available for lab and
+   recovery use.
+4. Store builder output as the existing preset/device override shape. Do not
+   store canvas-only state unless it can be ignored by firmware and older
+   plugin versions.
+5. Add Playwright coverage for create/edit/apply flows and snapshot the
+   generated JSON to catch accidental schema drift.
+6. Validate on at least one square 480x480 profile and one wide 800x480 or
+   1024x600 profile before marking it implemented.
+
+Out of scope for the first visual builder:
+
+- real-time rendering of firmware LVGL internals
+- arbitrary SVG/CSS authoring
+- multi-user collaborative editing
+- custom JavaScript widgets downloaded to devices
+
+## Documentation Critique And Suggested Edits
+
+The current documentation is useful but too optimistic in places. It describes
+presets, generated configs, and device management well, but it can make the UI
+sound closer to a visual dashboard builder than it actually is.
+
+Specific problems:
+
+- "dashboard config" and "dashboard editor" are used broadly without always
+  saying whether the feature is implemented as structured forms or still
+  planned as a visual builder.
+- Screenshots show the current operator UI, but there is no feature/status
+  table next to them, so readers cannot quickly separate implemented controls
+  from roadmap intent.
+- The README buries the visual-builder gap under general manager behavior. A
+  new reader may assume drag/drop layout editing exists because widgets,
+  screens, presets, and layout variants are all implemented concepts.
+- The roadmap says the editor is not yet a full visual layout builder, but the
+  main manager guide did not previously define what "full visual layout
+  builder" means.
+- Import/export, generated config, device-local config endpoints, and presets
+  are documented in several places. The duplication is helpful for discovery,
+  but it risks drifting into inconsistent status claims.
+
+Suggested edits:
+
+- Add a short "Implemented / Planned" table near every major UI section.
+- Keep `signalk/README.md` focused on how to run and verify the lab plugin;
+  link to this file for product scope and roadmap details.
+- Move long API endpoint lists into one canonical API reference section and
+  link to it from README/docs instead of repeating it.
+- Add annotated screenshots or captions that state "structured editor" rather
+  than implying visual layout editing.
+- Add a builder milestone checklist to the roadmap with acceptance criteria:
+  canvas preview, widget palette, path picker, validation, import/export
+  compatibility, and Playwright coverage.
+- Add a small schema example that shows exactly how a visual canvas maps to
+  `widgets.items` and `layout.screens[].tiles[]`.
+
 ## Device States
 
 The Devices page shows one health state per registered device. States are
@@ -680,6 +800,22 @@ The plugin suite includes a mock-firmware end-to-end flow that announces a
 device, claims it from discovery, queues `config.reload`, applies a generated
 dashboard config, swaps presets, and verifies the reported config hash
 converges.
+
+Run the manager control-plane load benchmark:
+
+```sh
+npm run load-test --prefix signalk/plugins/signalk-espdisp-manager -- \
+  --url http://localhost:3000 \
+  --devices 20 \
+  --duration-sec 180 \
+  --username admin \
+  --password admin
+```
+
+The benchmark registers synthetic devices, sends status heartbeats, polls
+commands, optionally fetches config, and reports request latency percentiles.
+See [SignalK Manager Load and Async Design](architecture/signalk-manager-load-and-async.md)
+for capacity assumptions and the proposed async persistence architecture.
 
 Run firmware contract tests in skip mode:
 

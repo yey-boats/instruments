@@ -79,8 +79,10 @@ Remaining:
   back atomically.
 - Validate multi-screen and multi-widget generated configs on real firmware,
   beyond the current managed-screen MVP path.
-- Add richer editor controls for adding/removing widgets, selecting SignalK
-  paths, reordering tiles, and previewing layouts per device size.
+- Add the visual layout builder described in
+  [`docs/signalk-espdisp-manager.md`](signalk-espdisp-manager.md#visual-layout-builder):
+  device-size canvas, widget palette, SignalK path picker, drag/drop tile
+  placement, validation, and import/export compatibility.
 - Extend end-to-end tests against a running SignalK server and mock/real
   firmware devices for more failure cases and larger generated configs.
 
@@ -246,7 +248,9 @@ Current surface:
 
 Next work:
 
-- Richer dashboard editor and layout preview.
+- Visual layout builder: device-size preview canvas, widget palette, SignalK
+  path picker, drag/drop tile placement, screen tabs, validation panel, and
+  Playwright coverage for create/edit/apply flows.
 - Claim/provisioning workflow.
 - Real SignalK integration tests with mock firmware.
 - UI polish for discovery, stale devices, errors, and job progress.
@@ -333,7 +337,9 @@ Potential later tracks:
 - Device-local web and BLE write security need hardening before public or
   untrusted-network deployment.
 - Dashboard editor is useful for structured settings but not yet a full visual
-  layout builder.
+  layout builder. The missing builder pieces are canvas preview, widget
+  palette, path picker, direct tile placement/resize, validation panel, and
+  device-size visual checks.
 - Hardware-in-the-loop coverage is still limited compared with host/plugin
   tests.
 - Waveshare profiles beyond the 4 inch RGB path are compile/profile support

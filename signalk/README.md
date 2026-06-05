@@ -108,6 +108,33 @@ from the tagged source and published alongside the matching firmware artifacts.
 Every push/PR also uploads a `signalk-espdisp-manager-<sha>` workflow artifact
 for branch testing, but those artifacts are not release-pinned.
 
+### OTA Password In CI And Release Builds
+
+Firmware reads ArduinoOTA auth from `OTA_PASSWORD` in generated
+`include/secrets.h`. The repository does not store this file. GitHub Actions
+generates it from repository secrets:
+
+```text
+ESPDISP_OTA_PASSWORD
+```
+
+The regular CI firmware matrix uses this secret when available. The tagged
+release workflow requires it and fails before building firmware artifacts if it
+is missing, so release images are not accidentally built with unauthenticated
+ArduinoOTA.
+
+For local builds, set the same environment variable before `make build` or
+`make ota`:
+
+```sh
+ESPDISP_OTA_PASSWORD='<ota-password>' make build
+ESPDISP_OTA_PASSWORD='<ota-password>' make ota DEVICE_IP=<device-ip>
+```
+
+The OTA password is embedded in the firmware image. If release assets are
+public or distributed outside the intended deployment group, rotate the
+password.
+
 ## Firmware Upgrade Artifacts From GitHub
 
 The ESP Display Manager firmware catalog can import firmware artifacts directly
@@ -315,6 +342,24 @@ The operator UI is intentionally structured, not a raw JSON editor:
 - the preset detail page applies one preset to multiple selected devices and
   can clear device overrides before queuing reload commands
 
+The current dashboard editor is table/form based. It is useful for editing
+widgets, SignalK paths, font sizes, screens, and tile row/column assignments,
+but it is not yet a visual layout builder. The planned visual builder should
+keep the same generated dashboard schema while adding:
+
+- a device-size preview canvas based on registered display geometry
+- a widget palette for supported widget types
+- drag/drop placement and direct tile resize/reorder
+- a SignalK path picker instead of free-text path entry
+- role/display templates for common helm, cabin, nav, and engine pages
+- validation for missing widgets, duplicate tile positions, unsupported widget
+  types, and layouts that do not fit the target display
+- import/export compatibility with the existing `espdisp.dashboard.v1`
+  preset format
+
+The detailed builder scope, implementation outline, and documentation critique
+are in [SignalK ESP Display Manager](../docs/signalk-espdisp-manager.md#visual-layout-builder).
+
 Presets are implemented with the plugin profile store. A device's generated
 dashboard config is:
 
@@ -388,7 +433,10 @@ they only populate the Discovery UI and mark whether the same device id is
 already in the registry.
 
 Device registration may include display geometry and widget capabilities. The
-plugin uses those fields to select layout and widget variants:
+plugin uses those fields to select layout and widget variants.
+
+The manager control-plane benchmark and async persistence design are documented
+in [SignalK Manager Load and Async Design](../docs/architecture/signalk-manager-load-and-async.md).
 
 ```json
 {
