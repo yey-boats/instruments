@@ -115,7 +115,7 @@
      are device's actual font scale divided by 4 (sunton 198 px tile ->
      ~50 px preview height, montserrat_38 -> 24 px CSS). */
   .wpreview { display: flex; align-items: center; justify-content: center;
-    min-height: 132px; padding: 10px; background: var(--bg); border: 1px solid var(--panel-edge);
+    min-height: 188px; padding: 24px 10px 28px; background: var(--bg); border: 1px solid var(--panel-edge);
     border-radius: 6px; margin: 8px 0 4px 0; font-family: 'Montserrat', system-ui, sans-serif;
     color: var(--fg); overflow: hidden; position: relative; }
   /* Chrome caption matches the device tile's top-left caption (montserrat_14). */
@@ -129,27 +129,31 @@
   .wpreview .num-row { display: flex; align-items: baseline; }
   /* Secondary tracks the number (centered below, not pinned to corner). */
   .wpreview .num-secondary { font-size: 14px; color: var(--fg-dim); text-align: center; }
-  /* Compass mirrors device paint_compass_body. Ring diameter and font
-     match the device's montserrat_38 center heading (38 px CSS = 38 px
-     LVGL on device). Cardinals padded in to clear the heading. */
-  .wpreview .compass { position: relative; width: 112px; height: 112px;
+  /* Compass mirrors device paint_compass_body. Ring 142 px matches the
+     device's dia = min(tile_w, tile_h) - 56 = 234 - 56 ≈ 178 px on a
+     sunton-480 tile (we use 142 px so the preview card stays compact);
+     heading 38 px = lv_font_montserrat_38 on device. Cardinals padded
+     in 12 px so they don't touch the heading text or each other when
+     the heading is at its widest ("047" ≈ 64 px). */
+  .wpreview .compass { position: relative; width: 142px; height: 142px;
     border: 2px solid var(--accent); border-radius: 50%; display: flex;
     align-items: center; justify-content: center;
     background: rgba(87, 199, 216, 0.04); }
   .wpreview .compass .heading { color: var(--accent); font-weight: 700; font-size: 38px;
     letter-spacing: -0.02em; line-height: 1; }
-  .wpreview .compass .marker { position: absolute; top: -14px; left: 50%; transform: translateX(-50%);
+  .wpreview .compass .marker { position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
     color: var(--warn); font-size: 14px; font-weight: 700; }
-  .wpreview .compass .cts { position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%);
-    color: var(--warn); font-size: 14px; font-weight: 500; }
+  .wpreview .compass .cts { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+    color: var(--warn); font-size: 14px; font-weight: 500; white-space: nowrap; }
   .wpreview .compass .card { position: absolute; color: var(--fg-dim); font-size: 14px;
     font-weight: 700; line-height: 1; }
-  .wpreview .compass .card-n { top: 6px; left: 50%; transform: translateX(-50%); color: var(--fg); }
-  .wpreview .compass .card-e { right: 8px; top: 50%; transform: translateY(-50%); }
-  .wpreview .compass .card-s { bottom: 6px; left: 50%; transform: translateX(-50%); }
-  .wpreview .compass .card-w { left: 8px; top: 50%; transform: translateY(-50%); }
-  /* WindRose mirrors device paint_wind_rose_body: AWS dominant. */
-  .wpreview .rose { position: relative; width: 112px; height: 112px;
+  .wpreview .compass .card-n { top: 8px; left: 50%; transform: translateX(-50%); color: var(--fg); }
+  .wpreview .compass .card-e { right: 10px; top: 50%; transform: translateY(-50%); }
+  .wpreview .compass .card-s { bottom: 8px; left: 50%; transform: translateX(-50%); }
+  .wpreview .compass .card-w { left: 10px; top: 50%; transform: translateY(-50%); }
+  /* WindRose: same diameter as compass for visual consistency between
+     the cockpit's two round-instrument widgets. */
+  .wpreview .rose { position: relative; width: 142px; height: 142px;
     border: 2px solid var(--warn); border-radius: 50%; display: flex;
     align-items: center; justify-content: center; color: var(--warn); font-weight: 700; font-size: 38px;
     line-height: 1; }
