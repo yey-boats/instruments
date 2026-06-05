@@ -46,8 +46,12 @@ help:  ## Show this help
 setup:  ## First-time setup: copy secrets.h template, verify PlatformIO
 	@command -v $(PIO) >/dev/null 2>&1 || { \
 	  echo "PlatformIO not found. Install with: pip install platformio" >&2; exit 1; }
-	@test -f include/secrets.h || cp include/secrets.h.example include/secrets.h
-	@echo "Setup complete. Edit include/secrets.h if you want to bake in WiFi credentials."
+	@if [ -n "$$ESPDISP_OTA_PASSWORD" ] || [ -n "$$ESPDISP_WIFI_SSID" ] || [ -n "$$ESPDISP_WIFI_PASS" ]; then \
+	  python3 tools/write_secrets_header.py; \
+	elif [ ! -f include/secrets.h ]; then \
+	  cp include/secrets.h.example include/secrets.h; \
+	fi
+	@echo "Setup complete. Set ESPDISP_OTA_PASSWORD to bake in ArduinoOTA auth."
 
 version:  ## Print project version and verify metadata
 	@python3 tools/check_version.py
@@ -59,7 +63,7 @@ version-set:  ## Set project/plugin version (use VERSION=0.1.0)
 	@test -n "$(VERSION)" || { echo "Usage: make version-set VERSION=0.1.0" >&2; exit 1; }
 	python3 tools/set_version.py $(VERSION)
 
-build: version-check  ## Build firmware
+build: setup version-check  ## Build firmware
 	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV)
 
 test: version-check  ## Run host-side unit tests
@@ -97,7 +101,10 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or fix discovery (see 'make discover')" >&2; exit 1; }
 	@echo "[ota] target=$(OTA_TARGET)"
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),ota-debug,ota) -t upload --upload-port $(OTA_TARGET)
+	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
+	bash tools/ota_flash.sh $(OTA_TARGET) \
+	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
+	  $(if $(REMOTE),--remote $(REMOTE),)
 
 # ota-verify: the same flash, but post-verifies via /api/state.device.build
 # instead of trusting espota.py's exit code. espota.py reports
@@ -198,6 +205,46 @@ demo-up-remote:  ## Start SignalK on REMOTE_HOST (default nav-server) via SSH+Do
 demo-down-remote:  ## Stop the remote SignalK container + local fake_boat
 	@REMOTE_HOST=$(REMOTE_HOST) ./signalk/scripts/stop-remote.sh
 
+# ---------------------------------------------------------------------------
+# Server provisioning (one-time + re-deploy)
+# ---------------------------------------------------------------------------
+# Full initial setup of a fresh nav-server: Docker, SignalK systemd service,
+# lab-logger, WiFi AP (hostapd+dnsmasq), and ufw firewall rules.
+# Re-running is idempotent (each step is guarded).
+#
+# Common usage:
+#   make server-setup REMOTE=compulab@192.168.2.11
+#   make server-setup REMOTE=compulab@192.168.2.11 SETUP_FLAGS=--sk-only
+#   make server-status REMOTE=compulab@192.168.2.11
+
+SETUP_FLAGS ?=
+
+server-setup:  ## Provision/re-provision REMOTE nav-server (Docker, SK, AP, logger, fw)
+	@test -n "$(REMOTE)" || { echo "REMOTE not set (e.g. REMOTE=compulab@192.168.2.11)" >&2; exit 1; }
+	@bash tools/server-setup/deploy.sh $(REMOTE) $(SETUP_FLAGS)
+
+server-sk-only:  ## Re-deploy SK config/plugins and restart the SK service on REMOTE
+	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@bash tools/server-setup/deploy.sh $(REMOTE) --sk-only
+
+server-status:  ## Show service status (SK + AP + logger) on REMOTE
+	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@ssh $(REMOTE) '\
+	  echo "=== espdisp-signalk ==="; \
+	  sudo -n systemctl --no-pager status espdisp-signalk 2>/dev/null | head -10; \
+	  echo "=== espdisp-lab-ap ==="; \
+	  sudo -n systemctl --no-pager status espdisp-lab-ap 2>/dev/null | head -6; \
+	  echo "=== espdisp-loglistener ==="; \
+	  sudo -n systemctl --no-pager status espdisp-loglistener 2>/dev/null | head -6; \
+	  echo "=== recent device log ==="; \
+	  sudo -n tail -n 20 /var/log/espdisp/device.log 2>/dev/null || echo "(no log yet)"'
+
+server-teardown:  ## Stop all lab services on REMOTE (SK + AP + logger) – non-destructive
+	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@ssh $(REMOTE) '\
+	  sudo -n systemctl stop espdisp-signalk espdisp-lab-ap espdisp-loglistener 2>/dev/null; \
+	  echo "stopped"'
+
 sys-test-remote:  ## Run unattended system tests against the lab device + remote SK (sources .env.test)
 	@test -f .env.test || { echo ".env.test missing - regenerate from this repo" >&2; exit 1; }
 	@set -a; . ./.env.test; set +a; \
@@ -280,4 +327,5 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
 .PHONY: help setup version version-check version-set build test sys-test sys-test-remote \
         sys-test-mac sys-test-attended flash ota monitor ble ble-cmd provision logs \
         demo-up demo-down demo-up-remote demo-down-remote \
+        server-setup server-sk-only server-status server-teardown \
         lint pre-commit hooks-install format backup release-tag clean

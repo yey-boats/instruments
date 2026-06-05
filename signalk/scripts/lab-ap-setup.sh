@@ -43,6 +43,17 @@ wpa=2
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 wpa_passphrase=$PSK
+
+# --- Disconnect-reduction settings -----------------------------------
+# Disable inactivity timeout so idle ESP32 clients are not kicked
+# (was causing periodic deauth -> WiFi reconnect -> "constant disconnects").
+ap_max_inactivity=0
+# Do not disassociate on low ACK rate; RF noise should not kick a client.
+disassoc_low_ack=0
+# Proxy ARP: AP answers ARP requests on behalf of its clients.
+# Required for the routed (no-NAT) setup so the WAN router can reach
+# 10.42.0.67 without the ESP32 needing to reply to every ARP itself.
+proxy_arp=1
 EOF
 chmod 0600 "$CONF_DIR/hostapd.conf"  # PSK lives in this file at rest
 

@@ -1,0 +1,67 @@
+# /etc/systemd/system/espdisp-signalk.service
+#
+# Persistent SignalK server for the espdisp lab.
+# Installed by tools/server-setup/install.sh (run via `make server-setup`).
+#
+# The service starts a Docker container on every boot:
+#   1. Removes any stale container named $CONTAINER.
+#   2. Runs `npm install` inside the config volume so plugin changes
+#      deployed via rsync take effect without a manual step.
+#   3. Starts the server detached; Type=forking so systemd tracks the
+#      container via PID file rather than the `docker run` child.
+#
+# Override SIGNALK_DIR by creating
+#   /etc/systemd/system/espdisp-signalk.service.d/override.conf
+# and setting:
+#   [Service]
+#   Environment=SIGNALK_DIR=/your/path
+#
+# Logs: journalctl -u espdisp-signalk -f
+#       docker logs -f signalk
+
+[Unit]
+Description=SignalK server (espdisp lab)
+Documentation=https://signalk.org
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+# Restart after the AP is up so the server binds to wlan-ap0 addresses.
+After=espdisp-lab-ap.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=180
+
+Environment=CONTAINER=signalk
+Environment=IMAGE=signalk/signalk-server:latest
+Environment=SIGNALK_DIR=/home/compulab/espdisp-signalk
+
+# Remove stale container (idempotent on fresh boot).
+ExecStartPre=/bin/bash -c 'docker rm -f $CONTAINER 2>/dev/null; true'
+
+# Run npm install inside the config volume so plugin edits propagate.
+ExecStartPre=/bin/bash -c '\
+  docker run --rm \
+    --entrypoint npm \
+    -v "$SIGNALK_DIR/config:/home/node/.signalk" \
+    -v "$SIGNALK_DIR/plugins:/home/node/plugins" \
+    -w /home/node/.signalk \
+    "$IMAGE" install'
+
+# Start the server. --network host is required: the container must see
+# wlan-ap0 (10.42.0.0/24) so UDP discovery probes from ESP32 land on
+# the SK discovery responder (UDP 34300/34301).
+ExecStart=/bin/bash -c '\
+  docker run -d \
+    --name "$CONTAINER" \
+    --network host \
+    -v "$SIGNALK_DIR/config:/home/node/.signalk" \
+    -v "$SIGNALK_DIR/plugins:/home/node/plugins" \
+    "$IMAGE"'
+
+ExecStop=/bin/bash -c 'docker stop $CONTAINER 2>/dev/null; true'
+ExecStopPost=/bin/bash -c 'docker rm -f $CONTAINER 2>/dev/null; true'
+
+[Install]
+WantedBy=multi-user.target
