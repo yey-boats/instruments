@@ -41,13 +41,17 @@ static lv_obj_t *lbl_awa_value, *lbl_twa_value;
 static lv_obj_t *lbl_hdg_value, *lbl_cog_value;
 static lv_obj_t *lbl_tide_speed;
 
-// Geometry
-static constexpr int CX = 240;
-static constexpr int CY = 240;
-static constexpr int R_BEZEL = 218;  // outer rim
-static constexpr int R_FACE = 190;   // dark face inside rim
-static constexpr int R_CLOSEHAULED = 175;
-static constexpr int R_MARKER = 200;  // distance from center to wind marker center
+// Geometry derived from LCD_W/LCD_H so the same source compiles for
+// 480x480 sunton, 800x480 waveshare-4.3/5/7, and 1024x600 waveshare-5/7B.
+// Radii scale with the shorter axis; centered on screen. The 22 px
+// margin matches the safe-zone band on the dashboards.
+static constexpr int CX = LCD_W / 2;
+static constexpr int CY = LCD_H / 2;
+static constexpr int DIAL_SHORTSIDE = (LCD_W < LCD_H ? LCD_W : LCD_H);
+static constexpr int R_BEZEL = DIAL_SHORTSIDE / 2 - 22;  // 480->218, 600->278
+static constexpr int R_FACE = R_BEZEL - 28;
+static constexpr int R_CLOSEHAULED = R_BEZEL - 43;
+static constexpr int R_MARKER = R_BEZEL - 18;
 
 // ---- helpers -----------------------------------------------------------
 
