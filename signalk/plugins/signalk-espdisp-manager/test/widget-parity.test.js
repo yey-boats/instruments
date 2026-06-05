@@ -97,6 +97,40 @@ assert.ok(editorNumPrimary, 'editor must declare .wpreview .num-primary CSS rule
 assert.ok(/color:\s*var\(--accent\)/.test(editorNumPrimary[1]),
   '.num-primary must use var(--accent); got: ' + editorNumPrimary[1].trim())
 
+// Match lv_conf.h's enabled Montserrat sizes. Adding a size here must
+// also be matched by `#define LV_FONT_MONTSERRAT_<n> 1` in lv_conf.h.
+const allowedFonts = [
+  'lv_font_montserrat_14',
+  'lv_font_montserrat_16',
+  'lv_font_montserrat_18',
+  'lv_font_montserrat_20',
+  'lv_font_montserrat_28',
+  'lv_font_montserrat_38',
+  'lv_font_montserrat_48'
+]
+
+// --- Primary font-size parity --------------------------------------------
+// Editor .num-primary px size must match a lv_font_montserrat_<N>
+// variant that's actually enabled in lv_conf.h, otherwise the preview
+// drifts from device pixels. Same for .compass .heading and .rose
+// (windRose center) - both of which use the hero accent number.
+function editorFontSize (selector) {
+  const re = new RegExp(`\\.wpreview ${selector.replace(/\./g, '\\.')}[^{]*\\{([^}]*)\\}`)
+  const m = editorHtml.match(re)
+  assert.ok(m, `editor must declare ${selector} CSS rule`)
+  const sz = m[1].match(/font-size:\s*([0-9]+)px/)
+  assert.ok(sz, `${selector} must declare a px font-size; got: ${m[1].trim()}`)
+  return parseInt(sz[1], 10)
+}
+const numPx = editorFontSize('.num-primary')
+const compassPx = editorFontSize('.compass .heading')
+const rosePx = editorFontSize('.rose')
+for (const [name, px] of [['num-primary', numPx], ['compass.heading', compassPx], ['rose', rosePx]]) {
+  assert.ok(allowedFonts.includes(`lv_font_montserrat_${px}`),
+    `editor ${name} font-size ${px}px must match an enabled lv_font_montserrat_<N> ` +
+      'variant in lv_conf.h. Allowed: ' + allowedFonts.join(', '))
+}
+
 // The device's `build_tile` sets primary value color via the call right
 // before `lv_obj_align(t.value`. Confirm it's theme.accent.
 const buildTileBlock = layoutsCpp.match(/t\.value = lv_label_create[\s\S]*?lv_obj_align\(t\.value/m)
@@ -125,18 +159,7 @@ assert.ok(/font-family:[^;]*Montserrat/i.test(wpreviewRule[1]),
   'editor .wpreview font-family must include Montserrat; got: ' + wpreviewRule[1].trim())
 
 // The device build_tile + hero_plus + status_list use lv_font_montserrat_*.
-// Spot-check that no foreign font has snuck in:
-// Match lv_conf.h's enabled Montserrat sizes. Adding a size here must
-// also be matched by `#define LV_FONT_MONTSERRAT_<n> 1` in lv_conf.h.
-const allowedFonts = [
-  'lv_font_montserrat_14',
-  'lv_font_montserrat_16',
-  'lv_font_montserrat_18',
-  'lv_font_montserrat_20',
-  'lv_font_montserrat_28',
-  'lv_font_montserrat_38',
-  'lv_font_montserrat_48'
-]
+// Spot-check that no foreign font has snuck in.
 const fontRefs = [...layoutsCpp.matchAll(/&(lv_font_[a-z0-9_]+)/g)].map((m) => m[1])
 for (const f of fontRefs) {
   assert.ok(allowedFonts.includes(f),
