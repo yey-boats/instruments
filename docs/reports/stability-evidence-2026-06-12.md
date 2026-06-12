@@ -68,3 +68,24 @@ status.ui.uptime_ms:   32232   (~32 s uptime at last heartbeat)
   firmware — otherwise every future stall is invisible from the server.
 - First on-device step once physically reachable: pull `/api/diag`, the
   prevboot RTC ring, and BLE logs to classify the reboot signature.
+
+## Workstream A verification (2026-06-12, same day)
+
+Manager re-resolution fix (`fix(manager): re-resolve device address across
+candidates`, commit `fc591a9`) deployed to the lab plugin install
+(`/home/compulab/espdisp-signalk/plugins/signalk-espdisp-manager`, volume-mounted
+into the `signalk` Docker container on mythra-nav) and the container restarted.
+
+**Result — fall-through proven by timing.** A `live/status` proxy call to the
+(still-offline) device took **9.2 s**. The pre-fix code, with a single
+candidate and a 3 s HTTP timeout, returns in ~3 s. 9.2 s == three candidates
+attempted sequentially (`10.75.205.170` → `espdisp.local` →
+`espdisp-device.local`, each ~3 s), confirming the manager now falls through
+to the mDNS FQDN instead of dying on the stale cached IP.
+
+The device remains physically unreachable (powered off / off-network) — a
+separate matter for the firmware workstreams — but the manager-side orphaning
+defect is fixed: the device will be found again on any of its known addresses
+the moment it returns. Host tests (`test/device-resolution.test.js`, 5/5) and
+the full plugin suite pass. A pre-deploy backup of the old plugin file is at
+`…/lib/manager.js.bak-2026-06-12` on the host.
