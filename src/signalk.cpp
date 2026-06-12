@@ -1,6 +1,7 @@
 #include "signalk.h"
 #include "board.h"
 #include "build_config.h"
+#include "net_health.h"
 #include "psram_json.h"
 #include "signalk_parser.h"
 #include "source_signalk.h"
@@ -416,65 +417,58 @@ static bool recovery_restart_or_skip(uint32_t age_ms) {
 }
 
 static void check_stall_autorecover(uint32_t now_ms) {
-    uint32_t last_update;
-    uint32_t last_ws_frame;
-    bool connected;
+    net_health::Inputs in{};
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    last_update = data.lastUpdateMs;
-    last_ws_frame = data.wsLastFrameMs;
-    connected = data.connected;
+    in.last_update_ms = data.lastUpdateMs;
+    in.ws_frame_ms = data.wsLastFrameMs;
+    in.connected = data.connected;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+    in.now_ms = now_ms;
+    in.last_seen_update_ms = s_last_seen_update_ms;
+    in.reconnect_tried = s_data_recovery_wifi_reconnect_tried;
+    in.reset_tried = s_data_recovery_wifi_reset_tried;
 
-    if (!connected || last_update == 0) {
-        // WS down or never had data: not our path. Clear escalation
-        // flags so we re-arm fresh once data starts flowing.
+    const net_health::Thresholds th{DATA_STALE_WIFI_RECONNECT_MS, DATA_STALE_WIFI_RESET_MS,
+                                    DATA_STALE_DEVICE_RESET_MS};
+
+    // Pure decision (host-tested in test_net_health); this function owns the
+    // side effects + flag bookkeeping for each verdict.
+    uint32_t age_ms = (in.last_update_ms > 0) ? (now_ms - in.last_update_ms) : 0;
+    switch (net_health::evaluate(in, th)) {
+    case net_health::Action::Idle:
+        // WS down or never had data: re-arm fresh once data flows again.
         s_data_recovery_wifi_reconnect_tried = false;
         s_data_recovery_wifi_reset_tried = false;
         s_last_seen_update_ms = 0;
         return;
-    }
 
-    if (last_update != s_last_seen_update_ms) {
-        // A fresh value-bearing delta landed since last check. Clear
-        // any prior escalation and remember this anchor for next call.
+    case net_health::Action::Recovered:
         if (s_data_recovery_wifi_reconnect_tried || s_data_recovery_wifi_reset_tried) {
             net::logf("[sk] data recovered (lastUpdate advanced) - clearing escalation");
         }
         s_data_recovery_wifi_reconnect_tried = false;
         s_data_recovery_wifi_reset_tried = false;
-        s_last_seen_update_ms = last_update;
+        s_last_seen_update_ms = in.last_update_ms;
         return;
-    }
 
-    // WS link liveness check: if frames (PING/PONG/TEXT/BIN) arrived
-    // recently, the connection is alive and the server is simply not
-    // sending value-bearing deltas (anchored boat, suppressed unchanged
-    // values). Don't escalate in that case — just reset escalation flags
-    // so a brief earlier gap doesn't carry over.
-    uint32_t ws_age_ms = (last_ws_frame > 0) ? (now_ms - last_ws_frame) : UINT32_MAX;
-    if (ws_age_ms < DATA_STALE_WIFI_RECONNECT_MS) {
+    case net_health::Action::Healthy:
+        // WS frames recent: link alive, server just quiet. Clear escalation
+        // so a brief earlier gap doesn't carry over.
         s_data_recovery_wifi_reconnect_tried = false;
         s_data_recovery_wifi_reset_tried = false;
         return;
-    }
 
-    // Both value-bearing deltas and WS frames have been silent.
-    // Measure staleness against lastUpdateMs (older of the two).
-    uint32_t age_ms = now_ms - last_update;
-    if (age_ms >= DATA_STALE_DEVICE_RESET_MS) {
-        // Boot-loop guarded restart. Returns false if cap reached; we
-        // just keep the device alive and log loudly so external
-        // recovery (operator, lab, watchdog above us) can step in.
-        if (!recovery_restart_or_skip(age_ms)) {
-            // Don't keep checking every 5 s once the cap is hit -
-            // burn it down by pretending we've already restarted.
-            // The escalation flags reset only when lastUpdateMs
-            // advances, so the moment data flows again we re-arm.
-            return;
-        }
-        return;  // unreachable on the restart path
-    }
-    if (!s_data_recovery_wifi_reset_tried && age_ms >= DATA_STALE_WIFI_RESET_MS) {
+    case net_health::Action::Hold:
+        return;
+
+    case net_health::Action::Reconnect:
+        s_data_recovery_wifi_reconnect_tried = true;
+        net::logf_at(net::LOG_WARN, "[sk] data stale %u ms -> wifi-reconnect (soft)",
+                     (unsigned)age_ms);
+        net::dispatchCommand("wifi-reconnect");
+        return;
+
+    case net_health::Action::Reset:
         s_data_recovery_wifi_reset_tried = true;
         net::logf_at(net::LOG_WARN,
                      "[sk] data stale %u ms -> WiFi reset (disconnect+erase, reassoc)",
@@ -487,12 +481,13 @@ static void check_stall_autorecover(uint32_t now_ms) {
         WiFi.mode(WIFI_STA);
         net::dispatchCommand("wifi-reconnect");
         return;
-    }
-    if (!s_data_recovery_wifi_reconnect_tried && age_ms >= DATA_STALE_WIFI_RECONNECT_MS) {
-        s_data_recovery_wifi_reconnect_tried = true;
-        net::logf_at(net::LOG_WARN, "[sk] data stale %u ms -> wifi-reconnect (soft)",
-                     (unsigned)age_ms);
-        net::dispatchCommand("wifi-reconnect");
+
+    case net_health::Action::Restart:
+        // Boot-loop guarded restart. Returns false if the cap is reached; we
+        // then keep the device alive and log loudly so external recovery can
+        // step in. Flags reset only when lastUpdateMs advances, so we re-arm
+        // the moment data flows again.
+        recovery_restart_or_skip(age_ms);
         return;
     }
 }
