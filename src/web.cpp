@@ -193,7 +193,12 @@ static void build_state_doc(JsonDocument &doc) {
         (uint32_t)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     dev["heap_internal_largest"] =
         (uint32_t)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    dev["heap_min_ever"] = (uint32_t)esp_get_minimum_free_heap_size();
+    // Internal-heap watermark specifically: esp_get_minimum_free_heap_size()
+    // spans all heaps (PSRAM-inclusive) and reports ~7.8 M here, masking the
+    // real internal pressure. The internal-only minimum is the number that
+    // predicts WiFi/lwIP allocation failures.
+    dev["heap_min_ever"] =
+        (uint32_t)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     {
         float tC = board::chipTempC();
         if (!isnan(tC)) dev["chip_temp_c"] = tC;

@@ -1846,15 +1846,25 @@ void setup() {
     lv_init();
     lv_tick_set_cb(lv_tick_cb);
 
+    // LVGL partial draw buffers. disp_flush_cb blits via the CPU
+    // (gfx->draw16bitRGBBitmap), so these do NOT need to be DMA-capable or
+    // live in internal SRAM. Each buffer is LCD_W*40*2 = ~37.5 KB; keeping the
+    // pair in internal heap (the old default) consumed ~75 KB of the ~90 KB
+    // internal pool, starving WiFi/lwIP and wedging the network while the
+    // already-open SK socket kept running ("unstable but live"). Allocating
+    // them from PSRAM frees that ~75 KB back to the internal heap. The panel
+    // framebuffer is already PSRAM-backed, so the only cost is a PSRAM read
+    // during the flush blit. Fall back to internal only if PSRAM is somehow
+    // unavailable.
     size_t buf_px = LCD_W * 40;
-    uint16_t *buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
-                                                   MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    uint16_t *buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
-                                                   MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+    uint16_t *buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+    uint16_t *buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
     if (!buf_a || !buf_b) {
-        puts("[lvgl] DMA buf alloc failed, falling back to PSRAM");
-        buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-        buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        puts("[lvgl] PSRAM buf alloc failed, falling back to internal DMA");
+        buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
+                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
+                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     }
 
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
