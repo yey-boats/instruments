@@ -119,6 +119,12 @@ struct ManagerCall {
         return status == ManagerStatus::SendFailed || status == ManagerStatus::HttpError ||
                status == ManagerStatus::BodyTooLarge || status == ManagerStatus::BodyParseError;
     }
+    // True if we declined to go out on the wire at all (not provisioned, low
+    // heap, or WiFi down) - the complement of burned_transport for failures.
+    bool preflight_refusal() const {
+        return status == ManagerStatus::NotProvisioned || status == ManagerStatus::WifiDown ||
+               status == ManagerStatus::LowHeap;
+    }
 };
 
 static const char *to_str(ManagerStatus s) {
@@ -200,6 +206,11 @@ volatile uint32_t s_last_register_ms = 0;
 volatile int s_last_register_code = 0;
 volatile uint32_t s_last_heartbeat_ms = 0;
 volatile int s_last_heartbeat_code = 0;
+// S5: labelled heartbeat outcome + classified failure counters. Written under
+// s_state_mtx in the heartbeat path; read in status().
+String s_last_heartbeat_status = "";
+volatile uint32_t s_hb_preflight_refusals = 0;
+volatile uint32_t s_hb_transport_failures = 0;
 // Spec 17 §11 local diagnostics: surface command queue health so the
 // operator can see whether the device is processing or stuck.
 volatile uint8_t s_pending_cmd_count = 0;
@@ -1815,6 +1826,16 @@ void worker(void *) {
         if (prov && now >= next_heartbeat_ms) {
             ManagerCall r = do_heartbeat();
             next_heartbeat_ms = millis() + s_heartbeat_interval_ms;
+            // S5: label this heartbeat's outcome and classify failures so a
+            // looping non-2xx heartbeat is diagnosable from /api/diag without
+            // guessing what the numeric code meant.
+            lock_state();
+            s_last_heartbeat_status = to_str(r.status);
+            if (r.preflight_refusal())
+                s_hb_preflight_refusals++;
+            else if (r.burned_transport())
+                s_hb_transport_failures++;
+            unlock_state();
             if (apply_backoff(r)) {
                 vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
@@ -1894,6 +1915,9 @@ Status status() {
     s.last_register_code = s_last_register_code;
     s.last_heartbeat_ms = s_last_heartbeat_ms;
     s.last_heartbeat_code = s_last_heartbeat_code;
+    s.last_heartbeat_status = s_last_heartbeat_status;
+    s.heartbeat_preflight_refusals = s_hb_preflight_refusals;
+    s.heartbeat_transport_failures = s_hb_transport_failures;
     s.heartbeat_interval_ms = s_heartbeat_interval_ms;
     s.command_poll_interval_ms = s_command_poll_interval_ms;
     s.device_id = device_identity::get().device_id;

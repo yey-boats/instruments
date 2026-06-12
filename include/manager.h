@@ -44,6 +44,16 @@ struct Status {
     int last_register_code;  // HTTP status, negative on transport error
     uint32_t last_heartbeat_ms;
     int last_heartbeat_code;
+    // S5: the heartbeat code alone is ambiguous (pre-flight refusals shared
+    // negative codes). last_heartbeat_status is the ManagerStatus category
+    // name ("Ok"/"WifiDown"/"LowHeap"/"NotProvisioned"/"SendFailed"/...).
+    // The two counters separate pre-flight refusals (we declined to send:
+    // not provisioned / low heap / WiFi down) from transport failures (we
+    // tried and the network/server burned it) so a heartbeat that loops at
+    // a non-2xx code can be classified at a glance.
+    String last_heartbeat_status;
+    uint32_t heartbeat_preflight_refusals;
+    uint32_t heartbeat_transport_failures;
     uint32_t heartbeat_interval_ms;
     uint32_t command_poll_interval_ms;
     String device_id;

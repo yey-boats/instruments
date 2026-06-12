@@ -262,6 +262,11 @@ static void build_state_doc(JsonDocument &doc) {
         mgr["hasSkToken"] = st.has_sk_token;
         mgr["lastRegisterCode"] = st.last_register_code;
         mgr["lastHeartbeatCode"] = st.last_heartbeat_code;
+        // S5: labelled outcome + classified failure counters so a looping
+        // non-2xx heartbeat is diagnosable (pre-flight refusal vs transport).
+        mgr["lastHeartbeatStatus"] = st.last_heartbeat_status;
+        mgr["heartbeatPreflightRefusals"] = st.heartbeat_preflight_refusals;
+        mgr["heartbeatTransportFailures"] = st.heartbeat_transport_failures;
         mgr["heartbeatIntervalMs"] = st.heartbeat_interval_ms;
         mgr["commandPollIntervalMs"] = st.command_poll_interval_ms;
         mgr["configVersion"] = st.config_version;
