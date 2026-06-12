@@ -6,6 +6,8 @@
 
 **Architecture:** Four independent workstreams. **A — Manager reachability** (plugin JS, host-testable now) fixes the verified defect that orphans the device on IP rotation. **B — Firmware net-health + canaries + heartbeat labeling** (C++/sdkconfig, device-gated). **C — Soak rig** (Python, runs on mythra-nav). **D — Rideshare cleanups** (firmware). A and C need no physical device and run first; B and D are gated on physical access to the bench device, currently unreachable (see `docs/reports/stability-evidence-2026-06-12.md`).
 
+**STATUS 2026-06-12:** ✅ **Workstream A complete** (commits `fc591a9`, deployed+verified on mythra-nav — 9.2 s three-candidate fall-through proven). ✅ **Workstream C complete** (commit `15bbd81` — `espdisp soak` + pure verdict, 7 host tests, relay-verified). ⏳ **B2 (net_health)** is host-testable and ready to start next. ⛔ **B1/B3/B4/D** await a physical device (offline).
+
 **Tech Stack:** Node.js (SignalK plugin, `node:test` via `test/run.js`), C++17 (firmware, Unity host tests via `pio test -e native`), ESP-IDF sdkconfig, Python 3 (`tools/espdisp.py`).
 
 ---
