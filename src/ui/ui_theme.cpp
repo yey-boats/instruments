@@ -2,37 +2,30 @@
 
 namespace ui {
 
-// Default = night theme. The palette avoids an all-blue UI: green-black
-// background, blue-cyan navigation accents, amber caution, red/green side
-// colors. This keeps cockpit readability while giving each state a job.
+// Default = night theme, "glass cockpit" language (Garmin GPSMAP school):
+// cool near-black ground, bordered cells with a subtle vertical gradient for
+// depth, semantic side colors. Field order must match struct Palette exactly.
+//                bg        panel     panel_bot panel_edge badge     fg
+//                fg_dim    accent    warn      alarm     good      port
+//                starboard grid
 Palette theme = {
-    /*bg*/ 0x06110f,
-    /*panel*/ 0x10201f,
-    /*panel_edge*/ 0x34504d,
-    /*fg*/ 0xf3f7f2,
-    /*fg_dim*/ 0x8fa59d,
-    /*accent*/ 0x57c7d8,
-    /*warn*/ 0xffb84d,
-    /*alarm*/ 0xff4058,
-    /*good*/ 0x39d98a,
-    /*port*/ 0xff4d6d,
-    /*starboard*/ 0x39d98a,
-    /*grid*/ 0x52736f,
+    0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd,
+    0x4fc3f7, 0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c,
 };
 
 void use_night() {
     theme = {
-        0x06110f, 0x10201f, 0x34504d, 0xf3f7f2, 0x8fa59d, 0x57c7d8,
-        0xffb84d, 0xff4058, 0x39d98a, 0xff4d6d, 0x39d98a, 0x52736f,
+        0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd,
+        0x4fc3f7, 0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c,
     };
 }
 
 void use_day() {
-    // Sun-readable: warm white background, dark green-black text, saturated
-    // accents. Kept slightly warm to avoid a clinical gray dashboard.
+    // Sun-readable glass cockpit: bright panels with a faint gradient, dark
+    // text, saturated semantic colors. Same chrome structure as night.
     theme = {
-        0xf6f7f2, 0xffffff, 0xc7d2cc, 0x14211d, 0x60746d, 0x006d83,
-        0xb56f00, 0xb00020, 0x12804d, 0xb00020, 0x12804d, 0x829891,
+        0xeef1f4, 0xffffff, 0xeef2f6, 0xc7d2da, 0xe7edf2, 0x14211d, 0x5a6b78,
+        0x0277bd, 0xb56f00, 0xc62828, 0x1b7a4b, 0xc62828, 0x1b7a4b, 0x9fb0bd,
     };
 }
 
@@ -46,13 +39,18 @@ void style_screen(lv_obj_t *o) {
 }
 
 void style_panel(lv_obj_t *o, uint32_t accent) {
+    // Glass-cockpit cell: subtle top->bottom vertical gradient for depth,
+    // 10px radius, hairline border (accent-tinted when a widget is in an
+    // alert/active state). All metrics come from ui::chrome (no inline magic).
     lv_obj_set_style_bg_color(o, c(theme.panel), 0);
+    lv_obj_set_style_bg_grad_color(o, c(theme.panel_bot), 0);
+    lv_obj_set_style_bg_grad_dir(o, LV_GRAD_DIR_VER, 0);
     lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(o, c(accent ? accent : theme.panel_edge), 0);
-    lv_obj_set_style_border_opa(o, accent ? LV_OPA_70 : LV_OPA_40, 0);
-    lv_obj_set_style_border_width(o, 1, 0);
-    lv_obj_set_style_radius(o, 6, 0);
-    lv_obj_set_style_pad_all(o, 10, 0);
+    lv_obj_set_style_border_opa(o, accent ? LV_OPA_80 : LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(o, chrome::panel_border, 0);
+    lv_obj_set_style_radius(o, chrome::panel_radius, 0);
+    lv_obj_set_style_pad_all(o, chrome::panel_pad, 0);
     lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(o, LV_OBJ_FLAG_EVENT_BUBBLE);
 }

@@ -10,10 +10,12 @@ namespace ui {
 
 struct Palette {
     uint32_t bg;          // screen background
-    uint32_t panel;       // card / quadrant background
+    uint32_t panel;       // card / quadrant background (gradient top)
+    uint32_t panel_bot;   // card gradient bottom (glass-cockpit depth)
     uint32_t panel_edge;  // panel border
+    uint32_t badge;       // unit-badge background
     uint32_t fg;          // primary text
-    uint32_t fg_dim;      // secondary text / units
+    uint32_t fg_dim;      // secondary text / units / labels
     uint32_t accent;      // hero metric color
     uint32_t warn;        // amber-ish accent
     uint32_t alarm;       // red / urgent
@@ -22,6 +24,16 @@ struct Palette {
     uint32_t starboard;   // green side (starboard wind)
     uint32_t grid;        // axis / compass tick color
 };
+
+// Glass-cockpit chrome metrics (consolidated; no inline magic numbers in
+// painters). Single source for radius/border/padding so device and editor
+// stay in lockstep.
+namespace chrome {
+constexpr int panel_radius = 10;
+constexpr int panel_border = 1;
+constexpr int panel_pad = 10;
+constexpr int badge_radius = 6;
+}  // namespace chrome
 
 extern Palette theme;
 
