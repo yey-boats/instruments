@@ -18,6 +18,9 @@ function registerLiveDevice (manager, auth, port, id = 'espdisp-live') {
     network: { ip: '127.0.0.1', hostname: id, domain: 'local' },
     config: { hash: 'old' }
   }, auth)
+  // fetchDeviceJson resolves through deviceHttpCandidates now; override it so
+  // the fake server's dynamic port is used instead of the hardcoded :80.
+  manager.deviceHttpCandidates = () => [`http://127.0.0.1:${port}`]
   manager.deviceHttpBase = () => `http://127.0.0.1:${port}`
   return id
 }

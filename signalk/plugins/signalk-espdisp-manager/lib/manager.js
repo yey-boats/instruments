@@ -1051,13 +1051,44 @@ class EspDispManager {
     }
   }
 
+  // All addresses we know for a device, in preference order, deduped. A stale
+  // cached IP (status.network.ip / lastResolvedAddress) can outlive its DHCP
+  // lease; keeping the mDNS FQDN as a fallback lets fetchDeviceJson recover
+  // when the IP no longer resolves to the device.
+  deviceHttpCandidates (device) {
+    const ni = (device && device.networkIdentity) || {}
+    const raw = [
+      device && device.status && device.status.network && device.status.network.ip,
+      ni.lastResolvedAddress,
+      ni.currentFqdn,
+      ni.desiredFqdn
+    ].filter(Boolean)
+    const seen = new Set()
+    const urls = []
+    for (const addr of raw) {
+      const url = `http://${addr}:80`
+      if (!seen.has(url)) { seen.add(url); urls.push(url) }
+    }
+    if (urls.length === 0) {
+      throw httpError(409, 'device_address_unknown', 'device address is unknown')
+    }
+    return urls
+  }
+
   deviceHttpBase (device) {
-    const address = (device.status && device.status.network && device.status.network.ip) ||
-      (device.networkIdentity && device.networkIdentity.lastResolvedAddress) ||
-      (device.networkIdentity && device.networkIdentity.currentFqdn) ||
-      (device.networkIdentity && device.networkIdentity.desiredFqdn)
-    if (!address) throw httpError(409, 'device_address_unknown', 'device address is unknown')
-    return `http://${address}:80`
+    return this.deviceHttpCandidates(device)[0]
+  }
+
+  // Record an address that just worked so the next fetch tries it first.
+  noteResolvedAddress (device, host) {
+    if (!device || !host) return
+    device.networkIdentity = device.networkIdentity || {}
+    device.networkIdentity.lastResolvedAddress = host
+    // Devices live in the registry store; saveRegistry() is the persist call
+    // used throughout this class.
+    if (this.store && typeof this.store.saveRegistry === 'function') {
+      this.store.saveRegistry()
+    }
   }
 
   getLiveStatus (id) {
@@ -1069,10 +1100,33 @@ class EspDispManager {
     return this.fetchDeviceJson(this.getDevice(id), `/api/logs${query}`)
   }
 
-  fetchDeviceJson (device, path) {
-    const base = this.deviceHttpBase(device)
+  // Indirection so tests can stub the transport; defaults to the module
+  // httpGetJson. Returns a Promise<json>.
+  _httpGetJson (url, auth) {
+    return httpGetJson(url, auth)
+  }
+
+  async fetchDeviceJson (device, path) {
     const auth = this.deviceWebAuth(device)
-    return httpGetJson(`${base}${path}`, auth)
+    const candidates = this.deviceHttpCandidates(device)
+    let lastErr
+    for (let i = 0; i < candidates.length; i++) {
+      const base = candidates[i]
+      try {
+        const json = await this._httpGetJson(`${base}${path}`, auth)
+        if (i > 0) {
+          const host = base.replace(/^http:\/\//, '').replace(/:\d+$/, '')
+          this.noteResolvedAddress(device, host)
+        }
+        return json
+      } catch (err) {
+        lastErr = err
+        if (this.app && this.app.debug) {
+          this.app.debug(`espdisp device fetch ${base}${path} failed: ${err.message}`)
+        }
+      }
+    }
+    throw lastErr
   }
 
   listProfiles () {

@@ -20,7 +20,8 @@ Promise.all([
   require('./device-udp-discovery.test'),
   require('./discovery-scan.test'),
   require('./signalk-register-device.test'),
-  require('./live-device.test')
+  require('./live-device.test'),
+  require('./device-resolution.test')
 ])
   .then(() => {
     console.log('espdisp-manager test suite passed')
