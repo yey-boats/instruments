@@ -47,3 +47,6 @@ __pycache__/
 .idea/
 .claude/
 *.swp
+
+# Brainstorm visual-companion scratch (not source)
+.superpowers/

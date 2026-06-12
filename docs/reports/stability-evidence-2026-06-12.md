@@ -1,0 +1,70 @@
+# Stability evidence capture — 2026-06-12
+
+First act of SP1 (evidence-first): capture live failure signatures before
+changing any firmware. Captured from this workstation (192.168.2.x) and via
+the lab SignalK host `mythra-nav` (SignalK 2.27.0).
+
+## What was reachable
+
+| Target | Result |
+|---|---|
+| `espdisp.local` (mDNS, from workstation) | `cannot resolve … Unknown host` |
+| USB serial (`/dev/cu.usbserial-*`) | none attached |
+| `mythra-nav:3000/signalk` | healthy, v2.27.0 |
+| SignalK login `admin/admin` | token issued (demo creds still in place) |
+| manager `GET /plugins/espdisp-manager/devices` | returns registry (below) |
+| manager proxy `GET /devices/espdisp/live/status` (server→device) | `device_unreachable: device request timeout` |
+| manager proxy `GET /devices/espdisp/live/logs` | `device_unreachable: device request timeout` |
+
+## Manager registry record for `espdisp`
+
+```
+lastSeen:            2026-05-28T16:01:37Z   (~15 days stale)
+firmware.version:    0.0.0-dev
+firmware.build_time: May 28 2026 16:49:42
+config:              v5 / hash 362ae2134b9ce51e
+display:             480x480, safeArea y=62 h=418
+networkIdentity:
+  mdnsEnabled:           false
+  currentFqdn:           espdisp.local
+  lastResolvedAddress:   10.75.205.170      (from May-28 lease)
+status.network:        wifi_up, sta, ip 10.75.205.170, rssi -26
+status.ui.uptime_ms:   32232   (~32 s uptime at last heartbeat)
+```
+
+## Findings
+
+1. **Device HTTP is currently dead from every angle** — not just a stalled
+   UI. The server, which sits on the device's own subnet, times out hitting
+   it. Either powered off, network-wedged, or (most likely) its IP changed.
+
+2. **Discovery defect (new, reproducible from here):** mDNS is disabled on
+   the device and the manager only has a **stale cached IP** from the May-28
+   DHCP lease. When DHCP rotates the address, the manager has no
+   re-resolution path and loses the device permanently. This is independent
+   of the reboot/stall bugs and is a clean SP1 target.
+
+3. **Manager heartbeat stopped 2026-05-28** while firmware has since shipped
+   to v0.3.5. Current firmware either has the manager client disabled or
+   isn't pointed at this manager — the registry has been blind for two weeks.
+   The "device management" feedback loop is effectively not running.
+
+4. **`uptime_ms ≈ 32 s` at last heartbeat** — the last successful contact was
+   right after a boot, consistent with a reboot just before May-28 16:01.
+
+5. **Lab hygiene:** SignalK still accepts `admin/admin`. Fine for lab, must
+   not reach production.
+
+## Implications for SP1
+
+- The **soak rig must run on `mythra-nav`** (same subnet as the device), not
+  this workstation — the workstation cannot reach the device directly
+  (routed, ~86 ms, different subnet, no cross-subnet mDNS).
+- Add **manager-side re-resolution**: on `device_unreachable`, the manager
+  should re-resolve via mDNS and/or a discovery sweep rather than trusting
+  the cached IP. Pair with re-enabling mDNS on the device (or a periodic
+  manager-directed announce).
+- Restore the **heartbeat feedback loop** so the registry reflects current
+  firmware — otherwise every future stall is invisible from the server.
+- First on-device step once physically reachable: pull `/api/diag`, the
+  prevboot RTC ring, and BLE logs to classify the reboot signature.

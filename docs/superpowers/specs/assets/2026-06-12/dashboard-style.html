@@ -1,0 +1,179 @@
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<h2>Dashboard redesign — pick the direction</h2>
+<p class="subtitle">Same data on the real 480×480 panel (shown at 75% scale), night mode. Day palette follows the winner. Click the one that should drive the redesign.</p>
+
+<style>
+  .mfd-wrap { width: 360px; height: 360px; overflow: hidden; border-radius: 6px; }
+  .mfd { width: 480px; height: 480px; transform: scale(0.75); transform-origin: top left;
+         font-family: 'Montserrat', -apple-system, sans-serif; box-sizing: border-box; }
+  .mfd *, .mfd *::before, .mfd *::after { box-sizing: border-box; }
+  .mfd .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- A: Triton typographic ---------- */
+  .mfd-a { background: #05080d; display: grid; grid-template-rows: 1fr 1fr 30px; }
+  .mfd-a .row { display: grid; grid-template-columns: 1fr 1fr; }
+  .mfd-a .cell { padding: 20px 22px; position: relative; }
+  .mfd-a .row:first-child .cell { border-bottom: 1px solid #141e29; }
+  .mfd-a .cell:first-child { border-right: 1px solid #141e29; }
+  .mfd-a .lbl { font-size: 13px; font-weight: 600; letter-spacing: .14em; color: #6f8499; }
+  .mfd-a .val { display: flex; align-items: baseline; gap: 10px; margin-top: 26px; }
+  .mfd-a .val .num { font-size: 84px; font-weight: 300; color: #f2f7fb; line-height: 1; letter-spacing: -0.02em; }
+  .mfd-a .val .unit { font-size: 19px; font-weight: 500; color: #6f8499; }
+  .mfd-a .sub { margin-top: 10px; font-size: 17px; font-weight: 500; color: #6f8499; }
+  .mfd-a .sub .stbd { color: #43d17c; font-weight: 600; }
+  .mfd-a .strip { border-top: 1px solid #141e29; background: #070b10; display: flex;
+                  align-items: center; justify-content: space-between; padding: 0 16px;
+                  font-size: 12px; font-weight: 600; letter-spacing: .08em; color: #6f8499; }
+  .mfd-a .live { display: flex; align-items: center; gap: 6px; }
+  .mfd-a .dot { width: 7px; height: 7px; border-radius: 50%; background: #43d17c; }
+
+  /* ---------- B: Glass cockpit ---------- */
+  .mfd-b { background: #0a1018; padding: 10px; display: grid;
+           grid-template-rows: 26px 1fr 1fr; gap: 9px; }
+  .mfd-b .top { display: flex; align-items: center; justify-content: space-between;
+                padding: 0 6px; font-size: 12px; font-weight: 600; letter-spacing: .1em; color: #8fa7bd; }
+  .mfd-b .top .ok { color: #36d399; }
+  .mfd-b .brow { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+  .mfd-b .bcell { border: 1px solid #1f2d3d; border-radius: 10px;
+                  background: linear-gradient(180deg, #101b29 0%, #0b1320 100%);
+                  display: flex; flex-direction: column; align-items: center;
+                  justify-content: center; position: relative; padding: 12px; }
+  .mfd-b .blbl { position: absolute; top: 12px; font-size: 13px; font-weight: 600;
+                 letter-spacing: .12em; color: #8fa7bd; }
+  .mfd-b .bval { font-size: 66px; font-weight: 500; color: #eef4fa; line-height: 1; margin-top: 14px; }
+  .mfd-b .bval.stbd { color: #36d399; }
+  .mfd-b .bval.cyan { color: #4fc3f7; }
+  .mfd-b .bunit { position: absolute; right: 12px; bottom: 10px; font-size: 12px; font-weight: 600;
+                  color: #8fa7bd; background: #16222f; border-radius: 6px; padding: 3px 8px; }
+
+  /* ---------- C: Hero dial ---------- */
+  .mfd-c { background: #04070c; display: grid; grid-template-rows: 1fr 30px; }
+  .mfd-c .main { display: grid; grid-template-columns: 268px 1fr; }
+  .mfd-c .dial { display: flex; align-items: center; justify-content: center; }
+  .mfd-c .side { border-left: 1px solid #141e29; display: grid; grid-template-rows: 1fr 1fr 1fr; }
+  .mfd-c .scell { padding: 16px 18px; }
+  .mfd-c .scell + .scell { border-top: 1px solid #141e29; }
+  .mfd-c .lbl { font-size: 12px; font-weight: 600; letter-spacing: .14em; color: #6f8499; }
+  .mfd-c .val { display: flex; align-items: baseline; gap: 8px; margin-top: 12px; }
+  .mfd-c .val .num { font-size: 52px; font-weight: 300; color: #f2f7fb; line-height: 1; }
+  .mfd-c .val .unit { font-size: 15px; font-weight: 500; color: #6f8499; }
+  .mfd-c .strip { border-top: 1px solid #141e29; background: #070b10; display: flex;
+                  align-items: center; justify-content: space-between; padding: 0 16px;
+                  font-size: 12px; font-weight: 600; letter-spacing: .08em; color: #6f8499; }
+  .mfd-c .dot { width: 7px; height: 7px; border-radius: 50%; background: #43d17c; display: inline-block; margin-right: 6px; }
+</style>
+
+<div class="cards">
+
+  <!-- ============ OPTION A ============ -->
+  <div class="card" data-choice="triton" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mfd-wrap"><div class="mfd mfd-a">
+        <div class="row">
+          <div class="cell">
+            <div class="lbl">WIND APP</div>
+            <div class="val"><span class="num">12.4</span><span class="unit">kn</span></div>
+            <div class="sub">AWA <span class="stbd">42° STBD</span></div>
+          </div>
+          <div class="cell">
+            <div class="lbl">SOG</div>
+            <div class="val"><span class="num">7.5</span><span class="unit">kn</span></div>
+            <div class="sub">COG 221° M</div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="cell">
+            <div class="lbl">DEPTH</div>
+            <div class="val"><span class="num">12.3</span><span class="unit">m</span></div>
+            <div class="sub">TEMP 18.5 °C</div>
+          </div>
+          <div class="cell">
+            <div class="lbl">HEADING</div>
+            <div class="val"><span class="num">218</span><span class="unit">°M</span></div>
+            <div class="sub">XTE 0.02 nm</div>
+          </div>
+        </div>
+        <div class="strip">
+          <span class="live"><span class="dot"></span>SK LIVE</span>
+          <span class="num">14:32</span>
+          <span class="num">12.6 V</span>
+        </div>
+      </div></div>
+    </div>
+    <div class="card-body">
+      <h3>A — Triton typographic</h3>
+      <p>B&amp;G Triton2 school: near-black, hairline dividers, light-weight 84px numerals, secondary line per pane. Maximum glanceability at distance; color only where it means something (stbd green).</p>
+    </div>
+  </div>
+
+  <!-- ============ OPTION B ============ -->
+  <div class="card" data-choice="glass" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mfd-wrap"><div class="mfd mfd-b">
+        <div class="top"><span>ESPDISP</span><span><span class="ok">● SK</span>&nbsp; 14:32 &nbsp;12.6V</span></div>
+        <div class="brow">
+          <div class="bcell"><div class="blbl">WIND APP</div><div class="bval stbd num">42°</div><div class="bunit">12.4 kn</div></div>
+          <div class="bcell"><div class="blbl">SOG</div><div class="bval num">7.5</div><div class="bunit">kn</div></div>
+        </div>
+        <div class="brow">
+          <div class="bcell"><div class="blbl">DEPTH</div><div class="bval cyan num">12.3</div><div class="bunit">m</div></div>
+          <div class="bcell"><div class="blbl">HDG</div><div class="bval num">218°</div><div class="bunit">MAG</div></div>
+        </div>
+      </div></div>
+    </div>
+    <div class="card-body">
+      <h3>B — Glass cockpit</h3>
+      <p>Garmin GPSMAP school: bordered rounded cells with subtle vertical gradient, centered values, semantic value colors (wind side, depth), unit badges. More "instrument cluster", busier chrome.</p>
+    </div>
+  </div>
+
+  <!-- ============ OPTION C ============ -->
+  <div class="card" data-choice="hero" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mfd-wrap"><div class="mfd mfd-c">
+        <div class="main">
+          <div class="dial">
+            <svg width="250" height="250" viewBox="0 0 240 240">
+              <circle cx="120" cy="120" r="100" fill="none" stroke="#16222f" stroke-width="2"/>
+              <circle cx="120" cy="120" r="100" fill="none" stroke="#2a3a4c" stroke-width="8"
+                      stroke-dasharray="2 15.45" transform="rotate(-90 120 120)"/>
+              <path d="M 154.2 26.0 A 100 100 0 0 1 206.6 70" fill="none" stroke="#43d17c" stroke-width="7"/>
+              <path d="M 33.4 70 A 100 100 0 0 1 85.8 26.0" fill="none" stroke="#ff5252" stroke-width="7"/>
+              <g transform="rotate(42 120 120)">
+                <polygon points="120,30 112,126 128,126" fill="#f2f7fb"/>
+              </g>
+              <circle cx="120" cy="120" r="34" fill="#04070c"/>
+              <text x="120" y="118" text-anchor="middle" fill="#f2f7fb" font-size="30"
+                    font-family="Montserrat" font-weight="400">12.4</text>
+              <text x="120" y="138" text-anchor="middle" fill="#6f8499" font-size="11"
+                    font-family="Montserrat" font-weight="600" letter-spacing="1">kn AWS</text>
+              <text x="120" y="222" text-anchor="middle" fill="#43d17c" font-size="15"
+                    font-family="Montserrat" font-weight="600">AWA 42°</text>
+            </svg>
+          </div>
+          <div class="side">
+            <div class="scell"><div class="lbl">SOG</div>
+              <div class="val"><span class="num">7.5</span><span class="unit">kn</span></div></div>
+            <div class="scell"><div class="lbl">DEPTH</div>
+              <div class="val"><span class="num">12.3</span><span class="unit">m</span></div></div>
+            <div class="scell"><div class="lbl">HDG</div>
+              <div class="val"><span class="num">218</span><span class="unit">°M</span></div></div>
+          </div>
+        </div>
+        <div class="strip">
+          <span><span class="dot"></span>SK LIVE</span>
+          <span class="num">14:32</span>
+          <span class="num">12.6 V</span>
+        </div>
+      </div></div>
+    </div>
+    <div class="card-body">
+      <h3>C — Hero dial + stack</h3>
+      <p>Sailing-instrument school: proper wind dial (tick bezel, port/stbd sectors, needle) owns the screen; SOG/depth/heading stack beside it. Best for underway sailing; less neutral for motoring/anchoring.</p>
+    </div>
+  </div>
+
+</div>
+
+<p class="subtitle" style="margin-top:18px">These set the <em>design language</em> (palette, typography, chrome) — the loadable-dashboard system will let you compose any layout from its widgets afterwards. A and C share a language and can coexist as widget styles; B is a different chrome philosophy.</p>
