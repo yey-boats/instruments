@@ -35,7 +35,7 @@ static void run_cycle() {
     strcpy(a.name, "Harness");
     strcpy(a.color, "#e91e63");
     a.ttlMs = 10000;
-    proto::AttachAck ack;
+    proto::AttachAck ack{};
     if (!proto_ip::attach(s_target, a, ack) || !ack.accepted) {
         Serial.println("[harness] FAIL attach");
         return;
@@ -47,7 +47,7 @@ static void run_cycle() {
         strcpy(sw.v, "1.0");
         strncpy(sw.sessionId, ack.sessionId, sizeof(sw.sessionId) - 1);
         strncpy(sw.viewId, dev.views[i].id, sizeof(sw.viewId) - 1);
-        proto::SwitchAck sa;
+        proto::SwitchAck sa{};
         bool ok = proto_ip::do_switch(s_target, sw, sa) && sa.ok &&
                   strcmp(sa.currentView, dev.views[i].id) == 0;
         Serial.printf("[harness] switch %s -> %s\n", dev.views[i].id, ok ? "PASS" : "FAIL");

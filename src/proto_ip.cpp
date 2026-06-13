@@ -18,6 +18,7 @@ namespace {
 template <typename T> bool http_get(const String &base, const char *path, T &out) {
     HTTPClient http;
     if (!http.begin(base + path)) return false;
+    http.setTimeout(3000);
     int code = http.GET();
     bool ok = false;
     if (code / 100 == 2) {
@@ -42,6 +43,7 @@ bool http_post(const String &base, const char *path, const Req &req, Ack &ack) {
 
     HTTPClient http;
     if (!http.begin(base + path)) return false;
+    http.setTimeout(3000);
     http.addHeader("Content-Type", "application/json");
     int code = http.POST(payload);
     bool ok = false;
@@ -66,6 +68,7 @@ bool http_post_no_ack(const String &base, const char *path, const Req &req) {
 
     HTTPClient http;
     if (!http.begin(base + path)) return false;
+    http.setTimeout(3000);
     http.addHeader("Content-Type", "application/json");
     int code = http.POST(payload);
     http.end();
