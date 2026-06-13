@@ -87,4 +87,27 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace settings
 
+// --- Waveshare knob (round 360x360) dedicated views + menu overlay ---
+namespace ap_hud {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace ap_hud
+namespace knob_compass {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace knob_compass
+namespace knob_wind {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace knob_wind
+namespace knob_big {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace knob_big
+namespace knob_menu_overlay {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+void show(bool on);  // toggle the menu overlay on lv_layer_top()
+}  // namespace knob_menu_overlay
+
 }  // namespace ui

@@ -28,6 +28,10 @@
 #include "autopilot.h"
 #include "board.h"
 #include "build_config.h"
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+#include "knob_ui.h"
+#include "knob_input.h"
+#endif
 
 #include "storage.h"
 #include <math.h>
@@ -2001,6 +2005,19 @@ void setup() {
     // get allocated when the operator navigates to them, freeing boot heap
     // for SK websocket buffers and OTA. Once visited, the root is cached
     // for the session - no rebuild on subsequent visits.
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    // Waveshare knob: dedicated round views only. The autopilot HUD is the
+    // first/home view; the rotary menu (knob_ui) drives mode + view switching.
+    ui::register_screen_lazy("ap_hud", "Autopilot", ui::ap_hud::build, ui::ap_hud::refresh, false);
+    ui::register_screen_lazy("knob_compass", "Compass", ui::knob_compass::build,
+                             ui::knob_compass::refresh, false);
+    ui::register_screen_lazy("knob_wind", "Wind", ui::knob_wind::build, ui::knob_wind::refresh,
+                             false);
+    ui::register_screen_lazy("knob_big", "Big", ui::knob_big::build, ui::knob_big::refresh, false);
+    knob_ui::setup();  // inits model + seeds knob_remote registry + builds overlay
+    knob_input::setup();
+    ui::show_by_id("ap_hud");
+#else
     ui::Screen dash = {};
     dash.id = "dashboard";
     dash.title = "Dashboard";
@@ -2034,6 +2051,7 @@ void setup() {
                              ui::touch_grid_screen::refresh, true);
     ui::register_screen_lazy("demo_grid", "Demo Grid", ui::demo_grid::build, ui::demo_grid::refresh,
                              true);
+#endif  // BOARD_ID_WAVESHARE_KNOB_1_8 (else: Sunton screen registration)
 
     // Attach the gesture handler to EVERY screen root via a post-build
     // hook. LVGL routes LV_EVENT_GESTURE to the currently loaded screen

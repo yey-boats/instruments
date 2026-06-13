@@ -19,6 +19,7 @@
 #include "layout_renderer.h"
 #include "manager_config.h"
 #include "manager_screens.h"
+#include "knob_ui.h"
 
 namespace app {
 
@@ -255,6 +256,14 @@ void pump() {
             ui::overlay_clear();
             break;
         }
+        case CommandType::Knob:
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+            // Knob events are dispatched on the UI task: step the menu state
+            // machine and perform the resulting Action (PUT / view switch /
+            // overlay toggle). All LVGL mutation stays here on the UI task.
+            knob_ui::apply_event(cmd.i, cmd.b[0] == '1');
+#endif
+            break;
         case CommandType::SignalKPut:
         case CommandType::SaveWifi:
         case CommandType::Reboot:
