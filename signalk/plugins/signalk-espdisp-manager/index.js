@@ -567,6 +567,21 @@ function registerRoutes (router, getManager) {
     res.end()
   }))
 
+  // Switch a single device to a selected view/profile and queue config.reload.
+  router.post('/ui/devices/:id/switch-view', wrap(getManager, (manager, req, res) => {
+    const profileId = (req.body && req.body.profileId) || 'default'
+    const result = applyPresetForm(manager, profileId, {
+      deviceIds: [req.params.id],
+      clearOverrides: 'on',
+      sendReload: 'on'
+    })
+    res.statusCode = 303
+    res.setHeader('location',
+      `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(req.params.id)}` +
+      `?status=${encodeURIComponent(result.status)}`)
+    res.end()
+  }))
+
   router.get('/ui/firmware', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'firmware', req))
@@ -1103,6 +1118,12 @@ function renderDevicePage (manager, id, live = {}) {
     .filter((job) => job.deviceId === id)
     .slice(-10)
     .reverse()
+  const profiles = Object.values(manager.store.profiles.profiles)
+  const assigned = device.assignedProfile || 'default'
+  const profileOptions = profiles
+    .map((p) => `<option value="${escapeHtml(p.id)}"${p.id === assigned ? ' selected' : ''}>` +
+      `${escapeHtml(p.name || p.id)}</option>`)
+    .join('')
   return `
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
@@ -1112,6 +1133,16 @@ function renderDevicePage (manager, id, live = {}) {
         · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
         · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
       </p>
+      <form class="config-form" method="post"
+            action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
+        <label for="switch-view-profile">Switch this device to view</label>
+        <div class="actions">
+          <select id="switch-view-profile" name="profileId">${profileOptions}</select>
+          <button type="submit" class="primary">Apply view + reload device</button>
+        </div>
+        <p class="muted">Assigns the selected dashboard/view and queues a
+          <code>config.reload</code> so the device picks it up on its next poll.</p>
+      </form>
       <div class="config-grid">
         ${renderLiveStatusWidget(live.status, live.statusError)}
         ${renderLiveLogsWidget(live.logs, live.logsError)}
