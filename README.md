@@ -75,6 +75,7 @@ personal, research, educational, and other noncommercial use.
 - **Over-the-air updates** — ArduinoOTA on port 3232 (no USB cable for iteration)
 - **BLE diagnostics + config** — Nordic UART service for logs + a structured Connection/Configuration GATT for companion apps
 - **SignalK lab stack** — Dockerized SignalK server with official NMEA 0183 TCP and autopilot emulator plugins for repeatable testing
+- **Control protocol (P2P)** — a versioned, schema-generated control protocol that lets a controller (knob, plugin, harness) discover and drive any display directly over IP (mDNS + `/api/p2p/*`, primary) and BLE (Control GATT, fallback), with lightweight many-to-many sessions and a per-controller colored frame on controlled displays — see [Control Protocol (P2P)](#control-protocol-p2p)
 - **Experimental ESP display manager** — local SignalK plugin for device registry, provisioning, profiles, widget configs, command queues, firmware catalog/jobs, and a dashboard UI
 - **Multi-target logging** — Serial / UDP broadcast / BLE notify, the same `logf()` writes to all three
 - **Host-portable parser** — SignalK delta logic builds and tests on macOS / Linux as well as the device
@@ -276,6 +277,30 @@ in software and the hardware bring-up checklist, see
   <em>Menu overlays — mode picker · Select Display · Select View — rendered at
   360×360 by the <code>make sim</code> harness.</em>
 </p>
+
+## Control Protocol (P2P)
+
+A **versioned, transport-agnostic control protocol** lets any controller (the
+knob, the SignalK plugin, a future phone app) discover and drive any target
+display **directly** — without routing through the SignalK manager. It is defined
+once as a JSON Schema and code-generated into a C++ library (firmware) and a JS
+library (`@espdisp/proto`, plugin), kept in lockstep by shared fixtures.
+
+- **Discovery + control over IP (primary):** controllers browse `_espdisp._tcp`
+  via mDNS and control targets over the versioned `GET/POST /api/p2p/*` HTTP/JSON
+  surface (`device`, `attach`, `switch`, `heartbeat`, `detach`, `state`).
+- **BLE (fallback):** targets expose an espdisp Control GATT service; controllers
+  use an on-demand BLE central (scan → connect-one → control → disconnect) only
+  when there is no reachable IP.
+- **Sessions + colored frame:** lightweight many-to-many sessions (last-writer-wins,
+  heartbeat/TTL reap); a controlled display renders a frame in each controlling
+  controller's color with its name.
+- **Verified on hardware** by the headless **ESP32-S3-DevKitC-1 harness**
+  (`harness-s3-devkitc`), which loops discover → attach → switch → detach against
+  a real display in place of the knob.
+
+See the [espdisp Control Protocol guide](docs/control-protocol.md) for the message
+types, endpoints, BLE UUIDs, the `ctl` config commands, and the harness procedure.
 
 ## Onboard setup
 

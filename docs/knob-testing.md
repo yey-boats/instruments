@@ -29,8 +29,13 @@ SignalK server hardware. It exercises the **real** menu state machine, the
 | Full host suite (no regression) | `pio test -e native` | 218 tests — parser, layout, autopilot, manager config, and the knob menu — all green on the host. |
 | Round-view + menu-overlay renders | `make sim` | Renders the four round views and the three menu-overlay states headlessly at 360×360 through the real view/overlay code, with bounds assertions. Outputs to `docs/sim-shots/`. |
 | Plugin device-projection + wire contract | `cd signalk/plugins/signalk-espdisp-manager && npm test` | `device-projections.test.js` covers `GET /devices/summary` and `GET /devices/:id/views`; `knob-contract.test.js` pins the exact JSON keys the firmware parser reads, plus an end-to-end route test. |
+| Control-protocol C++ conformance (the shared controller path) | `pio test -e native -f test_proto` | Round-trips the protocol fixtures through the generated C++ records, the version-compat matrix (same-major accept / major-mismatch reject / unknown-field ignore), auth accept/deny, and the session table (attach / heartbeat / reap / last-writer-wins). This is the **same code the knob runs to drive a display**. |
+| Control-protocol JS lib | `cd proto/js && npm test` | `@espdisp/proto` ajv validators + version/auth helpers over the same `proto/fixtures/*.json` — keeps the C++ and JS libs in lockstep. |
+| Plugin protocol control | `cd signalk/plugins/signalk-espdisp-manager && npm test` (`proto-control.test.js`) | Validates the plugin's outbound `attach`/`switch`/`detach` against the schema and round-trips them against a mock `/api/p2p/*` device. |
+| Control-frame renders | `make sim` | Renders the per-controller colored frame (1 and 3 stacked controllers) at 480×480 square and 360 round headlessly through the real overlay code, with bounds assertions → `docs/sim-shots/control-frame-*.png`. |
 | Firmware build (knob) | `pio run -e waveshare-knob-1_8` | The knob firmware compiles for the ESP32-S3 target. |
 | Firmware build (no regression) | `pio run -e esp32-4848s040` | The production Sunton firmware still builds — adding the knob variant did not regress it. |
+| Firmware build (harness) | `pio run -e harness-s3-devkitc` | The headless ESP32-S3-DevKitC-1 control-protocol harness compiles — the on-hardware controller verifier (see below). |
 
 ### Evidence: round views
 
@@ -67,6 +72,12 @@ make sim
 
 # Plugin device-projection + firmware wire-contract tests
 cd signalk/plugins/signalk-espdisp-manager && npm test
+
+# Control-protocol C++ conformance (the shared controller path the knob runs)
+pio test -e native -f test_proto
+
+# Control-protocol JS lib + plugin proto-control
+cd proto/js && npm test
 
 # Build the knob firmware
 pio run -e waveshare-knob-1_8
@@ -132,10 +143,11 @@ calibrate it on first power-up **without reflashing** (see step 3).
    confirms the wire path end-to-end on real hardware.) *Closes:* autopilot PUTs
    reaching a real SignalK/AP.
 
-7. **Remote display switch.** With a second MFD on the network and the
-   `espdisp-manager` plugin running, double-click into **Select Display →
-   Select View**, pick a view, and confirm the **other** display switches to it
-   instantly (via `screen.set` + the `network.espdisp.configPush` push-live path).
+7. **Remote display switch.** With a second MFD on the network, double-click into
+   **Select Display → Select View**, pick a view, and confirm the **other**
+   display switches to it instantly over the [control
+   protocol](control-protocol.md) (IP attach → switch → detach), and that the
+   display shows the knob's colored frame while controlled.
    *Closes:* a real second display switching view from the knob.
 
 8. **Soak before any stability claim.**
@@ -145,6 +157,29 @@ calibrate it on first power-up **without reflashing** (see step 3).
    This records reboots / stalls / heap to JSONL and prints a PASS/FAIL verdict;
    run it from a host on the device's subnet. Do not call the knob "stable" until
    this passes. *Closes:* stability soak.
+
+## The control-protocol harness (on-hardware verifier)
+
+Because the knob's own controller path is the **shared** control-protocol C++
+library, it is verified on hardware by a headless stand-in: the
+**`harness-s3-devkitc`** build on a bare ESP32-S3-DevKitC-1 (no display). It runs
+the same protocol library and loops `discover → attach → switch every view →
+heartbeat → detach` against a real Sunton target, so the protocol — including the
+NimBLE-central risk — gets real two-node coverage without the knob.
+
+The full bring-up procedure (build + flash, the two-node IP run, the colored-frame
+check, last-writer-wins, and the BLE-fallback / NimBLE soak) is documented in
+[espdisp Control Protocol → Testing with the harness](control-protocol.md#11-testing-with-the-esp32-s3-devkitc-1-harness):
+
+1. **Harness ↔ display (IP).** Flash `harness-s3-devkitc` (WiFi + target in
+   `secrets.h`) and a Sunton `esp32-4848s040` target; watch the harness serial for
+   the per-cycle `attached` / `switch <id> -> PASS` / `cycle done` log, and the
+   pink (`#e91e63`) frame appearing/clearing on the display.
+2. **Frame + last-writer-wins.** Confirm `GET /api/p2p/state` reflects the harness
+   session; run a second controller with a different color → stacked frames.
+3. **BLE fallback + NimBLE soak.** With IP disabled, confirm the controller
+   BLE-scans, connects once, switches, and disconnects; run the NimBLE soak with
+   the central role enabled and assert no heap starvation.
 
 ### Prerequisites for steps 6–7
 
@@ -157,6 +192,8 @@ documented there.
 
 ## Related docs
 
+- [espdisp Control Protocol](control-protocol.md) — the protocol the knob/harness
+  use to control displays, and the full harness verification procedure.
 - [Deploy & use the remote knob](remote-knob.md) — flashing, provisioning,
   gestures, driving other displays.
 - [Design spec](superpowers/specs/2026-06-13-waveshare-knob-remote-design.md) —

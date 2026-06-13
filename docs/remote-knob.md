@@ -174,15 +174,34 @@ These reuse the same autopilot command path as the on-screen autopilot screen
 From the Autopilot HUD, **double-click** to open **Select Display**:
 
 1. **Select Display** — scroll through the list (the knob itself plus the
-   remote MFDs the manager knows about); click to enter one.
+   remote MFDs discovered via the manager and/or mDNS); click to enter one.
 2. **Select View** — scroll through that display's available views; click to
-   switch it to the highlighted view. The change applies instantly via the
-   manager's `screen.set` command and the `network.espdisp.configPush`
-   push-live path.
+   switch it to the highlighted view.
 3. **Double-click** backs out one level (Select View → Select Display → home).
 
 Selecting one of the knob's own views (Autopilot HUD, Compass, Wind, Big
 number) changes what the knob shows when idle.
+
+### How the switch reaches the display — the control protocol
+
+Remote control now runs over the **versioned [espdisp control
+protocol](control-protocol.md)**: the knob discovers targets (mDNS over IP,
+primary; BLE scan as a fallback when off-grid), **attaches** a session, sends a
+**switch**, and **detaches** — IP-first, BLE only when there is no reachable IP.
+While the knob is driving a display, that display shows a **frame in the knob's
+color** with the knob's name, so a glance shows who is controlling it.
+
+Two console commands (serial or BLE) configure the knob's protocol identity,
+persisted in NVS:
+
+```text
+ctl color #RRGGBB     # the knob's frame color on displays it controls
+ctl key <secret>      # shared key, if the target requires one (ctl key clear to remove)
+ctl status            # show the color + whether a key is set (the key is never echoed)
+```
+
+See the [control protocol guide](control-protocol.md) for the message types,
+the `/api/p2p/*` endpoints, the BLE Control GATT service, and the colored frame.
 
 ## 9. The four dedicated round views
 
@@ -199,6 +218,8 @@ number) changes what the knob shows when idle.
 
 ## Related docs
 
+- [espdisp Control Protocol](control-protocol.md) — the versioned P2P protocol the
+  knob uses to discover and drive displays over IP and BLE, plus the colored frame.
 - [Knob: testing & simulation](knob-testing.md) — what is verified in software vs.
   what needs the device, and the hardware bring-up checklist.
 - [SignalK ESP Display Manager](signalk-espdisp-manager.md) — plugin design and
