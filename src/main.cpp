@@ -1722,6 +1722,41 @@ static bool handleMainCommand(const String &line) {
         }
         return true;
     }
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    // Runtime encoder calibration for the Waveshare knob (counts/detent +
+    // direction invert). Lets the user tune feel without reflashing once the
+    // hardware arrives. Reachable over serial + BLE via the dispatch funnel.
+    if (line == "knob" || line == "knob status") {
+        net::logf("[knob] counts_per_detent=%d invert=%s", knob_input::counts_per_detent(),
+                  knob_input::invert() ? "on" : "off");
+        return true;
+    }
+    if (line.startsWith("knob counts ")) {
+        String v = line.substring(12);
+        v.trim();
+        if (!v.length() || !(isdigit(v[0]) || v[0] == '-')) {
+            net::logf("usage: knob counts <1-8>");
+            return true;
+        }
+        knob_input::set_counts_per_detent(v.toInt());
+        return true;
+    }
+    if (line.startsWith("knob invert ")) {
+        String v = line.substring(12);
+        v.trim();
+        if (v == "1" || v == "on")
+            knob_input::set_invert(true);
+        else if (v == "0" || v == "off")
+            knob_input::set_invert(false);
+        else
+            net::logf("usage: knob invert <0|1|on|off>");
+        return true;
+    }
+    if (line.startsWith("knob")) {
+        net::logf("usage: knob [status] | knob counts <1-8> | knob invert <0|1|on|off>");
+        return true;
+    }
+#endif
     return false;
 }
 

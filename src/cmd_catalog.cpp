@@ -132,6 +132,13 @@ static const Entry CATALOG[] = {
     {"beeper", "beep-stop", "Cancel any running alarm", true, true},
     {"beeper", "audible-alarms <on|off>", "Toggle whether beeper sounds at all", true, true},
 
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    // --- knob (Waveshare encoder calibration) ---
+    {"knob", "knob", "Print encoder counts/detent + invert", true, true},
+    {"knob", "knob counts <1-8>", "Set encoder counts per detent (persisted)", true, true},
+    {"knob", "knob invert <0|1>", "Swap encoder rotation direction (persisted)", true, true},
+#endif
+
     // --- config (spec 08) ---
     {"config", "config-status", "Print config_runtime status", true, true},
 
