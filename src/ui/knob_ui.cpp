@@ -2,6 +2,7 @@
 
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
 
+#include <ctype.h>
 #include <lvgl.h>
 #include <math.h>
 #include <stdio.h>

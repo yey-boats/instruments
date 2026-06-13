@@ -2015,7 +2015,6 @@ void setup() {
                              false);
     ui::register_screen_lazy("knob_big", "Big", ui::knob_big::build, ui::knob_big::refresh, false);
     knob_ui::setup();  // inits model + seeds knob_remote registry + builds overlay
-    knob_input::setup();
     ui::show_by_id("ap_hud");
 #else
     ui::Screen dash = {};
@@ -2091,6 +2090,9 @@ void setup() {
 
     // App event queue must exist before any task that wants to post.
     app::setup();
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    knob_input::setup();  // encoder task posts to app queue; must run after app::setup()
+#endif
     screenshot::setup();
     // Load persisted UI/Alarm/SignalK config into the RAM-first config
     // owner before any module that reads those values. Replaces direct
