@@ -75,9 +75,11 @@ All messages share an envelope `{ "v": "<major>.<minor>", "t": "<type>", ... }`.
 - A **system shared key** (a simple password) may be set at setup: NVS (`proto`/`key`) on
   firmware, config on the plugin/phone. When a target has a key set, `Attach`/`Switch` must
   carry a matching `key` or are denied (`reason:"unauthorized"`). Discovery stays open
-  (records advertise `authRequired:true`). Stored hashed at rest; compared on the target.
-  Transmitted over the local link (LAN/BLE) — this is local-network trust, not internet-grade;
-  documented as such. When no key is set, control is open (today's behavior preserved).
+  (records advertise `authRequired:true`). Stored in NVS and compared on the target
+  (`strcmp`) — not hashed at rest, because the key is transmitted in plaintext over the local
+  link (LAN/BLE) anyway: this is a local-network shared secret, not internet-grade auth, so
+  hashing-at-rest would add no real protection. When no key is set, control is open (today's
+  behavior preserved).
 
 ## 3. Sessions & the colored "controlled" frame
 
