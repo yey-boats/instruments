@@ -3,6 +3,7 @@
 #include "ui_theme.h"
 #include "ui_data.h"
 #include "ui_dirty.h"
+#include "ui_fonts.h"
 #include "ui_screens.h"
 #include "board_pins.h"
 #include "app_events.h"
@@ -324,13 +325,14 @@ static double scalar_unit_fraction(MetricSource src, double v) {
 static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     bool has_extras = (m.extras_count > 0);
 
-    // Pick value font based on tile height. On 480x480 sunton the quad
-    // grid gives ~200 px tiles -> montserrat_48 (24% h, ~60% of inner
-    // content area after caption + secondary stripes). Smaller tiles
-    // fall back to 38 then 28.
-    const lv_font_t *vfont = &lv_font_montserrat_48;
-    if (h < 160) vfont = &lv_font_montserrat_38;
-    if (h < 110 || has_extras) vfont = &lv_font_montserrat_28;
+    // Pick value font based on tile height. On 480x480 sunton the quad grid
+    // gives ~200 px tiles -> the custom 64px font (hero). Single-field tiles
+    // without a secondary/extras line get the big font; tighter tiles step
+    // down 48 -> 38 -> 28.
+    const lv_font_t *vfont = &font_xl_64;
+    if (h < 180 || has_extras) vfont = &lv_font_montserrat_48;
+    if (h < 150) vfont = &lv_font_montserrat_38;
+    if (h < 110) vfont = &lv_font_montserrat_28;
     // Unit font: only 14/20 enabled to keep LVGL glyph cache off
     // internal heap (16/18 sizes blew int_largest from 7668 -> 1908 bytes
     // and starved the network task; see USB-flash diagnostic).

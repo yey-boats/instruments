@@ -351,6 +351,41 @@ static void build_waypoint(lv_obj_t *parent) {
     lv_obj_add_flag(waypoint_marker, LV_OBJ_FLAG_HIDDEN);
 }
 
+// ---- corner box --------------------------------------------------------
+
+// Compact glass-cockpit box anchored in a screen corner (outside the rose).
+// Caption + unit on the top row, value (montserrat_38 to fit the 68px box)
+// on the bottom.
+static void make_corner_box(lv_obj_t *parent, const char *label, const char *unit, int x, int y,
+                            int w, int h, lv_obj_t **out_value, uint32_t value_color) {
+    lv_obj_t *box = lv_obj_create(parent);
+    lv_obj_set_size(box, w, h);
+    lv_obj_set_pos(box, x, y);
+    style_panel(box);
+    lv_obj_set_style_pad_all(box, 6, 0);
+    lv_obj_clear_flag(box, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t *cap = lv_label_create(box);
+    lv_label_set_text(cap, label);
+    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    lv_obj_t *unit_lbl = lv_label_create(box);
+    lv_label_set_text(unit_lbl, unit);
+    lv_obj_set_style_text_font(unit_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(unit_lbl, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(unit_lbl, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+    lv_obj_t *val = lv_label_create(box);
+    lv_label_set_text(val, "--");
+    lv_obj_set_style_text_font(val, &lv_font_montserrat_38, 0);
+    lv_obj_set_style_text_color(val, lv_color_hex(value_color), 0);
+    lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, 2);
+    lv_obj_clear_flag(val, LV_OBJ_FLAG_CLICKABLE);
+    *out_value = val;
+}
+
 // ---- inner readouts ----------------------------------------------------
 
 // Borderless readout placed INSIDE the dial face (no panel chrome - the rose
@@ -441,25 +476,26 @@ lv_obj_t *build(lv_obj_t *parent) {
     build_bezel(s_root);
     build_waypoint(s_root);
 
-    // ---- big readouts INSIDE the dial face ----------------------------
-    // The four speed/angle groups fill the blank quadrants between the boat
-    // and the ring, using the custom 64px font for maximum legibility. The
-    // boat hull sits in the central column; left/right groups flank it, HDG
-    // rides above the bow, current drift stays at centre.
+    // ---- readouts INSIDE the dial face (montserrat_48) ----------------
+    // Wind data flanks the boat; HDG rides above the bow (just under the
+    // close-hauled arc); current drift stays at centre. Positions sit clear
+    // of the rotating A/T markers on the ring.
     //   upper-left  : AWS (amber) + AWA secondary
     //   upper-right : TWS + TWA secondary
-    //   lower-left  : SOG
-    //   lower-right : SOW (speed through water)
-    // dx/dy are offsets from screen centre. Left/right columns flank the boat
-    // hull; HDG rides above the bow; SOG/SOW sit low in the bottom quadrants.
-    const int dxl = -118;  // left column
-    const int dxr = 118;   // right column
-    inner_readout(s_root, "AWS", dxl, -82, &font_xl_64, 0xf6a21a, &lbl_aws_value, &lbl_awa_value);
-    inner_readout(s_root, "TWS", dxr, -82, &font_xl_64, theme.fg, &lbl_tws_value, &lbl_twa_value);
-    inner_readout(s_root, "SOG", dxl, 104, &font_xl_64, theme.good, &lbl_sog_value, nullptr);
-    inner_readout(s_root, "SOW", dxr, 104, &font_xl_64, theme.accent, &lbl_stw_value, nullptr);
-    inner_readout(s_root, "HDG", 0, -150, &lv_font_montserrat_48, theme.accent, &lbl_hdg_value,
+    //   top-centre  : HDG
+    const int dxl = -120;  // left column
+    const int dxr = 120;   // right column
+    inner_readout(s_root, "AWS", dxl, -64, &lv_font_montserrat_48, 0xf6a21a, &lbl_aws_value,
+                  &lbl_awa_value);
+    inner_readout(s_root, "TWS", dxr, -64, &lv_font_montserrat_48, theme.fg, &lbl_tws_value,
+                  &lbl_twa_value);
+    inner_readout(s_root, "HDG", 0, -134, &lv_font_montserrat_48, theme.accent, &lbl_hdg_value,
                   nullptr);
+
+    // SOG / SOW in the bottom screen corners (outside the ring).
+    make_corner_box(s_root, "SOG", "kn", 8, LCD_H - 76, 104, 68, &lbl_sog_value, theme.good);
+    make_corner_box(s_root, "SOW", "kn", LCD_W - 112, LCD_H - 76, 104, 68, &lbl_stw_value,
+                    theme.accent);
     lbl_cog_value = nullptr;  // COG replaced by SOW per layout
 
     return s_root;
