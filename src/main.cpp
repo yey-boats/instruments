@@ -2,6 +2,9 @@
 #include <Wire.h>
 #include <Arduino_GFX_Library.h>
 #include <lvgl.h>
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+#include <CST816S.h>
+#endif
 
 #include "board_pins.h"
 #include "net.h"
@@ -391,6 +394,54 @@ static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
     return has_point;
 }
 
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+// Waveshare knob: CST816S capacitive touch (I2C, addr 0x15) on the touch
+// bus. The fbiego/CST816S driver is IRQ-driven: available() latches true on
+// each controller event, and data.event is 0=Down / 1=Up / 2=Contact. We
+// keep a sticky "pressed" latch so the existing 60 Hz touch_task poll path
+// sees a synchronous pressed/coords read with the same contract as the
+// GT911 path (it writes the shared g_touch snapshot under g_touch_mtx).
+static CST816S g_cst816(TOUCH_SDA, TOUCH_SCL, TOUCH_RST, TOUCH_INT);
+static bool g_cst816_pressed = false;
+static int16_t g_cst816_x = -1;
+static int16_t g_cst816_y = -1;
+
+static bool cst816_read_once(int16_t *out_x, int16_t *out_y) {
+    bool locked = true;
+    if (g_touch_i2c_mtx) {
+        locked = xSemaphoreTake(g_touch_i2c_mtx, pdMS_TO_TICKS(20)) == pdTRUE;
+    }
+    if (!locked) return false;
+    // Drain any pending controller event(s) and update the latch.
+    while (g_cst816.available()) {
+        // event: 0 = Down, 2 = Contact -> pressed; 1 = Up -> released.
+        if (g_cst816.data.event == 1) {
+            g_cst816_pressed = false;
+        } else {
+            g_cst816_pressed = true;
+            g_cst816_x = (int16_t)g_cst816.data.x;
+            g_cst816_y = (int16_t)g_cst816.data.y;
+        }
+    }
+    if (g_touch_i2c_mtx) xSemaphoreGive(g_touch_i2c_mtx);
+    if (g_cst816_pressed) {
+        *out_x = g_cst816_x;
+        *out_y = g_cst816_y;
+    }
+    return g_cst816_pressed;
+}
+#endif  // BOARD_ID_WAVESHARE_KNOB_1_8
+
+// Board-agnostic single-sample read: routes to the panel's touch
+// controller (CST816S on the knob, GT911 on the Sunton/Guition panels).
+static bool touch_read_point(int16_t *out_x, int16_t *out_y) {
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    return cst816_read_once(out_x, out_y);
+#else
+    return gt911_read_once(out_x, out_y);
+#endif
+}
+
 static void gt911_dump_config() {
     static constexpr uint16_t CFG_START = 0x8047;
     static constexpr uint16_t CFG_END = 0x8100;
@@ -588,7 +639,7 @@ static void touch_task(void *) {
                 ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             }
             int16_t raw_x = -1, raw_y = -1;
-            bool pressed = gt911_read_once(&raw_x, &raw_y);
+            bool pressed = touch_read_point(&raw_x, &raw_y);
             int16_t x = raw_x, y = raw_y;
             if (pressed) {
                 // Apply user calibration. Identity until user runs the
@@ -1817,6 +1868,15 @@ void setup() {
     Wire.begin(TOUCH_SDA, TOUCH_SCL);
     Wire.setClock(400000);
     delay(50);
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    // Waveshare knob: CST816S capacitive touch (addr 0x15). Secondary input
+    // (the menu is encoder-first), so a missing controller is non-fatal.
+    g_cst816.begin(TOUCH_INT_ACTIVE_LOW ? FALLING : RISING);
+    Wire.beginTransmission(CST816S_ADDRESS);
+    bool ok = (Wire.endTransmission() == 0);
+    printf("[touch] CST816S probe: %s addr=0x%02X\n", ok ? "ACK" : "no response", CST816S_ADDRESS);
+    touch_present = ok;
+#else
     Wire.beginTransmission(0x5D);
     bool ok = (Wire.endTransmission() == 0);
     g_gt911_addr = 0x5D;
@@ -1827,6 +1887,7 @@ void setup() {
     }
     printf("[touch] GT911 probe: %s addr=0x%02X\n", ok ? "ACK" : "no response", g_gt911_addr);
     touch_present = ok;
+#endif
 
     // Load any persisted calibration before the touch task starts so
     // the very first sample is already in screen coordinates.
@@ -1840,6 +1901,12 @@ void setup() {
     g_touch_i2c_mtx = xSemaphoreCreateMutex();
     if (touch_present && g_touch_mtx) {
         xTaskCreatePinnedToCore(touch_task, "touch", 4096, nullptr, 2, &g_touch_task, 0);
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+        // CST816S installs its own IRQ handler in begin() and the touch_task
+        // drains its event latch via available() at 60 Hz. Do NOT attach the
+        // GT911-style touch_irq_isr here -- it would clobber the driver ISR.
+        puts("[touch] input mode: poll (CST816S)");
+#else
         if (TOUCH_INT >= 0 && g_touch_task) {
 #if TOUCH_INT_ACTIVE_LOW
             pinMode(TOUCH_INT, INPUT_PULLUP);
@@ -1854,6 +1921,7 @@ void setup() {
         } else {
             puts("[touch] input mode: poll");
         }
+#endif
     }
 
     lv_init();
