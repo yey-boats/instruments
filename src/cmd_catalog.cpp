@@ -132,6 +132,11 @@ static const Entry CATALOG[] = {
     {"beeper", "beep-stop", "Cancel any running alarm", true, true},
     {"beeper", "audible-alarms <on|off>", "Toggle whether beeper sounds at all", true, true},
 
+    // --- ctl (control-protocol identity) ---
+    {"ctl", "ctl", "Print controller color + whether a shared key is set", true, true},
+    {"ctl", "ctl color #RRGGBB", "Set this device's controller color (persisted)", true, true},
+    {"ctl", "ctl key <secret>|clear", "Set/clear the shared control key (persisted)", true, true},
+
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
     // --- knob (Waveshare encoder calibration) ---
     {"knob", "knob", "Print encoder counts/detent + invert", true, true},

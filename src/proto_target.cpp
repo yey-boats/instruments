@@ -61,6 +61,17 @@ void setup() {
     }
 }
 
+void set_key(const char *key) {
+    lock();
+    if (key) {
+        strncpy(s_key, key, sizeof(s_key) - 1);
+        s_key[sizeof(s_key) - 1] = 0;
+    } else {
+        s_key[0] = 0;
+    }
+    unlock();
+}
+
 void fill_device_record(proto::DeviceRecord &r) {
     // Fill in place (r is the caller's buffer); no large stack temporaries.
     strncpy(r.v, "1.0", sizeof(r.v) - 1);

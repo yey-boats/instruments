@@ -1723,6 +1723,60 @@ static bool handleMainCommand(const String &line) {
         }
         return true;
     }
+    // Control-protocol identity: the controller color (this device's colored
+    // frame when it drives another display) and the shared key that gates
+    // inbound control. Generic - any device can be a controller (sets color)
+    // and/or a target (the key authenticates attaches). Persisted to NVS
+    // namespace "proto", keys "color" / "key". The secret is never echoed.
+    // Reachable over serial + BLE via the dispatch funnel.
+    if (line == "ctl" || line == "ctl status") {
+        storage::Namespace p("proto", true);
+        std::string color = p.get_string("color", "#00bcd4");
+        bool has_key = !p.get_string("key", "").empty();
+        net::logf("[ctl] color=%s key=%s", color.c_str(), has_key ? "set" : "none");
+        return true;
+    }
+    if (line.startsWith("ctl color ")) {
+        String v = line.substring(10);
+        v.trim();
+        bool valid = (v.length() == 7 && v[0] == '#');
+        for (int i = 1; valid && i < 7; i++)
+            valid = isxdigit((unsigned char)v[i]);
+        if (!valid) {
+            net::logf("usage: ctl color #RRGGBB");
+            return true;
+        }
+        {
+            storage::Namespace p("proto", false);
+            p.put_string("color", v.c_str());
+        }
+        net::logf("[ctl] color -> %s", v.c_str());
+        return true;
+    }
+    if (line.startsWith("ctl key ")) {
+        String v = line.substring(8);
+        v.trim();
+        if (v == "clear") {
+            {
+                storage::Namespace p("proto", false);
+                p.remove("key");
+            }
+            proto_target::set_key("");
+            net::logf("[ctl] key cleared (control open)");
+            return true;
+        }
+        {
+            storage::Namespace p("proto", false);
+            p.put_string("key", v.c_str());
+        }
+        proto_target::set_key(v.c_str());
+        net::logf("[ctl] key updated");
+        return true;
+    }
+    if (line.startsWith("ctl")) {
+        net::logf("usage: ctl [status] | ctl color #RRGGBB | ctl key <secret>|clear");
+        return true;
+    }
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
     // Runtime encoder calibration for the Waveshare knob (counts/detent +
     // direction invert). Lets the user tune feel without reflashing once the

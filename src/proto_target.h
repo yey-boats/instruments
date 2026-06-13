@@ -11,6 +11,11 @@ namespace proto_target {
 
 void setup();  // load the shared key from NVS (namespace "proto", key "key")
 
+// Update the cached shared key live (after a `ctl key` console command
+// rewrites NVS "proto"/"key"), so new attaches are gated by the new key
+// without a reboot. Pass "" to make control open again.
+void set_key(const char *key);
+
 // Fill a DeviceRecord from the live UI/board/identity state (id, role, views,
 // currentView, transports, authRequired).
 void fill_device_record(proto::DeviceRecord &r);
