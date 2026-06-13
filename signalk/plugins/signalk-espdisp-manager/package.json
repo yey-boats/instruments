@@ -30,5 +30,8 @@
   },
   "engines": {
     "node": ">=20.10"
+  },
+  "dependencies": {
+    "@espdisp/proto": "file:../../../proto/js"
   }
 }

@@ -3,6 +3,7 @@ const crypto = require('crypto')
 const http = require('http')
 const os = require('os')
 const { JsonStore } = require('./store')
+const { ProtoControl } = require('./proto-control')
 const {
   now,
   randomId,
@@ -54,6 +55,19 @@ class EspDispManager {
     this.deviceDiscoverySocket = null
     this.mdnsDiscoverySocket = null
     this.mdnsAdvertiseTimer = null
+    // Control-protocol client: the registry/naming layer now *speaks the
+    // protocol*. It attaches to targets as a controller (carrying this
+    // plugin's controllerId/name/color and optional shared key) to discover
+    // DeviceRecords and to drive on-demand screen switches (attach->switch->
+    // detach). Version negotiation, auth, and message validation are all the
+    // shared @espdisp/proto lib — never re-implemented here.
+    this.protoControl = new ProtoControl({
+      controllerId: this.options.control.controllerId,
+      name: this.options.control.name,
+      color: this.options.control.color,
+      key: this.options.control.key,
+      debug: this.app && this.app.debug ? (msg) => this.app.debug(msg) : undefined
+    })
     this.startSignalKDiscovery()
     this.startDeviceDiscovery()
     this.startMdnsDiscovery()
@@ -1337,7 +1351,87 @@ class EspDispManager {
         if (this.app.debug) this.app.debug(`configPush emit failed: ${e.message}`)
       }
     }
+    // Protocol-routed screen change. A `screen.set` is the manager's
+    // cross-device view switch; when the target speaks the espdisp control
+    // protocol over IP we drive it directly with attach->switch->detach via
+    // the shared @espdisp/proto client (so the target shows this plugin's
+    // colored frame), in addition to queueing the command. The command queue
+    // stays as the fallback for devices that do not yet speak the protocol.
+    const device = this.store.registry.devices[id]
+    if (command.type === 'screen.set' && this.options.control.enabled &&
+        ProtoControl.speaksProtocol(device)) {
+      const viewId = command.payload && (command.payload.screen || command.payload.viewId || command.payload.view)
+      if (viewId) {
+        // Fire-and-forget: never block command creation on a network round-trip.
+        this.protoSetScreen(id, String(viewId)).catch((e) => {
+          if (this.app && this.app.debug) this.app.debug(`proto screen.set failed: ${e.message}`)
+        })
+      }
+    }
     return command
+  }
+
+  // Build the descriptor proto-control needs for a registered device: a base
+  // URL and the device's advertised protocol version / transports. Returns
+  // null when the device has no known address.
+  protoDeviceDescriptor (device) {
+    let base
+    try {
+      base = this.deviceHttpBase(device)
+    } catch (err) {
+      return null
+    }
+    return {
+      deviceId: device.id,
+      base,
+      pv: (device.proto && device.proto.pv) || device.pv || null,
+      transports: (device.proto && device.proto.transports) ||
+        device.transports || ['ip']
+    }
+  }
+
+  // Discover the protocol DeviceRecord for every registered device that has a
+  // known address, filtering out version-incompatible targets. Returns the
+  // array of successful describeDevice results (each annotated with pv +
+  // transports), and records pv/transports back onto the registry so the
+  // registry "speaks the protocol".
+  async protoDiscover () {
+    const descriptors = Object.values(this.store.registry.devices)
+      .map((device) => this.protoDeviceDescriptor(device))
+      .filter(Boolean)
+    const found = await this.protoControl.discover(descriptors)
+    let changed = false
+    for (const desc of found) {
+      const device = this.store.registry.devices[desc.record.deviceId] ||
+        Object.values(this.store.registry.devices).find((d) => this.deviceBaseSafe(d) === desc.base)
+      if (device) {
+        device.proto = {
+          pv: desc.pv,
+          transports: desc.transports,
+          discoveredAt: now()
+        }
+        changed = true
+      }
+    }
+    if (changed) this.store.saveRegistry()
+    return found
+  }
+
+  deviceBaseSafe (device) {
+    try { return this.deviceHttpBase(device) } catch (e) { return null }
+  }
+
+  // Drive a single device's screen change through the control protocol
+  // (attach -> switch -> detach). Returns the proto-control result.
+  async protoSetScreen (id, viewId) {
+    const device = this.getDevice(id)
+    const descriptor = this.protoDeviceDescriptor(device)
+    if (!descriptor) return { ok: false, reason: 'no_address' }
+    const result = await this.protoControl.setScreen(descriptor, viewId)
+    if (result.ok) {
+      this.store.audit('device.screen.set', id, { viewId, via: 'control-protocol' })
+    }
+    return result
   }
 
   queueConfigReload (id) {
@@ -2037,6 +2131,20 @@ function normalizeOptions (options) {
     signalk: {
       host: options.signalk && options.signalk.host ? options.signalk.host : 'signalk.local',
       port: Number(options.signalk && options.signalk.port ? options.signalk.port : 3000)
+    },
+    // Control protocol (espdisp control-1): how this plugin presents itself
+    // when it attaches to a target as a controller (the colored "controlled"
+    // frame on the display). `enabled` routes screen.set through the protocol
+    // when the device speaks it; the registry/command-queue path remains as a
+    // fallback for devices that do not.
+    control: {
+      enabled: !(options.control && options.control.enabled === false),
+      controllerId: options.control && options.control.controllerId
+        ? options.control.controllerId
+        : 'plugin:espdisp-manager',
+      name: options.control && options.control.name ? options.control.name : 'SignalK Manager',
+      color: options.control && options.control.color ? options.control.color : '#ff9800',
+      key: options.control && options.control.key ? options.control.key : ''
     },
     deviceWebAuth: {
       enabled: !(options.deviceWebAuth && options.deviceWebAuth.enabled === false),

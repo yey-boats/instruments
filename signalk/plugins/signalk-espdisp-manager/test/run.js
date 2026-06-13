@@ -15,16 +15,20 @@ require('./dashboard-editor-form.test')
 require('./widget-parity.test')
 require('./preset-coverage.test')
 require('./device-projections.test')
-Promise.all([
-  require('./knob-contract.test'),
-  require('./github-firmware.test'),
-  require('./udp-discovery.test'),
-  require('./device-udp-discovery.test'),
-  require('./discovery-scan.test'),
-  require('./signalk-register-device.test'),
-  require('./live-device.test'),
-  require('./device-resolution.test')
-])
+// proto-control runs sequentially (not in the Promise.all batch below): it
+// loads the ESM @espdisp/proto lib and spins up mock HTTP targets, which would
+// otherwise starve the event loop during the timing-sensitive UDP tests.
+require('./proto-control.test')
+  .then(() => Promise.all([
+    require('./knob-contract.test'),
+    require('./github-firmware.test'),
+    require('./udp-discovery.test'),
+    require('./device-udp-discovery.test'),
+    require('./discovery-scan.test'),
+    require('./signalk-register-device.test'),
+    require('./live-device.test'),
+    require('./device-resolution.test')
+  ]))
   .then(() => {
     console.log('espdisp-manager test suite passed')
   })
