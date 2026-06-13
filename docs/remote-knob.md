@@ -107,7 +107,27 @@ BLE (`make ble`). The same commands work over either transport.
    device, confirm the token matches, and confirm WiFi + SignalK reachability
    (`ip`, `sk-status`).
 
-## 5. Gesture cheat-sheet
+## 5. Calibrating the encoder
+
+The encoder feel — how many quadrature counts make one detent, and which way is
+"clockwise" — is **tunable at runtime from the console**, so you can dial it in on
+first power-up without reflashing. The commands work over serial
+(`make monitor ENV=waveshare-knob-1_8`) or BLE (`make ble`), and the values
+persist in NVS across reboots.
+
+```text
+knob status          # print the current counts-per-detent and invert state
+knob counts <1-8>    # set encoder counts per detent (persisted)
+knob invert <0|1>    # swap encoder rotation direction (persisted; 0/1 or off/on)
+```
+
+If one physical detent produces several scroll events (or none), adjust
+`knob counts` until one detent = one event. If turning clockwise moves the
+highlight/target the wrong way, flip `knob invert`. For the full bring-up
+procedure and how this maps to the hardware risks it closes, see
+[Knob: testing & simulation](knob-testing.md#hardware-bring-up-checklist-when-the-device-arrives).
+
+## 6. Gesture cheat-sheet
 
 The **Autopilot HUD** is home. Gestures there control the autopilot directly:
 
@@ -122,7 +142,18 @@ The **Autopilot HUD** is home. Gestures there control the autopilot directly:
 Inside menus the vocabulary is uniform: **scroll** moves the highlight,
 **click** selects/enters, **double-click** goes back one level.
 
-## 6. Drive the autopilot
+The menu overlays — mode picker, Select Display (with list paging when there are
+more entries than fit), and Select View — rendered at 360×360 by the `make sim`
+harness:
+
+<p align="center">
+  <img src="sim-shots/knob-menu-gallery.png" alt="Knob menu overlays: mode picker, Select Display, Select View" width="480">
+</p>
+
+For how these screens are tested and rendered without hardware, see
+[Knob: testing & simulation](knob-testing.md).
+
+## 7. Drive the autopilot
 
 From the Autopilot HUD:
 
@@ -138,7 +169,7 @@ From the Autopilot HUD:
 These reuse the same autopilot command path as the on-screen autopilot screen
 (`steering.autopilot.state` and `steering.autopilot.target.headingTrue`).
 
-## 7. Drive other displays
+## 8. Drive other displays
 
 From the Autopilot HUD, **double-click** to open **Select Display**:
 
@@ -153,7 +184,7 @@ From the Autopilot HUD, **double-click** to open **Select Display**:
 Selecting one of the knob's own views (Autopilot HUD, Compass, Wind, Big
 number) changes what the knob shows when idle.
 
-## 8. The four dedicated round views
+## 9. The four dedicated round views
 
 <p align="center">
   <img src="sim-shots/knob-gallery.png" alt="Knob round views: Autopilot HUD, Compass, Wind, Big number" width="480">
@@ -168,6 +199,8 @@ number) changes what the knob shows when idle.
 
 ## Related docs
 
+- [Knob: testing & simulation](knob-testing.md) — what is verified in software vs.
+  what needs the device, and the hardware bring-up checklist.
 - [SignalK ESP Display Manager](signalk-espdisp-manager.md) — plugin design and
   the [plugin install section](signalk-espdisp-manager.md#install-the-signalk-plugin).
 - [User Guide — Managing Displays from SignalK](user-guide-signalk.md) —

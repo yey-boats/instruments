@@ -266,7 +266,16 @@ The four dedicated round views:
 </p>
 
 For flashing, provisioning, and using the knob to drive other displays, see
-[Deploy & use the remote knob](docs/remote-knob.md).
+[Deploy & use the remote knob](docs/remote-knob.md). For how the knob is verified
+in software and the hardware bring-up checklist, see
+[Testing & simulation](docs/knob-testing.md).
+
+<p align="center">
+  <img src="docs/sim-shots/knob-menu-gallery.png" alt="Knob menu overlays: mode picker, Select Display, Select View" width="480">
+  <br>
+  <em>Menu overlays — mode picker · Select Display · Select View — rendered at
+  360×360 by the <code>make sim</code> harness.</em>
+</p>
 
 ## Onboard setup
 
