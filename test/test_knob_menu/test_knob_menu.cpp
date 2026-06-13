@@ -118,6 +118,63 @@ static void test_mode_picker_select_standby_disengages() {
     TEST_ASSERT_FALSE(m.engaged);
 }
 
+static Inputs remote_inputs() {
+    Inputs in = base_inputs();
+    in.display_count = 3;
+    in.view_count = 4;
+    return in;
+}
+
+static void test_select_display_scroll_and_drill_in() {
+    Model m;
+    init(m);
+    Inputs in = remote_inputs();
+    step(m, in, Event::DoubleClick, false);  // Home -> SelectDisplay
+    TEST_ASSERT_EQUAL_INT((int)Level::SelectDisplay, (int)m.level);
+    step(m, in, Event::DetentCW, false);          // highlight 1
+    step(m, in, Event::DetentCW, false);          // highlight 2
+    Action a = step(m, in, Event::Click, false);  // drill into display 2
+    TEST_ASSERT_EQUAL_INT((int)ActionType::NoAction, (int)a.type);
+    TEST_ASSERT_EQUAL_INT((int)Level::SelectView, (int)m.level);
+    TEST_ASSERT_EQUAL_INT(2, m.entered_display);
+    TEST_ASSERT_EQUAL_INT(0, m.highlight);
+}
+
+static void test_select_display_wraps() {
+    Model m;
+    init(m);
+    Inputs in = remote_inputs();
+    step(m, in, Event::DoubleClick, false);
+    step(m, in, Event::DetentCCW, false);  // 0 -> wrap to 2
+    TEST_ASSERT_EQUAL_INT(2, m.highlight);
+}
+
+static void test_select_view_click_emits_switch_view() {
+    Model m;
+    init(m);
+    Inputs in = remote_inputs();
+    step(m, in, Event::DoubleClick, false);  // SelectDisplay
+    step(m, in, Event::Click, false);        // enter display 0
+    step(m, in, Event::DetentCW, false);     // view highlight 1
+    Action a = step(m, in, Event::Click, false);
+    TEST_ASSERT_EQUAL_INT((int)ActionType::SwitchView, (int)a.type);
+    TEST_ASSERT_EQUAL_INT(0, a.arg_dev_idx);
+    TEST_ASSERT_EQUAL_INT(1, a.arg_view_idx);
+    TEST_ASSERT_EQUAL_INT((int)Level::SelectView, (int)m.level);  // stays
+}
+
+static void test_double_click_back_chain() {
+    Model m;
+    init(m);
+    Inputs in = remote_inputs();
+    step(m, in, Event::DoubleClick, false);  // Home -> SelectDisplay
+    step(m, in, Event::Click, false);        // -> SelectView
+    step(m, in, Event::DoubleClick, false);  // -> SelectDisplay
+    TEST_ASSERT_EQUAL_INT((int)Level::SelectDisplay, (int)m.level);
+    step(m, in, Event::DoubleClick, false);  // -> Home
+    TEST_ASSERT_EQUAL_INT((int)Level::Home, (int)m.level);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_home_cw_small_step_presets_target_from_heading);
@@ -129,5 +186,9 @@ int main(int, char **) {
     RUN_TEST(test_mode_picker_scroll_and_select_wind);
     RUN_TEST(test_mode_picker_doubleclick_cancels);
     RUN_TEST(test_mode_picker_select_standby_disengages);
+    RUN_TEST(test_select_display_scroll_and_drill_in);
+    RUN_TEST(test_select_display_wraps);
+    RUN_TEST(test_select_view_click_emits_switch_view);
+    RUN_TEST(test_double_click_back_chain);
     return UNITY_END();
 }

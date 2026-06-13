@@ -119,6 +119,48 @@ Action step(Model &m, const Inputs &in, Event ev, bool held) {
         }
         break;
 
+    case Level::SelectDisplay:
+        if (ev == Event::DetentCW) {
+            m.highlight = wrap_idx(m.highlight + 1, in.display_count);
+            return a;
+        }
+        if (ev == Event::DetentCCW) {
+            m.highlight = wrap_idx(m.highlight - 1, in.display_count);
+            return a;
+        }
+        if (ev == Event::Click) {
+            m.entered_display = m.highlight;
+            m.level = Level::SelectView;
+            m.highlight = 0;
+            return a;
+        }
+        if (ev == Event::DoubleClick) {
+            m.level = Level::Home;
+            return a;
+        }
+        break;
+
+    case Level::SelectView:
+        if (ev == Event::DetentCW) {
+            m.highlight = wrap_idx(m.highlight + 1, in.view_count);
+            return a;
+        }
+        if (ev == Event::DetentCCW) {
+            m.highlight = wrap_idx(m.highlight - 1, in.view_count);
+            return a;
+        }
+        if (ev == Event::Click) {
+            a.type = ActionType::SwitchView;
+            a.arg_dev_idx = m.entered_display;
+            a.arg_view_idx = m.highlight;
+            return a;  // stays in SelectView
+        }
+        if (ev == Event::DoubleClick) {
+            m.level = Level::SelectDisplay;
+            return a;
+        }
+        break;
+
     default:
         break;
     }
