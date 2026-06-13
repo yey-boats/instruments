@@ -1,0 +1,12 @@
+{
+  "name": "@espdisp/proto",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "gen": "node ../gen/gen_ts.mjs",
+    "test": "node --test"
+  },
+  "devDependencies": { "json-schema-to-typescript": "^15.0.0" },
+  "dependencies": { "ajv": "^8.17.1" }
+}

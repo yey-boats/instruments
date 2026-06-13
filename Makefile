@@ -291,6 +291,10 @@ sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via nav
 	  ESPDISP_HOST=localhost:$(TUNNEL_PORT) ESPDISP_BLE_NAME=espdisp \
 	    pytest tests/system/unattended --espdisp-no-udp-discovery --espdisp-no-discovery
 
+proto:  ## Regenerate protocol code (C++ + TS) from the schema
+	python3 proto/gen/gen_cpp.py
+	cd proto/js && npm install --silent && node ../gen/gen_ts.mjs
+
 lint: version-check  ## Check C++ formatting and Python syntax
 	@command -v $(CLANG_FORMAT) >/dev/null 2>&1 || { \
 	  echo "$(CLANG_FORMAT) not found. Install clang-format or run with CLANG_FORMAT=/path/to/clang-format." >&2; exit 127; }
@@ -331,4 +335,4 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
         sys-test-mac sys-test-attended flash ota monitor ble ble-cmd provision logs \
         demo-up demo-down demo-up-remote demo-down-remote \
         server-setup server-sk-only server-status server-teardown \
-        lint pre-commit hooks-install format backup release-tag clean
+        proto lint pre-commit hooks-install format backup release-tag clean

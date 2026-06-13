@@ -173,3 +173,23 @@ jobs:
 
       - name: Run shared pre-commit checks
         run: make pre-commit
+
+  proto-freshness:
+    name: Proto generated files freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Regenerate protocol code
+        run: make proto
+
+      - name: Check generated files are up to date
+        run: git diff --exit-code include/proto/records_generated.h proto/js/types.d.ts
