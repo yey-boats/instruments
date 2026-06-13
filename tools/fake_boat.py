@@ -51,6 +51,11 @@ async def main():
             lat = 41.3851 + 0.001 * math.sin(t / 200)
             lon = 2.1734 + 0.001 * math.cos(t / 200)
             battv = 12.7 + 0.2 * math.sin(t / 90)
+            # Tidal current: set (true bearing the water flows TOWARD) swings
+            # slowly around ~210 deg; drift (speed) breathes 0.3..1.1 kn. The
+            # wind screen draws this as a centre tide arrow when drift > 0.05.
+            current_set = math.radians((210 + 30 * math.sin(t / 120)) % 360)
+            current_drift = 0.7 + 0.4 * math.sin(t / 75)  # m/s, ~0.6..2.1 kn
 
             delta = {
                 "context": "vessels.self",
@@ -68,6 +73,8 @@ async def main():
                         {"path": "environment.wind.speedTrue", "value": tws},
                         {"path": "environment.depth.belowTransducer", "value": depth},
                         {"path": "environment.water.temperature", "value": water_temp},
+                        {"path": "environment.current.setTrue", "value": current_set},
+                        {"path": "environment.current.drift", "value": current_drift},
                         {"path": "electrical.batteries.house.voltage", "value": battv},
                         {"path": "electrical.batteries.house.stateOfCharge", "value": 0.82},
                         {"path": "tanks.fuel.0.currentLevel", "value": 0.65},
