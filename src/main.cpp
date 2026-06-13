@@ -1927,6 +1927,9 @@ void setup() {
     dash.refresh = ui::dashboard::refresh;
     ui::register_screen(dash);
 
+    // Hidden: not in the swipe rotation; reached only by tapping a dashboard
+    // tile (and dismissed by tapping it or swiping down).
+    ui::register_screen_lazy("zoom", "Zoom", ui::zoom::build, ui::zoom::refresh, true);
     ui::register_screen_lazy("wind", "Wind", ui::wind::build, ui::wind::refresh, false);
     ui::register_screen_lazy("nav", "Nav", ui::nav::build, ui::nav::refresh, false);
     ui::register_screen_lazy("depth", "Depth", ui::depth::build, ui::depth::refresh, false);

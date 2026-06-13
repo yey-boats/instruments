@@ -13,6 +13,12 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace dashboard
 
+// Full-screen single-value view, opened by tapping a dashboard tile.
+namespace zoom {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace zoom
+
 namespace wind {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();

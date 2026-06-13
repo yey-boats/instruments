@@ -4,6 +4,7 @@
 #include "ui_data.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
+#include "signalk.h"
 #include "ui_screens.h"
 #include "board_pins.h"
 #include "app_events.h"
@@ -206,6 +207,19 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
         snprintf(primary, pcap, "--");
         break;
     }
+}
+
+// ---- tap-to-zoom target --------------------------------------------------
+// Set by a tile tap; consumed by the dedicated "zoom" screen (see ui::zoom
+// below) which renders this single metric full-screen. File-scope so both
+// the tap callback (here) and the zoom screen (same TU) share it.
+static MetricBinding g_zoom_target = {"", "", "", MetricSource::None, 0, nullptr};
+
+static void tile_zoom_cb(lv_event_t *e) {
+    const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
+    if (!m || m->source == MetricSource::None) return;
+    g_zoom_target = *m;
+    ui::show_by_id("zoom");
 }
 
 // Numeric value for chart-able metrics, in display units. Returns NaN
@@ -772,6 +786,13 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
         int y = QG_TOP_Y + row * (QG_TILE_H + QG_GAP);
         st->tiles[i] = build_tile(root, x, y, QG_TILE_W, QG_TILE_H, m);
         st->tiles[i].idx = (i < spec.metric_count) ? i : -1;
+        // Tap-to-zoom: real metric tiles open the full-screen single-value
+        // "zoom" screen. user_data points into the persistent spec.metrics[].
+        if (i < spec.metric_count && m.source != MetricSource::None) {
+            lv_obj_add_flag(st->tiles[i].root, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(st->tiles[i].root, tile_zoom_cb, LV_EVENT_CLICKED,
+                                (void *)&spec.metrics[i]);
+        }
     }
 
     lv_obj_set_user_data(root, st);
@@ -2258,3 +2279,77 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
 }
 
 }  // namespace ui::layouts
+
+// ===========================================================================
+// Full-screen single-value "zoom" screen. Opened by tapping a dashboard tile
+// (ui::layouts::tile_zoom_cb sets the file-static g_zoom_target then navigates
+// here). A dedicated screen (not a layer_top overlay) so it composites into
+// the active-screen snapshot and is screenshot-verifiable. Tapping anywhere
+// returns to the dashboard; swipe-down also works via the global gesture map.
+// ===========================================================================
+namespace ui::zoom {
+
+static lv_obj_t *s_root = nullptr;
+static lv_obj_t *s_cap = nullptr;
+static lv_obj_t *s_value = nullptr;
+static lv_obj_t *s_unit = nullptr;
+static char s_last[24] = {(char)0xFF};
+
+static void back_cb(lv_event_t *) {
+    ui::show_by_id("dashboard");
+}
+
+lv_obj_t *build(lv_obj_t *parent) {
+    s_root = lv_obj_create(parent);
+    lv_obj_set_size(s_root, LCD_W, LCD_H);
+    lv_obj_set_pos(s_root, 0, 0);
+    lv_obj_set_style_bg_color(s_root, lv_color_hex(ui::theme.bg), 0);
+    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(s_root, 0, 0);
+    lv_obj_set_style_radius(s_root, 0, 0);
+    lv_obj_set_style_pad_all(s_root, 0, 0);
+    lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(s_root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(s_root, back_cb, LV_EVENT_CLICKED, nullptr);
+
+    s_cap = lv_label_create(s_root);
+    lv_obj_set_style_text_font(s_cap, &lv_font_montserrat_38, 0);
+    lv_obj_set_style_text_color(s_cap, lv_color_hex(ui::theme.fg_dim), 0);
+    lv_obj_align(s_cap, LV_ALIGN_TOP_MID, 0, 60);
+
+    // Big hero value: font_xl_64 scaled ~1.6x (820/256) -> ~100px digits.
+    s_value = lv_label_create(s_root);
+    lv_obj_set_style_text_font(s_value, &font_xl_64, 0);
+    lv_obj_set_style_transform_scale(s_value, 410, 0);
+    lv_obj_set_style_text_color(s_value, lv_color_hex(ui::theme.fg), 0);
+    lv_obj_align(s_value, LV_ALIGN_CENTER, 0, 0);
+    lv_label_set_text(s_value, "--");
+
+    s_unit = lv_label_create(s_root);
+    lv_obj_set_style_text_font(s_unit, &lv_font_montserrat_38, 0);
+    lv_obj_set_style_text_color(s_unit, lv_color_hex(ui::theme.fg_dim), 0);
+    lv_obj_align(s_unit, LV_ALIGN_BOTTOM_MID, 0, -70);
+
+    // A subtle hint that tapping returns.
+    lv_obj_t *hint = lv_label_create(s_root);
+    lv_label_set_text(hint, "tap to close");
+    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(hint, lv_color_hex(ui::theme.fg_dim), 0);
+    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -16);
+    return s_root;
+}
+
+void refresh() {
+    if (!s_root) return;
+    const ui::layouts::MetricBinding &m = ui::layouts::g_zoom_target;
+    lv_obj_set_style_text_color(s_value, lv_color_hex(m.accent ? m.accent : ui::theme.fg), 0);
+    lv_label_set_text(s_cap, m.label ? m.label : "");
+    lv_label_set_text(s_unit, m.unit ? m.unit : "");
+    sk::Data d;
+    sk::copyData(d);
+    char pri[24], sec[64];
+    ui::layouts::format_metric(m, d, pri, sizeof(pri), sec, sizeof(sec));
+    ui::set_text_if_changed(s_value, s_last, sizeof(s_last), pri);
+}
+
+}  // namespace ui::zoom
