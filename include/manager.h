@@ -88,4 +88,24 @@ bool is_provisioned();
 // manager worker drains).
 void request_config_fetch();
 
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+// --- Waveshare knob remote enumeration + switch (Phase F2) -----------------
+// These reuse the manager worker's authenticated HTTP/JSON client. They block
+// on HTTPClient, so they MUST be called only from the manager worker task
+// (never the LVGL/UI task). Results are written into knob_remote under that
+// module's registry lock.
+
+// GET /devices/summary and refresh knob_remote's remote entries (1..N).
+// Returns the number of remote displays ingested, or -1 on failure.
+int knob_refresh_displays();
+
+// GET /devices/:id/views for the remote display at knob_remote index `dev_idx`
+// and fill its view list. Returns true on success.
+bool knob_fetch_views(int dev_idx);
+
+// POST /devices/:device_id/command with {type:"screen.set",payload:{screen}}.
+// Returns true on a 2xx response.
+bool knob_post_screen_set(const char *device_id, const char *screen_id);
+#endif
+
 }  // namespace manager

@@ -43,10 +43,10 @@ knob::Inputs snapshot_inputs() {
     in.ap_target_rad = d.apTargetHdg;
     in.heading_rad = d.headingTrue;
     in.display_count = knob_remote::display_count();
-    const knob_remote::DisplayEntry *e = s_model.level == knob::Level::SelectView
-                                             ? knob_remote::display_at(s_model.entered_display)
-                                             : nullptr;
-    in.view_count = e ? e->view_count : 0;
+    if (s_model.level == knob::Level::SelectView) {
+        knob_remote::DisplayEntry e;
+        if (knob_remote::copy_entry(s_model.entered_display, e)) in.view_count = e.view_count;
+    }
     return in;
 }
 
@@ -98,9 +98,18 @@ void setup() {
 }
 
 void apply_event(int ev, bool held) {
+    knob::Level prev = s_model.level;
+    int prev_display = s_model.entered_display;
     knob::Inputs in = snapshot_inputs();
     knob::Action a = knob::step(s_model, in, (knob::Event)ev, held);
     perform(a);
+    // On drill-in to SelectView (or switching which display is entered), ask
+    // the manager worker to lazily fetch that display's view list. The fetch
+    // is blocking HTTP, so it runs off the UI task; this only sets a flag.
+    if (s_model.level == knob::Level::SelectView &&
+        (prev != knob::Level::SelectView || prev_display != s_model.entered_display)) {
+        knob_remote::request_views_fetch(s_model.entered_display);
+    }
     // Overlay visible whenever we're not on the autopilot Home level.
     ui::knob_menu_overlay::show(s_model.level != knob::Level::Home);
     ui::knob_menu_overlay::refresh();
@@ -448,6 +457,18 @@ static void set_row(int i, const char *text, bool highlight) {
                                 0);
 }
 
+// Compute the first list index to render so a `kMaxRows`-tall window always
+// keeps `highlight` visible. Lists shorter than the window start at 0; longer
+// lists scroll so the highlight stays on screen (and the window never runs past
+// the end of the list).
+static int window_start(int count, int highlight) {
+    if (count <= kMaxRows) return 0;
+    int start = highlight - kMaxRows / 2;
+    if (start < 0) start = 0;
+    if (start > count - kMaxRows) start = count - kMaxRows;
+    return start;
+}
+
 void refresh() {
     if (!s_root) return;
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
@@ -469,28 +490,34 @@ void refresh() {
     case knob::Level::SelectDisplay: {
         lv_label_set_text(s_title, "DISPLAY");
         int n = knob_remote::display_count();
-        for (int i = 0; i < kMaxRows; ++i) {
-            if (i < n) {
-                const knob_remote::DisplayEntry *e = knob_remote::display_at(i);
-                snprintf(buf, sizeof(buf), "#%d %s", i, e ? e->name : "?");
-                set_row(i, buf, i == m.highlight);
+        int start = window_start(n, m.highlight);
+        for (int row = 0; row < kMaxRows; ++row) {
+            int idx = start + row;
+            if (idx < n) {
+                knob_remote::DisplayEntry e;
+                bool ok = knob_remote::copy_entry(idx, e);
+                snprintf(buf, sizeof(buf), "#%d %s", idx, ok ? e.name : "?");
+                set_row(row, buf, idx == m.highlight);
             } else {
-                set_row(i, "", false);
+                set_row(row, "", false);
             }
         }
         break;
     }
     case knob::Level::SelectView: {
         lv_label_set_text(s_title, "VIEW");
-        const knob_remote::DisplayEntry *e = knob_remote::display_at(m.entered_display);
-        int n = e ? e->view_count : 0;
-        for (int i = 0; i < kMaxRows; ++i) {
-            if (e && i < n) {
-                bool cur = (i == e->current_view);
-                snprintf(buf, sizeof(buf), "%s%s", e->view_title[i], cur ? " *" : "");
-                set_row(i, buf, i == m.highlight);
+        knob_remote::DisplayEntry e;
+        bool ok = knob_remote::copy_entry(m.entered_display, e);
+        int n = ok ? e.view_count : 0;
+        int start = window_start(n, m.highlight);
+        for (int row = 0; row < kMaxRows; ++row) {
+            int idx = start + row;
+            if (idx < n) {
+                bool cur = (idx == e.current_view);
+                snprintf(buf, sizeof(buf), "%s%s", e.view_title[idx], cur ? " *" : "");
+                set_row(row, buf, idx == m.highlight);
             } else {
-                set_row(i, "", false);
+                set_row(row, "", false);
             }
         }
         break;

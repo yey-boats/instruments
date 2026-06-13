@@ -42,6 +42,9 @@
 #include "manager_screens.h"
 #include "manager_url.h"
 #include "net.h"
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+#include "knob_remote.h"
+#endif
 
 // Spec 17 §8 touch.mode: the toggle lives in main.cpp because that's
 // where the GT911 worker + INT pin are owned. Forward-declared with C
@@ -1856,12 +1859,148 @@ void worker(void *) {
                 vTaskDelay(pdMS_TO_TICKS(500));
                 continue;
             }
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+            // Knob remote enumeration piggybacks the command poll cadence: a
+            // cheap GET /devices/summary each poll keeps the Select-Display
+            // list fresh without its own task. Lazy per-display view fetches
+            // are drained here too (drill-in sets a pending flag from the UI
+            // task; the blocking HTTP runs on this worker, never on LVGL).
+            knob_remote::refresh_from_manager();
+            knob_remote::drain_pending_views_fetch();
+#endif
         }
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+        else if (prov) {
+            // Even between polls, service a pending drill-in view fetch
+            // promptly so the Select-View list fills without waiting a full
+            // poll interval.
+            knob_remote::drain_pending_views_fetch();
+        }
+#endif
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
 
 }  // namespace
+
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+// Waveshare knob remote enumeration + switch. Worker-task only (blocking
+// HTTPClient), reusing the same auth/timeout/JSON-into-PSRAM plumbing as the
+// register/heartbeat/poll legs above.
+constexpr int MAX_REMOTE_LIST_BYTES = 8 * 1024;
+
+int knob_refresh_displays() {
+    if (!is_provisioned()) return -1;
+    if (WiFi.status() != WL_CONNECTED) return -1;
+    if (!manager_heap_ready("knob devices")) return -1;
+
+    HTTPClient http;
+    String url = build_url("/devices/summary");
+    if (!http.begin(url)) return -1;
+    prepare_http(http);
+    int code = http.GET();
+    if (code != 200) {
+        http.end();
+        record_error("[mgr] knob devices fetch -> %d", code);
+        return -1;
+    }
+    if (!resp_within_cap(http, MAX_REMOTE_LIST_BYTES, "knob devices")) {
+        http.end();
+        return -1;
+    }
+    JsonDocument r(&s_json_allocator);
+    bool ok = deserialize_http_json(http, r, "knob devices");
+    http.end();
+    if (!ok) return -1;
+
+    const char *own = device_identity::get().device_id;
+    JsonArray devices = r["devices"].as<JsonArray>();
+    knob_remote::begin_ingest();
+    int n = 0;
+    for (JsonObject d : devices) {
+        const char *id = d["id"] | "";
+        if (!*id) continue;
+        // Skip our own knob entry; entry 0 is the local one already.
+        if (own && *own && strcmp(own, id) == 0) continue;
+        const char *name = d["name"] | id;
+        const char *cur = d["currentScreen"] | "";
+        knob_remote::ingest_display(id, name, cur);
+        n++;
+    }
+    knob_remote::commit_ingest();
+    return n;
+}
+
+bool knob_fetch_views(int dev_idx) {
+    if (!is_provisioned()) return false;
+    if (WiFi.status() != WL_CONNECTED) return false;
+    if (!manager_heap_ready("knob views")) return false;
+
+    char dev_id[40];
+    knob_remote::copy_device_id(dev_idx, dev_id, sizeof(dev_id));
+    if (!dev_id[0]) return false;  // local or out-of-range -> nothing to fetch
+
+    HTTPClient http;
+    String url = build_url("/devices/") + dev_id + "/views";
+    if (!http.begin(url)) return false;
+    prepare_http(http);
+    int code = http.GET();
+    if (code != 200) {
+        http.end();
+        record_error("[mgr] knob views fetch -> %d", code);
+        return false;
+    }
+    if (!resp_within_cap(http, MAX_REMOTE_LIST_BYTES, "knob views")) {
+        http.end();
+        return false;
+    }
+    JsonDocument r(&s_json_allocator);
+    bool ok = deserialize_http_json(http, r, "knob views");
+    http.end();
+    if (!ok) return false;
+
+    JsonArray views = r["views"].as<JsonArray>();
+    const char *cur = r["current"] | "";
+    // Build bounded id/title arrays for the ingest call. kMaxViews is small;
+    // these fixed arrays live on the worker stack (worker has an 8 KB+ stack).
+    const char *ids[knob_remote::kMaxViews] = {nullptr};
+    const char *titles[knob_remote::kMaxViews] = {nullptr};
+    int count = 0;
+    for (JsonObject v : views) {
+        if (count >= (int)knob_remote::kMaxViews) break;
+        const char *vid = v["id"] | "";
+        if (!*vid) continue;
+        ids[count] = vid;
+        titles[count] = v["title"] | vid;
+        count++;
+    }
+    knob_remote::set_views(dev_idx, ids, titles, count, cur);
+    return true;
+}
+
+bool knob_post_screen_set(const char *device_id, const char *screen_id) {
+    if (!device_id || !*device_id || !screen_id || !*screen_id) return false;
+    if (!is_provisioned()) return false;
+    if (WiFi.status() != WL_CONNECTED) return false;
+    if (!manager_heap_ready("knob screen.set")) return false;
+
+    HTTPClient http;
+    String url = build_url("/devices/") + device_id + "/command";
+    if (!http.begin(url)) return false;
+    prepare_http(http, /*json=*/true);
+    JsonDocument body(&s_json_allocator);
+    body["type"] = "screen.set";
+    body["payload"]["screen"] = screen_id;
+    int code = post_json(http, body, "knob screen.set");
+    http.end();
+    if (code >= 200 && code < 300) {
+        net::logf("[mgr] knob screen.set %s -> %s (code %d)", device_id, screen_id, code);
+        return true;
+    }
+    record_error("[mgr] knob screen.set %s -> code %d", device_id, code);
+    return false;
+}
+#endif  // BOARD_ID_WAVESHARE_KNOB_1_8
 
 void setup() {
     if (!s_state_mtx) s_state_mtx = xSemaphoreCreateMutex();
