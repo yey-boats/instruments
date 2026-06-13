@@ -105,6 +105,93 @@ static void test_control_state_serialization() {
     TEST_ASSERT_EQUAL_STRING("#00bcd4", out["sessions"][0]["color"]);
 }
 
+static proto::Attach mk_attach(const char *id, const char *name, const char *color) {
+    proto::Attach a{};
+    strncpy(a.v, "1.0", sizeof(a.v) - 1);
+    strncpy(a.controllerId, id, sizeof(a.controllerId) - 1);
+    strncpy(a.name, name, sizeof(a.name) - 1);
+    strncpy(a.color, color, sizeof(a.color) - 1);
+    return a;
+}
+
+static void test_attach_full_table_returns_minus_one() {
+    SessionTable t;
+    t.clear();
+    char sid[16];
+    for (int i = 0; i < kMaxSessions; ++i) {
+        proto::Attach a = mk_attach("cx", "CX", "#aabbcc");
+        int idx = t.attach(a, 1000 + i, sid, sizeof(sid));
+        TEST_ASSERT_TRUE(idx >= 0);
+    }
+    TEST_ASSERT_EQUAL_INT(kMaxSessions, t.active_count());
+    proto::Attach extra = mk_attach("overflow", "Overflow", "#ffffff");
+    int overflow_idx = t.attach(extra, 9000, sid, sizeof(sid));
+    TEST_ASSERT_EQUAL_INT(-1, overflow_idx);
+    TEST_ASSERT_EQUAL_INT(kMaxSessions, t.active_count());
+}
+
+static void test_most_recent_idx_last_writer() {
+    SessionTable t;
+    t.clear();
+    char sid1[16], sid2[16];
+    proto::Attach a1 = mk_attach("c1", "C1", "#111111");
+    int idx1 = t.attach(a1, 1000, sid1, sizeof(sid1));
+    TEST_ASSERT_TRUE(idx1 >= 0);
+    proto::Attach a2 = mk_attach("c2", "C2", "#222222");
+    int idx2 = t.attach(a2, 2000, sid2, sizeof(sid2));
+    TEST_ASSERT_TRUE(idx2 >= 0);
+    TEST_ASSERT_EQUAL_INT(idx2, (int)t.mostRecentIdx);
+    TEST_ASSERT_TRUE(t.heartbeat(sid1, 3000));
+    TEST_ASSERT_EQUAL_INT(idx1, (int)t.mostRecentIdx);
+}
+
+static void test_detach_removes_session() {
+    SessionTable t;
+    t.clear();
+    char sid[16];
+    proto::Attach a = mk_attach("c1", "C1", "#aabbcc");
+    t.attach(a, 1000, sid, sizeof(sid));
+    TEST_ASSERT_EQUAL_INT(1, t.active_count());
+    TEST_ASSERT_TRUE(t.detach(sid));
+    TEST_ASSERT_EQUAL_INT(0, t.active_count());
+    TEST_ASSERT_FALSE(t.detach("nope"));
+}
+
+static void test_reap_boundary() {
+    SessionTable t;
+    t.clear();
+    char sid[16];
+    proto::Attach a = mk_attach("c1", "C1", "#aabbcc");
+    t.attach(a, 1000, sid, sizeof(sid));
+    // Exactly at TTL boundary: now - lastSeen == ttl, not > ttl, so survives.
+    TEST_ASSERT_EQUAL_INT(0, t.reap(1000 + kDefaultTtlMs, kDefaultTtlMs));
+    // One ms beyond: now - lastSeen > ttl, gets reaped.
+    TEST_ASSERT_EQUAL_INT(1, t.reap(1000 + kDefaultTtlMs + 1, kDefaultTtlMs));
+    TEST_ASSERT_EQUAL_INT(0, t.active_count());
+}
+
+static void test_control_state_multi_session() {
+    SessionTable t;
+    t.clear();
+    char sid1[16], sid2[16];
+    proto::Attach a1 = mk_attach("c1", "C1", "#111111");
+    t.attach(a1, 1000, sid1, sizeof(sid1));
+    proto::Attach a2 = mk_attach("c2", "C2", "#222222");
+    t.attach(a2, 2000, sid2, sizeof(sid2));
+    ControlState cs{};
+    t.to_control_state(cs, "wind");
+    TEST_ASSERT_EQUAL_INT(2, cs.sessions_count);
+    TEST_ASSERT_EQUAL_STRING("wind", cs.currentView);
+    TEST_ASSERT_EQUAL_STRING("1.0", cs.v);
+    bool found111 = false, found222 = false;
+    for (int i = 0; i < cs.sessions_count; ++i) {
+        if (strcmp(cs.sessions[i].color, "#111111") == 0) found111 = true;
+        if (strcmp(cs.sessions[i].color, "#222222") == 0) found222 = true;
+    }
+    TEST_ASSERT_TRUE(found111);
+    TEST_ASSERT_TRUE(found222);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_version_parse_and_compat);
@@ -114,5 +201,10 @@ int main(int, char **) {
     RUN_TEST(test_unknown_field_ignored);
     RUN_TEST(test_session_table_lifecycle);
     RUN_TEST(test_control_state_serialization);
+    RUN_TEST(test_attach_full_table_returns_minus_one);
+    RUN_TEST(test_most_recent_idx_last_writer);
+    RUN_TEST(test_detach_removes_session);
+    RUN_TEST(test_reap_boundary);
+    RUN_TEST(test_control_state_multi_session);
     return UNITY_END();
 }

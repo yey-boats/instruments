@@ -91,7 +91,7 @@ int SessionTable::active_count() const {
 }
 
 void SessionTable::to_control_state(ControlState &out, const char *currentView) const {
-    strncpy(out.v, "1.0", sizeof(out.v) - 1);
+    snprintf(out.v, sizeof(out.v), "%d.%d", kProtoMajor, kProtoMinor);
     strncpy(out.currentView, currentView ? currentView : "", sizeof(out.currentView) - 1);
     out.sessions_count = 0;
     for (int i = 0; i < kMaxSessions; ++i) {
