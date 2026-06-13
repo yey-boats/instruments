@@ -6,6 +6,7 @@
 // the existing app::Command path. Levels and gestures per
 // docs/superpowers/specs/2026-06-13-waveshare-knob-remote-design.md §3.4.
 
+#include <stddef.h>
 #include <stdint.h>
 
 namespace knob {
@@ -60,5 +61,18 @@ Action step(Model &m, const Inputs &in, Event ev, bool held);
 // 0->"standby", 1->"auto", 2->"wind", 3->"route". Out-of-range -> "standby".
 const char *mode_state_string(int picker_idx);
 const char *level_name(Level l);
+
+// Fills the SignalK PUT path + JSON value for an autopilot Action. This is the
+// single source of truth for the SignalK contract — both the device dispatch
+// (knob_ui.cpp) and the host tests format PUTs through it.
+//   ApSetState     -> path "steering/autopilot/state",
+//                     value "\"<arg_str>\"" (JSON-quoted, e.g. "auto")
+//   ApSetTargetRad -> path "steering/autopilot/target/headingTrue",
+//                     value "%.4f" of arg_f (radians)
+//   else (NoAction / SwitchView) -> returns false, leaves outputs empty
+//                                    (null-terminated path_out[0]/value_out[0]).
+// Returns true when a PUT was produced, false otherwise.
+bool signalk_put_for(const Action &a, char *path_out, size_t path_cap, char *value_out,
+                     size_t value_cap);
 
 }  // namespace knob

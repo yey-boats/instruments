@@ -50,31 +50,26 @@ knob::Inputs snapshot_inputs() {
     return in;
 }
 
-void put_state(const char *state) {
+// Build + post the SignalK PUT for an autopilot Action, formatting the path
+// and JSON value via the pure knob::signalk_put_for so the device and the host
+// tests share ONE formatting source. Returns true if a PUT was posted.
+bool post_ap_put(const knob::Action &a) {
     app::Command cmd;
     cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
-    snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
+    if (!knob::signalk_put_for(a, cmd.a, sizeof(cmd.a), cmd.b, sizeof(cmd.b))) return false;
     app::post_net(cmd, 50);
-    net::logf("[knob] state -> %s", state);
-}
-
-void put_target(double rad) {
-    app::Command cmd;
-    cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/target/headingTrue", sizeof(cmd.a) - 1);
-    snprintf(cmd.b, sizeof(cmd.b), "%.4f", rad);
-    app::post_net(cmd, 50);
-    net::logf("[knob] target -> %.0f deg", rad * 180.0 / M_PI);
+    if (a.type == knob::ActionType::ApSetState)
+        net::logf("[knob] state -> %s", a.arg_str);
+    else
+        net::logf("[knob] target -> %.0f deg", a.arg_f * 180.0 / M_PI);
+    return true;
 }
 
 void perform(const knob::Action &a) {
     switch (a.type) {
     case knob::ActionType::ApSetState:
-        put_state(a.arg_str);
-        break;
     case knob::ActionType::ApSetTargetRad:
-        put_target(a.arg_f);
+        post_ap_put(a);
         break;
     case knob::ActionType::SwitchView:
         knob_remote::switch_view(a.arg_dev_idx, a.arg_view_idx);

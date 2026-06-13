@@ -1,6 +1,7 @@
 #include "knob_menu.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 namespace knob {
@@ -24,6 +25,32 @@ const char *level_name(Level l) {
         return "view";
     }
     return "?";
+}
+
+bool signalk_put_for(const Action &a, char *path_out, size_t path_cap, char *value_out,
+                     size_t value_cap) {
+    if (path_out && path_cap) path_out[0] = 0;
+    if (value_out && value_cap) value_out[0] = 0;
+    switch (a.type) {
+    case ActionType::ApSetState:
+        if (path_out && path_cap) {
+            snprintf(path_out, path_cap, "%s", "steering/autopilot/state");
+        }
+        if (value_out && value_cap) {
+            snprintf(value_out, value_cap, "\"%s\"", a.arg_str);
+        }
+        return true;
+    case ActionType::ApSetTargetRad:
+        if (path_out && path_cap) {
+            snprintf(path_out, path_cap, "%s", "steering/autopilot/target/headingTrue");
+        }
+        if (value_out && value_cap) {
+            snprintf(value_out, value_cap, "%.4f", a.arg_f);
+        }
+        return true;
+    default:
+        return false;
+    }
 }
 
 void init(Model &m) {
