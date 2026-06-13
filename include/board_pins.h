@@ -1,5 +1,8 @@
 #pragma once
 
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+#include "board_pins_waveshare_knob.h"
+#else
 // clang-format off
 
 // Sunton / Guition ESP32-4848S040 (also labeled ESP32-4840S040)
@@ -65,3 +68,6 @@
 // Note: most user GPIOs on this board are consumed by the RGB panel.
 // Likely relay-header GPIOs reuse the SD bank or unused panel pins.
 #define RELAY_CANDIDATE_GPIOS_HINT "consumed by RGB; needs board-specific check"
+
+// clang-format on
+#endif  // BOARD_ID_WAVESHARE_KNOB_1_8 / else
