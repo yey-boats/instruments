@@ -6,6 +6,16 @@ class, drop in preset screens or build your own, bind each tile to a
 SignalK metric path, and push the result to the device. This guide
 walks through the flow with screenshots.
 
+> **Updated 2026-06 (glass-cockpit rework).** The editor now renders previews
+> in the device's **glass-cockpit** palette — cool near-black ground, bordered
+> gradient cells, semantic colors, large numerals — kept in lockstep with the
+> firmware theme (`ui_theme.cpp` ↔ editor `:root`, enforced by
+> `test/widget-parity.test.js`), so the preview matches the panel. Small wind
+> and compass widgets show a live rotating needle. Each device page now has a
+> **"Switch this device to view"** control (see
+> [Switching a device to a view](#switching-a-device-to-a-view)). The embedded
+> UI screenshots below predate the palette refresh; the layout/flow is current.
+
 ## Getting to the editor
 
 The plugin is bundled with `signalk-espdisp-manager`. Once the plugin
@@ -189,6 +199,24 @@ End-to-end latency from **Save** to **visible on device** is usually
 - **Editor changes don't show on device**: the device might be on a
   different profile. Check the Devices tab and confirm the
   `assignedProfile` matches what you edited.
+
+## Switching a device to a view
+
+Each device page (**Devices → \<device\>**) has a **Switch this device to
+view** control:
+
+1. Pick a profile/view from the dropdown (the device's currently assigned
+   profile is pre-selected).
+2. Click **Apply view + reload device**.
+
+This assigns the selected view to that one device and queues a
+`config.reload` command. On its next poll the device fetches the generated
+config, validates it against its display capabilities, and applies it
+transactionally (keeping the last-good dashboard if the new one fails). The
+device page's **Config hash** updates once the new view is live.
+
+Use this for switching a single helm display; for rolling the same view to
+several devices at once, use the multi-device apply on the **Presets** tab.
 
 ## Direct API
 
