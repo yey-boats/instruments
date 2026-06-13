@@ -33,6 +33,18 @@ SemaphoreHandle_t s_mtx = nullptr;
 // aligned); the heavier registry mutation is serialized by s_mtx.
 volatile int s_pending_views_idx = -1;
 
+// UI-task -> worker request: a remote view-switch to perform via a blocking
+// manager screen.set POST. switch_view() resolves the target device id + view
+// id under s_mtx and stows them here; the worker drains it on its next tick so
+// the HTTP never runs on the LVGL task. Guarded by s_mtx (multi-field struct,
+// unlike the single-word views index).
+struct PendingSwitch {
+    bool pending;
+    char dev_id[40];
+    char view_id[24];
+};
+PendingSwitch s_pending_switch = {false, {0}, {0}};
+
 void lock() {
     if (s_mtx) xSemaphoreTake(s_mtx, portMAX_DELAY);
 }
@@ -119,16 +131,20 @@ bool switch_view(int dev_idx, int view_idx) {
         return ui::show_by_id(e.view_id[view_idx]);
     }
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
-    // Remote: queue a manager screen.set command to that device. The manager
-    // client posts /devices/:id/command; the target executes screen.set and
-    // applies instantly via configPush.
-    bool ok = manager::knob_post_screen_set(e.id, e.view_id[view_idx]);
-    if (ok) {
-        lock();
-        if (dev_idx >= 0 && dev_idx < s_count) s_displays[dev_idx].current_view = view_idx;
-        unlock();
-    }
-    return ok;
+    // Remote: queue the manager screen.set for the worker. The blocking POST
+    // (/devices/:id/command) must NOT run here on the LVGL task, so we only
+    // resolve the target id+view under the lock, stow them in the pending slot,
+    // and return true (queued). drain_pending_switch() does the HTTP on the
+    // manager worker; the target executes screen.set and applies via configPush.
+    lock();
+    s_pending_switch.pending = true;
+    copy_str(s_pending_switch.dev_id, sizeof(s_pending_switch.dev_id), e.id);
+    copy_str(s_pending_switch.view_id, sizeof(s_pending_switch.view_id), e.view_id[view_idx]);
+    // Optimistically reflect the requested view in the registry for the menu;
+    // the actual device state is reconciled by the next summary refresh.
+    if (dev_idx >= 0 && dev_idx < s_count) s_displays[dev_idx].current_view = view_idx;
+    unlock();
+    return true;
 #else
     return false;
 #endif
@@ -261,6 +277,27 @@ bool drain_pending_views_fetch() {
     if (idx < 0) return false;
     s_pending_views_idx = -1;
     return fetch_views_for(idx);
+#else
+    return false;
+#endif
+}
+
+bool drain_pending_switch() {
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    // Copy the request out under the lock and clear it, then release the lock
+    // before the blocking POST so the mutex is never held across HTTP.
+    char dev_id[40];
+    char view_id[24];
+    lock();
+    bool pending = s_pending_switch.pending;
+    if (pending) {
+        s_pending_switch.pending = false;
+        copy_str(dev_id, sizeof(dev_id), s_pending_switch.dev_id);
+        copy_str(view_id, sizeof(view_id), s_pending_switch.view_id);
+    }
+    unlock();
+    if (!pending) return false;
+    return manager::knob_post_screen_set(dev_id, view_id);
 #else
     return false;
 #endif

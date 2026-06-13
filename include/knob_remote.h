@@ -59,6 +59,14 @@ void request_views_fetch(int dev_idx);
 // fetch was performed.
 bool drain_pending_views_fetch();
 
+// Worker tick: if a remote view-switch was queued by switch_view() on the UI
+// task, perform the blocking manager screen.set POST here and clear the
+// request. Called from the manager worker loop right next to the views-fetch
+// drain. The pending id+view are copied out under the lock before the POST so
+// the mutex is never held across the HTTP call. Returns true if a switch was
+// posted.
+bool drain_pending_switch();
+
 // Whether a manager-backed refresh is worth attempting (knob board, provisioned
 // manager client). Lets the worker skip the GET entirely otherwise.
 bool manager_available();

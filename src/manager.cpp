@@ -1867,14 +1867,17 @@ void worker(void *) {
             // task; the blocking HTTP runs on this worker, never on LVGL).
             knob_remote::refresh_from_manager();
             knob_remote::drain_pending_views_fetch();
+            knob_remote::drain_pending_switch();
 #endif
         }
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
         else if (prov) {
             // Even between polls, service a pending drill-in view fetch
             // promptly so the Select-View list fills without waiting a full
-            // poll interval.
+            // poll interval. The remote view-switch POST is drained here too
+            // so a knob turn -> remote switch isn't stalled a poll interval.
             knob_remote::drain_pending_views_fetch();
+            knob_remote::drain_pending_switch();
         }
 #endif
         vTaskDelay(pdMS_TO_TICKS(500));
