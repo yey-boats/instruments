@@ -114,7 +114,14 @@ bool handle_attach(const proto::Attach &a, proto::AttachAck &ack) {
         strncpy(ack.reason, "incompatible_version", sizeof(ack.reason) - 1);
         return false;
     }
-    if (!proto::auth_ok(s_key, a.key)) {
+    // Snapshot the shared key under the lock so a concurrent `ctl key` cannot
+    // race the auth check (set_key writes s_key under s_mtx).
+    char key_snapshot[sizeof(s_key)];
+    lock();
+    strncpy(key_snapshot, s_key, sizeof(key_snapshot) - 1);
+    key_snapshot[sizeof(key_snapshot) - 1] = '\0';
+    unlock();
+    if (!proto::auth_ok(key_snapshot, a.key)) {
         ack.accepted = false;
         strncpy(ack.reason, "unauthorized", sizeof(ack.reason) - 1);
         return false;

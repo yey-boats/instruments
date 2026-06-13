@@ -1756,7 +1756,7 @@ static bool handleMainCommand(const String &line) {
     if (line.startsWith("ctl key ")) {
         String v = line.substring(8);
         v.trim();
-        if (v == "clear") {
+        if (v == "clear" || v.startsWith("clear ")) {
             {
                 storage::Namespace p("proto", false);
                 p.remove("key");
