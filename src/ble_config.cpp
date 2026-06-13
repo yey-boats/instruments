@@ -4,6 +4,9 @@
 #include "signalk.h"
 #include "layout_loader.h"
 #include "app_events.h"
+#include "proto_target.h"
+#include "proto/proto.h"
+#include "proto/records_generated.h"
 
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
@@ -15,6 +18,12 @@ namespace bleconfig {
 
 static NimBLECharacteristic *s_conn = nullptr;
 static NimBLECharacteristic *s_config = nullptr;
+
+// Control GATT (espdisp control protocol over BLE).
+static NimBLECharacteristic *s_ctrl_device = nullptr;
+static NimBLECharacteristic *s_ctrl_control = nullptr;
+static NimBLECharacteristic *s_ctrl_state = nullptr;
+static NimBLECharacteristic *s_ctrl_resp = nullptr;
 
 // Build the JSON document returned on CONNECTION reads.
 static String connectionJson() {
@@ -173,6 +182,203 @@ class ConfigCb : public NimBLECharacteristicCallbacks {
     }
 };
 
+// ---- Control GATT service (espdisp control protocol over BLE) ----
+//
+// This is the BLE fallback for the HTTP /api/p2p/* path. It reuses the SAME
+// proto_target::handle_* handlers (one session/auth/version code path for both
+// transports) and the SAME generated (de)serializers (proto::from_json /
+// proto::to_json). No session or auth logic is duplicated here.
+//
+// Readback note: a BLE WRITE has no response payload, so after a CONTROL write
+// we stash the ack JSON on the RESP characteristic (READ + NOTIFY) and refresh
+// STATE; a central reads the attach sessionId back from RESP (and/or its notify).
+
+// Build a DeviceRecord JSON, summarized to stay under the 512-byte BLE
+// attribute cap (trap #5). DeviceRecord can carry up to 16 ViewRefs (~ a few
+// KiB serialized); we cap the views list to the first few and flag the
+// truncation. The full views list is always available over IP (GET
+// /api/p2p/device), which has no such cap.
+static String controlDeviceJson() {
+    proto::DeviceRecord r;
+    proto_target::fill_device_record(r);
+
+    // Cap views so the serialized record fits the 512-byte GATT read. Each
+    // ViewRef is id+title; ~4 views keeps us comfortably under the cap even
+    // with long ids. Mark "views" as truncated when we drop any.
+    constexpr int kBleMaxViews = 4;
+    bool truncated = false;
+    if (r.views_count > kBleMaxViews) {
+        r.views_count = kBleMaxViews;
+        truncated = true;
+    }
+
+    JsonDocument doc(&espdisp::psram_json);
+    JsonObject o = doc.to<JsonObject>();
+    proto::to_json(o, r);
+    if (truncated) o["viewsTruncated"] = true;  // hint: fetch full list over IP
+
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+
+// Build a ControlState JSON. ControlState holds at most kMaxSessions (8)
+// Sessions; each Session is small (controllerId/name/color/lastSeen) and 8 of
+// them serialize well under 512 bytes, so no summarization is required here.
+static String controlStateJson() {
+    proto::ControlState cs;
+    proto_target::fill_state(cs);
+    JsonDocument doc(&espdisp::psram_json);
+    proto::to_json(doc.to<JsonObject>(), cs);
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+
+// Dispatch one inbound Control message. Reuses proto_target::handle_* exactly
+// like web.cpp; returns the ack JSON to stash on RESP. Rejects incompatible
+// protocol versions (mirrors the HTTP 400 incompatible_version gate).
+static String dispatchControl(const std::string &data) {
+    JsonDocument doc(&espdisp::psram_json);
+    if (deserializeJson(doc, data) != DeserializationError::Ok) {
+        return String("{\"v\":\"1.0\",\"ok\":false,\"reason\":\"bad_json\"}");
+    }
+    JsonObjectConst o = doc.as<JsonObjectConst>();
+    const char *t = o["t"] | "";
+    const char *v = o["v"] | "";
+
+    if (!proto::version_compatible(v)) {
+        return String("{\"v\":\"1.0\",\"ok\":false,\"reason\":\"incompatible_version\"}");
+    }
+
+    JsonDocument out(&espdisp::psram_json);
+
+    if (strcmp(t, "attach") == 0) {
+        proto::Attach req;
+        proto::from_json(o, req);
+        proto::AttachAck ack;
+        proto_target::handle_attach(req, ack);
+        // Drop the embedded DeviceRecord views to keep the ack within 512 B; the
+        // sessionId (the thing a central needs to read back) and accepted flag
+        // are the load-bearing fields. Full device record is on the DEVICE char.
+        ack.device.views_count = 0;
+        ack.device.transports_count = 0;
+        proto::to_json(out.to<JsonObject>(), ack);
+    } else if (strcmp(t, "switch") == 0) {
+        proto::Switch req;
+        proto::from_json(o, req);
+        proto::SwitchAck ack;
+        proto_target::handle_switch(req, ack);
+        proto::to_json(out.to<JsonObject>(), ack);
+    } else if (strcmp(t, "heartbeat") == 0) {
+        proto::Heartbeat req;
+        proto::from_json(o, req);
+        bool ok = proto_target::handle_heartbeat(req.sessionId);
+        proto::HeartbeatAck ack;
+        strncpy(ack.v, "1.0", sizeof(ack.v) - 1);
+        ack.ok = ok;
+        ack.ttlMs = proto::kDefaultTtlMs;
+        proto::to_json(out.to<JsonObject>(), ack);
+    } else if (strcmp(t, "detach") == 0) {
+        proto::Detach req;
+        proto::from_json(o, req);
+        bool ok = proto_target::handle_detach(req.sessionId);
+        JsonObject ro = out.to<JsonObject>();
+        ro["v"] = "1.0";
+        ro["t"] = "detachAck";
+        ro["ok"] = ok;
+    } else {
+        JsonObject ro = out.to<JsonObject>();
+        ro["v"] = "1.0";
+        ro["ok"] = false;
+        ro["reason"] = "unknown_type";
+    }
+
+    String payload;
+    serializeJson(out, payload);
+    return payload;
+}
+
+class CtrlDeviceCb : public NimBLECharacteristicCallbacks {
+    void onRead(NimBLECharacteristic *c) override {
+        String j = controlDeviceJson();
+        c->setValue((const uint8_t *)j.c_str(), j.length());
+    }
+};
+
+class CtrlStateCb : public NimBLECharacteristicCallbacks {
+    void onRead(NimBLECharacteristic *c) override {
+        String j = controlStateJson();
+        c->setValue((const uint8_t *)j.c_str(), j.length());
+    }
+};
+
+class CtrlControlCb : public NimBLECharacteristicCallbacks {
+    void onWrite(NimBLECharacteristic *c) override {
+        std::string data = c->getValue();
+        if (data.empty()) return;
+        if (data.size() > 512) {
+            net::logf("[bleconfig] control write: rejected (size > 512)");
+            return;
+        }
+        // proto_target::handle_* is thread-safe (mutex-guarded) and posts UI
+        // work via app::Command, so it is safe to run from the BLE callback.
+        String ack = dispatchControl(data);
+
+        // Stash the ack on RESP so the central can read back the sessionId (a
+        // BLE WRITE returns no body), and notify both RESP + STATE on change.
+        if (s_ctrl_resp) {
+            s_ctrl_resp->setValue((const uint8_t *)ack.c_str(), ack.length());
+            s_ctrl_resp->notify();
+        }
+        if (s_ctrl_state) {
+            String st = controlStateJson();
+            s_ctrl_state->setValue((const uint8_t *)st.c_str(), st.length());
+            s_ctrl_state->notify();
+        }
+    }
+};
+
+static void setupControlService(NimBLEServer *server) {
+    NimBLEService *svc = server->createService(CTRL_SERVICE_UUID);
+
+    s_ctrl_device = svc->createCharacteristic(CTRL_DEVICE_UUID, NIMBLE_PROPERTY::READ);
+    s_ctrl_device->setCallbacks(new CtrlDeviceCb());
+    {
+        String j = controlDeviceJson();
+        s_ctrl_device->setValue((const uint8_t *)j.c_str(), j.length());
+    }
+
+    s_ctrl_control = svc->createCharacteristic(CTRL_CONTROL_UUID,
+                                               NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+    s_ctrl_control->setCallbacks(new CtrlControlCb());
+
+    s_ctrl_state =
+        svc->createCharacteristic(CTRL_STATE_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    s_ctrl_state->setCallbacks(new CtrlStateCb());
+    {
+        String j = controlStateJson();
+        s_ctrl_state->setValue((const uint8_t *)j.c_str(), j.length());
+    }
+
+    s_ctrl_resp =
+        svc->createCharacteristic(CTRL_RESP_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
+    {
+        static const char kInit[] = "{\"v\":\"1.0\",\"t\":\"ready\"}";
+        s_ctrl_resp->setValue((const uint8_t *)kInit, sizeof(kInit) - 1);
+    }
+
+    svc->start();
+
+    // Advertise the Control service UUID so a central can find espdisp targets
+    // by it. The primary advertising packet's service list can be tight (31-byte
+    // budget); put the Control UUID in the scan response to stay within budget.
+    NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+    adv->addServiceUUID(CTRL_SERVICE_UUID);
+
+    net::logf("[bleconfig] Control GATT service registered (%s)", CTRL_SERVICE_UUID);
+}
+
 void setup() {
     NimBLEServer *server = NimBLEDevice::createServer();  // returns existing if already created
     NimBLEService *svc = server->createService(SERVICE_UUID);
@@ -201,6 +407,9 @@ void setup() {
     adv->addServiceUUID(SERVICE_UUID);
 
     net::logf("[bleconfig] GATT service registered (%s)", SERVICE_UUID);
+
+    // Add the espdisp Control GATT service (BLE fallback for /api/p2p/*).
+    setupControlService(server);
 }
 
 void notifyAll() {
