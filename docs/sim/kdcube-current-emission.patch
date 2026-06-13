@@ -1,0 +1,34 @@
+--- /dev/fd/12	2026-06-13 12:02:10
++++ modules/signalk_writer.py	2026-06-13 12:00:11
+@@ -421,6 +421,20 @@
+     return {"path": path, "value": value}
+ 
+ 
++def _cur_set_deg(utc_now: datetime) -> float:
++    """Modeled tidal-current set (deg true): swings slowly around the Adriatic
++    NW->SE drift."""
++    p = utc_now.timestamp()
++    return (150.0 + 30.0 * math.sin(p / 600.0)) % 360.0
++
++
++def _cur_drift_kts(utc_now: datetime) -> float:
++    """Modeled tidal-current drift (kn): breathes 0..~0.8 kn and periodically
++    dips to ~0 (slack water) so a calm-current state is exercised."""
++    p = utc_now.timestamp()
++    return max(0.0, 0.38 + 0.45 * math.sin(p / 480.0))
++
++
+ def _autopilot_values(ap: Any, hdg_deg: float) -> list[dict]:
+     """SignalK delta values for the autopilot from its current state."""
+     s = ap.state
+@@ -473,6 +487,10 @@
+         _v("environment.water.swell.height",    wx.wave_height_m),
+         _v("environment.water.swell.period",    wx.wave_period_s),
+         _v("environment.water.swell.direction", math.radians(wx.wave_dir_deg)),
++        # Tidal current (modeled): set swings around the Adriatic NW->SE drift;
++        # drift breathes and periodically dips to ~0 (slack). setTrue=rad, drift=m/s.
++        _v("environment.current.setTrue", math.radians(_cur_set_deg(utc_now))),
++        _v("environment.current.drift",   _cur_drift_kts(utc_now) * 0.514444),
+         _v("environment.outside.temperature",   wx.temp_c + 273.15),
+         _v("environment.outside.pressure",      wx.pressure_pa),
+         _v("environment.outside.humidity",      wx.humidity),
