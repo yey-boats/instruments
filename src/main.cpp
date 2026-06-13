@@ -30,6 +30,18 @@
 #include <math.h>
 #include <string.h>
 
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+// Waveshare ESP32-S3-Knob 1.8" 360x360 round panel: ST77916 over Quad-SPI.
+// CS/SCK + D0..D3 from the knob pin map (include/board_pins_waveshare_knob.h).
+// Arduino_ESP32QSPI ctor is (cs, sck, mosi=D0, miso=D1, quadwp=D2, quadhd=D3).
+static Arduino_DataBus *bus =
+    new Arduino_ESP32QSPI(QSPI_CS, QSPI_SCK, QSPI_D0, QSPI_D1, QSPI_D2, QSPI_D3);
+// gfx is the Arduino_GFX base pointer; the LVGL flush path uses
+// gfx->draw16bitRGBBitmap (a base virtual) so it stays board-agnostic.
+static Arduino_GFX *gfx =
+    new Arduino_ST77916(bus, LCD_RST, 0 /* rotation */, true /* IPS */, LCD_W, LCD_H);
+
+#else
 // ST7701 init via 3-wire SPI, then RGB takes over.
 static Arduino_DataBus *bus =
     new Arduino_SWSPI(-1 /* DC */, ST7701_CS, ST7701_SCK, ST7701_MOSI, -1 /* MISO */);
@@ -118,6 +130,7 @@ static Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
 static Arduino_RGB_Display *gfx =
     new Arduino_RGB_Display(LCD_W, LCD_H, rgbpanel, 0 /* rotation */, true /* auto_flush */, bus,
                             -1 /* RST */, st7701_4848S040_init, sizeof(st7701_4848S040_init));
+#endif  // BOARD_ID_WAVESHARE_KNOB_1_8
 
 static bool touch_present = false;
 
