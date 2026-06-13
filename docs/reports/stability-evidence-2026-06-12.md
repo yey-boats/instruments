@@ -135,3 +135,18 @@ RAM remain available headroom for future tuning (BLE must stay — it is a
 required diagnostic/config channel). Stack canaries (B1) should land next via
 `build_flags -fstack-protector-strong` (the prebuilt Arduino core makes the
 sdkconfig toggle ineffective).
+
+## Manager loop restored (2026-06-13)
+
+The "heartbeat stopped 2026-05-28" finding above is resolved. Root cause: the
+device lost its NVS manager token (erase/reflash), and `/devices/register`
+only returns `deviceToken` on first-create, so the device register-looped
+(200, `auth=unprov`, no heartbeat) and the registry `lastSeen` stayed stale.
+
+Fixed operationally by setting the shared dev token on the device
+(`manager-token espdisp-dev`; lab plugin is dev-shared-token mode, default
+devToken `espdisp-dev`). Result: `auth=provisioned`, heartbeat code 200, and
+the registry now shows `espdisp-28372f8a0290` with `lastSeen` = now and fw
+`0.3.5`. The manager feedback loop (and the per-device "switch view + reload"
+path) are live again; SP4 push-live is unblocked. Proper code fix tracked in
+the lab-manager-provisioning note.
