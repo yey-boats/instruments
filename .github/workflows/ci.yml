@@ -27,6 +27,7 @@ jobs:
           - waveshare-touch-lcd-5_1024x600
           - waveshare-touch-lcd-7_800x480
           - waveshare-touch-lcd-7b_1024x600
+          - waveshare-knob-1_8
     steps:
       - uses: actions/checkout@v4
 
