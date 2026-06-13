@@ -274,49 +274,62 @@ static void build_boat(lv_obj_t *parent) {
 
 // ---- wind markers (T and A) --------------------------------------------
 
-static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t bg, uint32_t fg) {
+// A wind index that orbits the rim at the wind-source bearing: a filled
+// triangle (LV_SYMBOL_DOWN) pointing INWARD — i.e. in the direction the wind is
+// blowing across the boat — with the A / T letter riding just inboard of it.
+// The holder pivots at the dial centre, so set_rot_if_changed() in refresh()
+// sweeps the whole index around the rose to AWA / TWA. At rotation 0 the index
+// sits at the bow (wind dead ahead) and the triangle points down toward centre.
+// Mirrors the make_dir_marker() idiom on the dashboard wind-rose tile.
+static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t color) {
     lv_obj_t *m = lv_obj_create(parent);
-    lv_obj_set_size(m, 42, 30);
-    lv_obj_set_style_bg_color(m, lv_color_hex(bg), 0);
-    lv_obj_set_style_bg_opa(m, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(m, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(m, 1, 0);
-    lv_obj_set_style_radius(m, 6, 0);
+    lv_obj_set_size(m, 34, 54);
+    lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(m, 0, 0);
     lv_obj_set_style_pad_all(m, 0, 0);
     lv_obj_clear_flag(m, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(m, LV_OBJ_FLAG_CLICKABLE);
-    apply_pivot_center(m, 21, R_MARKER);
+    apply_pivot_center(m, 17, R_MARKER);  // pivot at dial centre; top edge near rim
 
+    // Triangle at the outer (rim) end, pointing inward toward the boat.
+    lv_obj_t *tri = lv_label_create(m);
+    lv_label_set_text(tri, LV_SYMBOL_DOWN);
+    lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
+    lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -6);
+
+    // A / T letter inboard of the triangle so apparent vs true stay legible.
     lv_obj_t *l = lv_label_create(m);
     lv_label_set_text(l, letter);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(fg), 0);
-    lv_obj_center(l);
+    lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 24);
     return m;
 }
 
 // ---- tide / current vector ---------------------------------------------
-// A centered current vector: the SHAFT is symmetric about the dial centre
-// (its middle sits exactly on CX,CY) and the HEAD points in the current's set
-// direction; the whole thing rotates around the centre. When the current is
-// ~0 (calm), the arrow hides and a small ring is shown at the centre instead.
+// A current arrow rooted at the dial centre and pointing the way the current is
+// flowing TOWARD (its set): the shaft runs from the centre outward and a filled
+// triangular head (LV_SYMBOL_UP) caps the set end. The whole thing rotates
+// around the centre by (set - heading). When the current is ~0 (calm), the
+// arrow hides and a small ring is shown at the centre instead.
 static constexpr int TIDE_H = 132;           // box height
 static constexpr int TIDE_MID = TIDE_H / 2;  // pivot row == dial centre
 static void build_tide(lv_obj_t *parent) {
     tide_arrow = lv_obj_create(parent);
-    lv_obj_set_size(tide_arrow, 24, TIDE_H);
+    lv_obj_set_size(tide_arrow, 32, TIDE_H);
     lv_obj_set_style_bg_opa(tide_arrow, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(tide_arrow, 0, 0);
     lv_obj_set_style_pad_all(tide_arrow, 0, 0);
     lv_obj_clear_flag(tide_arrow, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(tide_arrow, LV_OBJ_FLAG_CLICKABLE);
-    apply_pivot_center(tide_arrow, 12, TIDE_MID);
+    apply_pivot_center(tide_arrow, 16, TIDE_MID);
 
-    // Shaft: symmetric about the box centre (TIDE_MID), so its middle is at
-    // the dial centre. Extends ~46 px each way.
+    // Shaft: from the dial centre (TIDE_MID, the pivot row) outward toward the
+    // set end (top of the box), so the arrow emanates from the boat.
     lv_obj_t *shaft = lv_obj_create(tide_arrow);
-    lv_obj_set_size(shaft, 5, 92);
-    lv_obj_set_pos(shaft, 9, TIDE_MID - 46);
+    lv_obj_set_size(shaft, 5, 54);
+    lv_obj_set_pos(shaft, 16 - 2, TIDE_MID - 54);
     lv_obj_set_style_bg_color(shaft, lv_color_hex(0x288cff), 0);
     lv_obj_set_style_bg_opa(shaft, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(shaft, 0, 0);
@@ -325,18 +338,12 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_clear_flag(shaft, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(shaft, LV_OBJ_FLAG_CLICKABLE);
 
-    // Head (diamond) at the set-direction (top) end.
-    lv_obj_t *head = lv_obj_create(tide_arrow);
-    lv_obj_set_size(head, 22, 22);
-    lv_obj_set_pos(head, 1, 2);
-    lv_obj_set_style_bg_color(head, lv_color_hex(0x288cff), 0);
-    lv_obj_set_style_bg_opa(head, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(head, lv_color_hex(theme.fg), 0);
-    lv_obj_set_style_border_width(head, 1, 0);
-    lv_obj_set_style_radius(head, 11, 0);
-    lv_obj_set_style_pad_all(head, 0, 0);
-    lv_obj_clear_flag(head, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(head, LV_OBJ_FLAG_CLICKABLE);
+    // Head: filled triangle at the set end, pointing OUTWARD (toward set).
+    lv_obj_t *head = lv_label_create(tide_arrow);
+    lv_label_set_text(head, LV_SYMBOL_UP);
+    lv_obj_set_style_text_font(head, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_color(head, lv_color_hex(0x288cff), 0);
+    lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(tide_arrow, LV_OBJ_FLAG_HIDDEN);
 
     // Zero-current ring (shown when drift ~ 0): a hollow circle at the centre.
@@ -486,12 +493,12 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_pos(lbl_tide_speed, CX - 22, CY - 10);
 
-    // Wind markers (T white, A amber). T below A in z-order so amber wins
-    // when they overlap (apparent is the one you steer to).
-    // A/T markers carry a chevron (>>) so the apparent (amber) and true
-    // (white) wind indices read as inward-pointing direction arrows.
-    twa_marker = make_wind_marker(s_root, "T>>", 0xe3ebf2, 0x13253a);
-    awa_marker = make_wind_marker(s_root, "A>>", 0xf6a21a, 0x13253a);
+    // Wind indices (T white, A amber). T below A in z-order so amber wins when
+    // they overlap (apparent is the one you steer to). Each is a triangle that
+    // sits at the wind-source bearing and points inward — the direction the
+    // wind blows across the boat — with the A / T letter just inboard.
+    twa_marker = make_wind_marker(s_root, "T", theme.fg);
+    awa_marker = make_wind_marker(s_root, "A", 0xf6a21a);
 
     build_bezel(s_root);
     build_waypoint(s_root);
