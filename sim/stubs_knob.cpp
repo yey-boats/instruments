@@ -76,28 +76,41 @@ bool post_net(const Command &, uint32_t) {
 }
 }  // namespace app
 
-// Minimal knob_remote registry: only the local "This knob" entry with the four
-// dedicated views, matching src/knob_remote.cpp's add_local(). The render
-// harness never drives the menu, so the remote/manager paths are no-ops.
+// knob_remote registry stub. By default it holds only the local "This knob"
+// entry with the four dedicated views, matching src/knob_remote.cpp's
+// add_local(). The menu-overlay render harness (sim_knob.cpp) can SEED extra
+// remote displays via the test-only sim_knob_remote_seed* helpers below so the
+// real overlay code reads a real (stubbed) registry of N>kMaxRows entries and
+// the SelectDisplay/SelectView windowing can be screenshotted. The seeded
+// entries flow through the exact display_count()/copy_entry() API the overlay
+// calls — nothing about the rendered list is faked.
 namespace knob_remote {
 
 namespace {
-DisplayEntry s_local;
+DisplayEntry s_entries[kMaxDisplays];
+int s_count = 0;
 bool s_inited = false;
 
-void ensure_local() {
-    if (s_inited) return;
-    memset(&s_local, 0, sizeof(s_local));
-    strncpy(s_local.name, "This knob", sizeof(s_local.name) - 1);
-    s_local.is_local = true;
+void add_local() {
+    DisplayEntry &e = s_entries[0];
+    memset(&e, 0, sizeof(e));
+    strncpy(e.name, "This knob", sizeof(e.name) - 1);
+    e.is_local = true;
     const char *vids[4] = {"ap_hud", "knob_compass", "knob_wind", "knob_big"};
     const char *vtitles[4] = {"Autopilot", "Compass", "Wind", "Big number"};
     for (int i = 0; i < 4; ++i) {
-        strncpy(s_local.view_id[i], vids[i], sizeof(s_local.view_id[i]) - 1);
-        strncpy(s_local.view_title[i], vtitles[i], sizeof(s_local.view_title[i]) - 1);
+        strncpy(e.view_id[i], vids[i], sizeof(e.view_id[i]) - 1);
+        strncpy(e.view_title[i], vtitles[i], sizeof(e.view_title[i]) - 1);
     }
-    s_local.view_count = 4;
-    s_local.current_view = 0;
+    e.view_count = 4;
+    e.current_view = 0;
+}
+
+void ensure_local() {
+    if (s_inited) return;
+    memset(s_entries, 0, sizeof(s_entries));
+    add_local();
+    s_count = 1;
     s_inited = true;
 }
 }  // namespace
@@ -107,12 +120,12 @@ void setup() {
 }
 int display_count() {
     ensure_local();
-    return 1;
+    return s_count;
 }
 bool copy_entry(int idx, DisplayEntry &out) {
     ensure_local();
-    if (idx != 0) return false;
-    out = s_local;
+    if (idx < 0 || idx >= s_count) return false;
+    out = s_entries[idx];
     return true;
 }
 bool switch_view(int, int) {
@@ -145,5 +158,37 @@ void copy_device_id(int, char *out, size_t out_cap) {
     if (out && out_cap) out[0] = 0;
 }
 void set_views(int, const char *const *, const char *const *, int, const char *) {
+}
+}  // namespace knob_remote
+
+// --- Test-only seeding hooks used by sim_knob.cpp ---------------------------
+// These let the render harness build a registry of N displays (the local knob
+// plus remote displays) and give a chosen display a view list with a current
+// marker, so the real overlay renders a faithful SelectDisplay/SelectView list.
+// They mutate the same s_entries/s_count the overlay reads through copy_entry().
+namespace knob_remote {
+// Reset to just the local entry, then append `n_remote` synthetic remote
+// displays named "Cockpit N" with a 3-view list (current = view 1). Returns the
+// resulting display_count(). Capped at kMaxDisplays.
+int sim_seed_displays(int n_remote) {
+    ensure_local();
+    s_count = 1;  // keep entry 0 (local), drop any prior remotes
+    static const char *kRemoteViews[3] = {"nav", "engine", "tanks"};
+    static const char *kRemoteTitles[3] = {"Navigation", "Engine", "Tanks"};
+    for (int i = 0; i < n_remote && s_count < (int)kMaxDisplays; ++i) {
+        DisplayEntry &e = s_entries[s_count];
+        memset(&e, 0, sizeof(e));
+        snprintf(e.id, sizeof(e.id), "dev-%d", s_count);
+        snprintf(e.name, sizeof(e.name), "Cockpit %d", s_count);
+        e.is_local = false;
+        for (int v = 0; v < 3; ++v) {
+            strncpy(e.view_id[v], kRemoteViews[v], sizeof(e.view_id[v]) - 1);
+            strncpy(e.view_title[v], kRemoteTitles[v], sizeof(e.view_title[v]) - 1);
+        }
+        e.view_count = 3;
+        e.current_view = 1;  // "Engine" marked current
+        s_count++;
+    }
+    return s_count;
 }
 }  // namespace knob_remote

@@ -55,6 +55,22 @@ for v in "${KNOB_VIEWS[@]}"; do
   fi
 done
 
+# Waveshare-knob menu overlay states (same env:sim-knob binary). These drive the
+# REAL knob_ui dispatch core (knob_ui::apply_event) through a synthetic gesture
+# sequence to reach each overlay level, seeding the knob_remote stub with a
+# >kMaxRows display list so the SelectDisplay/SelectView list-windowing (the
+# 6-row paging fix) is visible. Snapshots the overlay root on lv_layer_top().
+echo "=== rendering knob menu overlay states ==="
+KNOB_MENUS=("menu-modepicker" "menu-display" "menu-view")
+for m in "${KNOB_MENUS[@]}"; do
+  "$knob_bin" "$m" "docs/sim-shots/knob-${m}.bmp"
+  if command -v sips >/dev/null 2>&1; then
+    sips -s format png "docs/sim-shots/knob-${m}.bmp" \
+      --out "docs/sim-shots/knob-${m}.png" >/dev/null
+    rm -f "docs/sim-shots/knob-${m}.bmp"
+  fi
+done
+
 # Optional 2x2 composite of the four round views (requires ImageMagick montage).
 if command -v montage >/dev/null 2>&1; then
   montage \
@@ -63,6 +79,14 @@ if command -v montage >/dev/null 2>&1; then
     -tile 2x2 -geometry +8+8 -background black \
     "docs/sim-shots/knob-gallery.png" >/dev/null 2>&1 \
     && echo "wrote docs/sim-shots/knob-gallery.png"
+
+  # 1x3 composite of the three menu overlay states.
+  montage \
+    "docs/sim-shots/knob-menu-modepicker.png" "docs/sim-shots/knob-menu-display.png" \
+    "docs/sim-shots/knob-menu-view.png" \
+    -tile 3x1 -geometry +8+8 -background black \
+    "docs/sim-shots/knob-menu-gallery.png" >/dev/null 2>&1 \
+    && echo "wrote docs/sim-shots/knob-menu-gallery.png"
 fi
 
 echo "done -> docs/sim-shots/"
