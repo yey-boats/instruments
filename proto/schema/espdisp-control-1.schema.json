@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://espdisp/proto/espdisp-control-1",
+  "title": "espdisp control protocol v1",
+  "x-proto-major": 1,
+  "x-proto-minor": 0,
+  "$defs": {
+    "ViewRef": {
+      "type": "object",
+      "required": ["id", "title"],
+      "properties": { "id": {"type": "string"}, "title": {"type": "string"} }
+    },
+    "Session": {
+      "type": "object",
+      "required": ["controllerId", "name", "color"],
+      "properties": {
+        "controllerId": {"type": "string"},
+        "name": {"type": "string"},
+        "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "lastSeen": {"type": "integer"}
+      }
+    },
+    "DeviceRecord": {
+      "type": "object",
+      "required": ["v", "deviceId", "role", "currentView"],
+      "properties": {
+        "v": {"type": "string"},
+        "deviceId": {"type": "string"},
+        "name": {"type": "string"},
+        "role": {"type": "string", "enum": ["display", "controller", "both"]},
+        "board": {"type": "string"},
+        "display": {"type": "string"},
+        "currentView": {"type": "string"},
+        "views": {"type": "array", "items": {"$ref": "#/$defs/ViewRef"}},
+        "transports": {"type": "array", "items": {"type": "string", "enum": ["ip", "ble"]}},
+        "authRequired": {"type": "boolean"}
+      }
+    },
+    "Attach": {
+      "type": "object",
+      "required": ["v", "t", "controllerId", "name", "color"],
+      "properties": {
+        "v": {"type": "string"}, "t": {"const": "attach"},
+        "controllerId": {"type": "string"}, "name": {"type": "string"},
+        "color": {"type": "string", "pattern": "^#[0-9a-fA-F]{6}$"},
+        "key": {"type": "string"}, "ttlMs": {"type": "integer"}
+      }
+    },
+    "AttachAck": {
+      "type": "object",
+      "required": ["v", "t", "accepted"],
+      "properties": {
+        "v": {"type": "string"}, "t": {"const": "attachAck"},
+        "accepted": {"type": "boolean"}, "sessionId": {"type": "string"},
+        "ttlMs": {"type": "integer"}, "reason": {"type": "string"},
+        "device": {"$ref": "#/$defs/DeviceRecord"}
+      }
+    },
+    "Switch": {
+      "type": "object",
+      "required": ["v", "t", "sessionId", "viewId"],
+      "properties": {
+        "v": {"type": "string"}, "t": {"const": "switch"},
+        "sessionId": {"type": "string"}, "viewId": {"type": "string"}
+      }
+    },
+    "SwitchAck": {
+      "type": "object",
+      "required": ["v", "t", "ok"],
+      "properties": {
+        "v": {"type": "string"}, "t": {"const": "switchAck"},
+        "ok": {"type": "boolean"}, "currentView": {"type": "string"},
+        "reason": {"type": "string"}
+      }
+    },
+    "Heartbeat": {
+      "type": "object", "required": ["v", "t", "sessionId"],
+      "properties": { "v": {"type": "string"}, "t": {"const": "heartbeat"}, "sessionId": {"type": "string"} }
+    },
+    "HeartbeatAck": {
+      "type": "object", "required": ["v", "t", "ok"],
+      "properties": { "v": {"type": "string"}, "t": {"const": "heartbeatAck"}, "ok": {"type": "boolean"}, "ttlMs": {"type": "integer"} }
+    },
+    "Detach": {
+      "type": "object", "required": ["v", "t", "sessionId"],
+      "properties": { "v": {"type": "string"}, "t": {"const": "detach"}, "sessionId": {"type": "string"} }
+    },
+    "ControlState": {
+      "type": "object",
+      "required": ["v", "t", "currentView", "sessions"],
+      "properties": {
+        "v": {"type": "string"}, "t": {"const": "controlState"},
+        "currentView": {"type": "string"},
+        "sessions": {"type": "array", "items": {"$ref": "#/$defs/Session"}}
+      }
+    }
+  }
+}
