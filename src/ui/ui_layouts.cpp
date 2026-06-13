@@ -688,28 +688,13 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
     for (int i = 0; i < 4; ++i)
         strncpy(t.last_extras[i], "\xFF", sizeof(t.last_extras[0]));
 
-    // --- Chrome: panel + border + accent rail + caption ---
+    // --- Chrome: glass-cockpit panel (gradient + border via style_panel) ---
+    // No left accent rail (dropped per design feedback); semantic color lives
+    // in the value text instead. style_panel applies the consolidated tokens.
     t.root = lv_obj_create(parent);
     lv_obj_set_size(t.root, w, h);
     lv_obj_set_pos(t.root, x, y);
-    lv_obj_set_style_bg_color(t.root, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(t.root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(t.root, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(t.root, 1, 0);
-    lv_obj_set_style_radius(t.root, 8, 0);
-    lv_obj_set_style_pad_all(t.root, 10, 0);
-    lv_obj_clear_flag(t.root, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *rail = lv_obj_create(t.root);
-    lv_obj_set_size(rail, 4, h - 20);
-    lv_obj_set_pos(rail, 0, 0);
-    lv_obj_set_style_bg_color(rail, lv_color_hex(m.accent), 0);
-    lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(rail, 0, 0);
-    lv_obj_set_style_radius(rail, 2, 0);
-    lv_obj_set_style_pad_all(rail, 0, 0);
-    lv_obj_clear_flag(rail, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(rail, LV_OBJ_FLAG_CLICKABLE);
+    style_panel(t.root);
 
     t.cap = lv_label_create(t.root);
     lv_label_set_text(t.cap, m.label ? m.label : "");
@@ -1246,23 +1231,10 @@ static void split_half_build(lv_obj_t *parent, int x, int y, int w, int h, const
     lv_obj_t *panel = lv_obj_create(parent);
     lv_obj_set_size(panel, w, h);
     lv_obj_set_pos(panel, x, y);
-    lv_obj_set_style_bg_color(panel, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(panel, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(panel, 1, 0);
-    lv_obj_set_style_radius(panel, 10, 0);
+    // Glass-cockpit chrome via the consolidated style; this hero variant
+    // centre-aligns its content, so override padding back to 0. No accent rail.
+    style_panel(panel);
     lv_obj_set_style_pad_all(panel, 0, 0);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Accent rail down the inner edge.
-    lv_obj_t *rail = lv_obj_create(panel);
-    lv_obj_set_size(rail, 4, h - 28);
-    lv_obj_set_pos(rail, 0, 14);
-    lv_obj_set_style_bg_color(rail, lv_color_hex(m.accent), 0);
-    lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(rail, 0, 0);
-    lv_obj_set_style_radius(rail, 2, 0);
-    lv_obj_clear_flag(rail, LV_OBJ_FLAG_SCROLLABLE);
 
     out.cap = lv_label_create(panel);
     lv_label_set_text(out.cap, m.label ? m.label : "");

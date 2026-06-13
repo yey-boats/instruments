@@ -354,35 +354,22 @@ static void build_waypoint(lv_obj_t *parent) {
 static void make_data_box(lv_obj_t *parent, const char *label, const char *unit, int x, int y,
                           int w, int h, lv_obj_t **out_value, uint32_t value_color,
                           uint32_t accent_color) {
+    // Glass-cockpit corner box (gradient + chrome tokens, no accent rail).
+    // accent_color is retained in the signature for call-site compatibility
+    // but no longer drawn as a left rail.
+    (void)accent_color;
     lv_obj_t *box = lv_obj_create(parent);
     lv_obj_set_size(box, w, h);
     lv_obj_set_pos(box, x, y);
-    lv_obj_set_style_bg_color(box, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(box, LV_OPA_60, 0);
-    lv_obj_set_style_border_color(box, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_opa(box, LV_OPA_70, 0);
-    lv_obj_set_style_border_width(box, 1, 0);
-    lv_obj_set_style_radius(box, 6, 0);
+    style_panel(box);
     lv_obj_set_style_pad_all(box, 6, 0);
-    lv_obj_clear_flag(box, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(box, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *rail = lv_obj_create(box);
-    lv_obj_set_size(rail, 3, h - 12);
-    lv_obj_set_pos(rail, 0, 6);
-    lv_obj_set_style_bg_color(rail, lv_color_hex(accent_color), 0);
-    lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(rail, 0, 0);
-    lv_obj_set_style_radius(rail, 2, 0);
-    lv_obj_set_style_pad_all(rail, 0, 0);
-    lv_obj_clear_flag(rail, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(rail, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *cap = lv_label_create(box);
     lv_label_set_text(cap, label);
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_set_pos(cap, 10, 3);
+    lv_obj_set_pos(cap, 4, 3);
 
     lv_obj_t *unit_lbl = lv_label_create(box);
     lv_label_set_text(unit_lbl, unit);
@@ -394,7 +381,7 @@ static void make_data_box(lv_obj_t *parent, const char *label, const char *unit,
     lv_label_set_text(val, "-");
     lv_obj_set_style_text_font(val, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(value_color), 0);
-    lv_obj_align(val, LV_ALIGN_BOTTOM_LEFT, 10, 0);
+    lv_obj_align(val, LV_ALIGN_BOTTOM_LEFT, 4, 0);
     *out_value = val;
 }
 
