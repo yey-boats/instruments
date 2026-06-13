@@ -36,21 +36,25 @@ function deviceNightPalette () {
   const m = themeCpp.match(/Palette theme = \{([\s\S]*?)\};/m)
   assert.ok(m, 'device ui_theme.cpp must declare Palette theme = { ... }')
   const hexes = [...m[1].matchAll(/0x([0-9a-fA-F]{6})/g)].map((x) => '#' + x[1].toLowerCase())
-  assert.strictEqual(hexes.length, 12,
-    'expected 12 palette colors in ui_theme.cpp, got ' + hexes.length)
+  // struct Palette order: bg, panel, panel_bot, panel_edge, badge, fg, fg_dim,
+  // accent, warn, alarm, good, port, starboard, grid (14 fields).
+  assert.strictEqual(hexes.length, 14,
+    'expected 14 palette colors in ui_theme.cpp, got ' + hexes.length)
   return {
     bg: hexes[0],
     panel: hexes[1],
-    panelEdge: hexes[2],
-    fg: hexes[3],
-    fgDim: hexes[4],
-    accent: hexes[5],
-    warn: hexes[6],
-    alarm: hexes[7],
-    good: hexes[8],
-    port: hexes[9],
-    starboard: hexes[10],
-    grid: hexes[11]
+    panelBot: hexes[2],
+    panelEdge: hexes[3],
+    badge: hexes[4],
+    fg: hexes[5],
+    fgDim: hexes[6],
+    accent: hexes[7],
+    warn: hexes[8],
+    alarm: hexes[9],
+    good: hexes[10],
+    port: hexes[11],
+    starboard: hexes[12],
+    grid: hexes[13]
   }
 }
 

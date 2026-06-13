@@ -12,19 +12,21 @@
   :root {
     /* Palette synced to src/ui/ui_theme.cpp::use_night() so widget
        previews look identical to the device. */
-    --bg: #06110f;
-    --panel: #10201f;
-    --panel-2: #142a28;
-    --panel-edge: #34504d;
-    --fg: #f3f7f2;
-    --fg-dim: #8fa59d;
-    --accent: #57c7d8;
-    --accent-2: #39d98a;
-    --good: #39d98a;
+    /* Glass-cockpit palette - kept in lockstep with ui_theme.cpp use_night()
+       (enforced by test/widget-parity.test.js). */
+    --bg: #0a1018;
+    --panel: #101b29;
+    --panel-2: #16222f;
+    --panel-edge: #1f2d3d;
+    --fg: #eef4fa;
+    --fg-dim: #8fa7bd;
+    --accent: #4fc3f7;
+    --accent-2: #36d399;
+    --good: #36d399;
     --warn: #ffb84d;
-    --bad: #ff4058;
-    --port: #ff4d6d;
-    --starboard: #39d98a;
+    --bad: #ff5252;
+    --port: #ff5252;
+    --starboard: #36d399;
     --tide: #288cff;
   }
   * { box-sizing: border-box; }
