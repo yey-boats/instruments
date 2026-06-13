@@ -16,6 +16,7 @@ require('./widget-parity.test')
 require('./preset-coverage.test')
 require('./device-projections.test')
 Promise.all([
+  require('./knob-contract.test'),
   require('./github-firmware.test'),
   require('./udp-discovery.test'),
   require('./device-udp-discovery.test'),
