@@ -199,7 +199,13 @@ class ConfigCb : public NimBLECharacteristicCallbacks {
 // truncation. The full views list is always available over IP (GET
 // /api/p2p/device), which has no such cap.
 static String controlDeviceJson() {
-    proto::DeviceRecord r;
+    // DeviceRecord is ~1.5 KB (ViewRef[16] + transports[16] + fixed strings).
+    // The NimBLE host-task stack is small (~4 KB); a stack-local of this size
+    // overflows it and reboots the device (same class as the project's "large
+    // stack temporary" trap). GATT callbacks run serially on the one NimBLE
+    // host task, so a function-static scratch is safe (no re-entrancy).
+    static proto::DeviceRecord r;
+    memset(&r, 0, sizeof(r));
     proto_target::fill_device_record(r);
 
     // Cap views so the serialized record fits the 512-byte GATT read. Each
@@ -247,7 +253,11 @@ static String controlDeviceJson() {
 // Sessions; each Session is small (controllerId/name/color/lastSeen) and 8 of
 // them serialize well under 512 bytes, so no summarization is required here.
 static String controlStateJson() {
-    proto::ControlState cs;
+    // ControlState holds Session[16] (~2 KB) — too large for the NimBLE host
+    // task stack. Function-static scratch (GATT callbacks are serial). See
+    // controlDeviceJson() for the rationale.
+    static proto::ControlState cs;
+    memset(&cs, 0, sizeof(cs));
     proto_target::fill_state(cs);
     JsonDocument doc(&espdisp::psram_json);
     proto::to_json(doc.to<JsonObject>(), cs);
@@ -275,9 +285,13 @@ static String dispatchControl(const std::string &data) {
     JsonDocument out(&espdisp::psram_json);
 
     if (strcmp(t, "attach") == 0) {
-        proto::Attach req;
+        // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the small
+        // NimBLE host-task stack. Static scratch (GATT callbacks are serial).
+        static proto::Attach req;
+        static proto::AttachAck ack;
+        memset(&req, 0, sizeof(req));
+        memset(&ack, 0, sizeof(ack));
         proto::from_json(o, req);
-        proto::AttachAck ack;
         proto_target::handle_attach(req, ack);
         // Drop the embedded DeviceRecord views to keep the ack within 512 B; the
         // sessionId (the thing a central needs to read back) and accepted flag
@@ -347,15 +361,21 @@ class CtrlControlCb : public NimBLECharacteristicCallbacks {
         String ack = dispatchControl(data);
 
         // Stash the ack on RESP so the central can read back the sessionId (a
-        // BLE WRITE returns no body), and notify both RESP + STATE on change.
+        // BLE WRITE returns no body), and refresh STATE so the next read reflects
+        // the new session set. Notify ONLY when the client has actually subscribed
+        // (CCCD written) — emitting a notification for an unsubscribed
+        // characteristic is an ATT protocol violation that CoreBluetooth (and
+        // other strict centrals) answer by dropping the link. setValue alone is
+        // enough for a central that reads RESP/STATE back (the common path);
+        // subscribers additionally get the notify.
         if (s_ctrl_resp) {
             s_ctrl_resp->setValue((const uint8_t *)ack.c_str(), ack.length());
-            s_ctrl_resp->notify();
+            if (s_ctrl_resp->getSubscribedCount() > 0) s_ctrl_resp->notify();
         }
         if (s_ctrl_state) {
             String st = controlStateJson();
             s_ctrl_state->setValue((const uint8_t *)st.c_str(), st.length());
-            s_ctrl_state->notify();
+            if (s_ctrl_state->getSubscribedCount() > 0) s_ctrl_state->notify();
         }
     }
 };
