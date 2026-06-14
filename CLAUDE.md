@@ -104,6 +104,24 @@ Key contracts:
   returns a JSON summary stub (`{truncated, size, screen_count, ...}`)
   when the layout exceeds the cap; large layouts must come in via the
   SignalK REST endpoint and be triggered with `layout-fetch`.
+- **Never build a large struct on a task callback's stack.** The NimBLE
+  host task (~4 KB stack), the WebServer task, and even the Arduino
+  loopTask (8 KB) are small. A `proto::AttachAck`/`DeviceRecord` (~1.5 KB)
+  or `proto::ControlState` (~2 KB) declared as a stack local inside a GATT
+  `onRead`/`onWrite`, an HTTP handler, or a controller loop overflows the
+  stack and reboots the device with **no panic text** (the crash precedes
+  console init: ROM boot → `entry` → `RTC_SW_SYS_RST`, repeating). Make
+  such scratch structs `static` (GATT/web callbacks run serially on one
+  task, so a function-static is race-free) + `memset` in place, or
+  heap/PSRAM. This is the `out = Config{}` 34 KB-temporary trap in a new
+  guise — it bit the BLE Control handlers (`ble_config.cpp`), the IP
+  `/api/p2p` handlers (`web.cpp`), and the harness loop, all at once, and
+  only showed up on hardware (compile + host tests pass).
+- **DevKitC-1 N16R8 harness env needs `board_build.arduino.memory_type =
+  qio_opi`.** Without it (but with `BOARD_HAS_PSRAM`) the octal-PSRAM
+  cache config mismatches and the app faults at its entry point on every
+  boot — same silent reboot signature as above. The base board env sets
+  it; standalone S3 envs must too.
 - **R0–R4 / B0–B4 pin lists were swapped in early references.** The
   verified pin map is in `include/board_pins.h`; do not "fix" it from
   web sources without a camera-based color test.
