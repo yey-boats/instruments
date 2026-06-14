@@ -42,7 +42,10 @@ static void on_peer(const proto_ble::Peer &peer, void *) {
 
     // Optionally enumerate the peer's views to pick a real viewId; fall back to
     // a stub if the device read fails so we still exercise the switch path.
-    proto::DeviceRecord dev{};
+    // DeviceRecord (~1.5 KB) is static to keep it off the task stack (the scan
+    // callback runs serially under proto_ble::scan on the one loopTask).
+    static proto::DeviceRecord dev;
+    memset(&dev, 0, sizeof(dev));
     const char *view_id = "0";
     if (proto_ble::get_device_on_peer(peer.addr, dev)) {
         Serial.printf("[harness] BLE peer=%s id=%s views=%d\n", peer.addr, dev.deviceId,
@@ -79,7 +82,11 @@ static void run_cycle() {
 #else
 
 static void run_cycle() {
-    proto::DeviceRecord dev;
+    // DeviceRecord (~1.5 KB) and AttachAck (~1.5 KB, embeds a DeviceRecord) are
+    // too large for the 8 KB Arduino loopTask stack once HTTPClient + JSON also
+    // run; static keeps them off the stack (loop() is the only caller, serial).
+    static proto::DeviceRecord dev;
+    memset(&dev, 0, sizeof(dev));
     if (!proto_ip::get_device(s_target, dev)) {
         Serial.println("[harness] FAIL get_device");
         return;
@@ -92,7 +99,8 @@ static void run_cycle() {
     strcpy(a.name, "Harness");
     strcpy(a.color, "#e91e63");
     a.ttlMs = 10000;
-    proto::AttachAck ack{};
+    static proto::AttachAck ack;
+    memset(&ack, 0, sizeof(ack));
     if (!proto_ip::attach(s_target, a, ack) || !ack.accepted) {
         Serial.println("[harness] FAIL attach");
         return;
@@ -130,8 +138,18 @@ void setup() {
 #else
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
-    while (WiFi.status() != WL_CONNECTED)
+    // Bounded connect with retry so a transient AP/RSSI hiccup doesn't wedge the
+    // harness in a silent infinite wait; re-issue begin() every ~20 s until up.
+    uint32_t started = millis();
+    while (WiFi.status() != WL_CONNECTED) {
         delay(200);
+        if (millis() - started > 20000) {
+            Serial.println("[harness] wifi still connecting, retrying begin()...");
+            WiFi.disconnect();
+            WiFi.begin(WIFI_SSID, WIFI_PASS);
+            started = millis();
+        }
+    }
     Serial.printf("[harness] wifi up %s, target %s\n", WiFi.localIP().toString().c_str(),
                   s_target.c_str());
 #endif

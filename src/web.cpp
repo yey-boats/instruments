@@ -1514,7 +1514,10 @@ template <typename Ack> static void p2p_send_ack(const Ack &ack) {
 
 static void handle_p2p_device() {
     JsonDocument out(&espdisp::psram_json);
-    proto::DeviceRecord r;
+    // DeviceRecord is ~1.5 KB; keep it off the web task stack. Handlers run
+    // serially on the single WebServer task, so a function-static is race-free.
+    static proto::DeviceRecord r;
+    memset(&r, 0, sizeof(r));
     proto_target::fill_device_record(r);
     proto::to_json(out.to<JsonObject>(), r);
     String payload;
@@ -1533,7 +1536,10 @@ static void handle_p2p_attach() {
         server.send(400, "application/json", "{\"error\":\"incompatible_version\"}");
         return;
     }
-    proto::AttachAck ack;
+    // AttachAck embeds a DeviceRecord (~1.5 KB) — static to keep it off the web
+    // task stack (serial handler execution makes the static safe).
+    static proto::AttachAck ack;
+    memset(&ack, 0, sizeof(ack));
     proto_target::handle_attach(req, ack);
     p2p_send_ack(ack);
 }
@@ -1593,7 +1599,9 @@ static void handle_p2p_detach() {
 
 static void handle_p2p_state() {
     JsonDocument out(&espdisp::psram_json);
-    proto::ControlState cs;
+    // ControlState is ~2 KB (Session[16]); static keeps it off the web stack.
+    static proto::ControlState cs;
+    memset(&cs, 0, sizeof(cs));
     proto_target::fill_state(cs);
     proto::to_json(out.to<JsonObject>(), cs);
     String payload;
