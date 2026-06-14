@@ -5,6 +5,8 @@
 
 #include <cstdarg>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 
 #include "app_events.h"
 #include "autopilot.h"
@@ -33,6 +35,12 @@ void copyData(Data &out) {
     out.battSoc = 0.82;
     out.currentSetTrue = 3.71;  // ~213 deg
     out.currentDrift = 0.7;     // ~1.4 kn
+    // Autopilot: engaged in compass (auto) mode holding ~64 deg, ~8 deg off the
+    // current heading, with a small cross-track error so the AP HUD render shows
+    // the AUTO badge, the amber target bug, and an XTE deflection.
+    std::snprintf(out.apState, sizeof(out.apState), "%s", "auto");
+    out.apTargetHdg = 1.117;  // ~64 deg
+    out.xte = 278.0;          // m to the right of track (~0.15 nm)
 }
 }  // namespace sk
 

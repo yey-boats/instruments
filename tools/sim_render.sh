@@ -39,6 +39,21 @@ for r in "${RES[@]}"; do
   fi
 done
 
+# Fullscreen autopilot HUD (screen_autopilot.cpp) via env:sim-ap — the
+# reference glass-cockpit redesign: semicircular compass, target bug, XTE strip,
+# numeric tiles. Square (480) uses a bottom tile row; wide panels flank the dial.
+for r in "${RES[@]}"; do
+  w="${r%x*}"; h="${r#*x}"
+  echo "=== rendering ap ${w}x${h} ==="
+  PLATFORMIO_BUILD_FLAGS="-DSIM_LCD_W=${w} -DSIM_LCD_H=${h}" pio run -e sim-ap >/dev/null
+  ".pio/build/sim-ap/program" "docs/sim-shots/ap-${w}x${h}.bmp"
+  if command -v sips >/dev/null 2>&1; then
+    sips -s format png "docs/sim-shots/ap-${w}x${h}.bmp" \
+      --out "docs/sim-shots/ap-${w}x${h}.png" >/dev/null
+    rm -f "docs/sim-shots/ap-${w}x${h}.bmp"
+  fi
+done
+
 # Waveshare-knob round views (env:sim-knob) — fixed 360x360 round panel. One
 # PNG per dedicated view (ap_hud / compass / wind / big) for the README gallery.
 # The board id + 360x360 are pinned in the env, so no per-resolution rebuild.

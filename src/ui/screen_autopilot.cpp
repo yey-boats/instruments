@@ -1,38 +1,47 @@
 #include "screens.h"
+#include "ui_screens.h"
 #include "ui_theme.h"
+#include "ui_compass.h"
 #include "ui_data.h"
 #include "ui_dirty.h"
+#include "ui_fonts.h"
 #include "signalk.h"
 #include "net.h"
 #include "board_pins.h"
 #include "app_events.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
-// Fullscreen steering page. Selects the autopilot steering MODE and tweaks the
-// target. Modes map to the autopilot backend (KDCube sim via the plugin
-// bridge) over SignalK:
-//   STANDBY  -> "standby" (disengaged, hold helm)
-//   COMPASS  -> "auto"    (hold a heading; +/- buttons adjust it)
-//   WIND     -> "wind"    (hold the apparent wind angle)
-//   ROUTE    -> "route"   (follow the active route)
-//   -10 -1 +1 +10         adjust target heading (compass) by N degrees
-//
-// PUT uses the net worker (sk::putValue is too slow for the UI handler).
+// Reference glass-cockpit autopilot HUD. A semicircular heading compass with a
+// rotating scale, a fixed red lubber, and an amber target bug; a big HDG value
+// with a COG/SOG sub-line inside the arc; a cross-track-error strip; and a row
+// of numeric tiles (DEPTH / SPEED / AWS / AWA). Controls are touch + the
+// external network knob:
+//   ON / STBY button   -> engage <-> standby (short), mode picker (long press)
+//   tap dial port/stbd -> adjust target heading -1 / +1 (short), -10 / +10 (long)
+// All PUTs route through the net worker via app::post_net (sk::putValue is too
+// slow for the UI handler). Modes map to the SignalK autopilot backend:
+//   STANDBY -> "standby"  AUTO -> "auto"  WIND -> "wind"  ROUTE -> "route"
 
 namespace ui::autopilot {
 
 static lv_obj_t *s_root = nullptr;
-static lv_obj_t *lbl_state, *lbl_target_value, *lbl_hdg_value, *lbl_delta, *lbl_status;
-static lv_obj_t *mode_btn[4];
-static lv_obj_t *mode_lbl[4];
+static ui::Compass s_cp;
+static ui::XteStrip s_xte;
+static lv_obj_t *lbl_mode, *lbl_hdg_value, *lbl_cogsog;
+static lv_obj_t *btn_onstby, *lbl_onstby;
+static lv_obj_t *tile_depth, *tile_speed, *tile_aws, *tile_awa;
 
-// Mode button order + the SignalK state string each commits.
-static const char *kModeName[4] = {"STANDBY", "COMPASS", "WIND", "ROUTE"};
-static const char *kModeState[4] = {"standby", "auto", "wind", "route"};
+// Mode picker overlay (hidden until ON/STBY long-press).
+static lv_obj_t *mode_modal = nullptr;
+static const char *kModeName[4] = {"AUTO", "WIND", "ROUTE", "STANDBY"};
+static const char *kModeState[4] = {"auto", "wind", "route", "standby"};
 
-static double s_target_local = NAN;  // local pending target heading (rad)
+static double s_target_local = NAN;         // local pending target heading (rad)
+static const char *s_last_engage = "auto";  // mode to re-engage from STBY
 
 static void put_heading(double rad) {
     app::Command cmd;
@@ -52,17 +61,7 @@ static void put_state(const char *state) {
     net::logf("[ap] state -> %s queued", state);
 }
 
-static void on_mode(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int idx = (int)(intptr_t)lv_event_get_user_data(e);
-    if (idx < 0 || idx > 3) return;
-    if (idx != 1) s_target_local = NAN;  // leaving compass clears local target
-    put_state(kModeState[idx]);
-}
-
-static void on_adjust(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int delta_deg = (int)(intptr_t)lv_event_get_user_data(e);
+static void adjust_heading(int delta_deg) {
     double target = s_target_local;
     if (isnan(target)) {
         sk::Data d_snap;
@@ -80,24 +79,134 @@ static void on_adjust(lv_event_t *e) {
     put_heading(target);
 }
 
-static lv_obj_t *make_button(lv_obj_t *parent, const char *txt, int x, int y, int w, int h,
-                             uint32_t color, lv_event_cb_t cb, intptr_t udata, lv_obj_t **out_lbl,
-                             const lv_font_t *font) {
+// ---- input handlers --------------------------------------------------------
+
+static void on_nudge(lv_event_t *e) {
+    int delta = (int)(intptr_t)lv_event_get_user_data(e);
+    adjust_heading(delta);
+}
+
+static void show_mode_modal(bool show) {
+    if (!mode_modal) return;
+    if (show)
+        lv_obj_clear_flag(mode_modal, LV_OBJ_FLAG_HIDDEN);
+    else
+        lv_obj_add_flag(mode_modal, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void on_mode_pick(lv_event_t *e) {
+    int idx = (int)(intptr_t)lv_event_get_user_data(e);
+    if (idx < 0 || idx > 3) return;
+    if (idx != 3) {
+        s_last_engage = kModeState[idx];
+        s_target_local = NAN;  // entering a steering mode clears local nudge
+    }
+    put_state(kModeState[idx]);
+    show_mode_modal(false);
+}
+
+static void on_onstby_short(lv_event_t *e) {
+    (void)e;
+    sk::Data d;
+    sk::copyData(d);
+    bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
+    put_state(engaged ? "standby" : s_last_engage);
+}
+
+static void on_onstby_long(lv_event_t *e) {
+    (void)e;
+    show_mode_modal(true);
+}
+
+static void on_home(lv_event_t *e) {
+    (void)e;
+    ui::show_by_id("dashboard");
+}
+
+static void on_modal_bg(lv_event_t *e) {
+    (void)e;
+    show_mode_modal(false);
+}
+
+// ---- small builders --------------------------------------------------------
+
+static lv_obj_t *chip(lv_obj_t *parent, const char *txt, int w, lv_event_cb_t short_cb,
+                      lv_event_cb_t long_cb) {
     lv_obj_t *b = lv_button_create(parent);
-    lv_obj_set_size(b, w, h);
-    lv_obj_set_pos(b, x, y);
-    lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
+    lv_obj_set_size(b, w, 40);
+    lv_obj_set_style_bg_color(b, lv_color_hex(theme.panel), 0);
+    lv_obj_set_style_bg_grad_color(b, lv_color_hex(theme.panel_bot), 0);
+    lv_obj_set_style_bg_grad_dir(b, LV_GRAD_DIR_VER, 0);
+    lv_obj_set_style_border_color(b, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(b, ui::chrome::panel_border, 0);
     lv_obj_set_style_radius(b, ui::chrome::panel_radius, 0);
     lv_obj_set_style_pad_all(b, 0, 0);
-    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, (void *)udata);
-
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_color(l, lv_color_hex(0x05101c), 0);
-    lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(theme.fg), 0);
     lv_obj_center(l);
-    if (out_lbl) *out_lbl = l;
+    if (short_cb) lv_obj_add_event_cb(b, short_cb, LV_EVENT_SHORT_CLICKED, nullptr);
+    if (long_cb) lv_obj_add_event_cb(b, long_cb, LV_EVENT_LONG_PRESSED, nullptr);
+    lv_obj_set_user_data(b, l);  // stash the label for state-driven text
     return b;
+}
+
+// Invisible tap target over one half of the dial: short = +/-1, long = +/-10.
+static void dial_tap_zone(lv_obj_t *parent, int x, int y, int w, int h, int step) {
+    lv_obj_t *z = lv_obj_create(parent);
+    lv_obj_set_size(z, w, h);
+    lv_obj_set_pos(z, x, y);
+    lv_obj_set_style_bg_opa(z, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(z, 0, 0);
+    lv_obj_set_style_radius(z, 0, 0);
+    lv_obj_set_style_pad_all(z, 0, 0);
+    lv_obj_clear_flag(z, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(z, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(z, on_nudge, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)step);
+    lv_obj_add_event_cb(z, on_nudge, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)(step * 10));
+}
+
+static void build_mode_modal(lv_obj_t *parent) {
+    mode_modal = lv_obj_create(parent);
+    lv_obj_set_size(mode_modal, LCD_W, LCD_H);
+    lv_obj_set_pos(mode_modal, 0, 0);
+    lv_obj_set_style_bg_color(mode_modal, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(mode_modal, LV_OPA_60, 0);
+    lv_obj_set_style_border_width(mode_modal, 0, 0);
+    lv_obj_set_style_radius(mode_modal, 0, 0);
+    lv_obj_clear_flag(mode_modal, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(mode_modal, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(mode_modal, on_modal_bg, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_t *card = lv_obj_create(mode_modal);
+    int cw = LCD_W < 360 ? LCD_W - 40 : 280;
+    lv_obj_set_size(card, cw, 280);
+    lv_obj_center(card);
+    style_panel(card);
+    lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(card, 8, 0);
+    lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *t = lv_label_create(card);
+    lv_label_set_text(t, "MODE");
+    lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(t, lv_color_hex(theme.fg_dim), 0);
+
+    for (int i = 0; i < 4; ++i) {
+        lv_obj_t *b = lv_button_create(card);
+        lv_obj_set_size(b, cw - 32, 44);
+        lv_obj_set_style_bg_color(b, lv_color_hex(i == 3 ? theme.panel_edge : theme.accent), 0);
+        lv_obj_set_style_radius(b, ui::chrome::panel_radius, 0);
+        lv_obj_t *l = lv_label_create(b);
+        lv_label_set_text(l, kModeName[i]);
+        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(i == 3 ? theme.fg : 0x05101c), 0);
+        lv_obj_center(l);
+        lv_obj_add_event_cb(b, on_mode_pick, LV_EVENT_CLICKED, (void *)(intptr_t)i);
+    }
+    lv_obj_add_flag(mode_modal, LV_OBJ_FLAG_HIDDEN);
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
@@ -111,86 +220,122 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    lv_obj_t *title = lv_label_create(s_root);
-    lv_label_set_text(title, "STEERING");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
+    bool wide = (LCD_W * 100 > LCD_H * 125);
 
-    // State badge (engaged mode, coloured).
-    lbl_state = lv_label_create(s_root);
-    lv_label_set_text(lbl_state, "STANDBY");
-    lv_obj_set_style_text_font(lbl_state, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(lbl_state, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_state, LV_ALIGN_TOP_MID, 0, 34);
+    // --- top bar: ON/STBY, mode badge, HOME ---
+    btn_onstby = chip(s_root, "ON", 110, on_onstby_short, on_onstby_long);
+    lv_obj_align(btn_onstby, LV_ALIGN_TOP_LEFT, 8, 8);
+    lbl_onstby = (lv_obj_t *)lv_obj_get_user_data(btn_onstby);
 
-    // Target hero.
-    lv_obj_t *cap_target = lv_label_create(s_root);
-    lv_label_set_text(cap_target, "TARGET");
-    lv_obj_set_style_text_font(cap_target, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(cap_target, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap_target, LV_ALIGN_TOP_MID, 0, 78);
+    lv_obj_t *btn_h = chip(s_root, "HOME", 110, on_home, nullptr);
+    lv_obj_align(btn_h, LV_ALIGN_TOP_RIGHT, -8, 8);
 
-    lbl_target_value = lv_label_create(s_root);
-    lv_label_set_text(lbl_target_value, "---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_target_value, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(lbl_target_value, lv_color_hex(theme.warn), 0);
-    lv_obj_align(lbl_target_value, LV_ALIGN_TOP_MID, 0, 96);
+    lbl_mode = lv_label_create(s_root);
+    lv_label_set_text(lbl_mode, "STANDBY");
+    lv_obj_set_style_text_font(lbl_mode, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl_mode, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(lbl_mode, LV_ALIGN_TOP_MID, 0, 14);
 
-    // Current HDG + delta.
+    // --- compass ---
+    int top_bar_h = 56;
+    int cw = wide ? (LCD_H - 56) : (LCD_W - 40);
+    int cox = (LCD_W - cw) / 2;
+    int coy = top_bar_h;
+    s_cp = ui::build_compass(s_root, cox, coy, cw);
+    int scx = cox + s_cp.cx;
+    int scy = coy + s_cp.cy;
+
+    // --- center readouts (over the dial face) ---
+    lv_obj_t *cap = lv_label_create(s_root);
+    lv_label_set_text(cap, "HDG");
+    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(cap, 120);
+    lv_obj_set_pos(cap, scx - 60, scy - s_cp.r / 2 - 30);
+
     lbl_hdg_value = lv_label_create(s_root);
-    lv_label_set_text(lbl_hdg_value, "HDG ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg_value, &lv_font_montserrat_20, 0);
+    lv_label_set_text(lbl_hdg_value, "--\xC2\xB0");
+    lv_obj_set_style_text_font(lbl_hdg_value, &font_xl_64, 0);
     lv_obj_set_style_text_color(lbl_hdg_value, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_hdg_value, LV_ALIGN_TOP_MID, -64, 158);
+    lv_obj_set_style_text_align(lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(lbl_hdg_value, 240);
+    lv_obj_set_pos(lbl_hdg_value, scx - 120, scy - s_cp.r / 2 + 2);
 
-    lbl_delta = lv_label_create(s_root);
-    lv_label_set_text(lbl_delta, "\xCE\x94 ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_delta, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(lbl_delta, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_delta, LV_ALIGN_TOP_MID, 64, 158);
+    lbl_cogsog = lv_label_create(s_root);
+    lv_label_set_text(lbl_cogsog, "COG --\xC2\xB0 | SOG -- kn");
+    lv_obj_set_style_text_font(lbl_cogsog, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl_cogsog, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_set_style_text_align(lbl_cogsog, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(lbl_cogsog, LCD_W);
+    lv_obj_set_pos(lbl_cogsog, scx - LCD_W / 2, scy - 4);
 
-    // Heading-adjust row (compass mode): -10 -1 +1 +10.
-    int btn_w = (LCD_W - 40) / 4;
-    int adj_y = 196;
-    make_button(s_root, "-10", 8, adj_y, btn_w, 56, theme.port, on_adjust, -10, nullptr,
-                &lv_font_montserrat_28);
-    make_button(s_root, "-1", 16 + btn_w, adj_y, btn_w, 56, theme.port, on_adjust, -1, nullptr,
-                &lv_font_montserrat_28);
-    make_button(s_root, "+1", 24 + btn_w * 2, adj_y, btn_w, 56, theme.starboard, on_adjust, +1,
-                nullptr, &lv_font_montserrat_28);
-    make_button(s_root, "+10", 32 + btn_w * 3, adj_y, btn_w, 56, theme.starboard, on_adjust, +10,
-                nullptr, &lv_font_montserrat_28);
+    // --- dial tap zones (left = port/-, right = stbd/+) ---
+    int dz_y = coy + 20;
+    int dz_h = s_cp.r - 10;
+    dial_tap_zone(s_root, cox + 6, dz_y, s_cp.r - 12, dz_h, -1);
+    dial_tap_zone(s_root, scx + 6, dz_y, s_cp.r - 12, dz_h, +1);
 
-    // Mode row: STANDBY | COMPASS | WIND | ROUTE (2x2 so labels fit big).
-    int mw = (LCD_W - 24) / 2;
-    int mh = 64;
-    int my0 = 268;
-    for (int i = 0; i < 4; ++i) {
-        int col = i % 2, row = i / 2;
-        int x = 8 + col * (mw + 8);
-        int y = my0 + row * (mh + 8);
-        mode_btn[i] = make_button(s_root, kModeName[i], x, y, mw, mh, theme.panel_edge, on_mode,
-                                  (intptr_t)i, &mode_lbl[i], &lv_font_montserrat_28);
+    // --- XTE strip below the compass ---
+    int xte_y = coy + (s_cp.r + 18) + 6;
+    int xte_x = wide ? cox : 16;
+    int xte_w = wide ? cw : (LCD_W - 32);
+    s_xte = ui::build_xte_strip(s_root, xte_x, xte_y, xte_w, 50);
+
+    // --- numeric tiles ---
+    const lv_font_t *tv = &lv_font_montserrat_38;
+    if (!wide) {
+        int n = 4, gap = 8;
+        int tw = (LCD_W - gap * (n + 1)) / n;
+        int th = 132;
+        int ty = LCD_H - th - 8;
+        tile_depth = ui::numeric_tile(s_root, gap, ty, tw, th, "DEPTH", "m", tv, theme.fg);
+        tile_speed =
+            ui::numeric_tile(s_root, gap * 2 + tw, ty, tw, th, "SPEED", "kn", tv, theme.fg);
+        tile_aws =
+            ui::numeric_tile(s_root, gap * 3 + tw * 2, ty, tw, th, "AWS", "kn", tv, theme.warn);
+        tile_awa = ui::numeric_tile(s_root, gap * 4 + tw * 3, ty, tw, th, "AWA", "", tv, theme.fg);
+    } else {
+        int gap = 8;
+        int colw = cox - gap * 2;
+        int th = (LCD_H - top_bar_h - gap * 3) / 2;
+        int ty = top_bar_h;
+        tile_depth = ui::numeric_tile(s_root, gap, ty, colw, th, "DEPTH", "m", tv, theme.fg);
+        tile_speed =
+            ui::numeric_tile(s_root, gap, ty + th + gap, colw, th, "SPEED", "kn", tv, theme.fg);
+        int rx = cox + cw + gap;
+        tile_aws = ui::numeric_tile(s_root, rx, ty, colw, th, "AWS", "kn", tv, theme.warn);
+        tile_awa = ui::numeric_tile(s_root, rx, ty + th + gap, colw, th, "AWA", "", tv, theme.fg);
     }
 
-    lbl_status = lv_label_create(s_root);
-    lv_label_set_text(lbl_status, "");
-    lv_obj_set_style_text_font(lbl_status, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(lbl_status, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_status, LV_ALIGN_BOTTOM_MID, 0, -4);
-
+    build_mode_modal(s_root);
     return s_root;
 }
 
-// Dirty-value caches.
-static char s_last_state[16] = {(char)0xFF};
-static char s_last_target[16] = {(char)0xFF};
+// ---- refresh ---------------------------------------------------------------
+
+static char s_last_mode[16] = {(char)0xFF};
+static uint32_t s_last_mode_color = 0xFFFFFFFF;
+static char s_last_onstby[8] = {(char)0xFF};
 static char s_last_hdg[16] = {(char)0xFF};
-static char s_last_delta[16] = {(char)0xFF};
-static char s_last_status[24] = {(char)0xFF};
-static uint32_t s_last_state_color = 0xFFFFFFFF;
-static int s_last_active_mode = -2;
+static char s_last_cogsog[48] = {(char)0xFF};
+static char s_last_depth[12] = {(char)0xFF};
+static char s_last_speed[12] = {(char)0xFF};
+static char s_last_aws[12] = {(char)0xFF};
+static char s_last_awa[12] = {(char)0xFF};
+static int16_t s_last_scale_rot = INT16_MIN;
+static int16_t s_last_bug_rot = INT16_MIN;
+static int8_t s_last_bug_hidden = -1;
+static int s_last_xte_x = INT16_MIN;
+
+static int16_t deg_to_lvgl(double deg) {
+    int16_t r = (int16_t)(lround(deg) * 10);
+    while (r < 0)
+        r += 3600;
+    while (r >= 3600)
+        r -= 3600;
+    return r;
+}
 
 void refresh() {
     sk::Data d_snap;
@@ -198,69 +343,97 @@ void refresh() {
     const sk::Data &d = d_snap;
     char buf[64];
 
-    // Active mode index from the live AP state.
-    int active = -1;
-    for (int i = 0; i < 4; ++i)
-        if (d.apState[0] && strcmp(d.apState, kModeState[i]) == 0) active = i;
+    bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
 
+    // Mode badge.
     if (d.apState[0]) {
         char up[16];
         size_t i = 0;
         for (; d.apState[i] && i < sizeof(up) - 1; ++i)
             up[i] = toupper(d.apState[i]);
         up[i] = 0;
-        set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), up);
-        bool engaged = active >= 1;  // anything but standby/unknown
-        set_text_color_if_changed(lbl_state, &s_last_state_color,
-                                  engaged ? theme.good : theme.fg_dim);
+        set_text_if_changed(lbl_mode, s_last_mode, sizeof(s_last_mode), up);
     } else {
-        set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), "OFFLINE");
-        set_text_color_if_changed(lbl_state, &s_last_state_color, theme.fg_dim);
+        set_text_if_changed(lbl_mode, s_last_mode, sizeof(s_last_mode), "OFFLINE");
     }
+    set_text_color_if_changed(lbl_mode, &s_last_mode_color, engaged ? theme.good : theme.fg_dim);
+    set_text_if_changed(lbl_onstby, s_last_onstby, sizeof(s_last_onstby), engaged ? "STBY" : "ON");
 
-    // Highlight the active mode button.
-    if (active != s_last_active_mode) {
-        for (int i = 0; i < 4; ++i) {
-            bool on = (i == active);
-            lv_obj_set_style_bg_color(mode_btn[i],
-                                      lv_color_hex(on ? theme.accent : theme.panel_edge), 0);
-            lv_obj_set_style_text_color(mode_lbl[i], lv_color_hex(on ? 0x05101c : theme.fg), 0);
-        }
-        s_last_active_mode = active;
-    }
-
-    double target = !isnan(s_target_local) ? s_target_local : d.apTargetHdg;
-    if (!isnan(target)) {
-        snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(target));
-        set_text_if_changed(lbl_target_value, s_last_target, sizeof(s_last_target), buf);
-    } else {
-        set_text_if_changed(lbl_target_value, s_last_target, sizeof(s_last_target), "---\xC2\xB0");
-    }
-
+    // Heading: big value + rotate the compass scale by -heading.
+    double hdg_deg = NAN;
     if (!isnan(d.headingTrue)) {
-        snprintf(buf, sizeof(buf), "HDG %03.0f\xC2\xB0", rad_to_deg_pos(d.headingTrue));
+        hdg_deg = rad_to_deg_pos(d.headingTrue);
+        snprintf(buf, sizeof(buf), "%.1f\xC2\xB0", hdg_deg);
         set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), buf);
+        set_rot_if_changed(s_cp.scale, &s_last_scale_rot, deg_to_lvgl(-hdg_deg));
     } else {
-        set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), "HDG ---\xC2\xB0");
+        set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), "--\xC2\xB0");
     }
 
-    if (!isnan(target) && !isnan(d.headingTrue)) {
-        double delta = (target - d.headingTrue) * 180.0 / M_PI;
-        while (delta > 180)
-            delta -= 360;
-        while (delta < -180)
-            delta += 360;
-        snprintf(buf, sizeof(buf), "\xCE\x94 %+.0f\xC2\xB0", delta);
-        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), buf);
+    // Target bug: (target - heading), hidden when no target.
+    double target = !isnan(s_target_local) ? s_target_local : d.apTargetHdg;
+    if (!isnan(target) && !isnan(hdg_deg)) {
+        double rel = rad_to_deg_pos(target) - hdg_deg;
+        set_rot_if_changed(s_cp.bug, &s_last_bug_rot, deg_to_lvgl(rel));
+        set_hidden_if_changed(s_cp.bug, &s_last_bug_hidden, false);
     } else {
-        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "\xCE\x94 ---\xC2\xB0");
+        set_hidden_if_changed(s_cp.bug, &s_last_bug_hidden, true);
     }
 
-    String sk_state = sk::connectionStatus();
-    const char *status = (sk_state == "live")      ? "SignalK live"
-                         : (sk_state == "no-data") ? "SignalK no data"
-                                                   : sk_state.c_str();
-    set_text_if_changed(lbl_status, s_last_status, sizeof(s_last_status), status);
+    // COG / SOG sub-line.
+    char cogs[16], sogs[16];
+    if (!isnan(d.cogTrue))
+        snprintf(cogs, sizeof(cogs), "%03.0f\xC2\xB0", rad_to_deg_pos(d.cogTrue));
+    else
+        snprintf(cogs, sizeof(cogs), "--\xC2\xB0");
+    if (!isnan(d.sog))
+        snprintf(sogs, sizeof(sogs), "%.1f kn", mps_to_kn(d.sog));
+    else
+        snprintf(sogs, sizeof(sogs), "-- kn");
+    snprintf(buf, sizeof(buf), "COG %s  |  SOG %s", cogs, sogs);
+    set_text_if_changed(lbl_cogsog, s_last_cogsog, sizeof(s_last_cogsog), buf);
+
+    // XTE needle (cross-track error, nm; +stbd). Clamp to +/-1.0 full-scale.
+    double xte = d.xte;  // meters; convert to nm
+    if (!isnan(xte)) {
+        double nm = xte / 1852.0;
+        if (nm > 1.0) nm = 1.0;
+        if (nm < -1.0) nm = -1.0;
+        int nx = s_xte.center_x + (int)(nm * s_xte.half_px) - 1;
+        if (nx != s_last_xte_x) {
+            s_last_xte_x = nx;
+            lv_obj_set_x(s_xte.needle, nx);
+        }
+    }
+
+    // Tiles.
+    if (!isnan(d.depth)) {
+        snprintf(buf, sizeof(buf), "%.1f", d.depth);
+        set_text_if_changed(tile_depth, s_last_depth, sizeof(s_last_depth), buf);
+    } else {
+        set_text_if_changed(tile_depth, s_last_depth, sizeof(s_last_depth), "--");
+    }
+    if (!isnan(d.stw)) {
+        snprintf(buf, sizeof(buf), "%.1f", mps_to_kn(d.stw));
+        set_text_if_changed(tile_speed, s_last_speed, sizeof(s_last_speed), buf);
+    } else {
+        set_text_if_changed(tile_speed, s_last_speed, sizeof(s_last_speed), "--");
+    }
+    if (!isnan(d.aws)) {
+        snprintf(buf, sizeof(buf), "%.1f", mps_to_kn(d.aws));
+        set_text_if_changed(tile_aws, s_last_aws, sizeof(s_last_aws), buf);
+    } else {
+        set_text_if_changed(tile_aws, s_last_aws, sizeof(s_last_aws), "--");
+    }
+    if (!isnan(d.awa)) {
+        double deg = rad_to_deg_pos(d.awa);
+        bool starboard = deg <= 180.0;
+        double mag = starboard ? deg : 360.0 - deg;
+        snprintf(buf, sizeof(buf), "%.0f%c", mag, starboard ? 'S' : 'P');
+        set_text_if_changed(tile_awa, s_last_awa, sizeof(s_last_awa), buf);
+    } else {
+        set_text_if_changed(tile_awa, s_last_awa, sizeof(s_last_awa), "--");
+    }
 }
 
 }  // namespace ui::autopilot

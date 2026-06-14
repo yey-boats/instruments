@@ -23,6 +23,7 @@ struct Palette {
     uint32_t port;        // red side (port wind)
     uint32_t starboard;   // green side (starboard wind)
     uint32_t grid;        // axis / compass tick color
+    uint32_t arc_band;    // near-white gauge band (reference compass rail)
 };
 
 // Glass-cockpit chrome metrics (consolidated; no inline magic numbers in
