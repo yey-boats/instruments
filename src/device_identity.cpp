@@ -12,7 +12,10 @@
 #include "board.h"
 #include "net.h"
 
-#include <lvgl.h>  // for the compiled font sizes list (spec 19 D1)
+#if !defined(ESPDISP_HARNESS)
+#include <lvgl.h>  // for the compiled font sizes list (spec 19 D1); headless
+                   // harness links no LVGL and uses none of its symbols here.
+#endif
 
 #ifndef FW_NAME
 #define FW_NAME "espdisp"
