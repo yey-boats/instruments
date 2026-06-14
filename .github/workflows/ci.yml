@@ -28,6 +28,11 @@ jobs:
           - waveshare-touch-lcd-7_800x480
           - waveshare-touch-lcd-7b_1024x600
           - waveshare-knob-1_8
+          # Headless protocol test harness (shares the full non-UI infra via
+          # net::*; links via harness_stubs.cpp). In CI so a future infra change
+          # that breaks the headless link is caught, not discovered at the bench.
+          - harness-s3-devkitc
+          - harness-s3-devkitc-ble
     steps:
       - uses: actions/checkout@v4
 
