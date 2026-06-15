@@ -28,8 +28,8 @@ static lv_obj_t *s_root = nullptr;
 static lv_obj_t *band_top = nullptr;   // white band, upper semicircle (upwind)
 static lv_obj_t *band_bot = nullptr;   // white band, lower semicircle (downwind)
 static lv_obj_t *nogo = nullptr;       // red no-go wedge (dynamic angles)
-static lv_obj_t *lay_a = nullptr;      // layline mark A (rotating)
-static lv_obj_t *lay_b = nullptr;      // layline mark B (rotating)
+static lv_obj_t *target_a = nullptr;   // green target sector, starboard (dynamic)
+static lv_obj_t *target_b = nullptr;   // green target sector, port (dynamic)
 static lv_obj_t *wind_mark = nullptr;  // live true-wind marker (rotating)
 static lv_obj_t *ticks_top = nullptr;  // tick+label group for the upper half
 static lv_obj_t *ticks_bot = nullptr;  // tick+label group for the lower half
@@ -115,8 +115,10 @@ static lv_obj_t *build_ticks(bool top) {
     lv_obj_clear_flag(g, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(g, LV_OBJ_FLAG_CLICKABLE);
     // theta off bow: top half spans -90..+90, bottom half spans +90..+270.
-    int lo = top ? -90 : 90;
-    int hi = top ? 90 : 270;
+    // ~220 deg working zone: a bit past the beam on each half. Range is aligned
+    // to multiples of 15 so the 30-deg majors (0/30/60/90) land on real ticks.
+    int lo = top ? -105 : 75;
+    int hi = top ? 105 : 285;
     for (int th = lo; th <= hi; th += 15) {
         bool major = (((th % 30) + 360) % 30) == 0;
         lv_obj_t *t = lv_obj_create(g);
@@ -166,8 +168,9 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // White bands for both halves (one shown at a time), then the dynamic
     // no-go wedge just inside, then the markers, then the centre readouts.
-    band_top = band_arc(182, 358, R, 22, theme.arc_band, LV_OPA_COVER);
-    band_bot = band_arc(2, 178, R, 22, theme.arc_band, LV_OPA_COVER);
+    // ~220 deg bands (centred on the bow / stern), zooming into the working zone.
+    band_top = band_arc(160, 20, R, 22, theme.arc_band, LV_OPA_COVER);
+    band_bot = band_arc(340, 200, R, 22, theme.arc_band, LV_OPA_COVER);
     lv_obj_add_flag(band_bot, LV_OBJ_FLAG_HIDDEN);
 
     nogo = band_arc(252, 288, R - 4, 16, theme.alarm, LV_OPA_70);  // dynamic in refresh
@@ -176,8 +179,10 @@ lv_obj_t *build(lv_obj_t *parent) {
     ticks_bot = build_ticks(false);
     lv_obj_add_flag(ticks_bot, LV_OBJ_FLAG_HIDDEN);
 
-    lay_a = rim_marker(5, 30, theme.good, false);  // green laylines
-    lay_b = rim_marker(5, 30, theme.good, false);
+    // Green target sectors: the "sail here" band just outside the no-go on each
+    // side (the applicable speed-range zone). Angles are set live in refresh.
+    target_a = band_arc(300, 314, R - 4, 16, theme.good, LV_OPA_COVER);
+    target_b = band_arc(226, 240, R - 4, 16, theme.good, LV_OPA_COVER);
     wind_mark = rim_marker(8, 40, 0x2bd4e8, true);  // bright cyan wind marker
 
     // Centre readouts.
@@ -222,8 +227,6 @@ static char s_last_twd[16] = {(char)0xFF};
 static char s_last_status[20] = {(char)0xFF};
 static char s_last_src[20] = {(char)0xFF};
 static int16_t s_last_wind_rot = INT16_MIN;
-static int16_t s_last_a_rot = INT16_MIN;
-static int16_t s_last_b_rot = INT16_MIN;
 static int8_t s_last_up = -1;
 
 static int16_t rot10(double deg) {
@@ -277,11 +280,18 @@ void refresh() {
     lv_arc_set_bg_angles(nogo, (int)norm360(center_lvgl - half), (int)norm360(center_lvgl + half));
     lv_arc_set_angles(nogo, (int)norm360(center_lvgl - half), (int)norm360(center_lvgl + half));
 
-    // Laylines at the edges of the no-go (theta = +/- opt for upwind; the optimal
-    // run angle each side for downwind).
-    double lay = up ? opt : opt;  // off-bow magnitude of the optimal heading line
-    set_rot_if_changed(lay_a, &s_last_a_rot, rot10(+lay));
-    set_rot_if_changed(lay_b, &s_last_b_rot, rot10(-lay));
+    // Green target sectors: the "sail here" band just outside the no-go on each
+    // side. With a polar present it hugs the optimal beat/gybe angle; the band
+    // width conveys the working tolerance (a future polar-table fetch can size it
+    // from the beat angle across the working TWS range). Upwind the band is wider
+    // than optimal (footing); downwind it is tighter than optimal (hotter).
+    double band = 12.0;
+    double t1 = up ? opt : (opt - band);
+    double t2 = up ? (opt + band) : opt;
+    lv_arc_set_bg_angles(target_a, (int)norm360(270 + t1), (int)norm360(270 + t2));
+    lv_arc_set_angles(target_a, (int)norm360(270 + t1), (int)norm360(270 + t2));
+    lv_arc_set_bg_angles(target_b, (int)norm360(270 - t2), (int)norm360(270 - t1));
+    lv_arc_set_angles(target_b, (int)norm360(270 - t2), (int)norm360(270 - t1));
 
     // Wind marker at the live true-wind angle.
     if (!isnan(twa_signed)) {
