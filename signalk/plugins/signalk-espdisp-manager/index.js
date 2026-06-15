@@ -1213,6 +1213,38 @@ function renderDevicePage (manager, id, live = {}) {
     .map((v) => `<option value="${escapeHtml(v.id)}"${v.id === currentScreen ? ' selected' : ''}>` +
       `${escapeHtml(v.title || v.id)}</option>`)
     .join('')
+  // Live-preview data: the assigned profile's AUTHORED layout flattened to
+  // tiles {widget,title,path,unit,precision}, which the browser renders bound
+  // to live SignalK data (see public/live-preview.js). Empty for devices whose
+  // assigned profile has no managed layout (they run firmware-built-in screens).
+  const previewData = (() => {
+    const prof = manager.store.profiles.profiles[assigned] || {}
+    const pcfg = prof.config || {}
+    const items = (pcfg.widgets && pcfg.widgets.items) || {}
+    const pscreens = (pcfg.layout && pcfg.layout.screens) || []
+    return {
+      current: currentScreen,
+      screens: pscreens.map((s) => ({
+        id: s.id,
+        title: s.title || s.id,
+        tiles: (Array.isArray(s.tiles) ? s.tiles : []).map((t) => {
+          const w = items[t.widget] || {}
+          return {
+            widget: w.type || 'numeric',
+            title: w.title || t.widget,
+            path: w.path || '',
+            unit: w.unit || '',
+            precision: w.precision != null ? w.precision : null
+          }
+        })
+      }))
+    }
+  })()
+  const previewScreenOptions = previewData.screens
+    .map((s) => `<option value="${escapeHtml(s.id)}"${s.id === currentScreen ? ' selected' : ''}>` +
+      `${escapeHtml(s.title)}</option>`)
+    .join('')
+  const previewJson = JSON.stringify(previewData).replace(/</g, '\\u003c')
   return `
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)}</h2>
@@ -1243,6 +1275,34 @@ function renderDevicePage (manager, id, live = {}) {
           <code>screen.set</code> command (live; does not change the assigned
           profile).</p>
       </form>
+      <div class="lp-panel">
+        <div class="lp-head">
+          <strong>Live preview</strong>
+          <label class="lp-screen-label">screen
+            <select id="lp-screen">${previewScreenOptions || '<option value="">(no authored layout)</option>'}</select>
+          </label>
+        </div>
+        <div id="lp-root" class="lp-stage"></div>
+        <p class="muted">Renders the assigned profile's authored layout bound to
+          live SignalK data. Firmware-built-in screens have no authored layout
+          to render here.</p>
+      </div>
+      <style>
+        .lp-panel{background:#0d1722;border:1px solid #1e2c3a;border-radius:10px;padding:12px;margin-bottom:20px}
+        .lp-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;color:#cfe0f0}
+        .lp-stage{background:#0a0f16;border-radius:8px;aspect-ratio:1/1;max-width:380px;margin:0 auto;padding:8px;display:flex;align-items:center;justify-content:center}
+        .lp-grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:8px;width:100%;height:100%}
+        .lp-tile{background:#11202f;border:1px solid #1c2f42;border-radius:8px;padding:8px;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:80px}
+        .lp-cap{font-size:11px;letter-spacing:.08em;color:#7da3c6;align-self:flex-start}
+        .lp-val{font-size:34px;font-weight:600;color:#eaf2fb;line-height:1}
+        .lp-val-sm{font-size:18px}
+        .lp-unit{font-size:14px;color:#9bb6d0;margin-left:4px}
+        .lp-bar{width:18px;flex:1;background:#0a1420;border-radius:4px;display:flex;align-items:flex-end;margin:6px 0;min-height:40px}
+        .lp-bar-fill{width:100%;background:#36d399;border-radius:4px;transition:height .2s}
+        .lp-empty{color:#7da3c6;font-size:13px;text-align:center}
+      </style>
+      <script>window.__espdispPreview=${previewJson};</script>
+      <script src="/signalk-espdisp-manager/live-preview.js"></script>
       <div class="config-grid">
         ${renderLiveStatusWidget(live.status, live.statusError)}
         ${renderLiveLogsWidget(live.logs, live.logsError)}
