@@ -665,6 +665,53 @@ function registerRoutes (router, getManager) {
     res.end()
   }))
 
+  // Save edited data-field bindings from the live preview. mode=switch queues a
+  // screen.set; mode=update rewrites the assigned profile's widget paths and
+  // reloads the device; mode=create saves the edited layout as a new profile.
+  router.post('/ui/devices/:id/save-screen', wrap(getManager, (manager, req, res) => {
+    const id = req.params.id
+    const body = req.body || {}
+    const mode = body.mode || 'update'
+    let edits = []
+    try { edits = JSON.parse(body.edits || '[]') } catch (e) { edits = [] }
+    let status = 'noop'
+    if (mode === 'switch') {
+      if (body.screenId) {
+        manager.createCommand(id, { type: 'screen.set', payload: { screen: body.screenId } })
+        status = 'switched'
+      }
+    } else {
+      const device = manager.getDevice(id)
+      const baseId = device.assignedProfile || 'default'
+      const base = manager.store.profiles.profiles[baseId]
+      if (base) {
+        const cfg = JSON.parse(JSON.stringify(base.config || {}))
+        cfg.widgets = cfg.widgets || {}
+        cfg.widgets.items = cfg.widgets.items || {}
+        edits.forEach((e) => {
+          if (e && e.widgetId && cfg.widgets.items[e.widgetId]) {
+            cfg.widgets.items[e.widgetId].path = String(e.path || '')
+          }
+        })
+        if (mode === 'create') {
+          const name = String(body.profileName || 'New View').trim()
+          const newId = (name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')) ||
+            ('view-' + Math.abs(sha256Json({ id, t: cfg }).length))
+          manager.upsertProfile({ id: newId, name, config: cfg })
+          status = 'created:' + newId
+        } else {
+          manager.upsertProfile({ id: baseId, name: base.name || baseId, config: cfg })
+          try { manager.queueConfigReload(id) } catch (e) {}
+          status = 'updated'
+        }
+      }
+    }
+    res.statusCode = 303
+    res.setHeader('location',
+      `/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}?status=${encodeURIComponent(status)}`)
+    res.end()
+  }))
+
   router.get('/ui/firmware', wrap(getManager, (manager, req, res) => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     res.end(renderUi(manager, 'firmware', req))
@@ -1224,12 +1271,14 @@ function renderDevicePage (manager, id, live = {}) {
     const pscreens = (pcfg.layout && pcfg.layout.screens) || []
     return {
       current: currentScreen,
+      profileId: assigned,
       screens: pscreens.map((s) => ({
         id: s.id,
         title: s.title || s.id,
         tiles: (Array.isArray(s.tiles) ? s.tiles : []).map((t) => {
           const w = items[t.widget] || {}
           return {
+            widgetId: t.widget,
             widget: w.type || 'numeric',
             title: w.title || t.widget,
             path: w.path || '',
@@ -1240,6 +1289,9 @@ function renderDevicePage (manager, id, live = {}) {
       }))
     }
   })()
+  // SK path catalogue for the edit datalist (the layout-editor's curated list).
+  let previewPaths = []
+  try { previewPaths = require('./lib/screen-presets').ALL_PATHS || [] } catch (e) { previewPaths = [] }
   const previewScreenOptions = previewData.screens
     .map((s) => `<option value="${escapeHtml(s.id)}"${s.id === currentScreen ? ' selected' : ''}>` +
       `${escapeHtml(s.title)}</option>`)
@@ -1281,11 +1333,27 @@ function renderDevicePage (manager, id, live = {}) {
           <label class="lp-screen-label">screen
             <select id="lp-screen">${previewScreenOptions || '<option value="">(no authored layout)</option>'}</select>
           </label>
+          <label class="lp-screen-label"><input type="checkbox" id="lp-edit"> edit data fields</label>
         </div>
         <div id="lp-root" class="lp-stage"></div>
-        <p class="muted">Renders the assigned profile's authored layout bound to
-          live SignalK data. Firmware-built-in screens have no authored layout
-          to render here.</p>
+        <datalist id="lp-paths">${previewPaths.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>
+        <form id="lp-form" method="post"
+              action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
+          <input type="hidden" name="screenId" id="lp-f-screen">
+          <input type="hidden" name="edits" id="lp-f-edits">
+          <input type="hidden" name="mode" id="lp-f-mode" value="update">
+          <div class="actions">
+            <input type="text" name="profileName" id="lp-f-name" placeholder="new view name (for Create)" style="flex:1">
+            <button type="button" class="primary" data-mode="switch">Switch to</button>
+            <button type="button" class="primary" data-mode="update">Update</button>
+            <button type="button" class="primary" data-mode="create">Create</button>
+          </div>
+        </form>
+        <p class="muted" id="lp-note">Renders the assigned profile's authored
+          layout bound to live SignalK data. Tick <em>edit data fields</em> to
+          rebind a tile's SignalK path; <strong>Switch to</strong> shows it on
+          the device, <strong>Update</strong> saves to the assigned view +
+          reloads the device, <strong>Create</strong> saves as a new view.</p>
       </div>
       <style>
         .lp-panel{background:#0d1722;border:1px solid #1e2c3a;border-radius:10px;padding:12px;margin-bottom:20px}
@@ -1300,8 +1368,10 @@ function renderDevicePage (manager, id, live = {}) {
         .lp-bar{width:18px;flex:1;background:#0a1420;border-radius:4px;display:flex;align-items:flex-end;margin:6px 0;min-height:40px}
         .lp-bar-fill{width:100%;background:#36d399;border-radius:4px;transition:height .2s}
         .lp-empty{color:#7da3c6;font-size:13px;text-align:center}
+        .lp-edit-path{width:100%;margin-top:6px;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:4px;padding:3px 4px}
+        #lp-form .actions{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
       </style>
-      <script>window.__espdispPreview=${previewJson};</script>
+      <script>window.__espdispPreview=${previewJson};window.__espdispDeviceId=${JSON.stringify(id)};</script>
       <script src="/signalk-espdisp-manager/live-preview.js"></script>
       <div class="config-grid">
         ${renderLiveStatusWidget(live.status, live.statusError)}

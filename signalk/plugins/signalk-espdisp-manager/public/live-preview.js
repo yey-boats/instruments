@@ -12,6 +12,9 @@
 
   const values = Object.create(null) // signalk path -> latest value
   let currentScreenId = cfg.current || (cfg.screens && cfg.screens[0] && cfg.screens[0].id)
+  const editChk = document.getElementById('lp-edit')
+  const editsMap = Object.create(null) // widgetId -> new signalk path
+  let editMode = false
 
   // --- value formatting (mirror the device's unit conventions) -------------
   function format (tile) {
@@ -71,6 +74,22 @@
         unit.textContent = tile.unit || ''
         val.appendChild(unit); cell.appendChild(val)
       }
+      if (editMode && tile.widgetId) {
+        const inp = document.createElement('input')
+        inp.className = 'lp-edit-path'
+        inp.value = tile.path || ''
+        inp.setAttribute('list', 'lp-paths')
+        inp.placeholder = 'signalk path'
+        // 'change' (blur/enter) so the throttled re-render never steals focus
+        // mid-keystroke; rebinding updates the tile's path so format() reads
+        // the new path's live value immediately.
+        inp.addEventListener('change', () => {
+          tile.path = inp.value.trim()
+          editsMap[tile.widgetId] = tile.path
+          dirty = true
+        })
+        cell.appendChild(inp)
+      }
       grid.appendChild(cell)
     })
     root.appendChild(grid)
@@ -78,7 +97,14 @@
 
   // throttle re-render to ~5 Hz (matches the device refresh cadence)
   let dirty = false
-  setInterval(() => { if (dirty) { dirty = false; renderScreen() } }, 200)
+  setInterval(() => {
+    // don't re-render (which rebuilds the DOM) while a path input is focused
+    const ae = document.activeElement
+    if (dirty && !(ae && ae.classList && ae.classList.contains('lp-edit-path'))) {
+      dirty = false
+      renderScreen()
+    }
+  }, 200)
 
   // --- live SignalK stream (same-origin; uses the logged-in session) -------
   function connect () {
@@ -100,6 +126,26 @@
 
   if (sel) {
     sel.addEventListener('change', () => { currentScreenId = sel.value; renderScreen() })
+  }
+  if (editChk) {
+    editChk.addEventListener('change', () => { editMode = editChk.checked; renderScreen() })
+  }
+  // Submit buttons: switch (screen.set) / update (save+reload) / create (new view).
+  const form = document.getElementById('lp-form')
+  if (form) {
+    document.querySelectorAll('#lp-form button[data-mode]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const mEl = document.getElementById('lp-f-mode')
+        const sEl = document.getElementById('lp-f-screen')
+        const eEl = document.getElementById('lp-f-edits')
+        if (mEl) mEl.value = btn.dataset.mode
+        if (sEl) sEl.value = currentScreenId || ''
+        if (eEl) {
+          eEl.value = JSON.stringify(Object.keys(editsMap).map((widgetId) => ({ widgetId, path: editsMap[widgetId] })))
+        }
+        form.submit()
+      })
+    })
   }
   renderScreen()
   connect()
