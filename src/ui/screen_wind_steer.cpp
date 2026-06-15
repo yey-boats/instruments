@@ -1,7 +1,6 @@
 #include "screens.h"
 #include "ui_screens.h"
 #include "ui_theme.h"
-#include "ui_compass.h"
 #include "ui_data.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
@@ -11,57 +10,147 @@
 #include <math.h>
 #include <stdio.h>
 
-// Wind-steering screen: a sailing aid built around the TRUE WIND ANGLE, with the
-// tack / gybe course-change angles, the resulting opposite-tack/gybe heading,
-// the true wind direction, and the apparent/true wind angles + speeds. No title
-// chip (navigated by swipe). Tile-based so it adapts cleanly to 480/800/1024.
+// Wind-steering screen: a bow-up sailing arc that zooms into the working zone.
+// Upwind it shows the TOP semicircle (the wind is forward); downwind it flips to
+// the BOTTOM semicircle (the wind is aft). A red NO-GO wedge marks the zone you
+// can't point into, with green LAYLINE marks at its edges, and a bright wind
+// marker shows the live true-wind angle — steer so the wind marker sits on a
+// layline to sail the optimal close-hauled (or running) angle. The no-go width
+// and laylines come from the SignalK polar beat/gybe angles (so they shift with
+// wind speed), falling back to an empirical estimate when no polar is present.
 //
-//   tack angle  = 2 * |TWA off bow|              (angle between the two beats)
-//   gybe angle  = 2 * (180 - |TWA off bow|)      (angle between the two runs)
-//   TWD (wind from, true) = heading + TWA(bow-relative)
-//   opposite heading = mirror of heading across the wind axis = 2*TWD - heading
-//     (this is the new heading after a tack when beating, or after a gybe when
-//      running, holding the same wind angle)
+// Angle convention: theta = true wind angle off the bow, +starboard. On screen
+// the bow is at the top; LVGL angle = 270 + theta (270 = 12 o'clock).
 
 namespace ui::wind_steer {
 
 static lv_obj_t *s_root = nullptr;
-static lv_obj_t *lbl_twa = nullptr;
-static lv_obj_t *lbl_src = nullptr;  // "polars: SignalK" vs "polars: estimated"
-static lv_obj_t *lbl_tack_val, *lbl_tack_hdg;
-static lv_obj_t *lbl_gybe_val, *lbl_gybe_hdg;
-static lv_obj_t *tile_awa, *tile_aws, *tile_tws, *tile_twd;
+static lv_obj_t *band_top = nullptr;   // white band, upper semicircle (upwind)
+static lv_obj_t *band_bot = nullptr;   // white band, lower semicircle (downwind)
+static lv_obj_t *nogo = nullptr;       // red no-go wedge (dynamic angles)
+static lv_obj_t *lay_a = nullptr;      // layline mark A (rotating)
+static lv_obj_t *lay_b = nullptr;      // layline mark B (rotating)
+static lv_obj_t *wind_mark = nullptr;  // live true-wind marker (rotating)
+static lv_obj_t *ticks_top = nullptr;  // tick+label group for the upper half
+static lv_obj_t *ticks_bot = nullptr;  // tick+label group for the lower half
+static lv_obj_t *lbl_twa, *lbl_twd, *lbl_status, *lbl_src;
 
-// A two-line steering panel: caption (top-left), big angle value (centre), and a
-// small "-> ddd deg" heading line (bottom). Returns the value + heading labels.
-static void steer_panel(lv_obj_t *parent, int x, int y, int w, int h, const char *cap,
-                        uint32_t color, lv_obj_t **out_val, lv_obj_t **out_hdg) {
-    lv_obj_t *box = lv_obj_create(parent);
-    lv_obj_set_size(box, w, h);
-    lv_obj_set_pos(box, x, y);
-    style_panel(box);
-    lv_obj_set_style_pad_all(box, 8, 0);
-    lv_obj_clear_flag(box, LV_OBJ_FLAG_CLICKABLE);
+static constexpr int CX = LCD_W / 2;
+static constexpr int CY = LCD_H / 2;
+static constexpr int SHORT = (LCD_W < LCD_H ? LCD_W : LCD_H);
+static constexpr int R = SHORT / 2 - 28;
 
-    lv_obj_t *c = lv_label_create(box);
-    lv_label_set_text(c, cap);
-    lv_obj_set_style_text_font(c, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(c, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(c, LV_ALIGN_TOP_LEFT, 0, 0);
+static double norm360(double d) {
+    while (d < 0)
+        d += 360;
+    while (d >= 360)
+        d -= 360;
+    return d;
+}
 
-    lv_obj_t *v = lv_label_create(box);
-    lv_label_set_text(v, "--\xC2\xB0");
-    lv_obj_set_style_text_font(v, &lv_font_montserrat_48, 0);
-    lv_obj_set_style_text_color(v, lv_color_hex(color), 0);
-    lv_obj_align(v, LV_ALIGN_CENTER, 0, 2);
-    *out_val = v;
+// A fixed colored band arc (white rim) for one half. a0/a1 in LVGL degrees.
+static lv_obj_t *band_arc(int a0, int a1, int radius, int width, uint32_t color, lv_opa_t opa) {
+    lv_obj_t *arc = lv_arc_create(s_root);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    int d = radius * 2;
+    lv_obj_set_size(arc, d, d);
+    lv_obj_set_pos(arc, CX - radius, CY - radius);
+    lv_arc_set_rotation(arc, 0);
+    lv_arc_set_bg_angles(arc, a0, a1);
+    lv_arc_set_angles(arc, a0, a1);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(color), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(color), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(arc, opa, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(arc, opa, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, width, LV_PART_INDICATOR);
+    return arc;
+}
 
-    lv_obj_t *hd = lv_label_create(box);
-    lv_label_set_text(hd, LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    lv_obj_set_style_text_font(hd, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(hd, lv_color_hex(theme.fg), 0);
-    lv_obj_align(hd, LV_ALIGN_BOTTOM_MID, 0, 0);
-    *out_hdg = hd;
+// A rim marker: a transparent holder pivoting at the dial centre with a short
+// visible blade at the rim. Rotating the holder sweeps the blade to a wind
+// angle (rotation 0 = bow/top). `blade_w`/`blade_h` size the colored tip.
+static lv_obj_t *rim_marker(int blade_w, int blade_h, uint32_t color, bool triangle) {
+    lv_obj_t *h = lv_obj_create(s_root);
+    lv_obj_set_size(h, blade_w + 8, R);
+    lv_obj_set_pos(h, CX - (blade_w + 8) / 2, CY - R);
+    lv_obj_set_style_bg_opa(h, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(h, 0, 0);
+    lv_obj_set_style_pad_all(h, 0, 0);
+    lv_obj_clear_flag(h, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_transform_pivot_x(h, (blade_w + 8) / 2, 0);
+    lv_obj_set_style_transform_pivot_y(h, R, 0);  // pivot at the dial centre
+
+    if (triangle) {
+        lv_obj_t *t = lv_label_create(h);
+        lv_label_set_text(t, LV_SYMBOL_DOWN);
+        lv_obj_set_style_text_font(t, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_color(t, lv_color_hex(color), 0);
+        lv_obj_align(t, LV_ALIGN_TOP_MID, 0, -6);
+    }
+    lv_obj_t *blade = lv_obj_create(h);
+    lv_obj_set_size(blade, blade_w, blade_h);
+    lv_obj_set_style_bg_color(blade, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(blade, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(blade, 0, 0);
+    lv_obj_set_style_radius(blade, 2, 0);
+    lv_obj_set_style_pad_all(blade, 0, 0);
+    lv_obj_clear_flag(blade, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(blade, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(blade, LV_ALIGN_TOP_MID, 0, triangle ? 22 : 0);
+    return h;
+}
+
+// Build a tick + angle-label group for one half (top = upwind / bow region).
+// Ticks every 15 deg, numbers every 30 deg showing the angle off the bow.
+static lv_obj_t *build_ticks(bool top) {
+    lv_obj_t *g = lv_obj_create(s_root);
+    lv_obj_set_size(g, LCD_W, LCD_H);
+    lv_obj_set_pos(g, 0, 0);
+    lv_obj_set_style_bg_opa(g, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(g, 0, 0);
+    lv_obj_set_style_pad_all(g, 0, 0);
+    lv_obj_clear_flag(g, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(g, LV_OBJ_FLAG_CLICKABLE);
+    // theta off bow: top half spans -90..+90, bottom half spans +90..+270.
+    int lo = top ? -90 : 90;
+    int hi = top ? 90 : 270;
+    for (int th = lo; th <= hi; th += 15) {
+        bool major = (((th % 30) + 360) % 30) == 0;
+        lv_obj_t *t = lv_obj_create(g);
+        int tw = major ? 3 : 2;
+        lv_obj_set_size(t, tw, major ? 14 : 8);
+        lv_obj_set_style_bg_color(t, lv_color_hex(major ? 0x16222f : 0x5a6b78), 0);
+        lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(t, 0, 0);
+        lv_obj_set_style_pad_all(t, 0, 0);
+        lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_transform_pivot_x(t, tw / 2, 0);
+        lv_obj_set_style_transform_pivot_y(t, R - 6, 0);
+        lv_obj_set_pos(t, CX - tw / 2, CY - (R - 6));
+        lv_obj_set_style_transform_rotation(t, ((th % 360) + 360) % 360 * 10, 0);
+
+        if (major) {
+            int mag = abs(th) % 360;
+            if (mag > 180) mag = 360 - mag;  // angle off bow, 0..180
+            char nb[8];
+            snprintf(nb, sizeof(nb), "%d", mag);
+            lv_obj_t *l = lv_label_create(g);
+            lv_label_set_text(l, nb);
+            lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+            lv_obj_set_style_text_color(l, lv_color_hex(0x16222f), 0);
+            lv_obj_set_width(l, 40);
+            lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+            double a = th * M_PI / 180.0;
+            int x = CX + (int)((R - 16) * sin(a));
+            int y = CY - (int)((R - 16) * cos(a));
+            lv_obj_set_pos(l, x - 20, y - 13);
+        }
+    }
+    return g;
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
@@ -75,70 +164,53 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    bool wide = (LCD_W * 100 > LCD_H * 125);
-    int gap = 8;
+    // White bands for both halves (one shown at a time), then the dynamic
+    // no-go wedge just inside, then the markers, then the centre readouts.
+    band_top = band_arc(182, 358, R, 22, theme.arc_band, LV_OPA_COVER);
+    band_bot = band_arc(2, 178, R, 22, theme.arc_band, LV_OPA_COVER);
+    lv_obj_add_flag(band_bot, LV_OBJ_FLAG_HIDDEN);
 
-    // --- hero: TRUE WIND ANGLE ---
+    nogo = band_arc(252, 288, R - 4, 16, theme.alarm, LV_OPA_70);  // dynamic in refresh
+
+    ticks_top = build_ticks(true);
+    ticks_bot = build_ticks(false);
+    lv_obj_add_flag(ticks_bot, LV_OBJ_FLAG_HIDDEN);
+
+    lay_a = rim_marker(5, 30, theme.good, false);  // green laylines
+    lay_b = rim_marker(5, 30, theme.good, false);
+    wind_mark = rim_marker(8, 40, 0x2bd4e8, true);  // bright cyan wind marker
+
+    // Centre readouts.
     lv_obj_t *cap = lv_label_create(s_root);
-    lv_label_set_text(cap, "TRUE WIND ANGLE");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_label_set_text(cap, "TRUE WIND");
+    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(cap, LV_ALIGN_CENTER, 0, -54);
 
     lbl_twa = lv_label_create(s_root);
     lv_label_set_text(lbl_twa, "--\xC2\xB0");
     lv_obj_set_style_text_font(lbl_twa, &font_xl_64, 0);
     lv_obj_set_style_text_color(lbl_twa, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_text_align(lbl_twa, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(lbl_twa, LV_ALIGN_TOP_MID, 0, 38);
+    lv_obj_align(lbl_twa, LV_ALIGN_CENTER, 0, -8);
 
-    // Polar-source indicator (top-right): SignalK polars vs empirical estimate.
+    lbl_twd = lv_label_create(s_root);
+    lv_label_set_text(lbl_twd, "TWD --\xC2\xB0");
+    lv_obj_set_style_text_font(lbl_twd, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl_twd, lv_color_hex(theme.fg), 0);
+    lv_obj_align(lbl_twd, LV_ALIGN_CENTER, 0, 40);
+
+    lbl_status = lv_label_create(s_root);
+    lv_label_set_text(lbl_status, "");
+    lv_obj_set_style_text_font(lbl_status, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl_status, lv_color_hex(theme.good), 0);
+    lv_obj_align(lbl_status, LV_ALIGN_CENTER, 0, 70);
+
     lbl_src = lv_label_create(s_root);
     lv_label_set_text(lbl_src, "");
     lv_obj_set_style_text_font(lbl_src, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_src, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_src, LV_ALIGN_TOP_RIGHT, -10, 10);
-
-    int hero_h = wide ? 150 : 132;
-
-    // --- tack / gybe panels + wind tiles ---
-    // Square: TACK | GYBE on one row, then AWA AWS TWS TWD across the bottom.
-    // Wide: all six in a single row.
-    const lv_font_t *tv = &lv_font_montserrat_38;
-    if (!wide) {
-        int pw = (LCD_W - 3 * gap) / 2;
-        int ph = 120;
-        int py = hero_h + gap;
-        steer_panel(s_root, gap, py, pw, ph, "TACK", theme.starboard, &lbl_tack_val, &lbl_tack_hdg);
-        steer_panel(s_root, gap * 2 + pw, py, pw, ph, "GYBE", theme.warn, &lbl_gybe_val,
-                    &lbl_gybe_hdg);
-
-        int n = 4;
-        int tw = (LCD_W - (n + 1) * gap) / n;
-        int ty = py + ph + gap;
-        int th = LCD_H - ty - gap;
-        tile_awa = ui::numeric_tile(s_root, gap, ty, tw, th, "AWA", "", tv, theme.fg);
-        tile_aws = ui::numeric_tile(s_root, gap * 2 + tw, ty, tw, th, "AWS", "kn", tv, theme.warn);
-        tile_tws =
-            ui::numeric_tile(s_root, gap * 3 + tw * 2, ty, tw, th, "TWS", "kn", tv, theme.fg);
-        tile_twd =
-            ui::numeric_tile(s_root, gap * 4 + tw * 3, ty, tw, th, "TWD", "", tv, theme.accent);
-    } else {
-        int n = 6;
-        int tw = (LCD_W - (n + 1) * gap) / n;
-        int ty = hero_h + gap;
-        int th = LCD_H - ty - gap;
-        steer_panel(s_root, gap, ty, tw, th, "TACK", theme.starboard, &lbl_tack_val, &lbl_tack_hdg);
-        steer_panel(s_root, gap * 2 + tw, ty, tw, th, "GYBE", theme.warn, &lbl_gybe_val,
-                    &lbl_gybe_hdg);
-        tile_awa = ui::numeric_tile(s_root, gap * 3 + tw * 2, ty, tw, th, "AWA", "", tv, theme.fg);
-        tile_aws =
-            ui::numeric_tile(s_root, gap * 4 + tw * 3, ty, tw, th, "AWS", "kn", tv, theme.warn);
-        tile_tws =
-            ui::numeric_tile(s_root, gap * 5 + tw * 4, ty, tw, th, "TWS", "kn", tv, theme.fg);
-        tile_twd =
-            ui::numeric_tile(s_root, gap * 6 + tw * 5, ty, tw, th, "TWD", "", tv, theme.accent);
-    }
+    lv_obj_align(lbl_src, LV_ALIGN_BOTTOM_MID, 0, -8);
 
     return s_root;
 }
@@ -146,22 +218,21 @@ lv_obj_t *build(lv_obj_t *parent) {
 // ---- refresh ----
 
 static char s_last_twa[12] = {(char)0xFF};
-static char s_last_tackv[8] = {(char)0xFF};
-static char s_last_tackh[12] = {(char)0xFF};
-static char s_last_gybev[8] = {(char)0xFF};
-static char s_last_gybeh[12] = {(char)0xFF};
-static char s_last_awa[12] = {(char)0xFF};
-static char s_last_aws[12] = {(char)0xFF};
-static char s_last_tws[12] = {(char)0xFF};
-static char s_last_twd[12] = {(char)0xFF};
+static char s_last_twd[16] = {(char)0xFF};
+static char s_last_status[20] = {(char)0xFF};
 static char s_last_src[20] = {(char)0xFF};
+static int16_t s_last_wind_rot = INT16_MIN;
+static int16_t s_last_a_rot = INT16_MIN;
+static int16_t s_last_b_rot = INT16_MIN;
+static int8_t s_last_up = -1;
 
-static double norm360(double d) {
-    while (d < 0)
-        d += 360;
-    while (d >= 360)
-        d -= 360;
-    return d;
+static int16_t rot10(double deg) {
+    int16_t r = (int16_t)(lround(deg) * 10);
+    while (r < 0)
+        r += 3600;
+    while (r >= 3600)
+        r -= 3600;
+    return r;
 }
 
 void refresh() {
@@ -169,105 +240,83 @@ void refresh() {
     sk::copyData(d);
     char buf[24];
 
-    // Geometry: TWA off bow (+stbd), current tack side, TWD (wind FROM), and the
-    // optimal beat / gybe angles from SignalK polars when available.
-    double twa_raw = isnan(d.twa) ? NAN : rad_to_deg_pos(d.twa);  // 0..360
-    bool stbd = !isnan(twa_raw) && twa_raw <= 180.0;              // wind on stbd => stbd tack
-    double twa_mag = isnan(twa_raw) ? NAN : (stbd ? twa_raw : 360.0 - twa_raw);
-    bool beating = !isnan(twa_mag) && twa_mag <= 90.0;
+    double twa_raw = isnan(d.twa) ? NAN : rad_to_deg_pos(d.twa);  // 0..360, +stbd
+    double twa_signed = isnan(twa_raw) ? NAN : (twa_raw <= 180.0 ? twa_raw : twa_raw - 360.0);
+    bool stbd = !isnan(twa_signed) && twa_signed >= 0;
+    double twa_mag = isnan(twa_signed) ? NAN : fabs(twa_signed);
+    bool up = isnan(twa_mag) ? true : (twa_mag <= 90.0);
+
     double hdg = isnan(d.headingTrue) ? NAN : rad_to_deg_pos(d.headingTrue);
     double twd = (!isnan(hdg) && !isnan(twa_raw)) ? norm360(hdg + twa_raw) : NAN;
-    double beat =
-        isnan(d.beatAngle) ? NAN : rad_to_deg_pos(d.beatAngle);  // polar optimal upwind TWA
-    double gybe =
-        isnan(d.gybeAngle) ? NAN : rad_to_deg_pos(d.gybeAngle);  // polar optimal downwind TWA
-    bool have_polar = !isnan(beat) || !isnan(gybe);
+    double beat = isnan(d.beatAngle) ? NAN : rad_to_deg_pos(d.beatAngle);
+    double gybe = isnan(d.gybeAngle) ? NAN : rad_to_deg_pos(d.gybeAngle);
+    bool have_polar = (up && !isnan(beat)) || (!up && !isnan(gybe));
 
-    // --- TWA hero ---
-    if (!isnan(twa_mag)) {
+    // Optimal angle off the bow for the current point of sail; empirical default.
+    double opt = up ? (isnan(beat) ? 45.0 : beat) : (isnan(gybe) ? 150.0 : gybe);
+
+    // Show the working-half band (top when upwind, bottom when downwind).
+    if ((int8_t)up != s_last_up) {
+        s_last_up = (int8_t)up;
+        lv_obj_t *show_band = up ? band_top : band_bot;
+        lv_obj_t *hide_band = up ? band_bot : band_top;
+        lv_obj_t *show_ticks = up ? ticks_top : ticks_bot;
+        lv_obj_t *hide_ticks = up ? ticks_bot : ticks_top;
+        lv_obj_clear_flag(show_band, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(hide_band, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(show_ticks, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(hide_ticks, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    // No-go wedge: centred on the bow (upwind) / stern (downwind), half-width =
+    // the optimal angle (upwind) or (180 - optimal) (downwind). LVGL angles.
+    double center_lvgl = up ? 270.0 : 90.0;
+    double half = up ? opt : (180.0 - opt);
+    if (half < 4) half = 4;
+    if (half > 88) half = 88;
+    lv_arc_set_bg_angles(nogo, (int)norm360(center_lvgl - half), (int)norm360(center_lvgl + half));
+    lv_arc_set_angles(nogo, (int)norm360(center_lvgl - half), (int)norm360(center_lvgl + half));
+
+    // Laylines at the edges of the no-go (theta = +/- opt for upwind; the optimal
+    // run angle each side for downwind).
+    double lay = up ? opt : opt;  // off-bow magnitude of the optimal heading line
+    set_rot_if_changed(lay_a, &s_last_a_rot, rot10(+lay));
+    set_rot_if_changed(lay_b, &s_last_b_rot, rot10(-lay));
+
+    // Wind marker at the live true-wind angle.
+    if (!isnan(twa_signed)) {
+        set_rot_if_changed(wind_mark, &s_last_wind_rot, rot10(twa_signed));
+        lv_obj_clear_flag(wind_mark, LV_OBJ_FLAG_HIDDEN);
         snprintf(buf, sizeof(buf), "%.0f\xC2\xB0%c", twa_mag, stbd ? 'S' : 'P');
         set_text_if_changed(lbl_twa, s_last_twa, sizeof(s_last_twa), buf);
     } else {
+        lv_obj_add_flag(wind_mark, LV_OBJ_FLAG_HIDDEN);
         set_text_if_changed(lbl_twa, s_last_twa, sizeof(s_last_twa), "--\xC2\xB0");
     }
 
-    // --- TACK: tacking angle + the optimal close-hauled heading on the other
-    // tack. Polar (2*beatAngle, laylines TWD +/- beat) when available, else the
-    // empirical current-TWA mirror (only meaningful while beating). ---
-    char tv[8], th[16];
-    if (!isnan(beat)) {
-        snprintf(tv, sizeof(tv), "%.0f\xC2\xB0", 2.0 * beat);
-        if (!isnan(twd))
-            snprintf(th, sizeof(th), LV_SYMBOL_RIGHT " %03.0f\xC2\xB0",
-                     norm360(twd + (stbd ? beat : -beat)));
-        else
-            snprintf(th, sizeof(th), LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    } else if (beating) {
-        snprintf(tv, sizeof(tv), "%.0f\xC2\xB0", 2.0 * twa_mag);
-        if (!isnan(twd) && !isnan(hdg))
-            snprintf(th, sizeof(th), LV_SYMBOL_RIGHT " %03.0f\xC2\xB0", norm360(2.0 * twd - hdg));
-        else
-            snprintf(th, sizeof(th), LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    } else {
-        snprintf(tv, sizeof(tv), "--\xC2\xB0");
-        snprintf(th, sizeof(th), LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    }
-    set_text_if_changed(lbl_tack_val, s_last_tackv, sizeof(s_last_tackv), tv);
-    set_text_if_changed(lbl_tack_hdg, s_last_tackh, sizeof(s_last_tackh), th);
-
-    // --- GYBE: gybing angle + the optimal running heading on the other gybe. ---
-    char gv[8], gh[16];
-    if (!isnan(gybe)) {
-        snprintf(gv, sizeof(gv), "%.0f\xC2\xB0", 2.0 * (180.0 - gybe));
-        if (!isnan(twd))
-            snprintf(gh, sizeof(gh), LV_SYMBOL_RIGHT " %03.0f\xC2\xB0",
-                     norm360(twd + (stbd ? gybe : -gybe)));
-        else
-            snprintf(gh, sizeof(gh), LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    } else if (!beating && !isnan(twa_mag)) {
-        snprintf(gv, sizeof(gv), "%.0f\xC2\xB0", 2.0 * (180.0 - twa_mag));
-        if (!isnan(twd) && !isnan(hdg))
-            snprintf(gh, sizeof(gh), LV_SYMBOL_RIGHT " %03.0f\xC2\xB0", norm360(2.0 * twd - hdg));
-        else
-            snprintf(gh, sizeof(gh), LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    } else {
-        snprintf(gv, sizeof(gv), "--\xC2\xB0");
-        snprintf(gh, sizeof(gh), LV_SYMBOL_RIGHT " ---\xC2\xB0");
-    }
-    set_text_if_changed(lbl_gybe_val, s_last_gybev, sizeof(s_last_gybev), gv);
-    set_text_if_changed(lbl_gybe_hdg, s_last_gybeh, sizeof(s_last_gybeh), gh);
-
-    // --- TWD tile + polar-source indicator ---
     if (!isnan(twd)) {
-        snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", twd);
-        set_text_if_changed(tile_twd, s_last_twd, sizeof(s_last_twd), buf);
+        snprintf(buf, sizeof(buf), "TWD %03.0f\xC2\xB0", twd);
+        set_text_if_changed(lbl_twd, s_last_twd, sizeof(s_last_twd), buf);
     } else {
-        set_text_if_changed(tile_twd, s_last_twd, sizeof(s_last_twd), "--\xC2\xB0");
+        set_text_if_changed(lbl_twd, s_last_twd, sizeof(s_last_twd), "TWD --\xC2\xB0");
     }
+
+    // Status: how far off the optimal angle (steer to close the gap).
+    if (!isnan(twa_mag)) {
+        double delta = twa_mag - opt;  // +ve = wider than optimal, -ve = pinching
+        if (fabs(delta) <= 3.0)
+            snprintf(buf, sizeof(buf), "ON %s", up ? "LAYLINE" : "GYBE");
+        else if (delta < 0)
+            snprintf(buf, sizeof(buf), "%s %.0f\xC2\xB0", up ? "PINCHING" : "HIGH", -delta);
+        else
+            snprintf(buf, sizeof(buf), "%s %.0f\xC2\xB0", up ? "WIDE" : "DEEP", delta);
+        set_text_if_changed(lbl_status, s_last_status, sizeof(s_last_status), buf);
+    } else {
+        set_text_if_changed(lbl_status, s_last_status, sizeof(s_last_status), "");
+    }
+
     set_text_if_changed(lbl_src, s_last_src, sizeof(s_last_src),
                         have_polar ? "polars: SignalK" : "polars: estimated");
-
-    // AWA (off bow, P/S).
-    if (!isnan(d.awa)) {
-        double raw = rad_to_deg_pos(d.awa);
-        bool stbd = raw <= 180.0;
-        snprintf(buf, sizeof(buf), "%.0f%c", stbd ? raw : 360.0 - raw, stbd ? 'S' : 'P');
-        set_text_if_changed(tile_awa, s_last_awa, sizeof(s_last_awa), buf);
-    } else {
-        set_text_if_changed(tile_awa, s_last_awa, sizeof(s_last_awa), "--");
-    }
-    if (!isnan(d.aws)) {
-        snprintf(buf, sizeof(buf), "%.1f", mps_to_kn(d.aws));
-        set_text_if_changed(tile_aws, s_last_aws, sizeof(s_last_aws), buf);
-    } else {
-        set_text_if_changed(tile_aws, s_last_aws, sizeof(s_last_aws), "--");
-    }
-    if (!isnan(d.tws)) {
-        snprintf(buf, sizeof(buf), "%.1f", mps_to_kn(d.tws));
-        set_text_if_changed(tile_tws, s_last_tws, sizeof(s_last_tws), buf);
-    } else {
-        set_text_if_changed(tile_tws, s_last_tws, sizeof(s_last_tws), "--");
-    }
 }
 
 }  // namespace ui::wind_steer
