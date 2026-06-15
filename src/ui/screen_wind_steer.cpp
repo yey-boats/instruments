@@ -284,11 +284,16 @@ void refresh() {
     lv_arc_set_angles(nogo, (int)norm360(center_lvgl - half), (int)norm360(center_lvgl + half));
 
     // Green target sectors: the "sail here" band just outside the no-go on each
-    // side. With a polar present it hugs the optimal beat/gybe angle; the band
-    // width conveys the working tolerance (a future polar-table fetch can size it
-    // from the beat angle across the working TWS range). Upwind the band is wider
-    // than optimal (footing); downwind it is tighter than optimal (hotter).
-    double band = 12.0;
+    // side. Its CENTRE already tracks the live polar beat/gybe angle (which
+    // SignalK recomputes as TWS changes). Its WIDTH = the optimal-angle spread
+    // across the near-term wind-speed window: without a full polar table we
+    // estimate it from TWS (looser/wider in light air where pointing is less
+    // critical, tighter in breeze), clamped. A future polar-table fetch can
+    // replace this estimate with the true beatAngle(TWS +/- window) span.
+    double tws_kn = isnan(d.tws) ? NAN : mps_to_kn(d.tws);
+    double band = isnan(tws_kn) ? 10.0 : 16.0 - 0.6 * tws_kn;
+    if (band < 4.0) band = 4.0;
+    if (band > 16.0) band = 16.0;
     double t1 = up ? opt : (opt - band);
     double t2 = up ? (opt + band) : opt;
     lv_arc_set_bg_angles(target_a, (int)norm360(270 + t1), (int)norm360(270 + t2));
