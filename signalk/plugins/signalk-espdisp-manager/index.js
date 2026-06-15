@@ -688,10 +688,14 @@ function registerRoutes (router, getManager) {
         const cfg = JSON.parse(JSON.stringify(base.config || {}))
         cfg.widgets = cfg.widgets || {}
         cfg.widgets.items = cfg.widgets.items || {}
+        const items = cfg.widgets.items
         edits.forEach((e) => {
-          if (e && e.widgetId && cfg.widgets.items[e.widgetId]) {
-            cfg.widgets.items[e.widgetId].path = String(e.path || '')
-          }
+          if (!e || typeof e.widgetId !== 'string') return
+          // Prototype-pollution guard: only rebind an EXISTING own widget key
+          // (hasOwnProperty rejects __proto__/constructor/prototype, which are
+          // not own keys), so a crafted widgetId can't write onto Object.prototype.
+          if (!Object.prototype.hasOwnProperty.call(items, e.widgetId)) return
+          items[e.widgetId].path = String(e.path || '')
         })
         if (mode === 'create') {
           const name = String(body.profileName || 'New View').trim()
