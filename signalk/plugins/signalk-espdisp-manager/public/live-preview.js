@@ -16,16 +16,39 @@
   const editsMap = Object.create(null) // widgetId -> new signalk path
   let editMode = false
 
-  // --- value formatting (mirror the device's unit conventions) -------------
-  function format (tile) {
+  // --- unit + value formatting (mirror the device's conventions) -----------
+  // Preset tiles often carry no unit, so infer one from the SignalK path:
+  // speeds -> kn, angles/headings/bearings -> deg, depth -> m, temp -> °C,
+  // ratios -> %, voltage -> V. tile.unit (if set) overrides the inference.
+  function unitFor (tile) {
+    if (tile.unit) return tile.unit
+    const p = tile.path || ''
+    if (/speed|drift/i.test(p)) return 'kn'
+    if (/angle|heading|course|bearing|setTrue/i.test(p)) return '°'
+    if (/depth/i.test(p)) return 'm'
+    if (/temperature/i.test(p)) return '°C'
+    if (/stateOfCharge|currentLevel|relativeHumidity/i.test(p)) return '%'
+    if (/voltage/i.test(p)) return 'V'
+    return ''
+  }
+  function valueFor (tile) {
+    if (!tile.path) return '--'
     const v = values[tile.path]
     if (v === undefined || v === null) return '--'
+    if (typeof v === 'object') {
+      if (typeof v.latitude === 'number' && typeof v.longitude === 'number') {
+        return v.latitude.toFixed(4) + ', ' + v.longitude.toFixed(4)
+      }
+      return '--'
+    }
     if (typeof v !== 'number') return String(v)
+    const unit = unitFor(tile)
     let x = v
-    if (tile.unit === 'kn') x = v * 1.94384            // m/s -> knots
-    else if (tile.unit === '°' || tile.unit === 'deg') x = v * 180 / Math.PI // rad -> deg
-    else if (tile.unit === '%') x = v <= 1.0001 ? v * 100 : v               // ratio -> %
-    const p = tile.precision != null ? tile.precision : 1
+    if (unit === 'kn') x = v * 1.94384
+    else if (unit === '°' || unit === 'deg') x = v * 180 / Math.PI
+    else if (unit === '%') x = v <= 1.0001 ? v * 100 : v
+    else if (unit === '°C') x = v - 273.15
+    const p = tile.precision != null ? tile.precision : (unit === '°' ? 0 : 1)
     return x.toFixed(p)
   }
   function percent (tile) {
@@ -65,16 +88,17 @@
         fill.style.height = percent(tile) + '%'
         bar.appendChild(fill); cell.appendChild(bar)
         const val = document.createElement('div'); val.className = 'lp-val lp-val-sm'
-        val.textContent = format(tile) + (tile.unit ? ' ' + tile.unit : '')
+        const u = unitFor(tile)
+        val.textContent = valueFor(tile) + (u ? ' ' + u : '')
         cell.appendChild(val)
       } else {
         const val = document.createElement('div'); val.className = 'lp-val'
-        val.textContent = format(tile)
+        val.textContent = valueFor(tile)
         const unit = document.createElement('span'); unit.className = 'lp-unit'
-        unit.textContent = tile.unit || ''
+        unit.textContent = unitFor(tile)
         val.appendChild(unit); cell.appendChild(val)
       }
-      if (editMode && tile.widgetId) {
+      if (editMode && tile.widgetId && tile.editable) {
         const inp = document.createElement('input')
         inp.className = 'lp-edit-path'
         inp.value = tile.path || ''
@@ -124,8 +148,9 @@
     ws.onerror = () => { try { ws.close() } catch (_) {} }
   }
 
+  let userPicked = false
   if (sel) {
-    sel.addEventListener('change', () => { currentScreenId = sel.value; renderScreen() })
+    sel.addEventListener('change', () => { userPicked = true; currentScreenId = sel.value; renderScreen() })
   }
   if (editChk) {
     editChk.addEventListener('change', () => { editMode = editChk.checked; renderScreen() })
@@ -146,6 +171,30 @@
         form.submit()
       })
     })
+  }
+  // Keep the preview's current screen synced with what the device is actually
+  // showing: poll the device-views projection; when the device's reported
+  // current screen changes (and the user isn't mid-edit), follow it.
+  const deviceId = window.__espdispDeviceId
+  if (deviceId) {
+    setInterval(() => {
+      if (editMode || userPicked) return
+      fetch('/plugins/espdisp-manager/devices/' + encodeURIComponent(deviceId) + '/views',
+        { credentials: 'include' })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => {
+          if (!d || !d.current || d.current === currentScreenId) return
+          currentScreenId = d.current
+          if (sel) {
+            if (![...sel.options].some((o) => o.value === currentScreenId)) {
+              const o = document.createElement('option'); o.value = currentScreenId; o.textContent = currentScreenId; sel.appendChild(o)
+            }
+            sel.value = currentScreenId
+          }
+          renderScreen()
+        })
+        .catch(() => {})
+    }, 5000)
   }
   renderScreen()
   connect()

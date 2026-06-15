@@ -1264,33 +1264,65 @@ function renderDevicePage (manager, id, live = {}) {
     .map((v) => `<option value="${escapeHtml(v.id)}"${v.id === currentScreen ? ' selected' : ''}>` +
       `${escapeHtml(v.title || v.id)}</option>`)
     .join('')
-  // Live-preview data: the assigned profile's AUTHORED layout flattened to
-  // tiles {widget,title,path,unit,precision}, which the browser renders bound
-  // to live SignalK data (see public/live-preview.js). Empty for devices whose
-  // assigned profile has no managed layout (they run firmware-built-in screens).
+  // Live-preview data, driven by the device's REAL screen list (deviceViews)
+  // so the preview tracks what the device actually has + which screen is
+  // current. Each screen's tiles come from the assigned profile's authored
+  // layout when managed, else the screen-presets catalogue that mirrors the
+  // firmware's built-in screens — so built-in screens still render live
+  // objects. Tiles are flattened to {widgetId,widget,title,path,unit,precision}
+  // and bound to live SignalK data by public/live-preview.js.
   const previewData = (() => {
     const prof = manager.store.profiles.profiles[assigned] || {}
     const pcfg = prof.config || {}
     const items = (pcfg.widgets && pcfg.widgets.items) || {}
-    const pscreens = (pcfg.layout && pcfg.layout.screens) || []
+    const authored = {}
+    ;((pcfg.layout && pcfg.layout.screens) || []).forEach((s) => { authored[s.id] = s })
+    let presetById = {}
+    try {
+      const sp = require('./lib/screen-presets')
+      const dc = (typeof sp.classifyBoard === 'function')
+        ? sp.classifyBoard(String((device.board || (device.display && device.display.class) || '')))
+        : 'sunton-480'
+      ;(sp.getPresetsForClass(dc) || []).forEach((s) => { presetById[s.id] = s })
+    } catch (e) { presetById = {} }
+    const presetTiles = (screenId) => {
+      // exact id, else a prefix match so built-in variants map to their base
+      // (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
+      let p = presetById[screenId]
+      if (!p) {
+        const base = Object.keys(presetById).find((k) => screenId === k || screenId.indexOf(k + '_') === 0)
+        if (base) p = presetById[base]
+      }
+      if (!p || !Array.isArray(p.tiles)) return null
+      return p.tiles.map((t) => ({
+        widgetId: null, editable: false,
+        widget: t.widget || 'numeric', title: t.title || (t.primary ? String(t.primary).split('.').pop() : ''),
+        path: t.primary || t.path || '', unit: t.unit || '', precision: t.precision != null ? t.precision : null
+      }))
+    }
+    const tilesFor = (screenId) => {
+      // A genuinely managed/edited screen (authored tiles WITH real bindings)
+      // wins so edits show; an empty-path stub authored layout falls through to
+      // the preset catalogue so the preview still shows live objects.
+      const a = authored[screenId]
+      if (a && Array.isArray(a.tiles) && a.tiles.length) {
+        const mapped = a.tiles.map((t) => {
+          const w = items[t.widget] || {}
+          return {
+            widgetId: t.widget, editable: true,
+            widget: w.type || 'numeric', title: w.title || t.widget,
+            path: w.path || '', unit: w.unit || '', precision: w.precision != null ? w.precision : null
+          }
+        })
+        if (mapped.some((m) => m.path)) return mapped
+      }
+      return presetTiles(screenId) || []
+    }
+    const dvViews = (views && Array.isArray(views.views) ? views.views : [])
     return {
       current: currentScreen,
       profileId: assigned,
-      screens: pscreens.map((s) => ({
-        id: s.id,
-        title: s.title || s.id,
-        tiles: (Array.isArray(s.tiles) ? s.tiles : []).map((t) => {
-          const w = items[t.widget] || {}
-          return {
-            widgetId: t.widget,
-            widget: w.type || 'numeric',
-            title: w.title || t.widget,
-            path: w.path || '',
-            unit: w.unit || '',
-            precision: w.precision != null ? w.precision : null
-          }
-        })
-      }))
+      screens: dvViews.map((v) => ({ id: v.id, title: v.title || v.id, tiles: tilesFor(v.id) }))
     }
   })()
   // SK path catalogue for the edit datalist (the layout-editor's curated list).
