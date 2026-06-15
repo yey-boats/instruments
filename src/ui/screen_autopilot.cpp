@@ -283,30 +283,28 @@ lv_obj_t *build(lv_obj_t *parent) {
     int xte_w = wide ? cw : (LCD_W - 32);
     s_xte = ui::build_xte_strip(s_root, xte_x, xte_y, xte_w, xte_h);
 
-    // --- numeric tiles ---
+    // --- numeric tiles (exactly square, anchored clear of the XTE strip) ---
     const lv_font_t *tv = &lv_font_montserrat_38;
+    int gap = 8;
     if (!wide) {
-        int n = 4, gap = 8;
-        int tw = (LCD_W - gap * (n + 1)) / n;
-        int ty = xte_y + xte_h + 6;
-        int th = LCD_H - ty - 8;
-        tile_depth = ui::numeric_tile(s_root, gap, ty, tw, th, "DEPTH", "m", tv, theme.fg);
+        int n = 4;
+        int sq = (LCD_W - gap * (n + 1)) / n;  // square side
+        int ty = LCD_H - sq - gap;             // bottom row, below the XTE strip
+        tile_depth = ui::numeric_tile(s_root, gap, ty, sq, sq, "DEPTH", "m", tv, theme.fg);
         tile_speed =
-            ui::numeric_tile(s_root, gap * 2 + tw, ty, tw, th, "SPEED", "kn", tv, theme.fg);
+            ui::numeric_tile(s_root, gap * 2 + sq, ty, sq, sq, "SPEED", "kn", tv, theme.fg);
         tile_aws =
-            ui::numeric_tile(s_root, gap * 3 + tw * 2, ty, tw, th, "AWS", "kn", tv, theme.warn);
-        tile_awa = ui::numeric_tile(s_root, gap * 4 + tw * 3, ty, tw, th, "AWA", "", tv, theme.fg);
+            ui::numeric_tile(s_root, gap * 3 + sq * 2, ty, sq, sq, "AWS", "kn", tv, theme.warn);
+        tile_awa = ui::numeric_tile(s_root, gap * 4 + sq * 3, ty, sq, sq, "AWA", "", tv, theme.fg);
     } else {
-        int gap = 8;
-        int colw = cox - gap * 2;
-        int th = (LCD_H - top_bar_h - gap * 3) / 2;
-        int ty = top_bar_h;
-        tile_depth = ui::numeric_tile(s_root, gap, ty, colw, th, "DEPTH", "m", tv, theme.fg);
-        tile_speed =
-            ui::numeric_tile(s_root, gap, ty + th + gap, colw, th, "SPEED", "kn", tv, theme.fg);
+        int sq = cox - gap * 2;               // square side = side-column width
+        int ty = (LCD_H - 2 * sq - gap) / 2;  // two squares stacked, vertically centred
         int rx = cox + cw + gap;
-        tile_aws = ui::numeric_tile(s_root, rx, ty, colw, th, "AWS", "kn", tv, theme.warn);
-        tile_awa = ui::numeric_tile(s_root, rx, ty + th + gap, colw, th, "AWA", "", tv, theme.fg);
+        tile_depth = ui::numeric_tile(s_root, gap, ty, sq, sq, "DEPTH", "m", tv, theme.fg);
+        tile_speed =
+            ui::numeric_tile(s_root, gap, ty + sq + gap, sq, sq, "SPEED", "kn", tv, theme.fg);
+        tile_aws = ui::numeric_tile(s_root, rx, ty, sq, sq, "AWS", "kn", tv, theme.warn);
+        tile_awa = ui::numeric_tile(s_root, rx, ty + sq + gap, sq, sq, "AWA", "", tv, theme.fg);
     }
 
     build_mode_modal(s_root);
