@@ -39,6 +39,7 @@ static constexpr int CX = LCD_W / 2;
 static constexpr int CY = LCD_H / 2;
 static constexpr int SHORT = (LCD_W < LCD_H ? LCD_W : LCD_H);
 static constexpr int R = SHORT / 2 - 28;
+static constexpr int BAND_W = 52;  // white-band thickness, matching the AP compass
 
 static double norm360(double d) {
     while (d < 0)
@@ -121,9 +122,11 @@ static lv_obj_t *build_ticks(bool top) {
     int hi = top ? 105 : 285;
     for (int th = lo; th <= hi; th += 15) {
         bool major = (((th % 30) + 360) % 30) == 0;
+        // Tick sizes match the autopilot compass (major 12x3, minor 7x2).
         lv_obj_t *t = lv_obj_create(g);
         int tw = major ? 3 : 2;
-        lv_obj_set_size(t, tw, major ? 14 : 8);
+        int rim = R - 4;  // just inside the band's outer edge
+        lv_obj_set_size(t, tw, major ? 12 : 7);
         lv_obj_set_style_bg_color(t, lv_color_hex(major ? 0x16222f : 0x5a6b78), 0);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(t, 0, 0);
@@ -131,8 +134,8 @@ static lv_obj_t *build_ticks(bool top) {
         lv_obj_clear_flag(t, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_clear_flag(t, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_transform_pivot_x(t, tw / 2, 0);
-        lv_obj_set_style_transform_pivot_y(t, R - 6, 0);
-        lv_obj_set_pos(t, CX - tw / 2, CY - (R - 6));
+        lv_obj_set_style_transform_pivot_y(t, rim, 0);
+        lv_obj_set_pos(t, CX - tw / 2, CY - rim);
         lv_obj_set_style_transform_rotation(t, ((th % 360) + 360) % 360 * 10, 0);
 
         if (major) {
@@ -144,12 +147,12 @@ static lv_obj_t *build_ticks(bool top) {
             lv_label_set_text(l, nb);
             lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
             lv_obj_set_style_text_color(l, lv_color_hex(0x16222f), 0);
-            lv_obj_set_width(l, 40);
+            lv_obj_set_width(l, 44);
             lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
             double a = th * M_PI / 180.0;
-            int x = CX + (int)((R - 16) * sin(a));
-            int y = CY - (int)((R - 16) * cos(a));
-            lv_obj_set_pos(l, x - 20, y - 13);
+            int x = CX + (int)((R - BAND_W / 2) * sin(a));  // centred on the band
+            int y = CY - (int)((R - BAND_W / 2) * cos(a));
+            lv_obj_set_pos(l, x - 22, y - 13);
         }
     }
     return g;
@@ -166,24 +169,24 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_EVENT_BUBBLE);
 
-    // White bands for both halves (one shown at a time), then the dynamic
-    // no-go wedge just inside, then the markers, then the centre readouts.
-    // ~220 deg bands (centred on the bow / stern), zooming into the working zone.
-    band_top = band_arc(160, 20, R, 22, theme.arc_band, LV_OPA_COVER);
-    band_bot = band_arc(340, 200, R, 22, theme.arc_band, LV_OPA_COVER);
+    // ~220 deg bow-up / stern-up bands. The band is a thick white rim (matching
+    // the autopilot compass line sizes); the NO-GO (red) and TARGET (green)
+    // sectors fill it at full width so they read as proper colored sectors.
+    band_top = band_arc(160, 20, R, BAND_W, theme.arc_band, LV_OPA_COVER);
+    band_bot = band_arc(340, 200, R, BAND_W, theme.arc_band, LV_OPA_COVER);
     lv_obj_add_flag(band_bot, LV_OBJ_FLAG_HIDDEN);
 
-    nogo = band_arc(252, 288, R - 4, 16, theme.alarm, LV_OPA_70);  // dynamic in refresh
+    nogo = band_arc(252, 288, R, BAND_W, theme.alarm, LV_OPA_COVER);  // dynamic in refresh
+
+    // Green target sectors: the "sail here" band just outside the no-go each side.
+    target_a = band_arc(300, 314, R, BAND_W, theme.good, LV_OPA_COVER);
+    target_b = band_arc(226, 240, R, BAND_W, theme.good, LV_OPA_COVER);
 
     ticks_top = build_ticks(true);
     ticks_bot = build_ticks(false);
     lv_obj_add_flag(ticks_bot, LV_OBJ_FLAG_HIDDEN);
 
-    // Green target sectors: the "sail here" band just outside the no-go on each
-    // side (the applicable speed-range zone). Angles are set live in refresh.
-    target_a = band_arc(300, 314, R - 4, 16, theme.good, LV_OPA_COVER);
-    target_b = band_arc(226, 240, R - 4, 16, theme.good, LV_OPA_COVER);
-    wind_mark = rim_marker(8, 40, 0x2bd4e8, true);  // bright cyan wind marker
+    wind_mark = rim_marker(8, 44, 0x2bd4e8, true);  // bright cyan wind marker
 
     // Centre readouts.
     lv_obj_t *cap = lv_label_create(s_root);
