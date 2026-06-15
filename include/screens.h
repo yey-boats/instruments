@@ -37,6 +37,13 @@ void set_refresh_enabled(bool e);
 bool refresh_enabled();
 }  // namespace wind_classic
 
+// Wind-steering sailing aid: TWA hero, tack/gybe angles + target headings,
+// true wind direction, and apparent/true wind angles + speeds.
+namespace wind_steer {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+}  // namespace wind_steer
+
 namespace touch_cal_screen {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();

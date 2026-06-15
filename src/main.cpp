@@ -904,7 +904,6 @@ static struct {
 static bool mob_is_active() {
     return g_mob.active;
 }
-static lv_obj_t *mob_button = nullptr;
 static lv_obj_t *mob_view = nullptr;
 static lv_obj_t *mob_lbl_dist, *mob_lbl_brg, *mob_lbl_back, *mob_lbl_elapsed;
 
@@ -981,10 +980,6 @@ static void mob_clear() {
     if (mob_view) lv_obj_add_flag(mob_view, LV_OBJ_FLAG_HIDDEN);
 }
 
-static void mob_btn_evt(lv_event_t *e) {
-    if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) mob_trigger();
-}
-
 static void mob_clear_evt(lv_event_t *e) {
     if (lv_event_get_code(e) == LV_EVENT_LONG_PRESSED) mob_clear();
 }
@@ -1017,22 +1012,9 @@ static void mob_refresh() {
 }
 
 static void mob_build(lv_obj_t *scr) {
-    mob_button = lv_obj_create(scr);
-    lv_obj_set_size(mob_button, 56, 56);
-    lv_obj_align(mob_button, LV_ALIGN_TOP_RIGHT, -6, 6);
-    lv_obj_set_style_bg_color(mob_button, lv_color_hex(ui::theme.alarm), 0);
-    lv_obj_set_style_border_color(mob_button, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_border_width(mob_button, 2, 0);
-    lv_obj_set_style_radius(mob_button, 28, 0);
-    lv_obj_set_style_pad_all(mob_button, 0, 0);
-    lv_obj_clear_flag(mob_button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(mob_button, mob_btn_evt, LV_EVENT_LONG_PRESSED, NULL);
-    lv_obj_t *btn_lbl = lv_label_create(mob_button);
-    lv_label_set_text(btn_lbl, "MOB");
-    lv_obj_set_style_text_color(btn_lbl, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(btn_lbl, &lv_font_montserrat_20, 0);
-    lv_obj_center(btn_lbl);
-
+    // The on-screen MOB button was removed per product direction. MOB is still
+    // triggered via the console/command path (mob_trigger), which shows the
+    // rescue overlay built below; the overlay's own HOLD-TO-CLEAR remains.
     mob_view = lv_obj_create(scr);
     lv_obj_set_size(mob_view, LCD_W, LCD_H);
     lv_obj_set_pos(mob_view, 0, 0);
@@ -1815,53 +1797,8 @@ static bool handleMainCommand(const String &line) {
     return false;
 }
 
-// ----- breadcrumb (current screen indicator) -----------------------------
-// A row of position pips top-center (current screen brighter). The screen-name
-// title chip was removed per product direction — the pips alone indicate where
-// you are without a label on every screen.
-static lv_obj_t *bc_pips = nullptr;
-
-void breadcrumb_build(lv_obj_t *scr) {
-    bc_pips = lv_obj_create(scr);
-    lv_obj_set_size(bc_pips, 200, 8);
-    lv_obj_align(bc_pips, LV_ALIGN_TOP_MID, 0, 6);
-    lv_obj_set_style_bg_opa(bc_pips, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(bc_pips, 0, 0);
-    lv_obj_set_style_pad_all(bc_pips, 0, 0);
-    lv_obj_clear_flag(bc_pips, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(bc_pips, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_flex_flow(bc_pips, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_gap(bc_pips, 4, 0);
-    lv_obj_set_flex_align(bc_pips, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER,
-                          LV_FLEX_ALIGN_CENTER);
-}
-
-static void breadcrumb_refresh() {
-    if (!bc_pips) return;
-    // Build the dot strip lazily: visible screens get a pip, current one is brighter.
-    static int last_index = -2;
-    static size_t last_count = 0;
-    int idx = ui::current_index();
-    size_t cnt = ui::screen_count();
-    if (idx == last_index && cnt == last_count) return;  // unchanged
-    last_index = idx;
-    last_count = cnt;
-
-    lv_obj_clean(bc_pips);
-    for (size_t i = 0; i < cnt; ++i) {
-        if (ui::is_hidden(i) && (int)i != idx) continue;
-        lv_obj_t *p = lv_obj_create(bc_pips);
-        lv_obj_set_size(p, 8, 8);
-        bool active = ((int)i == idx);
-        lv_obj_set_style_bg_color(p, lv_color_hex(active ? ui::theme.accent : ui::theme.fg_dim), 0);
-        lv_obj_set_style_bg_opa(p, active ? LV_OPA_COVER : LV_OPA_50, 0);
-        lv_obj_set_style_border_width(p, 0, 0);
-        lv_obj_set_style_radius(p, 4, 0);
-        lv_obj_set_style_pad_all(p, 0, 0);
-        lv_obj_clear_flag(p, LV_OBJ_FLAG_SCROLLABLE);
-        lv_obj_clear_flag(p, LV_OBJ_FLAG_CLICKABLE);
-    }
-}
+// The breadcrumb (screen-name chip + position pips) was removed entirely per
+// product direction; screens are navigated by swipe with no on-screen indicator.
 
 static void ui_refresh(lv_timer_t *) {
     // Drain queued commands from web/BLE first - they may change the
@@ -1888,10 +1825,6 @@ static void ui_refresh(lv_timer_t *) {
     t = micros();
     ui::refresh_current();
     note_slow_section("ui:screen", micros() - t);
-
-    t = micros();
-    breadcrumb_refresh();
-    note_slow_section("ui:breadcrumb", micros() - t);
 
     t = micros();
     mob_refresh();
@@ -2112,6 +2045,8 @@ void setup() {
     ui::register_screen_lazy("wind", "Wind", ui::wind::build, ui::wind::refresh, false);
     ui::register_screen_lazy("wind_classic", "Wind (classic)", ui::wind_classic::build,
                              ui::wind_classic::refresh, false);
+    ui::register_screen_lazy("wind_steer", "Wind Steer", ui::wind_steer::build,
+                             ui::wind_steer::refresh, false);
     ui::register_screen_lazy("nav", "Nav", ui::nav::build, ui::nav::refresh, false);
     ui::register_screen_lazy("depth", "Depth", ui::depth::build, ui::depth::refresh, false);
     ui::register_screen_lazy("steering", "Steering", ui::steering::build, ui::steering::refresh,
@@ -2157,7 +2092,6 @@ void setup() {
 
     mob_build(top);
     alarms_build(top);
-    breadcrumb_build(top);
     // Per-controller "controlled" frame (Phase 3.2): stacked colored borders +
     // name-pill on lv_layer_top(), refreshed from proto_target in ui_refresh.
     // Self-attaches to lv_layer_top(); the parent arg is ignored.

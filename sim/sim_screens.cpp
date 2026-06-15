@@ -85,6 +85,7 @@ static lv_obj_t *build_screen(const char *id) {
     if (!strcmp(id, "steering")) return ui::steering::build(p);
     if (!strcmp(id, "route")) return ui::route::build(p);
     if (!strcmp(id, "trip")) return ui::trip::build(p);
+    if (!strcmp(id, "wind_steer")) return ui::wind_steer::build(p);
     if (!strcmp(id, "zoom-pos")) {
         ui::layouts::set_zoom_target(kZoomPos);
         return ui::zoom::build(p);
@@ -102,6 +103,7 @@ static void refresh_screen(const char *id) {
     if (!strcmp(id, "steering")) return ui::steering::refresh();
     if (!strcmp(id, "route")) return ui::route::refresh();
     if (!strcmp(id, "trip")) return ui::trip::refresh();
+    if (!strcmp(id, "wind_steer")) return ui::wind_steer::refresh();
     if (!strncmp(id, "zoom", 4)) return ui::zoom::refresh();
 }
 

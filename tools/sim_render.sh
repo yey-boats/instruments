@@ -57,7 +57,7 @@ done
 # QuadGrid-template screens + the full-screen "zoom" view (env:sim-screens), so
 # every screen — not just the dashboard/wind/AP heroes — is eyeballed at every
 # display class. zoom-pos exercises the two-line lat/lon position (overflow-prone).
-SCREENS=("nav" "depth" "steering" "route" "trip" "zoom-pos" "zoom-num")
+SCREENS=("nav" "depth" "steering" "route" "trip" "wind_steer" "zoom-pos" "zoom-num")
 for r in "${RES[@]}"; do
   w="${r%x*}"; h="${r#*x}"
   echo "=== rendering screens ${w}x${h} ==="

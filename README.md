@@ -101,12 +101,13 @@ through the same host harness and are validated at every resolution:
   <img src="docs/sim-shots/depth-480x480.png" alt="Depth 480x480" width="150">
   <br>
   <img src="docs/sim-shots/trip-480x480.png" alt="Trip 480x480" width="150">
+  <img src="docs/sim-shots/wind_steer-480x480.png" alt="Wind steering 480x480" width="150">
   <img src="docs/sim-shots/zoom-pos-480x480.png" alt="Zoom: position 480x480" width="150">
-  <img src="docs/sim-shots/zoom-num-480x480.png" alt="Zoom: numeric 480x480" width="150">
   <br>
   <em>Nav (compass + SOG + COG + position), Route (DTW/BTW/XTE/VMG), Depth, Trip,
-  and the full-screen tap-to-zoom view — which fits a two-line lat/lon as well as
-  a single big number. Wide-panel (800×480, 1024×600) renders are in
+  the Wind-steering aid (TWA + tack/gybe angles + new heading + TWD), and the
+  full-screen tap-to-zoom view — which fits a two-line lat/lon as well as a single
+  big number. Wide-panel (800×480, 1024×600) renders are in
   <a href="docs/sim-shots/">docs/sim-shots/</a>.</em>
 </p>
 

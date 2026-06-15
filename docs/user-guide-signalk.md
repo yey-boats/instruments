@@ -53,6 +53,18 @@ simulated, the round knob view is the live autopilot control surface.
   **current vector** at centre. Numbers are in tiles: **AWS · AWA · TWS · TWA**.
 - The previous in-dial wind design is still registered as a separate
   **Wind (classic)** screen (swipe to it) so the two can be compared on device.
+- The **A** (apparent, orange) and **T** (true, cyan) wind indices are bold
+  high-contrast pointers so they stand out against both the white band and the
+  dark face.
+
+**Wind Steer** — a sailing aid: the **true wind angle** (hero), the **tack** or
+**gybe** course-change angle for the current point of sail plus the resulting
+new heading, the **true wind direction (TWD)**, and the apparent/true wind
+angles and speeds. (Tacking applies when beating, gybing when running; the
+inactive maneuver reads "--".)
+
+> The on-screen breadcrumb/title and the MOB button were removed; screens are
+> navigated by swipe, and MOB is triggered via the console/command path.
 
 **Dashboard** and the **round autopilot control** (Waveshare knob, 360×360):
 

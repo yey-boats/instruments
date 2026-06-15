@@ -283,7 +283,7 @@ static void build_boat(lv_obj_t *parent) {
 // sweeps the whole index around the rose to AWA / TWA.
 static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t color) {
     lv_obj_t *m = lv_obj_create(parent);
-    lv_obj_set_size(m, 34, 54);
+    lv_obj_set_size(m, 34, 76);
     lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(m, 0, 0);
     lv_obj_set_style_pad_all(m, 0, 0);
@@ -291,19 +291,32 @@ static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t
     lv_obj_clear_flag(m, LV_OBJ_FLAG_CLICKABLE);
     apply_pivot_center(m, 17, R_MARKER);  // pivot at dial centre; top edge near rim
 
-    // Triangle at the outer (rim) end, pointing inward toward the boat.
+    // Filled triangle head at the rim, pointing inward toward the boat.
     lv_obj_t *tri = lv_label_create(m);
     lv_label_set_text(tri, LV_SYMBOL_DOWN);
     lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
     lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -6);
 
-    // A / T letter inboard of the triangle so apparent vs true stay legible.
+    // Long, bold radial stem so the index reads as a clear high-contrast
+    // pointer (the previous short triangle alone was too faint).
+    lv_obj_t *stem = lv_obj_create(m);
+    lv_obj_set_size(stem, 6, 34);
+    lv_obj_set_style_bg_color(stem, lv_color_hex(color), 0);
+    lv_obj_set_style_bg_opa(stem, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(stem, 0, 0);
+    lv_obj_set_style_radius(stem, 2, 0);
+    lv_obj_set_style_pad_all(stem, 0, 0);
+    lv_obj_clear_flag(stem, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(stem, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(stem, LV_ALIGN_TOP_MID, 0, 20);
+
+    // A / T letter inboard of the stem, in the marker's high-contrast color.
     lv_obj_t *l = lv_label_create(m);
     lv_label_set_text(l, letter);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
-    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 54);
     return m;
 }
 
@@ -446,8 +459,10 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // Wind indices (T white, A amber). T below A in z-order so amber wins when
     // they overlap (apparent is the one you steer to).
-    twa_marker = make_wind_marker(s_root, "T", theme.fg);
-    awa_marker = make_wind_marker(s_root, "A", 0xf6a21a);
+    // High-contrast, clearly distinct colors: A (apparent, the one you steer to)
+    // in orange, T (true) in cyan. Both read on the white band and dark face.
+    twa_marker = make_wind_marker(s_root, "T", 0x2bd4e8);
+    awa_marker = make_wind_marker(s_root, "A", 0xff8800);
 
     build_bezel(s_root);
     build_cardinals(s_root);  // upright cardinal overlay (laid out per heading)
