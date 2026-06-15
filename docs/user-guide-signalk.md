@@ -51,6 +51,8 @@ simulated, the round knob view is the live autopilot control surface.
 - Full 360° rose with **A** (apparent, amber) and **T** (true) wind indices, the
   red/green close-hauled sectors, the rotating heading bezel, and the blue tidal
   **current vector** at centre. Numbers are in tiles: **AWS · AWA · TWS · TWA**.
+- The previous in-dial wind design is still registered as a separate
+  **Wind (classic)** screen (swipe to it) so the two can be compared on device.
 
 **Dashboard** and the **round autopilot control** (Waveshare knob, 360×360):
 

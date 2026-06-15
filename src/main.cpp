@@ -2127,6 +2127,8 @@ void setup() {
     // tile (and dismissed by tapping it or swiping down).
     ui::register_screen_lazy("zoom", "Zoom", ui::zoom::build, ui::zoom::refresh, true);
     ui::register_screen_lazy("wind", "Wind", ui::wind::build, ui::wind::refresh, false);
+    ui::register_screen_lazy("wind_classic", "Wind (classic)", ui::wind_classic::build,
+                             ui::wind_classic::refresh, false);
     ui::register_screen_lazy("nav", "Nav", ui::nav::build, ui::nav::refresh, false);
     ui::register_screen_lazy("depth", "Depth", ui::depth::build, ui::depth::refresh, false);
     ui::register_screen_lazy("steering", "Steering", ui::steering::build, ui::steering::refresh,

@@ -28,6 +28,15 @@ void set_refresh_enabled(bool e);
 bool refresh_enabled();
 }  // namespace wind
 
+// Original (pre-2026-06 reference redesign) wind dial, kept registered as a
+// second screen so the two designs can be compared side by side on device.
+namespace wind_classic {
+lv_obj_t *build(lv_obj_t *parent);
+void refresh();
+void set_refresh_enabled(bool e);
+bool refresh_enabled();
+}  // namespace wind_classic
+
 namespace touch_cal_screen {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();

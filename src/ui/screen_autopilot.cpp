@@ -359,15 +359,22 @@ void refresh() {
     set_text_color_if_changed(lbl_mode, &s_last_mode_color, engaged ? theme.good : theme.fg_dim);
     set_text_if_changed(lbl_onstby, s_last_onstby, sizeof(s_last_onstby), engaged ? "STBY" : "ON");
 
-    // Heading: big value + rotate the compass scale by -heading.
+    // Heading: big value + rotate the compass tick ring by -heading and
+    // reposition the upright degree labels to match (north-up when no heading).
     double hdg_deg = NAN;
     if (!isnan(d.headingTrue)) {
         hdg_deg = rad_to_deg_pos(d.headingTrue);
         snprintf(buf, sizeof(buf), "%.1f\xC2\xB0", hdg_deg);
         set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), buf);
-        set_rot_if_changed(s_cp.scale, &s_last_scale_rot, deg_to_lvgl(-hdg_deg));
     } else {
         set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), "--\xC2\xB0");
+    }
+    double label_hdg = isnan(hdg_deg) ? 0.0 : hdg_deg;
+    int16_t scale_rot = deg_to_lvgl(-label_hdg);
+    if (scale_rot != s_last_scale_rot) {
+        s_last_scale_rot = scale_rot;
+        lv_obj_set_style_transform_rotation(s_cp.scale, scale_rot, 0);
+        ui::compass_layout_labels(s_cp, label_hdg);
     }
 
     // Target bug: (target - heading), hidden when no target.

@@ -19,13 +19,18 @@ namespace ui {
 // the top semicircle so the lower half of the rotating ring never shows.
 struct Compass {
     lv_obj_t *root;
-    lv_obj_t *scale;
-    lv_obj_t *bug;
+    lv_obj_t *scale;     // rotating tick ring (rotated by -heading)
+    lv_obj_t *bug;       // amber target bug (rotated by target - heading)
+    lv_obj_t *nums[12];  // upright degree labels, repositioned per heading
     int cx, cy, r;
 };
 
 // Build a compass occupying a `w`-wide region at (ox, oy) in `parent`.
 Compass build_compass(lv_obj_t *parent, int ox, int oy, int w);
+
+// Reposition the upright degree labels so the heading sits at top. Call from the
+// screen refresh whenever the heading changes (cheap; only moves 12 labels).
+void compass_layout_labels(const Compass &cp, double hdg_deg);
 
 // Rounded numeric tile (glass-cockpit card): caption top-left, unit top-right,
 // big value centered below. Returns the value label for the refresh path.
