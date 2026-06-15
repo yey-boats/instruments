@@ -22,6 +22,7 @@ struct Compass {
     lv_obj_t *scale;     // rotating tick ring (rotated by -heading)
     lv_obj_t *bug;       // amber target bug (rotated by target - heading)
     lv_obj_t *nums[12];  // upright degree labels, repositioned per heading
+    lv_obj_t *lubber;    // fixed red top lubber (heading reference)
     int cx, cy, r;
     int h;  // total root height (top semicircle + label clearance)
 };

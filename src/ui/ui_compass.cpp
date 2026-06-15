@@ -168,6 +168,7 @@ Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
     lv_obj_set_style_text_font(lub, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lub, lv_color_hex(theme.alarm), 0);
     lv_obj_align(lub, LV_ALIGN_TOP_MID, 0, -2);
+    cp.lubber = lub;
 
     return cp;
 }
