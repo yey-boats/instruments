@@ -176,10 +176,12 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
             snprintf(primary, pcap, "--");
         break;
     case MetricSource::XTE:
-        // Show signed value: +N = right of track (steer port), -N = left
-        // (steer starboard). Unit label "m" in MetricBinding stays correct.
+        // Magnitude with a port/starboard suffix (matches the wind-angle P/S
+        // convention; the big hero font font_xl_64 has no '+' glyph, so a signed
+        // "%+.0f" rendered a tofu box). +ve = right of track (steer port -> 'P'),
+        // -ve = left of track (steer starboard -> 'S'). Unit label "m" stays.
         if (!isnan(d.xte))
-            snprintf(primary, pcap, "%+.0f", d.xte);
+            snprintf(primary, pcap, "%.0f%c", fabs(d.xte), d.xte >= 0 ? 'P' : 'S');
         else
             snprintf(primary, pcap, "--");
         break;
@@ -214,6 +216,12 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
 // below) which renders this single metric full-screen. File-scope so both
 // the tap callback (here) and the zoom screen (same TU) share it.
 static MetricBinding g_zoom_target = {"", "", "", MetricSource::None, 0, nullptr};
+
+// Public entry so a controller (or the sim harness) can drive the zoom screen
+// to a chosen metric without a physical tile tap.
+void set_zoom_target(const MetricBinding &m) {
+    g_zoom_target = m;
+}
 
 static void tile_zoom_cb(lv_event_t *e) {
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
@@ -853,7 +861,7 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
         if (t.idx < 0 || t.idx >= spec.metric_count) continue;
         const MetricBinding &m = spec.metrics[t.idx];
 
-        char pri[24], sec[24];
+        char pri[40], sec[24];
         format_metric(m, data, pri, sizeof(pri), sec, sizeof(sec));
 
         // Per-kind aux updates (gauge arc fill, bar fill).
@@ -1074,7 +1082,7 @@ static void update_hero_plus(lv_obj_t *root, const ScreenVariantSpec &spec, cons
     auto *st = (HeroPlusState *)lv_obj_get_user_data(root);
     if (!st) return;
 
-    char pri[24], sec[24];
+    char pri[40], sec[24];
     format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
     ui::set_text_if_changed(st->primary_value, st->last_primary, sizeof(st->last_primary), pri);
     if (st->primary_secondary) {
@@ -1171,7 +1179,7 @@ static void update_status_list(lv_obj_t *root, const ScreenVariantSpec &spec,
     int n = spec.metric_count > 8 ? 8 : spec.metric_count;
     for (int i = 0; i < n; ++i) {
         if (!st->value_labels[i]) continue;
-        char pri[24], sec[24];
+        char pri[40], sec[24];
         format_metric(spec.metrics[i], data, pri, sizeof(pri), sec, sizeof(sec));
         char combined[32];
         if (spec.metrics[i].unit && spec.metrics[i].unit[0]) {
@@ -1269,7 +1277,7 @@ static void update_round_instrument(lv_obj_t *root, const ScreenVariantSpec &spe
     if (!root) return;
     auto *st = (RoundInstrumentState *)lv_obj_get_user_data(root);
     if (!st) return;
-    char pri[24], sec[24];
+    char pri[40], sec[24];
     format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
     ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
     if (st->secondary) {
@@ -1396,7 +1404,7 @@ static void update_split_pair(lv_obj_t *root, const ScreenVariantSpec &spec, con
 
     auto update_half = [&](SplitHalf &h) {
         if (!h.value) return;
-        char pri[24], sec[24];
+        char pri[40], sec[24];
         format_metric(h.metric, data, pri, sizeof(pri), sec, sizeof(sec));
         ui::set_text_if_changed(h.value, h.last_value, sizeof(h.last_value), pri);
         if (h.secondary) {
@@ -1514,7 +1522,7 @@ static void update_trend_chart(lv_obj_t *root, const ScreenVariantSpec &spec,
     if (!st) return;
 
     // Text update (primary + secondary) always.
-    char pri[24], sec[24];
+    char pri[40], sec[24];
     format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
     ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
     if (st->secondary) {
@@ -1683,7 +1691,7 @@ static void update_alert_focus(lv_obj_t *root, const ScreenVariantSpec &spec,
     auto *st = (AlertFocusState *)lv_obj_get_user_data(root);
     if (!st) return;
 
-    char pri[24], sec[24];
+    char pri[40], sec[24];
     format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
     ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
 
@@ -2346,7 +2354,8 @@ static lv_obj_t *s_root = nullptr;
 static lv_obj_t *s_cap = nullptr;
 static lv_obj_t *s_value = nullptr;
 static lv_obj_t *s_unit = nullptr;
-static char s_last[24] = {(char)0xFF};
+static char s_last[40] = {(char)0xFF};
+static int s_last_kind = -1;  // 0 = big number, 1 = multi-line/long (e.g. position)
 
 static void back_cb(lv_event_t *) {
     ui::show_by_id("dashboard");
@@ -2370,11 +2379,15 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(s_cap, lv_color_hex(ui::theme.fg_dim), 0);
     lv_obj_align(s_cap, LV_ALIGN_TOP_MID, 0, 60);
 
-    // Big hero value: font_xl_64 scaled ~1.6x (820/256) -> ~100px digits.
+    // Big hero value: font_xl_64 scaled ~1.6x (820/256) -> ~100px digits for
+    // short numerics. Multi-line / long values (e.g. a two-line lat/lon
+    // position) switch to an unscaled medium font in refresh so they fit the
+    // view instead of overflowing. Width is bounded to the screen and centered.
     s_value = lv_label_create(s_root);
     lv_obj_set_style_text_font(s_value, &font_xl_64, 0);
     lv_obj_set_style_transform_scale(s_value, 410, 0);
     lv_obj_set_style_text_color(s_value, lv_color_hex(ui::theme.fg), 0);
+    lv_obj_set_style_text_align(s_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(s_value, LV_ALIGN_CENTER, 0, 0);
     lv_label_set_text(s_value, "--");
 
@@ -2400,8 +2413,24 @@ void refresh() {
     lv_label_set_text(s_unit, m.unit ? m.unit : "");
     sk::Data d;
     sk::copyData(d);
-    char pri[24], sec[64];
+    char pri[40], sec[64];
     ui::layouts::format_metric(m, d, pri, sizeof(pri), sec, sizeof(sec));
+
+    // Choose the value styling by content: a short scalar gets the big scaled
+    // hero font; a multi-line or long value (a two-line position, a time, etc.)
+    // gets an unscaled medium font so it fits the screen width.
+    bool multiline = strchr(pri, '\n') != nullptr || strlen(pri) > 8;
+    int kind = multiline ? 1 : 0;
+    if (kind != s_last_kind) {
+        s_last_kind = kind;
+        if (multiline) {
+            lv_obj_set_style_text_font(s_value, &lv_font_montserrat_38, 0);
+            lv_obj_set_style_transform_scale(s_value, 256, 0);  // 256 = 1.0x (no scale)
+        } else {
+            lv_obj_set_style_text_font(s_value, &font_xl_64, 0);
+            lv_obj_set_style_transform_scale(s_value, 410, 0);
+        }
+    }
     ui::set_text_if_changed(s_value, s_last, sizeof(s_last), pri);
 }
 

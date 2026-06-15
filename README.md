@@ -92,6 +92,24 @@ personal, research, educational, and other noncommercial use.
   screen code and asserts no-overlap/in-bounds per resolution.</em>
 </p>
 
+The navigation, depth, route, trip and full-screen tap-to-zoom views render
+through the same host harness and are validated at every resolution:
+
+<p align="center">
+  <img src="docs/sim-shots/nav-480x480.png" alt="Nav 480x480" width="150">
+  <img src="docs/sim-shots/route-480x480.png" alt="Route 480x480" width="150">
+  <img src="docs/sim-shots/depth-480x480.png" alt="Depth 480x480" width="150">
+  <br>
+  <img src="docs/sim-shots/trip-480x480.png" alt="Trip 480x480" width="150">
+  <img src="docs/sim-shots/zoom-pos-480x480.png" alt="Zoom: position 480x480" width="150">
+  <img src="docs/sim-shots/zoom-num-480x480.png" alt="Zoom: numeric 480x480" width="150">
+  <br>
+  <em>Nav (compass + SOG + COG + position), Route (DTW/BTW/XTE/VMG), Depth, Trip,
+  and the full-screen tap-to-zoom view — which fits a two-line lat/lon as well as
+  a single big number. Wide-panel (800×480, 1024×600) renders are in
+  <a href="docs/sim-shots/">docs/sim-shots/</a>.</em>
+</p>
+
 ## Features
 
 - **SignalK over WebSocket** — subscribes to navigation, wind, depth, water temp, battery, tanks, route, and autopilot state

@@ -54,6 +54,24 @@ for r in "${RES[@]}"; do
   fi
 done
 
+# QuadGrid-template screens + the full-screen "zoom" view (env:sim-screens), so
+# every screen — not just the dashboard/wind/AP heroes — is eyeballed at every
+# display class. zoom-pos exercises the two-line lat/lon position (overflow-prone).
+SCREENS=("nav" "depth" "steering" "route" "trip" "zoom-pos" "zoom-num")
+for r in "${RES[@]}"; do
+  w="${r%x*}"; h="${r#*x}"
+  echo "=== rendering screens ${w}x${h} ==="
+  PLATFORMIO_BUILD_FLAGS="-DSIM_LCD_W=${w} -DSIM_LCD_H=${h}" pio run -e sim-screens >/dev/null
+  for s in "${SCREENS[@]}"; do
+    ".pio/build/sim-screens/program" "$s" "docs/sim-shots/${s}-${w}x${h}.bmp"
+    if command -v sips >/dev/null 2>&1; then
+      sips -s format png "docs/sim-shots/${s}-${w}x${h}.bmp" \
+        --out "docs/sim-shots/${s}-${w}x${h}.png" >/dev/null
+      rm -f "docs/sim-shots/${s}-${w}x${h}.bmp"
+    fi
+  done
+done
+
 # Waveshare-knob round views (env:sim-knob) — fixed 360x360 round panel. One
 # PNG per dedicated view (ap_hud / compass / wind / big) for the README gallery.
 # The board id + 360x360 are pinned in the env, so no per-resolution rebuild.

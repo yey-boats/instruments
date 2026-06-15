@@ -20,6 +20,8 @@
 namespace sk {
 void copyData(Data &out) {
     out = Data{};
+    out.lat = 41.38306;       // ~41 22.984 N (Barcelona)
+    out.lon = 2.17222;        // ~002 10.333 E
     out.sog = 3.19;           // ~6.2 kn
     out.stw = 2.93;           // ~5.7 kn
     out.headingTrue = 0.977;  // ~56 deg
@@ -97,6 +99,54 @@ Namespace::~Namespace() {
 std::string Namespace::get_string(const char *, const char *d) {
     return d ? d : "";
 }
+uint8_t Namespace::get_u8(const char *, uint8_t d) {
+    return d;
+}
+int8_t Namespace::get_i8(const char *, int8_t d) {
+    return d;
+}
+uint16_t Namespace::get_u16(const char *, uint16_t d) {
+    return d;
+}
+uint32_t Namespace::get_u32(const char *, uint32_t d) {
+    return d;
+}
+bool Namespace::get_bool(const char *, bool d) {
+    return d;
+}
+float Namespace::get_float(const char *, float d) {
+    return d;
+}
+double Namespace::get_double(const char *, double d) {
+    return d;
+}
+bool Namespace::put_string(const char *, const char *) {
+    return true;
+}
+bool Namespace::put_u8(const char *, uint8_t) {
+    return true;
+}
+bool Namespace::put_i8(const char *, int8_t) {
+    return true;
+}
+bool Namespace::put_u16(const char *, uint16_t) {
+    return true;
+}
+bool Namespace::put_u32(const char *, uint32_t) {
+    return true;
+}
+bool Namespace::put_bool(const char *, bool) {
+    return true;
+}
+bool Namespace::put_float(const char *, float) {
+    return true;
+}
+bool Namespace::put_double(const char *, double) {
+    return true;
+}
+bool Namespace::remove(const char *) {
+    return true;
+}
 }  // namespace storage
 
 namespace ui {
@@ -113,6 +163,11 @@ double battery_alarm_v() {
     return 11.8;
 }
 void format_position(double, double, PosFormat, char *buf, size_t cap) {
-    snprintf(buf, cap, "41 23.0N / 002 10.3E");
+    // Two-line DDM, matching the real ui_data::format_position layout so the
+    // zoom/position views are exercised the way they render on device.
+    snprintf(buf, cap,
+             "41\xC2\xB0"
+             "22.984'N\n002\xC2\xB0"
+             "10.333'E");
 }
 }  // namespace ui

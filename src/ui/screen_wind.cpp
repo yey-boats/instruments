@@ -75,20 +75,45 @@ static void apply_pivot_center(lv_obj_t *o, int half_w, int distance_above_cente
     apply_pivot_at(o, CX, CY, half_w, distance_above_center);
 }
 
-static lv_obj_t *make_label_at_polar_at(lv_obj_t *parent, int cx, int cy, const char *txt,
-                                        int angle_deg, int radius, const lv_font_t *font,
-                                        uint32_t color) {
-    lv_obj_t *l = lv_label_create(parent);
-    lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, font, 0);
-    lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
-    double a = angle_deg * M_PI / 180.0;
-    int x = cx + (int)(radius * sin(a));
-    int y = cy - (int)(radius * cos(a));
-    int hw = 14;  // half-width estimate (LVGL labels don't auto-center)
-    int hh = 10;
-    lv_obj_set_pos(l, x - hw, y - hh);
-    return l;
+// Upright cardinal / intercardinal labels for the rotating rose. Unlike the
+// ticks (which rotate with the bezel), these stay HORIZONTAL and are
+// repositioned around the white band per heading by layout_cardinals(), so they
+// are always readable and high-contrast (dark ink on the white band) instead of
+// tilting or going upside-down.
+static lv_obj_t *card_lbl[8];
+static const int kCardBearing[8] = {0, 45, 90, 135, 180, 225, 270, 315};
+static const char *kCardText[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+
+static void build_cardinals(lv_obj_t *parent) {
+    for (int i = 0; i < 8; ++i) {
+        bool card = (i % 2) == 0;  // N / E / S / W
+        lv_obj_t *l = lv_label_create(parent);
+        lv_label_set_text(l, kCardText[i]);
+        lv_obj_set_style_text_font(l, card ? &lv_font_montserrat_20 : &lv_font_montserrat_14, 0);
+        uint32_t color = (i == 0) ? theme.alarm : (card ? 0x16222f : 0x44546a);
+        lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
+        lv_obj_set_width(l, 40);
+        lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+        card_lbl[i] = l;
+    }
+}
+
+// Reposition the upright cardinals on the white band for the current heading
+// (screen angle = bearing - heading, 0 = up). Called from refresh on change.
+static void layout_cardinals(double hdg_deg) {
+    // The 26 px white band's border draws inward from R_BEZEL, so its centre is
+    // ~13 px in; place the labels there to sit ON the white (high contrast).
+    int R = R_BEZEL - 13;
+    for (int i = 0; i < 8; ++i) {
+        if (!card_lbl[i]) continue;
+        double a = (kCardBearing[i] - hdg_deg) * M_PI / 180.0;
+        int x = CX + (int)(R * sin(a));
+        int y = CY - (int)(R * cos(a));
+        int hh = ((i % 2) == 0) ? 13 : 10;
+        lv_obj_set_pos(card_lbl[i], x - 20, y - hh);
+        lv_obj_clear_flag(card_lbl[i], LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // Build a "tick rectangle" sticking inward from the bezel rim, rotating
@@ -154,23 +179,9 @@ static void build_bezel(lv_obj_t *parent) {
     make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 + 18, 7, theme.good, LV_OPA_80);
     make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, 0x0c1828);  // inner highlight
 
-    // Cardinal labels (N/E/S/W large; NE/SE/SW/NW small) - polar from bezel
-    // center. Cardinals sit on the white band, so use a dark ink color.
-    make_label_at_polar_at(bezel, bcx, bcy, "N", 0, R_BEZEL - 1, &lv_font_montserrat_20,
-                           theme.alarm);
-    make_label_at_polar_at(bezel, bcx, bcy, "E", 90, R_BEZEL - 1, &lv_font_montserrat_20, 0x16222f);
-    make_label_at_polar_at(bezel, bcx, bcy, "S", 180, R_BEZEL - 1, &lv_font_montserrat_20,
-                           0x16222f);
-    make_label_at_polar_at(bezel, bcx, bcy, "W", 270, R_BEZEL - 1, &lv_font_montserrat_20,
-                           0x16222f);
-    make_label_at_polar_at(bezel, bcx, bcy, "NE", 45, R_BEZEL - 1, &lv_font_montserrat_14,
-                           0x5a6b78);
-    make_label_at_polar_at(bezel, bcx, bcy, "SE", 135, R_BEZEL - 1, &lv_font_montserrat_14,
-                           0x5a6b78);
-    make_label_at_polar_at(bezel, bcx, bcy, "SW", 225, R_BEZEL - 1, &lv_font_montserrat_14,
-                           0x5a6b78);
-    make_label_at_polar_at(bezel, bcx, bcy, "NW", 315, R_BEZEL - 1, &lv_font_montserrat_14,
-                           0x5a6b78);
+    // Cardinal labels are NOT children of the bezel — they live in a separate
+    // upright overlay (see build_cardinals / layout_cardinals) so they stay
+    // horizontal and high-contrast instead of tilting with the rotating rim.
 
     // 22.5deg tick marks (between cardinals + intercardinals)
     for (int deg = 0; deg < 360; deg += 45) {
@@ -239,12 +250,13 @@ static void build_boat(lv_obj_t *parent) {
     lv_obj_clear_flag(cl, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(cl, LV_OBJ_FLAG_CLICKABLE);
 
-    // Boat hull as a polyline. Proportioned to the (smaller) rose radius.
-    int hw = R_FACE * 28 / 130;  // hull half-width
-    int bow = R_FACE * 92 / 130;
-    int mid = R_FACE * 42 / 130;
-    int shoulder = R_FACE * 7 / 130;
-    int stern = R_FACE * 63 / 130;
+    // Boat hull as a polyline. Compact (≈60% of the face) so the interior stays
+    // open for the HDG readout, wind markers, and the tidal current vector.
+    int hw = R_FACE * 20 / 130;  // hull half-width
+    int bow = R_FACE * 56 / 130;
+    int mid = R_FACE * 26 / 130;
+    int shoulder = R_FACE * 4 / 130;
+    int stern = R_FACE * 40 / 130;
     static lv_point_precise_t pts[7];
     pts[0] = {CX - hw, CY + stern};
     pts[1] = {CX - hw, CY - shoulder};
@@ -438,17 +450,20 @@ lv_obj_t *build(lv_obj_t *parent) {
     awa_marker = make_wind_marker(s_root, "A", 0xf6a21a);
 
     build_bezel(s_root);
+    build_cardinals(s_root);  // upright cardinal overlay (laid out per heading)
     build_waypoint(s_root);
 
-    // Compact HDG readout near the dial centre (the bezel already shows the
-    // boat's track via rotation + the red bow notch; this gives the digits).
+    // HDG readout in the upper interior, just below the bezel and clear of the
+    // (compact) boat — the bezel rim + red bow notch show the track graphically,
+    // this gives the digits. Positioned near the top so it never sits on the
+    // hull or the central current vector.
     lv_obj_t *hcap = lv_label_create(s_root);
     lv_label_set_text(hcap, "HDG");
     lv_obj_set_style_text_font(hcap, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(hcap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hcap, 80);
-    lv_obj_set_pos(hcap, CX - 40, CY - R_FACE / 2 - 24);
+    lv_obj_set_pos(hcap, CX - 40, CY - R_FACE + 30);
 
     lbl_hdg_value = lv_label_create(s_root);
     lv_label_set_text(lbl_hdg_value, "--\xC2\xB0");
@@ -456,7 +471,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_hdg_value, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_text_align(lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_hdg_value, 120);
-    lv_obj_set_pos(lbl_hdg_value, CX - 60, CY - R_FACE / 2 - 4);
+    lv_obj_set_pos(lbl_hdg_value, CX - 60, CY - R_FACE + 50);
 
     build_tiles(s_root);
 
@@ -557,11 +572,17 @@ void refresh() {
         set_hidden_if_changed(twa_marker, &s_last_twa_hidden, true);
     }
 
-    // --- bezel rotation (heading) + compact HDG digits ---
+    // --- bezel rotation (heading) + upright cardinal layout + HDG digits ---
     double hdg_deg = NAN;
     if (!isnan(d.headingTrue)) hdg_deg = rad_to_deg_pos(d.headingTrue);
+    double card_hdg = isnan(hdg_deg) ? 0.0 : hdg_deg;  // north-up when no heading
+    int16_t bez_rot = deg_to_lvgl(-card_hdg);
+    if (bez_rot != s_last_bezel_rot) {
+        s_last_bezel_rot = bez_rot;
+        lv_obj_set_style_transform_rotation(bezel, bez_rot, 0);
+        layout_cardinals(card_hdg);
+    }
     if (!isnan(hdg_deg)) {
-        set_rot_if_changed(bezel, &s_last_bezel_rot, deg_to_lvgl(-hdg_deg));
         snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", hdg_deg);
         set_text_if_changed(lbl_hdg_value, s_last_hdg, sizeof(s_last_hdg), buf);
     } else {

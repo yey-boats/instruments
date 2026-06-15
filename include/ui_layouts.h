@@ -123,4 +123,8 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec);
 // stays cold when nothing changed.
 void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data);
 
+// Drive the full-screen "zoom" view to a chosen metric (normally set by a tile
+// tap; also used by the sim harness and remote controllers).
+void set_zoom_target(const MetricBinding &m);
+
 }  // namespace ui::layouts
