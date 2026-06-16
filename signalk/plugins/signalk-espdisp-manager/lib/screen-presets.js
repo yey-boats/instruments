@@ -40,6 +40,9 @@ const SK = {
   aws:           'environment.wind.speedApparent',
   twa:           'environment.wind.angleTrueWater',
   tws:           'environment.wind.speedTrue',
+  twd:           'environment.wind.directionTrue',
+  beatAngle:     'performance.beatAngle',
+  gybeAngle:     'performance.gybeAngle',
   // Environment
   depth:         'environment.depth.belowTransducer',
   depthKeel:     'environment.depth.belowKeel',
@@ -203,6 +206,25 @@ const WIDGET_TYPES = {
       currentSet: { required: false, label: 'Current set (rad, tide vector)' },
       currentDrift: { required: false, label: 'Current drift (m/s)' }
     }
+  },
+  windSteer: {
+    label: 'Wind steering (full-screen)',
+    description: 'Semicircular heading compass with a red no-go sector + green '
+      + 'target laylines (from the SignalK polar beat/gybe angles) + amber wind '
+      + "bug, HDG hero, TWA/TWD sub-line, XTE strip, AWS/AWA/TWS/TWA tiles. "
+      + "Matches the device's screen_wind_steer.cpp render.",
+    fullscreen: true,
+    metrics: {
+      heading: { required: true,  label: 'Heading (rad)' },
+      twd: { required: false, label: 'True wind direction (rad)' },
+      twa: { required: false, label: 'True wind angle (rad)' },
+      tws: { required: false, label: 'True wind speed (m/s)' },
+      awa: { required: false, label: 'Apparent wind angle (rad)' },
+      aws: { required: false, label: 'Apparent wind speed (m/s)' },
+      beatAngle: { required: false, label: 'Polar beat angle (rad)' },
+      gybeAngle: { required: false, label: 'Polar gybe angle (rad)' },
+      xte: { required: false, label: 'Cross-track error (m)' }
+    }
   }
 }
 
@@ -294,6 +316,31 @@ function fullscreenWind () {
       cog: SK.cog,
       currentSet: SK.currentSet,
       currentDrift: SK.currentDrift
+    }]
+  }
+}
+
+function windSteerScreen () {
+  // Dedicated full-screen wind-steering HUD matching the device's
+  // src/ui/screen_wind_steer.cpp: the autopilot-style semicircular compass with
+  // a red no-go sector + green target laylines (from the polar beat/gybe
+  // angles) + amber wind bug, plus AWS/AWA/TWS/TWA tiles. One fullscreen tile.
+  return {
+    id: 'wind-steer',
+    title: 'Wind steer',
+    type: 'fullscreen',
+    tiles: [{
+      widget: 'windSteer',
+      title: '',
+      heading: SK.heading,
+      twd: SK.twd,
+      twa: SK.twa,
+      tws: SK.tws,
+      awa: SK.awa,
+      aws: SK.aws,
+      beatAngle: SK.beatAngle,
+      gybeAngle: SK.gybeAngle,
+      xte: SK.xte
     }]
   }
 }
@@ -444,6 +491,7 @@ function getPresetsForClass (displayClass) {
   return [
     dash,
     fullscreenWind(),
+    windSteerScreen(),
     fullscreenNav(displayClass),
     depthTempScreen(displayClass),
     steeringScreen(displayClass),

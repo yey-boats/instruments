@@ -186,6 +186,12 @@
   .wpreview .btn-bubble { background: var(--accent); color: #001218; border-radius: 20px;
     padding: 10px 22px; font-weight: 700; font-size: 16px; letter-spacing: 0.04em; }
   .wpreview .trend svg { width: 100%; height: 72px; }
+  /* Trend tile: device falls back to the latest numeric value, so the number
+     is the hero and the sparkline sits behind it as a faint watermark. */
+  .wpreview .trend-ghost { position: absolute; left: 0; right: 0; bottom: 0;
+    pointer-events: none; }
+  .wpreview .trend-ghost svg { height: 96px; }
+  .wpreview .trend-num { position: relative; z-index: 1; }
   .wpreview.empty { color: var(--fg-dim); font-style: italic; min-height: 60px; }
   /* windDial fills the whole tile width and stays square */
   .wpreview.wd-wrap { min-height: 0; padding: 0; }
@@ -566,88 +572,153 @@ function widgetPreview (widget, tile) {
       return wrap;
     }
     case 'windDial': {
-      // Full-screen wind dial preview that matches the device's
-      // src/ui/screen_wind.cpp render: outer bezel ring, N/E/S/W
-      // cardinals + intercardinals, close-hauled red/green arcs at
-      // ±30° from bow, bow-relative wind-angle scale (30..150),
-      // apparent + true wind markers, tide arrow, center readouts.
-      // Sample values picked to match a recognizable beam reach.
+      // Full-screen wind dial preview matching the device's current
+      // src/ui/screen_wind.cpp render: a 360° rose with a wide white band +
+      // green rail, UPRIGHT cardinals (heading-up, repositioned per heading),
+      // close-hauled red/green arcs at the bow, a compact boat, slim
+      // orange-A / cyan-T wind markers, a tide arrow, and the numbers in a
+      // bottom tile row (AWS / AWA / TWS / TWA).
       const svgNS = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(svgNS, 'svg');
       svg.setAttribute('viewBox', '0 0 480 480');
       svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-      // Build SVG by string for compactness; the markup mirrors the
-      // LVGL element list in screen_wind.cpp::build_bezel et al.
-      const CX = 240, CY = 240, R = 218, RC = 175, RF = 190, RM = 200;
-      const sampleHdg = 47, sampleAWA = 50, sampleTWA = 75;
-      function polar (cx, cy, deg, r) {
-        const a = (deg - 90) * Math.PI / 180;
-        return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
-      }
+      const CX = 240, CY = 174, RB = 158, RW = 145, RM = 140, RF = 130;
+      const hdg = 56, awa = 42, twa = 46;
+      function polar (deg, r) { const a = (deg - 90) * Math.PI / 180; return [CX + r * Math.cos(a), CY + r * Math.sin(a)]; }
       const ticks = [];
       for (let d = 22.5; d < 360; d += 45) {
-        const [x1, y1] = polar(CX, CY, d - sampleHdg, R - 16);
-        const [x2, y2] = polar(CX, CY, d - sampleHdg, R - 6);
-        ticks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#8fa59d" stroke-width="2"/>`);
+        const [x1, y1] = polar(d - hdg, RB - 4);
+        const [x2, y2] = polar(d - hdg, RB - 13);
+        ticks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#5a6b78" stroke-width="2"/>`);
       }
-      function card (label, deg, big) {
-        const [x, y] = polar(CX, CY, deg - sampleHdg, R - 22);
-        const f = big ? 24 : 16;
-        const c = big ? '#f3f7f2' : '#8fa59d';
-        return `<text x="${x}" y="${y + f * 0.35}" font-family="Montserrat" font-weight="700" font-size="${f}" fill="${c}" text-anchor="middle">${label}</text>`;
+      const cards = [];
+      for (const [lab, b, big] of [['N', 0, 1], ['NE', 45, 0], ['E', 90, 1], ['SE', 135, 0], ['S', 180, 1], ['SW', 225, 0], ['W', 270, 1], ['NW', 315, 0]]) {
+        const [x, y] = polar(b - hdg, RW);
+        const f = big ? 20 : 14;
+        const col = lab === 'N' ? '#ff5252' : (big ? '#16222f' : '#44546a');
+        cards.push(`<text x="${x}" y="${y + f * 0.34}" font-family="Montserrat" font-weight="700" font-size="${f}" fill="${col}" text-anchor="middle">${lab}</text>`);
       }
-      // Numeric wind-angle scale (bow-relative, so NOT rotated with bezel).
-      const scaleNums = [];
-      for (const d of [30, 60, 90, 120, 150]) {
-        for (const sign of [-1, 1]) {
-          const [x, y] = polar(CX, CY, sign * d, RF - 26);
-          scaleNums.push(`<text x="${x}" y="${y + 4}" font-family="Montserrat" font-size="13" fill="#8fa59d" text-anchor="middle">${d}</text>`);
-        }
+      function wm (deg, color, letter) {
+        const [ox, oy] = polar(deg, RM);
+        const [ix, iy] = polar(deg, RM - 30);
+        const [lx, ly] = polar(deg, RM - 46);
+        return `<line x1="${ox}" y1="${oy}" x2="${ix}" y2="${iy}" stroke="${color}" stroke-width="6" stroke-linecap="round"/>`
+          + `<circle cx="${ox}" cy="${oy}" r="7" fill="${color}"/>`
+          + `<text x="${lx}" y="${ly + 6}" font-family="Montserrat" font-size="18" font-weight="700" fill="${color}" text-anchor="middle">${letter}</text>`;
       }
-      const [awaX, awaY] = polar(CX, CY, sampleAWA, RM - 14);
-      const [twaX, twaY] = polar(CX, CY, sampleTWA, RM - 14);
+      function tile (x, cap, unit, val, col) {
+        const y = 356, w = 110, h = 116;
+        return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="10" fill="#101b29" stroke="#1f2d3d"/>`
+          + `<text x="${x + 8}" y="${y + 22}" font-family="Montserrat" font-size="14" fill="#8fa7bd">${cap}</text>`
+          + (unit ? `<text x="${x + w - 8}" y="${y + 22}" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="end">${unit}</text>` : '')
+          + `<text x="${x + w / 2}" y="${y + h - 20}" font-family="Montserrat" font-size="38" font-weight="700" fill="${col}" text-anchor="middle">${val}</text>`;
+      }
       svg.innerHTML = `
-        <!-- bezel rim -->
-        <circle cx="${CX}" cy="${CY}" r="${R}" fill="none" stroke="#34504d" stroke-width="6"/>
-        <circle cx="${CX}" cy="${CY}" r="${R + 10}" fill="none" stroke="#111a26" stroke-width="2"/>
-        <circle cx="${CX}" cy="${CY}" r="${R - 14}" fill="none" stroke="#0c1828" stroke-width="1"/>
-        <!-- dark face -->
-        <circle cx="${CX}" cy="${CY}" r="${RF}" fill="#06110f"/>
-        <!-- ticks + cardinals (rotated as a group to mirror device bezel rotation by -hdg) -->
+        <circle cx="${CX}" cy="${CY}" r="${RF}" fill="#101b29" stroke="#1f2d3d"/>
+        <circle cx="${CX}" cy="${CY}" r="${RB}" fill="none" stroke="#f2f6fb" stroke-width="26" stroke-opacity="0.92"/>
+        <circle cx="${CX}" cy="${CY}" r="${RB + 9}" fill="none" stroke="#36d399" stroke-width="6" stroke-opacity="0.85"/>
         ${ticks.join('')}
-        ${card('N', 0, true)}${card('E', 90, true)}${card('S', 180, true)}${card('W', 270, true)}
-        ${card('NE', 45)}${card('SE', 135)}${card('SW', 225)}${card('NW', 315)}
-        <!-- bow notch outside the bezel (always at top) -->
-        <rect x="${CX - 4}" y="${CY - R - 14}" width="8" height="12" fill="#f3f7f2" rx="2"/>
-        <!-- close-hauled arcs (red port, green starboard) -->
-        <path d="M ${polar(CX,CY,-30,RC).join(' ')} A ${RC} ${RC} 0 0 1 ${polar(CX,CY,0,RC).join(' ')}" fill="none" stroke="#ff4d6d" stroke-width="6" opacity="0.7"/>
-        <path d="M ${polar(CX,CY,0,RC).join(' ')} A ${RC} ${RC} 0 0 1 ${polar(CX,CY,30,RC).join(' ')}" fill="none" stroke="#39d98a" stroke-width="6" opacity="0.7"/>
-        <!-- bow-relative wind-angle scale -->
-        ${scaleNums.join('')}
-        <!-- boat hull outline (semi-transparent) -->
-        <path d="M ${CX-28},${CY+63} L ${CX-28},${CY-7} L ${CX-22},${CY-42} L ${CX},${CY-92} L ${CX+22},${CY-42} L ${CX+28},${CY-7} L ${CX+28},${CY+63}"
-              fill="none" stroke="#f3f7f2" stroke-opacity="0.3" stroke-width="3" stroke-linejoin="round"/>
-        <!-- AWA marker (apparent wind, amber) -->
-        <rect x="${awaX - 14}" y="${awaY - 16}" width="28" height="32" rx="6"
-              fill="#ffb84d" stroke="#34504d" stroke-width="1"/>
-        <text x="${awaX}" y="${awaY + 6}" font-family="Montserrat" font-size="18" font-weight="700"
-              fill="#06110f" text-anchor="middle">A</text>
-        <!-- TWA marker (true wind, cyan) -->
-        <rect x="${twaX - 14}" y="${twaY - 16}" width="28" height="32" rx="6"
-              fill="#57c7d8" stroke="#34504d" stroke-width="1"/>
-        <text x="${twaX}" y="${twaY + 6}" font-family="Montserrat" font-size="18" font-weight="700"
-              fill="#06110f" text-anchor="middle">T</text>
-        <!-- Center readouts (AWS / TWS) -->
-        <text x="${CX}" y="${CY - 6}" font-family="Montserrat" font-size="38" font-weight="700"
-              fill="#57c7d8" text-anchor="middle">9.7</text>
-        <text x="${CX}" y="${CY + 18}" font-family="Montserrat" font-size="14"
-              fill="#8fa59d" text-anchor="middle">AWS kn</text>
-        <text x="${CX}" y="${CY + 42}" font-family="Montserrat" font-size="16" font-weight="500"
-              fill="#39d98a" text-anchor="middle">TWS 11.2</text>
-        <!-- HDG label at bow (rotates with bezel; sampleHdg here means
-             the bezel rotated -47°, so the cardinal at top is roughly 47°) -->
-        <text x="${CX}" y="${CY - R + 32}" font-family="Montserrat" font-size="14"
-              fill="#f3f7f2" text-anchor="middle">HDG ${String(sampleHdg).padStart(3,'0')}°</text>`;
+        ${cards.join('')}
+        <path d="M ${CX - 8},${CY - RB - 12} L ${CX + 8},${CY - RB - 12} L ${CX},${CY - RB + 2} Z" fill="#ff5252"/>
+        <path d="M ${polar(-30, RF - 8).join(' ')} A ${RF - 8} ${RF - 8} 0 0 1 ${polar(0, RF - 8).join(' ')}" fill="none" stroke="#ff5252" stroke-width="6" opacity="0.7"/>
+        <path d="M ${polar(0, RF - 8).join(' ')} A ${RF - 8} ${RF - 8} 0 0 1 ${polar(30, RF - 8).join(' ')}" fill="none" stroke="#36d399" stroke-width="6" opacity="0.7"/>
+        <path d="M ${CX - 17},${CY + 34} L ${CX - 17},${CY - 3} L ${CX},${CY - 48} L ${CX + 17},${CY - 3} L ${CX + 17},${CY + 34}" fill="none" stroke="#eef4fa" stroke-opacity="0.3" stroke-width="3" stroke-linejoin="round"/>
+        ${wm(twa, '#2bd4e8', 'T')}
+        ${wm(awa, '#ff8800', 'A')}
+        <line x1="${CX}" y1="${CY}" x2="${CX + 16}" y2="${CY + 32}" stroke="#288cff" stroke-width="5" stroke-linecap="round"/>
+        <text x="${CX - 24}" y="${CY + 6}" font-family="Montserrat" font-size="16" fill="#eef4fa">1.4</text>
+        <text x="${CX}" y="${CY - RF + 30}" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="middle">HDG</text>
+        <text x="${CX}" y="${CY - RF + 52}" font-family="Montserrat" font-size="22" font-weight="700" fill="#4fc3f7" text-anchor="middle">${String(hdg).padStart(3, '0')}°</text>
+        ${tile(8, 'AWS', 'kn', '12.4', '#ffb84d')}
+        ${tile(126, 'AWA', '', '42S', '#eef4fa')}
+        ${tile(244, 'TWS', 'kn', '14.5', '#eef4fa')}
+        ${tile(362, 'TWA', '', '46S', '#eef4fa')}`;
+      const wrap = el('div', { className: 'wpreview wd-wrap' });
+      wrap.append(svg);
+      return wrap;
+    }
+    case 'windSteer': {
+      // Full-screen wind-steering HUD matching the device's
+      // src/ui/screen_wind_steer.cpp: the same semicircular heading compass as
+      // the autopilot HUD (white band + green rail, upright scale, red lubber)
+      // but the band carries a faint red NO-GO sector + slim green TARGET
+      // laylines (driven by the SignalK polar beat/gybe angles) and an amber
+      // wind bug. HDG hero, a "TWA | TWD" sub-line, an XTE strip, and the
+      // AWS/AWA/TWS/TWA tile row. Heading-up: a degree D shows at angle (D - hdg).
+      const svgNS = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 480 480');
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      const CX = 240, CYc = 272, R = 214, RB = 200;
+      const hdg = 56, twd = 102, twaMag = 46, tws = 14.5;
+      const up = twaMag <= 90;
+      const beat = 42, gybe = 150;           // device polar fallbacks / sample
+      const opt = up ? beat : gybe;
+      let tol = 16 - 0.6 * tws; tol = Math.max(4, Math.min(16, tol));
+      function polar (deg, r) { const a = (deg - 90) * Math.PI / 180; return [CX + r * Math.cos(a), CYc + r * Math.sin(a)]; }
+      function arc (t0, t1, r) {
+        const [x0, y0] = polar(t0, r), [x1, y1] = polar(t1, r);
+        const large = (t1 - t0) > 180 ? 1 : 0;
+        return `M ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1}`;
+      }
+      // No-go centred on the wind direction from the bow; targets flank it.
+      const twdRel = ((twd - hdg) % 360 + 360) % 360;
+      const badc = up ? twdRel : (twdRel + 180) % 360;
+      let half = up ? opt : (180 - opt); half = Math.max(4, Math.min(88, half));
+      const c = badc > 180 ? badc - 360 : badc;
+      const ticks = [];
+      for (let d = -90; d <= 90; d += 15) {
+        const major = ((((Math.round(d + hdg) % 30) + 30) % 30)) === 0;
+        const [x1, y1] = polar(d, RB + 12);
+        const [x2, y2] = polar(d, RB + 12 - (major ? 12 : 7));
+        ticks.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#16222f" stroke-width="${major ? 3 : 2}"/>`);
+      }
+      const nums = [];
+      for (const deg of [0, 30, 60, 90, 120, 150, 330]) {
+        const rel = ((deg - hdg + 540) % 360) - 180;
+        if (rel < -96 || rel > 96) continue;
+        const [x, y] = polar(rel, RB - 14);
+        const card = (deg % 90) === 0;
+        const txt = deg === 0 ? 'N' : deg === 90 ? 'E' : deg === 180 ? 'S' : deg === 270 ? 'W' : String(deg);
+        const f = card ? 20 : 16;
+        nums.push(`<text x="${x}" y="${y + f * 0.34}" font-family="Montserrat" font-weight="700" font-size="${f}" fill="${card ? '#ff5252' : '#16222f'}" text-anchor="middle">${txt}</text>`);
+      }
+      const railPath = `M ${polar(-90, R + 8).join(' ')} A ${R + 8} ${R + 8} 0 0 1 ${polar(90, R + 8).join(' ')}`;
+      const bandPath = `M ${polar(-90, RB).join(' ')} A ${RB} ${RB} 0 0 1 ${polar(90, RB).join(' ')}`;
+      const [bx, by] = polar(twdRel > 180 ? twdRel - 360 : twdRel, R + 6);
+      function tile (x, cap, unit, val, col) {
+        const y = 362, s = 110;
+        return `<rect x="${x}" y="${y}" width="${s}" height="${s}" rx="10" fill="#101b29" stroke="#1f2d3d"/>`
+          + `<text x="${x + 8}" y="${y + 22}" font-family="Montserrat" font-size="14" fill="#8fa7bd">${cap}</text>`
+          + (unit ? `<text x="${x + s - 8}" y="${y + 22}" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="end">${unit}</text>` : '')
+          + `<text x="${x + s / 2}" y="${y + s - 18}" font-family="Montserrat" font-size="38" font-weight="700" fill="${col}" text-anchor="middle">${val}</text>`;
+      }
+      svg.innerHTML = `
+        <rect x="10" y="10" width="110" height="40" rx="10" fill="#101b29" stroke="#1f2d3d"/>
+        <text x="65" y="37" font-family="Montserrat" font-size="20" fill="#eef4fa" text-anchor="middle">STBY</text>
+        <text x="240" y="32" font-family="Montserrat" font-size="20" font-weight="700" fill="#36d399" text-anchor="middle">AUTO</text>
+        <rect x="360" y="10" width="110" height="40" rx="10" fill="#101b29" stroke="#1f2d3d"/>
+        <text x="415" y="37" font-family="Montserrat" font-size="20" fill="#eef4fa" text-anchor="middle">HOME</text>
+        <path d="${railPath}" fill="none" stroke="#36d399" stroke-width="10"/>
+        <path d="${bandPath}" fill="none" stroke="#f2f6fb" stroke-width="44"/>
+        <path d="${arc(c - half, c + half, RB)}" fill="none" stroke="#ff5252" stroke-width="40" stroke-opacity="0.32"/>
+        <path d="${arc(c + half, c + half + tol, RB + 8)}" fill="none" stroke="#36d399" stroke-width="12"/>
+        <path d="${arc(c - half - tol, c - half, RB + 8)}" fill="none" stroke="#36d399" stroke-width="12"/>
+        ${ticks.join('')}
+        ${nums.join('')}
+        <path d="M ${CX - 9},${CYc - R - 2} L ${CX + 9},${CYc - R - 2} L ${CX},${CYc - R + 14} Z" fill="#ff5252"/>
+        <path d="M ${bx - 9},${by - 9} L ${bx + 9},${by - 9} L ${bx},${by + 9} Z" fill="#ffb84d"/>
+        <text x="${CX}" y="${CYc - R / 2 - 12}" font-family="Montserrat" font-size="20" fill="#8fa7bd" text-anchor="middle">HDG</text>
+        <text x="${CX}" y="${CYc - R / 2 + 38}" font-family="Montserrat" font-size="64" font-weight="700" fill="#eef4fa" text-anchor="middle">56.0°</text>
+        <text x="${CX}" y="${CYc - 2}" font-family="Montserrat" font-size="20" fill="#8fa7bd" text-anchor="middle">TWA 46°S  |  TWD 102°</text>
+        <text x="16" y="306" font-family="Montserrat" font-size="14" fill="#8fa7bd">PORT</text>
+        <text x="464" y="306" font-family="Montserrat" font-size="14" fill="#8fa7bd" text-anchor="end">STBD</text>
+        <line x1="40" y1="318" x2="440" y2="318" stroke="#2a3a4c" stroke-width="2"/>
+        <rect x="262" y="302" width="3" height="32" rx="1" fill="#ff5252"/>
+        ${tile(8, 'AWS', 'kn', '12.4', '#ffb84d')}
+        ${tile(126, 'AWA', '', '42S', '#eef4fa')}
+        ${tile(244, 'TWS', 'kn', '14.5', '#eef4fa')}
+        ${tile(362, 'TWA', '', '46S', '#eef4fa')}`;
       const wrap = el('div', { className: 'wpreview wd-wrap' });
       wrap.append(svg);
       return wrap;
@@ -713,23 +784,34 @@ function widgetPreview (widget, tile) {
       return wrap;
     }
     case 'trend': {
+      // The device renders a trend metric inside a grid tile as its latest
+      // NUMERIC value -- the sparkline chart only exists as a dedicated
+      // template, not a per-tile widget (ui_layouts.cpp: `WidgetKind::Trend:
+      // sparkline not yet implemented; fall back` -> Numeric). So preview the
+      // numeric hero (device-accurate) over a faint sparkline watermark that
+      // keeps the trend widget distinct in the picker.
+      const s = sampleFor(tile, { value: '8.4', unit: 'm' });
       const svgNS = 'http://www.w3.org/2000/svg';
       const svg = document.createElementNS(svgNS, 'svg');
       svg.setAttribute('viewBox', '0 0 220 56');
       svg.setAttribute('preserveAspectRatio', 'none');
-      // Pseudo-random sparkline so each preview is visually distinct.
       const pts = [];
       for (let x = 0; x <= 220; x += 11) {
         const y = 28 + 18 * Math.sin(x / 18) + 6 * Math.sin(x / 6);
         pts.push(`${x},${y.toFixed(1)}`);
       }
-      svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="#57c7d8" stroke-width="2"/>` +
-                      `<polyline points="0,56 ${pts.join(' ')} 220,56" fill="rgba(87,199,216,0.15)" stroke="none"/>`;
-      const wrap = el('div', { className: 'wpreview' });
+      svg.innerHTML = `<polyline points="${pts.join(' ')}" fill="none" stroke="#57c7d8" stroke-width="2" stroke-opacity="0.22"/>` +
+                      `<polyline points="0,56 ${pts.join(' ')} 220,56" fill="rgba(87,199,216,0.06)" stroke="none"/>`;
+      const wrap = el('div', { className: 'wpreview trend-wrap' });
       const cc = chromeCap(tile); if (cc) wrap.append(cc);
-      const trend = el('div', { className: 'trend' });
+      const trend = el('div', { className: 'trend trend-ghost' });
       trend.append(svg);
       wrap.append(trend);
+      wrap.append(el('div', { className: 'num-stack trend-num' },
+        el('div', { className: 'num-row' },
+          el('span', { className: 'num-primary' }, s.value),
+          el('span', { className: 'num-unit' }, s.unit)),
+        el('div', { className: 'num-secondary' }, (tile && tile.primary) ? tile.primary.split('.').pop() : 'latest value')));
       return wrap;
     }
     case 'autopilot': {
