@@ -132,12 +132,15 @@ lv_obj_t *build(lv_obj_t *parent) {
     int scx = cox + s_cp.cx;
     int scy = coy + s_cp.cy;
 
-    // Wind display: no-go (red) + target (green) sectors on the band, then raise
-    // the ticks / numbers / bug / lubber back above them.
-    int band_r = s_cp.r - 10;
-    nogo = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 52, theme.alarm);
-    target_a = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 52, theme.good);
-    target_b = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 52, theme.good);
+    // Wind display: LIGHT marks on the outer band -- a faint red no-go tint and
+    // crisp slim green layline marks -- so the white band and scale numbers stay
+    // clear. Raise the ticks / numbers / bug / lubber back above them.
+    int band_r = s_cp.r - 10;  // outer edge of the white band
+    nogo = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 14, theme.alarm);
+    lv_obj_set_style_arc_opa(nogo, LV_OPA_40, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(nogo, LV_OPA_40, LV_PART_INDICATOR);
+    target_a = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 16, theme.good);
+    target_b = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 16, theme.good);
     lv_obj_move_foreground(s_cp.scale);
     for (int i = 0; i < 12; ++i)
         if (s_cp.nums[i]) lv_obj_move_foreground(s_cp.nums[i]);
