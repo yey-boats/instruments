@@ -175,15 +175,22 @@
   // Keep the preview's current screen synced with what the device is actually
   // showing: poll the device-views projection; when the device's reported
   // current screen changes (and the user isn't mid-edit), follow it.
+  const nowEl = document.getElementById('lp-now-screen')
+  function titleOf (idv) {
+    const s = (cfg.screens || []).find((x) => x.id === idv)
+    return (s && s.title) || idv || '—'
+  }
+  if (nowEl) nowEl.textContent = titleOf(cfg.current)
   const deviceId = window.__espdispDeviceId
   if (deviceId) {
     setInterval(() => {
-      if (editMode || userPicked) return
       fetch('/plugins/espdisp-manager/devices/' + encodeURIComponent(deviceId) + '/views',
         { credentials: 'include' })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => {
-          if (!d || !d.current || d.current === currentScreenId) return
+          if (!d || !d.current) return
+          if (nowEl) nowEl.textContent = titleOf(d.current) // indicator always tracks the device
+          if (editMode || userPicked || d.current === currentScreenId) return
           currentScreenId = d.current
           if (sel) {
             if (![...sel.options].some((o) => o.value === currentScreenId)) {

@@ -1285,10 +1285,11 @@ function renderDevicePage (manager, id, live = {}) {
         : 'sunton-480'
       ;(sp.getPresetsForClass(dc) || []).forEach((s) => { presetById[s.id] = s })
     } catch (e) { presetById = {} }
+    const PRESET_ALIAS = { status: 'system' } // built-in id -> nearest preset id
     const presetTiles = (screenId) => {
-      // exact id, else a prefix match so built-in variants map to their base
-      // (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
-      let p = presetById[screenId]
+      // exact id, alias, else a prefix match so built-in variants map to their
+      // base (wind_classic / wind_steer -> "wind"); gives real SignalK bindings.
+      let p = presetById[screenId] || presetById[PRESET_ALIAS[screenId]]
       if (!p) {
         const base = Object.keys(presetById).find((k) => screenId === k || screenId.indexOf(k + '_') === 0)
         if (base) p = presetById[base]
@@ -1342,34 +1343,16 @@ function renderDevicePage (manager, id, live = {}) {
         · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/status">Live status</a>
         · <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/live/logs">Live logs</a>
       </p>
-      <form class="config-form" method="post"
-            action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
-        <label for="switch-view-profile">Switch this device to view</label>
-        <div class="actions">
-          <select id="switch-view-profile" name="profileId">${profileOptions}</select>
-          <button type="submit" class="primary">Apply view + reload device</button>
-        </div>
-        <p class="muted">Assigns the selected dashboard/view and queues a
-          <code>config.reload</code> so the device picks it up on its next poll.</p>
-      </form>
-      <form class="config-form" method="post"
-            action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/switch-screen">
-        <label for="switch-screen-id">Show screen on this device</label>
-        <div class="actions">
-          <select id="switch-screen-id" name="screenId">${screenOptions || '<option value="">(no screens)</option>'}</select>
-          <button type="submit" class="primary">Show screen</button>
-        </div>
-        <p class="muted">Switches the device to a single screen now via a
-          <code>screen.set</code> command (live; does not change the assigned
-          profile).</p>
-      </form>
       <div class="lp-panel">
         <div class="lp-head">
-          <strong>Live preview</strong>
-          <label class="lp-screen-label">screen
-            <select id="lp-screen">${previewScreenOptions || '<option value="">(no authored layout)</option>'}</select>
-          </label>
-          <label class="lp-screen-label"><input type="checkbox" id="lp-edit"> edit data fields</label>
+          <div class="lp-head-title">
+            <strong>Live view</strong>
+            <span class="lp-now"><span class="lp-dot"></span>on device:&nbsp;<span id="lp-now-screen">…</span></span>
+          </div>
+          <div class="lp-head-controls">
+            <label class="lp-ctl">Preview&nbsp;<select id="lp-screen">${previewScreenOptions || '<option value="">(none)</option>'}</select></label>
+            <label class="lp-ctl lp-edit-toggle"><input type="checkbox" id="lp-edit">&nbsp;Edit fields</label>
+          </div>
         </div>
         <div id="lp-root" class="lp-stage"></div>
         <datalist id="lp-paths">${previewPaths.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>
@@ -1378,34 +1361,63 @@ function renderDevicePage (manager, id, live = {}) {
           <input type="hidden" name="screenId" id="lp-f-screen">
           <input type="hidden" name="edits" id="lp-f-edits">
           <input type="hidden" name="mode" id="lp-f-mode" value="update">
-          <div class="actions">
-            <input type="text" name="profileName" id="lp-f-name" placeholder="new view name (for Create)" style="flex:1">
-            <button type="button" class="primary" data-mode="switch">Switch to</button>
-            <button type="button" class="primary" data-mode="update">Update</button>
-            <button type="button" class="primary" data-mode="create">Create</button>
+          <div class="actions lp-actions">
+            <button type="button" class="primary" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
+            <button type="button" data-mode="update" title="Save edits to the assigned view + reload the device">Save to view</button>
+            <span class="lp-create">
+              <input type="text" name="profileName" id="lp-f-name" placeholder="new view name">
+              <button type="button" data-mode="create" title="Save the edited layout as a new view">Save as new</button>
+            </span>
           </div>
         </form>
-        <p class="muted" id="lp-note">Renders the assigned profile's authored
-          layout bound to live SignalK data. Tick <em>edit data fields</em> to
-          rebind a tile's SignalK path; <strong>Switch to</strong> shows it on
-          the device, <strong>Update</strong> saves to the assigned view +
-          reloads the device, <strong>Create</strong> saves as a new view.</p>
+        <p class="muted lp-note" id="lp-note">Live SignalK values for the selected
+          screen. <strong>Show on device</strong> switches the device to it now;
+          tick <strong>Edit fields</strong> to rebind a tile's SignalK path, then
+          <strong>Save to view</strong> (writes to the assigned profile + reloads)
+          or <strong>Save as new</strong> view.</p>
       </div>
+      <form class="config-form lp-assign" method="post"
+            action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
+        <label for="switch-view-profile">Assigned profile</label>
+        <div class="actions">
+          <select id="switch-view-profile" name="profileId">${profileOptions}</select>
+          <button type="submit">Assign + reload</button>
+        </div>
+      </form>
       <style>
-        .lp-panel{background:#0d1722;border:1px solid #1e2c3a;border-radius:10px;padding:12px;margin-bottom:20px}
-        .lp-head{display:flex;align-items:center;gap:12px;margin-bottom:8px;color:#cfe0f0}
-        .lp-stage{background:#0a0f16;border-radius:8px;aspect-ratio:1/1;max-width:380px;margin:0 auto;padding:8px;display:flex;align-items:center;justify-content:center}
-        .lp-grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:8px;width:100%;height:100%}
-        .lp-tile{background:#11202f;border:1px solid #1c2f42;border-radius:8px;padding:8px;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:80px}
-        .lp-cap{font-size:11px;letter-spacing:.08em;color:#7da3c6;align-self:flex-start}
-        .lp-val{font-size:34px;font-weight:600;color:#eaf2fb;line-height:1}
+        .lp-panel{background:linear-gradient(180deg,#0e1a26,#0b1019);border:1px solid #1e3142;border-radius:12px;padding:16px;margin-bottom:18px;box-shadow:0 1px 0 #1a2c3c inset,0 6px 22px rgba(0,0,0,.28)}
+        .lp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;color:#cfe0f0;flex-wrap:wrap}
+        .lp-head-title{display:flex;align-items:baseline;gap:12px}
+        .lp-head-title strong{font-size:15px;letter-spacing:.02em}
+        .lp-now{display:inline-flex;align-items:center;font-size:12px;color:#8fb8da;background:#0a1420;border:1px solid #1c3043;border-radius:999px;padding:3px 10px}
+        .lp-now #lp-now-screen{color:#eaf2fb;font-weight:600}
+        .lp-dot{width:8px;height:8px;border-radius:50%;background:#36d399;margin-right:7px;box-shadow:0 0 0 0 rgba(54,211,153,.6);animation:lp-pulse 2s infinite}
+        @keyframes lp-pulse{0%{box-shadow:0 0 0 0 rgba(54,211,153,.55)}70%{box-shadow:0 0 0 6px rgba(54,211,153,0)}100%{box-shadow:0 0 0 0 rgba(54,211,153,0)}}
+        .lp-head-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+        .lp-ctl{font-size:12px;color:#8fb8da;display:inline-flex;align-items:center}
+        .lp-ctl select{margin-left:4px;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:4px 6px}
+        .lp-stage{background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;max-width:400px;margin:0 auto;padding:10px;display:flex;align-items:center;justify-content:center}
+        .lp-grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
+        .lp-tile{background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px}
+        .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
+        .lp-val{font-size:34px;font-weight:650;color:#eaf2fb;line-height:1.05;align-self:flex-start}
         .lp-val-sm{font-size:18px}
-        .lp-unit{font-size:14px;color:#9bb6d0;margin-left:4px}
-        .lp-bar{width:18px;flex:1;background:#0a1420;border-radius:4px;display:flex;align-items:flex-end;margin:6px 0;min-height:40px}
-        .lp-bar-fill{width:100%;background:#36d399;border-radius:4px;transition:height .2s}
-        .lp-empty{color:#7da3c6;font-size:13px;text-align:center}
-        .lp-edit-path{width:100%;margin-top:6px;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:4px;padding:3px 4px}
-        #lp-form .actions{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+        .lp-unit{font-size:14px;color:#9bb6d0;margin-left:5px;font-weight:400}
+        .lp-bar{width:20px;flex:1;background:#0a1420;border-radius:5px;display:flex;align-items:flex-end;margin:8px 0;min-height:40px;align-self:center}
+        .lp-bar-fill{width:100%;background:linear-gradient(180deg,#52e0a8,#2bb47e);border-radius:5px;transition:height .25s ease}
+        .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
+        .lp-edit-path{width:100%;margin-top:8px;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px}
+        .lp-edit-path:focus{outline:none;border-color:#36d399}
+        .lp-actions{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
+        .lp-actions button{border-radius:7px;padding:7px 13px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:13px}
+        .lp-actions button:hover{border-color:#3a607e;background:#173248}
+        .lp-actions button.primary{background:#1f8f5f;border-color:#27a86e;color:#eafff5;font-weight:600}
+        .lp-actions button.primary:hover{background:#27a86e}
+        .lp-create{display:inline-flex;gap:6px;align-items:center;margin-left:auto}
+        .lp-create input{background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:6px 8px;font-size:12px;width:150px}
+        .lp-note{font-size:12px;line-height:1.55;margin-top:10px}
+        .lp-assign{margin-bottom:18px}
+        .lp-assign label{font-size:12px;color:#8fb8da}
       </style>
       <script>window.__espdispPreview=${previewJson};window.__espdispDeviceId=${JSON.stringify(id)};</script>
       <script src="/signalk-espdisp-manager/live-preview.js"></script>
