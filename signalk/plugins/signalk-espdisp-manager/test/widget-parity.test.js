@@ -37,9 +37,9 @@ function deviceNightPalette () {
   assert.ok(m, 'device ui_theme.cpp must declare Palette theme = { ... }')
   const hexes = [...m[1].matchAll(/0x([0-9a-fA-F]{6})/g)].map((x) => '#' + x[1].toLowerCase())
   // struct Palette order: bg, panel, panel_bot, panel_edge, badge, fg, fg_dim,
-  // accent, warn, alarm, good, port, starboard, grid (14 fields).
-  assert.strictEqual(hexes.length, 14,
-    'expected 14 palette colors in ui_theme.cpp, got ' + hexes.length)
+  // accent, warn, alarm, good, port, starboard, grid, arc_band (15 fields).
+  assert.strictEqual(hexes.length, 15,
+    'expected 15 palette colors in ui_theme.cpp, got ' + hexes.length)
   return {
     bg: hexes[0],
     panel: hexes[1],
@@ -54,7 +54,8 @@ function deviceNightPalette () {
     good: hexes[10],
     port: hexes[11],
     starboard: hexes[12],
-    grid: hexes[13]
+    grid: hexes[13],
+    arcBand: hexes[14]
   }
 }
 
