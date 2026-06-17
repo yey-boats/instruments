@@ -66,6 +66,12 @@ struct Tile {
     char widget[STR_LEN] = {0};
     char primary_path[PATH_LEN] = {0};
     char secondary_path[PATH_LEN] = {0};
+    // Per-field zoom (spec §Zoom). `zoomable` gates the tap: numeric fields
+    // default true, every other widget defaults false (resolved at parse
+    // time). `zoom` is the target: "auto" scales the field in place on the
+    // device zoom screen; a "<screenId>" string opens that full screen.
+    bool zoomable = false;
+    char zoom[STR_LEN] = {0};
 };
 
 struct Screen {
@@ -114,5 +120,26 @@ AlarmLevel parse_alarm_level(const char *s);
 
 // Find a screen by id. Returns nullptr if not found.
 const Screen *find_screen(const Config &cfg, const char *id);
+
+// ---- Per-field zoom decision (pure; host-tested) -------------------------
+
+// What a tap on a (possibly zoomable) field should do.
+enum ZoomAction {
+    ZOOM_NONE = 0,     // field is not zoomable; tap does nothing
+    ZOOM_AUTO_SCALE,   // scale the field up in place on the zoom screen
+    ZOOM_SHOW_SCREEN,  // switch to the referenced full screen
+};
+
+// Default `zoomable` for a widget kind when the config omits the key.
+// Numeric (and empty/unknown, which the renderer treats as numeric) default
+// to true; every other widget defaults to false. Mirrors the manifest's
+// per-viewType zoom support in the spec.
+bool default_zoomable(const char *widget);
+
+// Resolve a tap action from a tile's resolved `zoomable` flag and `zoom`
+// target string. Not zoomable → NONE. Zoomable with an empty or "auto"
+// target → AUTO_SCALE. Zoomable with any other (non-empty) target → SHOW_SCREEN
+// (the caller validates the screen id exists before navigating).
+ZoomAction zoom_action(bool zoomable, const char *zoom);
 
 }  // namespace layout

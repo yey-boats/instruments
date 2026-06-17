@@ -157,6 +157,15 @@ size_t apply() {
             mb.target_screen = nullptr;
             mb.extras_count = 0;
             mb.kind = widget_to_kind(lt.widget);
+            // Slice 6: carry the authored per-field zoom. `zoom` points into
+            // the live (PSRAM) layout::Config, which outlives this screen, so
+            // the tap handler reads the target string directly. zoom_target is
+            // ALWAYS non-NULL for an authored tile (a parsed "" string) so the
+            // tap handler's NULL == "legacy hardcoded tile" sentinel never
+            // triggers here; an authored non-zoomable tile resolves to
+            // ZOOM_NONE instead of the legacy auto-zoom fallback.
+            mb.zoomable = lt.zoomable;
+            mb.zoom_target = lt.zoom;
         }
         slot.spec.screen_id = slot.screen_id;
         slot.spec.title = slot.screen_title;

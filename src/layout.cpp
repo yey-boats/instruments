@@ -71,6 +71,15 @@ static void parse_tile(JsonObjectConst t, Tile &out) {
     copy_str(out.widget, STR_LEN, t["widget"].as<const char *>());
     copy_str(out.primary_path, PATH_LEN, t["primary"].as<const char *>());
     copy_str(out.secondary_path, PATH_LEN, t["secondary"].as<const char *>());
+    // Zoom: `zoomable` defaults per widget kind (numeric → true) when absent;
+    // `zoom` defaults to "auto" for a zoomable field with no explicit target.
+    JsonVariantConst zable = t["zoomable"];
+    out.zoomable = zable.isNull() ? default_zoomable(out.widget) : zable.as<bool>();
+    const char *zoom = t["zoom"].as<const char *>();
+    if (zoom && zoom[0])
+        copy_str(out.zoom, STR_LEN, zoom);
+    else if (out.zoomable)
+        copy_str(out.zoom, STR_LEN, "auto");
 }
 
 static void parse_screen(JsonObjectConst s, Screen &out) {
@@ -142,6 +151,20 @@ int parse(const char *json, size_t len, Config &out) {
     }
 
     return 0;
+}
+
+bool default_zoomable(const char *widget) {
+    // Numeric fields default zoomable; an empty/unknown widget is rendered as
+    // numeric (see ui::layout_render::widget_to_kind) so it inherits the same
+    // default. Every explicitly non-numeric widget defaults to not zoomable.
+    if (!widget || !widget[0]) return true;
+    return strcmp(widget, "numeric") == 0;
+}
+
+ZoomAction zoom_action(bool zoomable, const char *zoom) {
+    if (!zoomable) return ZOOM_NONE;
+    if (!zoom || !zoom[0] || strcmp(zoom, "auto") == 0) return ZOOM_AUTO_SCALE;
+    return ZOOM_SHOW_SCREEN;
 }
 
 const Screen *find_screen(const Config &cfg, const char *id) {

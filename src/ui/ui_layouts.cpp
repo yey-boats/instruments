@@ -1,5 +1,6 @@
 #include "ui_layouts.h"
 
+#include "layout.h"
 #include "subscription_set.h"
 #include "ui_theme.h"
 #include "ui_data.h"
@@ -306,11 +307,41 @@ void set_zoom_target(const MetricBinding &m) {
     g_zoom_target = m;
 }
 
-static void tile_zoom_cb(lv_event_t *e) {
+// Slice 6: per-field zoom dispatch. Honors the authored tile's `zoomable` /
+// `zoom_target`: "auto"/"" scales the field in place on the dedicated zoom
+// screen (reusing g_zoom_target), a "<screenId>" target switches to that full
+// screen via show_by_id. Legacy/hardcoded bindings (zoom_target == NULL) keep
+// the original always-auto-scale behavior so built-in dashboards are unchanged.
+// Runs on the LVGL/UI task (LV_EVENT_CLICKED dispatch); g_zoom_target is the
+// shared function-static scratch, so no large MetricBinding goes on this stack.
+static void tile_zoom_action_cb(lv_event_t *e) {
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
-    if (!m || m->source == MetricSource::None) return;
-    g_zoom_target = *m;
-    ui::show_by_id("zoom");
+    if (!m) return;
+
+    // No explicit zoom config (built-in screen tile): preserve the legacy
+    // auto-zoom for any real metric.
+    if (!m->zoom_target) {
+        if (m->source == MetricSource::None) return;
+        g_zoom_target = *m;
+        ui::show_by_id("zoom");
+        return;
+    }
+
+    switch (layout::zoom_action(m->zoomable, m->zoom_target)) {
+    case layout::ZOOM_AUTO_SCALE:
+        if (m->source == MetricSource::None) return;
+        g_zoom_target = *m;
+        ui::show_by_id("zoom");
+        break;
+    case layout::ZOOM_SHOW_SCREEN:
+        // show_by_id validates the id and no-ops (returns false) on a dangling
+        // screen ref, so a stale zoom target is harmless.
+        ui::show_by_id(m->zoom_target);
+        break;
+    case layout::ZOOM_NONE:
+    default:
+        break;
+    }
 }
 
 // Numeric value for chart-able metrics, in display units. Returns NaN
@@ -910,12 +941,22 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
         int y = QG_TOP_Y + row * (QG_TILE_H + QG_GAP);
         st->tiles[i] = build_tile(root, x, y, QG_TILE_W, QG_TILE_H, m);
         st->tiles[i].idx = (i < spec.metric_count) ? i : -1;
-        // Tap-to-zoom: real metric tiles open the full-screen single-value
-        // "zoom" screen. user_data points into the persistent spec.metrics[].
-        if (i < spec.metric_count && m.source != MetricSource::None) {
-            lv_obj_add_flag(st->tiles[i].root, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb(st->tiles[i].root, tile_zoom_cb, LV_EVENT_CLICKED,
-                                (void *)&spec.metrics[i]);
+        // Tap-to-zoom (Slice 6): per-field dispatch. A legacy/hardcoded tile
+        // (zoom_target == NULL) with a real metric opens the full-screen "zoom"
+        // view; an authored tile follows its resolved zoom_action (auto-scale
+        // or switch to a referenced screen). user_data points into the
+        // persistent spec.metrics[] so the binding outlives the tap.
+        if (i < spec.metric_count) {
+            const MetricBinding &mb = spec.metrics[i];
+            bool interactive =
+                mb.zoom_target
+                    ? (layout::zoom_action(mb.zoomable, mb.zoom_target) != layout::ZOOM_NONE)
+                    : (mb.source != MetricSource::None);
+            if (interactive) {
+                lv_obj_add_flag(st->tiles[i].root, LV_OBJ_FLAG_CLICKABLE);
+                lv_obj_add_event_cb(st->tiles[i].root, tile_zoom_action_cb, LV_EVENT_CLICKED,
+                                    (void *)&spec.metrics[i]);
+            }
         }
     }
 
@@ -2426,8 +2467,9 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
 
 // ===========================================================================
 // Full-screen single-value "zoom" screen. Opened by tapping a dashboard tile
-// (ui::layouts::tile_zoom_cb sets the file-static g_zoom_target then navigates
-// here). A dedicated screen (not a layer_top overlay) so it composites into
+// (ui::layouts::tile_zoom_action_cb sets the file-static g_zoom_target then
+// navigates here for an auto-scale field). A dedicated screen (not a layer_top
+// overlay) so it composites into
 // the active-screen snapshot and is screenshot-verifiable. Tapping anywhere
 // returns to the dashboard; swipe-down also works via the global gesture map.
 // ===========================================================================

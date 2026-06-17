@@ -106,6 +106,12 @@ struct MetricBinding {
     // add a default member initializer (which would make MetricBinding
     // non-aggregate under gnu++11, the Arduino-ESP32 default standard).
     WidgetKind kind;
+    // Per-field zoom (Slice 6). `zoomable` gates the tap; `zoom_target` is the
+    // resolved target string: "auto"/"" → scale in place on the zoom screen,
+    // any "<screenId>" → switch to that screen. Both trail `kind` so existing
+    // positional brace-init tables value-init them (zoomable=false, zoom=NULL).
+    bool zoomable;
+    const char *zoom_target;
 };
 
 struct ScreenVariantSpec {
