@@ -19,6 +19,7 @@
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <new>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -26,6 +27,19 @@
 namespace sk {
 
 Data data;
+
+// PSRAM-allocated so the ~5 KB dynamic store never sits in scarce internal
+// SRAM (see CLAUDE.md "Memory traps": large structs belong in PSRAM, never on
+// a task stack or in internal .bss). Constructed once, lives for the session.
+PathStore &dynamicStore() {
+    static PathStore *s = nullptr;
+    if (!s) {
+        void *mem = heap_caps_calloc(1, sizeof(PathStore), MALLOC_CAP_SPIRAM);
+        s = mem ? new (mem) PathStore() : new PathStore();  // heap fallback
+    }
+    return *s;
+}
+
 // Mutex guards mutation of `data` from the WS event task vs reads from
 // UI/web. Reads should use sk::copyData(out) which takes a short
 // critical section. Direct `sk::data` reads are still tolerated -
@@ -138,7 +152,7 @@ static void onText(uint8_t *payload, size_t len) {
         }
     }
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json);
+    int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json, &dynamicStore());
     uint32_t now = millis();
     // Always tick the WS frame timestamp: any TEXT we receive proves
     // the link is alive even if applyDelta found no value-bearing path

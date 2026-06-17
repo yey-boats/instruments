@@ -5,11 +5,17 @@
 // owns the Data struct.
 
 #include <Arduino.h>
+#include "path_store.h"
 #include "signalk_parser.h"
 
 namespace sk {
 
 extern Data data;
+
+// Process-wide dynamic path store, fed from every numeric WS delta. The
+// renderer resolves authored-field paths against this when they are not a
+// typed sk::Data field. PSRAM-allocated on first use (see signalk.cpp).
+PathStore &dynamicStore();
 
 void setup(const String &host, uint16_t port);
 void loop();

@@ -97,22 +97,25 @@ void applyValue(const char *path, JsonVariant val, Data &out) {
     }
 }
 
-static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc);
+static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc,
+                            PathStore *dyn);
 
-int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc) {
+int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc,
+               PathStore *dyn) {
     // alloc==nullptr -> default (internal heap) allocator. The device
     // build passes &espdisp::psram_json so 1+ Hz SK deltas don't churn
     // the tiny internal heap (largest free block was ~7 KB at idle).
     // Host tests pass nullptr and use the default.
     if (alloc) {
         JsonDocument doc(alloc);
-        return apply_delta_impl(json, len, out, doc);
+        return apply_delta_impl(json, len, out, doc, dyn);
     }
     JsonDocument doc;
-    return apply_delta_impl(json, len, out, doc);
+    return apply_delta_impl(json, len, out, doc, dyn);
 }
 
-static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc) {
+static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc,
+                            PathStore *dyn) {
     DeserializationError err = deserializeJson(doc, json, len);
     if (err) return -1;
     JsonArray updates = doc["updates"].as<JsonArray>();
@@ -125,6 +128,10 @@ static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocumen
             const char *p = v["path"];
             if (!p) continue;
             applyValue(p, v["value"], out);
+            // Mirror numeric deltas into the dynamic store so authored fields
+            // can render arbitrary paths by string (typed sk::Data still drives
+            // the built-in screens).
+            if (dyn && v["value"].is<double>()) dyn->set(p, v["value"].as<double>());
             ++count;
         }
     }

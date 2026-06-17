@@ -11,6 +11,8 @@
 #include <math.h>
 #endif
 
+#include "path_store.h"
+
 namespace sk {
 
 struct Data {
@@ -79,7 +81,10 @@ struct Data {
 // Pass `alloc` (e.g. &espdisp::psram_json) to keep the parser's working
 // buffer off internal heap on the device; nullptr (default) uses the
 // internal-heap allocator, which host tests rely on.
-int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc = nullptr);
+// `dyn` (optional): mirror every numeric delta value into this dynamic store
+// so authored fields can render arbitrary paths by string. nullptr to skip.
+int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc = nullptr,
+               PathStore *dyn = nullptr);
 
 // Apply a single path/value pair. Public for unit testing.
 void applyValue(const char *path, JsonVariant val, Data &out);
