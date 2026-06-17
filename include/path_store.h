@@ -10,6 +10,7 @@
 
 #include <math.h>
 #include <stddef.h>
+#include <stdint.h>
 
 namespace sk {
 
@@ -31,6 +32,16 @@ class PathStore {
     bool has(const char *path) const;
     int size() const { return count_; }
 
+#ifdef DBG_PERF_COUNTERS
+    // Monotonic lookup counter (get/has), for the benchmark harness. Read and
+    // reset with takeLookups(); compiled out unless DBG_PERF_COUNTERS.
+    uint32_t takeLookups() {
+        uint32_t v = lookups_;
+        lookups_ = 0;
+        return v;
+    }
+#endif
+
   private:
     struct Entry {
         char path[PATH_LEN];
@@ -39,6 +50,9 @@ class PathStore {
     };
     Entry entries_[CAP] = {};
     int count_ = 0;
+#ifdef DBG_PERF_COUNTERS
+    mutable uint32_t lookups_ = 0;
+#endif
     int find_(const char *path) const;  // index or -1
 };
 

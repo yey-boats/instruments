@@ -39,11 +39,17 @@ bool PathStore::set(const char *path, double value) {
 }
 
 double PathStore::get(const char *path) const {
+#ifdef DBG_PERF_COUNTERS
+    ++lookups_;
+#endif
     int i = find_(path);
     return i < 0 ? NAN : entries_[i].value;
 }
 
 bool PathStore::has(const char *path) const {
+#ifdef DBG_PERF_COUNTERS
+    ++lookups_;
+#endif
     return find_(path) >= 0;
 }
 

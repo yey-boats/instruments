@@ -89,6 +89,13 @@ int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *
 // Apply a single path/value pair. Public for unit testing.
 void applyValue(const char *path, JsonVariant val, Data &out);
 
+#ifdef DBG_PERF_COUNTERS
+// Benchmark: total path/value pairs seen by applyDelta since the last call
+// (read-and-reset). Counts every pair, matched or not (throughput, not just
+// the value-bearing matches applyDelta returns).
+uint32_t takeParsedCount();
+#endif
+
 // Pure classifier for the SignalK link status string surfaced via
 // /api/state.sk, the status screen, and the "SIGNALK STALLED" alarm.
 //

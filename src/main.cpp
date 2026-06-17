@@ -9,6 +9,11 @@
 #include "board_pins.h"
 #include "net.h"
 #include "signalk.h"
+#ifdef DBG_PERF_COUNTERS
+#include "bench_row.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#endif
 #include "layout_loader.h"
 #include "ui_screens.h"
 #include "ui_theme.h"
@@ -930,6 +935,9 @@ static lv_obj_t *g_fps_overlay = nullptr;
 static float g_fps = 0.0f;
 static uint32_t g_fps_peak_us = 0;
 static float g_fps_avg_us = 0.0f;
+#ifdef DBG_PERF_COUNTERS
+static volatile uint32_t g_refresh_us = 0;  // last ui::refresh_current() duration
+#endif
 
 // Demo mode
 static lv_timer_t *g_demo_timer = nullptr;
@@ -1218,6 +1226,10 @@ static void demo_stop() {
     net::logf("[demo] stopped");
 }
 
+#ifdef DBG_PERF_COUNTERS
+static void sweep_tick();  // bench-sweep state machine (impl below the peak globals)
+#endif
+
 static void fps_tick(lv_timer_t *) {
     g_fps = (float)g_flush_count;
     g_fps_peak_us = g_flush_us_peak;
@@ -1231,6 +1243,9 @@ static void fps_tick(lv_timer_t *) {
                  (unsigned long)g_fps_peak_us);
         lv_label_set_text(g_fps_overlay, buf);
     }
+#ifdef DBG_PERF_COUNTERS
+    sweep_tick();
+#endif
 }
 
 static void fps_overlay_toggle() {
@@ -1272,6 +1287,130 @@ static void note_slow_section(const char *name, uint32_t dt_us) {
     strncpy(g_section_peak_name, name ? name : "?", sizeof(g_section_peak_name) - 1);
     g_section_peak_name[sizeof(g_section_peak_name) - 1] = 0;
 }
+
+#ifdef DBG_PERF_COUNTERS
+// ---- bench-sweep: walk every non-hidden screen x {typed, store} render mode,
+// dwell SWEEP_DWELL s (first tick discarded), and log a per-cell metrics row.
+// Driven by fps_tick (1 Hz), so it runs on the LVGL/UI task (ui::show is safe).
+namespace ui::layouts {
+extern bool g_bench_store_mode;  // shadow-resolve built-ins through PathStore
+}
+
+static const int SWEEP_DWELL = 4;  // seconds per cell (tick 0 = settle, discarded)
+static bool g_sweep_active = false;
+static int g_sweep_mode = 0;  // 0 = typed, 1 = store
+static int g_sweep_pos = 0;   // index into g_sweep_list
+static int g_sweep_tick = 0;
+static int g_sweep_list[32];
+static int g_sweep_n = 0;
+static int g_sweep_saved = 0;
+static bench::BenchRow g_sweep_row;
+
+static void sweep_build_list() {
+    g_sweep_n = 0;
+    size_t n = ui::screen_count();
+    for (size_t i = 0; i < n && g_sweep_n < 32; ++i) {
+        const char *id = nullptr, *t = nullptr;
+        bool hid = false;
+        if (ui::screen_info((int)i, &id, &t, &hid) && !hid) g_sweep_list[g_sweep_n++] = (int)i;
+    }
+}
+
+static bench::BenchSample sweep_sample() {
+    bench::BenchSample s{};
+    s.fps = g_fps;
+    s.flush_avg_us = g_fps_avg_us;
+    s.flush_peak_us = (double)g_fps_peak_us;
+    s.refresh_us = (double)g_refresh_us;
+    s.lvgl_peak_us = (double)g_lvgl_max_us;
+    s.loop_peak_us = (double)g_loop_max_us;
+    s.core0_idle_pct = -1;  // n/a without FreeRTOS runtime stats (see plan)
+    s.core1_idle_pct = -1;
+    sk::BenchNet bn = sk::benchNetTake();
+    s.deltas_s = bn.deltas;
+    s.parsed_s = bn.parsed;
+    s.parse_avg_us = bn.ws_frames ? (double)bn.parse_us_total / bn.ws_frames : 0.0;
+    s.store_size = bn.store_size;
+    s.store_lookups_s = bn.store_lookups;
+    s.ws_frames_s = bn.ws_frames;
+    s.ws_bytes_s = bn.ws_bytes;
+    s.subscriptions = bn.subscriptions;
+    s.heap_lowwater_kb = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024.0;
+    s.largest_block_kb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024.0;
+    s.min_stack_b = (double)uxTaskGetStackHighWaterMark(NULL);
+    s.temp_c = temperatureRead();
+    // reset the loop/lvgl peaks so each cell reports its own peak, not a carryover
+    g_loop_max_us = 0;
+    g_lvgl_max_us = 0;
+    return s;
+}
+
+static void sweep_show_current() {
+    if (g_sweep_pos < g_sweep_n) ui::show(g_sweep_list[g_sweep_pos]);
+}
+
+static void bench_sweep_start() {
+    sweep_build_list();
+    if (g_sweep_n == 0) {
+        net::logf("[bench-sweep] no non-hidden screens");
+        return;
+    }
+    g_sweep_saved = ui::current_index();
+    g_sweep_mode = 0;
+    ui::layouts::g_bench_store_mode = false;
+    g_sweep_pos = 0;
+    g_sweep_tick = 0;
+    g_sweep_row.reset();
+    char hdr[300];
+    bench::BenchRow::header(hdr, sizeof(hdr));
+    net::logf("[bench-sweep] start: %d screens x 2 modes, %d s dwell (tick 1 discarded)", g_sweep_n,
+              SWEEP_DWELL);
+    net::logf("[bench-sweep] %s", hdr);
+    sweep_show_current();
+    g_sweep_active = true;
+}
+
+static void sweep_finish_cell() {
+    const char *sid = nullptr, *t = nullptr;
+    bool hid = false;
+    ui::screen_info(g_sweep_list[g_sweep_pos], &sid, &t, &hid);
+    char label[64];
+    snprintf(label, sizeof(label), "%s,%s", sid ? sid : "?", g_sweep_mode ? "store" : "typed");
+    char row[320];
+    g_sweep_row.format(label, row, sizeof(row));
+    net::logf("[bench-sweep] %s", row);
+
+    g_sweep_tick = 0;
+    g_sweep_row.reset();
+    ++g_sweep_pos;
+    if (g_sweep_pos >= g_sweep_n) {
+        g_sweep_pos = 0;
+        if (g_sweep_mode == 0) {
+            g_sweep_mode = 1;
+            ui::layouts::g_bench_store_mode = true;  // A/B: route built-ins via store
+            sweep_show_current();
+        } else {
+            net::logf("[bench-sweep] complete");
+            g_sweep_active = false;
+            ui::layouts::g_bench_store_mode = false;
+            ui::show(g_sweep_saved);
+        }
+        return;
+    }
+    sweep_show_current();
+}
+
+static void sweep_tick() {
+    if (!g_sweep_active) return;
+    if (g_sweep_tick == 0) {
+        sk::benchNetTake();  // flush the screen-switch transient interval
+    } else {
+        g_sweep_row.add(sweep_sample());
+    }
+    ++g_sweep_tick;
+    if (g_sweep_tick > SWEEP_DWELL) sweep_finish_cell();
+}
+#endif  // DBG_PERF_COUNTERS
 
 // Forward decls for gesture diagnostics defined below.
 extern volatile uint32_t g_gesture_count;
@@ -1470,6 +1609,12 @@ static bool handleMainCommand(const String &line) {
         bench_dump();
         return true;
     }
+#ifdef DBG_PERF_COUNTERS
+    if (line == "bench-sweep") {
+        bench_sweep_start();
+        return true;
+    }
+#endif
     if (line == "irq-probe") {
         irq_probe::arm();
         return true;
@@ -1824,7 +1969,11 @@ static void ui_refresh(lv_timer_t *) {
 
     t = micros();
     ui::refresh_current();
-    note_slow_section("ui:screen", micros() - t);
+    uint32_t refresh_dt = micros() - t;
+    note_slow_section("ui:screen", refresh_dt);
+#ifdef DBG_PERF_COUNTERS
+    g_refresh_us = refresh_dt;
+#endif
 
     t = micros();
     mob_refresh();

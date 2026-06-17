@@ -17,6 +17,23 @@ extern Data data;
 // typed sk::Data field. PSRAM-allocated on first use (see signalk.cpp).
 PathStore &dynamicStore();
 
+#ifdef DBG_PERF_COUNTERS
+// Benchmark snapshot of the SignalK/throughput counters. Rates are per the
+// interval since the previous benchNetTake() call (read-and-reset).
+struct BenchNet {
+    uint32_t ws_frames;       // WS TEXT frames received
+    uint32_t ws_bytes;        // total bytes of those frames
+    uint32_t deltas;          // value-bearing path/value pairs applied
+    uint32_t parsed;          // total path/value pairs seen (matched or not)
+    uint32_t parse_us_total;  // sum of applyDelta() durations
+    uint32_t parse_us_peak;   // worst single applyDelta() duration
+    uint32_t store_lookups;   // PathStore get/has calls
+    int store_size;           // distinct dynamic paths currently held
+    int subscriptions;        // active subscribed path count
+};
+BenchNet benchNetTake();
+#endif  // DBG_PERF_COUNTERS
+
 void setup(const String &host, uint16_t port);
 void loop();
 

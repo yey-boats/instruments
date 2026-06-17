@@ -49,6 +49,56 @@ struct QuadGridState {
     QuadGridTile tiles[4];
 };
 
+#ifdef DBG_PERF_COUNTERS
+// Benchmark: when on, built-in screens shadow-resolve each metric through the
+// dynamic PathStore (the cost a real "port built-ins to the store" would add),
+// so bench-sweep can A/B the typed fast-path vs. the store path. Reverse of
+// layout_renderer's path_to_source(). Compiled out unless DBG_PERF_COUNTERS.
+bool g_bench_store_mode = false;
+static const char *source_to_path(MetricSource s) {
+    switch (s) {
+    case MetricSource::AWS_kn:
+        return "environment.wind.speedApparent";
+    case MetricSource::AWA_deg:
+        return "environment.wind.angleApparent";
+    case MetricSource::TWS_kn:
+        return "environment.wind.speedTrue";
+    case MetricSource::TWA_deg:
+        return "environment.wind.angleTrueWater";
+    case MetricSource::SOG_kn:
+        return "navigation.speedOverGround";
+    case MetricSource::COG_deg:
+        return "navigation.courseOverGroundTrue";
+    case MetricSource::HDG_deg:
+        return "navigation.headingTrue";
+    case MetricSource::Depth_m:
+        return "environment.depth.belowTransducer";
+    case MetricSource::DepthKeel_m:
+        return "environment.depth.belowKeel";
+    case MetricSource::WaterTemp_C:
+        return "environment.water.temperature";
+    case MetricSource::BatteryV:
+        return "electrical.batteries.house.voltage";
+    case MetricSource::BatterySOC_pct:
+        return "electrical.batteries.house.stateOfCharge";
+    case MetricSource::DTW:
+        return "navigation.courseRhumbline.nextPoint.distance";
+    case MetricSource::BTW_deg:
+        return "navigation.courseRhumbline.nextPoint.bearingTrue";
+    case MetricSource::CTS_deg:
+        return "navigation.courseRhumbline.bearingTrackTrue";
+    case MetricSource::XTE:
+        return "navigation.courseRhumbline.crossTrackError";
+    case MetricSource::VMG_kn:
+        return "navigation.courseRhumbline.velocityMadeGood";
+    case MetricSource::APState:
+        return "steering.autopilot.state";
+    default:
+        return nullptr;
+    }
+}
+#endif  // DBG_PERF_COUNTERS
+
 // ---------------------------------------------------------------------------
 // Metric formatting. Returns the primary value text, and optionally
 // fills `secondary` with a short context string. NaN -> "--".
@@ -56,6 +106,15 @@ struct QuadGridState {
 static void format_metric(const MetricBinding &m, const sk::Data &d, char *primary, size_t pcap,
                           char *secondary, size_t scap) {
     secondary[0] = 0;
+#ifdef DBG_PERF_COUNTERS
+    if (g_bench_store_mode && m.source != MetricSource::None) {
+        const char *p = source_to_path(m.source);
+        if (p) {
+            volatile double x = sk::dynamicStore().get(p);  // incur store-port cost
+            (void)x;
+        }
+    }
+#endif
     switch (m.source) {
     case MetricSource::AWS_kn:
         if (!isnan(d.aws))

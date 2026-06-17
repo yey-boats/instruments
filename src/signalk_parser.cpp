@@ -4,12 +4,23 @@
 
 namespace sk {
 
+#ifdef DBG_PERF_COUNTERS
+static uint32_t g_parsed_count = 0;
+uint32_t takeParsedCount() {
+    uint32_t v = g_parsed_count;
+    g_parsed_count = 0;
+    return v;
+}
+#endif
+
+static bool isNumeric(JsonVariant v) {
+    return v.is<double>() || v.is<float>() || v.is<int>() || v.is<long>() || v.is<unsigned int>() ||
+           v.is<long long>();
+}
+
 static double asDouble(JsonVariant v, double def = NAN) {
     if (v.isNull()) return def;
-    if (v.is<double>() || v.is<float>() || v.is<int>() || v.is<long>() || v.is<unsigned int>() ||
-        v.is<long long>()) {
-        return v.as<double>();
-    }
+    if (isNumeric(v)) return v.as<double>();
     return def;
 }
 
@@ -127,11 +138,14 @@ static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocumen
         for (JsonObject v : values) {
             const char *p = v["path"];
             if (!p) continue;
+#ifdef DBG_PERF_COUNTERS
+            ++g_parsed_count;
+#endif
             applyValue(p, v["value"], out);
             // Mirror numeric deltas into the dynamic store so authored fields
             // can render arbitrary paths by string (typed sk::Data still drives
             // the built-in screens).
-            if (dyn && v["value"].is<double>()) dyn->set(p, v["value"].as<double>());
+            if (dyn && isNumeric(v["value"])) dyn->set(p, v["value"].as<double>());
             ++count;
         }
     }

@@ -40,6 +40,37 @@ PathStore &dynamicStore() {
     return *s;
 }
 
+#ifdef DBG_PERF_COUNTERS
+// Benchmark counters (read-and-reset by benchNetTake). Single-writer (WS task);
+// coarse 1 Hz sampling tolerates the unlocked reads. Compiled out unless
+// DBG_PERF_COUNTERS is defined (the perf/bench build).
+static volatile uint32_t g_bench_ws_frames = 0;
+static volatile uint32_t g_bench_ws_bytes = 0;
+static volatile uint32_t g_bench_deltas = 0;
+static volatile uint32_t g_bench_parse_us_total = 0;
+static volatile uint32_t g_bench_parse_us_peak = 0;
+static volatile int g_bench_sub_count = 0;
+
+BenchNet benchNetTake() {
+    BenchNet b{};
+    b.ws_frames = g_bench_ws_frames;
+    g_bench_ws_frames = 0;
+    b.ws_bytes = g_bench_ws_bytes;
+    g_bench_ws_bytes = 0;
+    b.deltas = g_bench_deltas;
+    g_bench_deltas = 0;
+    b.parse_us_total = g_bench_parse_us_total;
+    g_bench_parse_us_total = 0;
+    b.parse_us_peak = g_bench_parse_us_peak;
+    g_bench_parse_us_peak = 0;
+    b.parsed = takeParsedCount();
+    b.store_lookups = dynamicStore().takeLookups();
+    b.store_size = dynamicStore().size();
+    b.subscriptions = g_bench_sub_count;
+    return b;
+}
+#endif  // DBG_PERF_COUNTERS
+
 // Mutex guards mutation of `data` from the WS event task vs reads from
 // UI/web. Reads should use sk::copyData(out) which takes a short
 // critical section. Direct `sk::data` reads are still tolerated -
@@ -127,6 +158,9 @@ static void subscribe() {
     serializeJson(sub, out);
     ws.sendTXT(out);
     subscribed = true;
+#ifdef DBG_PERF_COUNTERS
+    g_bench_sub_count = (int)(sizeof(paths) / sizeof(paths[0]));
+#endif
     net::logf("[sk] subscribed to %d paths", (int)(sizeof(paths) / sizeof(paths[0])));
 }
 
@@ -152,7 +186,18 @@ static void onText(uint8_t *payload, size_t len) {
         }
     }
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+#ifdef DBG_PERF_COUNTERS
+    uint32_t t0 = micros();
     int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json, &dynamicStore());
+    uint32_t dt = micros() - t0;
+    g_bench_ws_frames++;
+    g_bench_ws_bytes += (uint32_t)len;
+    if (n > 0) g_bench_deltas += (uint32_t)n;
+    g_bench_parse_us_total += dt;
+    if (dt > g_bench_parse_us_peak) g_bench_parse_us_peak = dt;
+#else
+    int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json, &dynamicStore());
+#endif
     uint32_t now = millis();
     // Always tick the WS frame timestamp: any TEXT we receive proves
     // the link is alive even if applyDelta found no value-bearing path
