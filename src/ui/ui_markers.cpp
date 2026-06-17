@@ -9,6 +9,8 @@ namespace ui {
 
 static constexpr int GBOX = 28;    // glyph canvas side
 static constexpr int MARGIN = 18;  // holder extends this far past the rim
+static constexpr double kSemicircleHalfWindowDeg =
+    96.0;  // matches the |rel|>96 degree-label hide in ui_compass.cpp / marker_math.h
 
 // One marker holder: a transparent square concentric with the dial, pivoting at
 // its center, carrying a glyph canvas at its top edge (pointing inward).
@@ -30,6 +32,8 @@ static lv_obj_t *make_holder(lv_obj_t *parent, int cx, int cy, int r) {
 
 lv_obj_t *draw_glyph(lv_obj_t *parent, Glyph g, bool filled, uint32_t color) {
     uint32_t *buf = (uint32_t *)heap_caps_malloc(GBOX * GBOX * 4, MALLOC_CAP_SPIRAM);
+    // Buffer lives for the screen session and is intentionally never freed here.
+    // If a future task deletes glyph canvases, heap_caps_free(buf) FIRST or it leaks PSRAM.
     lv_obj_t *cv = lv_canvas_create(parent);
     lv_obj_set_size(cv, GBOX, GBOX);
     if (!buf) return cv;  // PSRAM exhausted: empty canvas, no crash
@@ -183,7 +187,7 @@ MarkerRing build_marker_ring(lv_obj_t *parent, int cx, int cy, int r, const Mark
 void marker_ring_update(MarkerRing &ring, const MarkerSpec *specs, uint8_t count,
                         double reference_deg) {
     if (count > ring.count) count = ring.count;
-    double half = ring.occlude_lower ? 96.0 : 360.0;
+    double half = kSemicircleHalfWindowDeg;
     for (uint8_t i = 0; i < count; ++i) {
         double sa = marker_screen_angle(specs[i].value_deg, reference_deg);
         bool hide = isnan(sa) || (ring.occlude_lower && marker_occluded(sa, half));
