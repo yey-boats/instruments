@@ -1,6 +1,7 @@
 #include "layout_renderer.h"
 
 #include "layout_loader.h"
+#include "subscription_set.h"
 #include "ui_screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
@@ -93,6 +94,19 @@ static void (*const refresh_fns[layout::MAX_SCREENS])() = {
     refresh_slot<4>, refresh_slot<5>, refresh_slot<6>, refresh_slot<7>,
 };
 
+// Slice 3: per-slot path collectors. An authored screen subscribes exactly the
+// paths its tiles bind (resolved through source_to_path) so the subscription
+// manager unsubscribes everything else when it's shown.
+template <int N> static void collect_slot(sk::SubscriptionSet &out) {
+    if (!s_states[N].slot) return;
+    ui::layouts::collect_paths(s_states[N].slot->spec, out);
+}
+
+static const ui::CollectPathsFn collect_fns[layout::MAX_SCREENS] = {
+    collect_slot<0>, collect_slot<1>, collect_slot<2>, collect_slot<3>,
+    collect_slot<4>, collect_slot<5>, collect_slot<6>, collect_slot<7>,
+};
+
 static lv_obj_t *build_slot(RendererSlot *slot, size_t slot_index) {
     lv_obj_t *root = ui::layouts::create(nullptr, slot->spec);
     s_states[slot_index].root = root;
@@ -163,6 +177,7 @@ size_t apply() {
         new_screen.hidden = false;
         new_screen.build_fn = nullptr;
         if (ui::replace_screen(ls.id, new_screen)) {
+            ui::set_screen_collect_paths(slot.screen_id, collect_fns[i]);
             ++replaced;
             net::logf("[layout-render] replaced screen %s (%u tiles, editor-shape)", ls.id,
                       (unsigned)count);

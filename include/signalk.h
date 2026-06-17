@@ -7,10 +7,29 @@
 #include <Arduino.h>
 #include "path_store.h"
 #include "signalk_parser.h"
+#include "subscription_set.h"
 
 namespace sk {
 
 extern Data data;
+
+// Per-screen subscription manager (Slice 3). The UI task computes the set of
+// SignalK paths the active screen needs and records it here; the SK task picks
+// the change up on its next loop, diffs it against the currently-subscribed set
+// and sends incremental SignalK subscribe / unsubscribe messages. The desired
+// set the UI passes is the SCREEN's paths only - the manager unions it with an
+// always-on baseline (configPush, AP state) internally. Thread-safe: the
+// handoff is mutex-guarded, ws.sendTXT only ever runs on the SK task.
+//
+// CLAUDE.md trap: `screenPaths` is ~5 KB; callers must pass a static / PSRAM
+// instance (e.g. a function-static on the UI task), never a fresh stack local.
+void setDesiredPaths(const SubscriptionSet &screenPaths);
+
+// Fill `out` with the FULL legacy path list (the ~28 paths the firmware used to
+// subscribe unconditionally). Used as the path-set for screens that can't be
+// introspected (fullscreen HUDs reading sk::data directly), so they keep all
+// their data. Does not clear `out` first.
+void fillFullPathSet(SubscriptionSet &out);
 
 // Process-wide dynamic path store, fed from every numeric WS delta. The
 // renderer resolves authored-field paths against this when they are not a

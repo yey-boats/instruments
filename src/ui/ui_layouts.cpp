@@ -1,5 +1,6 @@
 #include "ui_layouts.h"
 
+#include "subscription_set.h"
 #include "ui_theme.h"
 #include "ui_data.h"
 #include "ui_dirty.h"
@@ -49,13 +50,12 @@ struct QuadGridState {
     QuadGridTile tiles[4];
 };
 
-#ifdef DBG_PERF_COUNTERS
-// Benchmark: when on, built-in screens shadow-resolve each metric through the
-// dynamic PathStore (the cost a real "port built-ins to the store" would add),
-// so bench-sweep can A/B the typed fast-path vs. the store path. Reverse of
-// layout_renderer's path_to_source(). Compiled out unless DBG_PERF_COUNTERS.
-bool g_bench_store_mode = false;
-static const char *source_to_path(MetricSource s) {
+// Reverse of layout_renderer's path_to_source(): the canonical SignalK path a
+// MetricSource consumes. Defined unconditionally so the per-screen subscription
+// manager (collect_paths) and the perf-counter store shadow share one source of
+// truth. Position and APState ARE real paths a screen subscribes; None maps to
+// nullptr (skipped by callers).
+const char *source_to_path(MetricSource s) {
     switch (s) {
     case MetricSource::AWS_kn:
         return "environment.wind.speedApparent";
@@ -91,12 +91,36 @@ static const char *source_to_path(MetricSource s) {
         return "navigation.courseRhumbline.crossTrackError";
     case MetricSource::VMG_kn:
         return "navigation.courseRhumbline.velocityMadeGood";
+    case MetricSource::Position:
+        return "navigation.position";
     case MetricSource::APState:
         return "steering.autopilot.state";
+    case MetricSource::None:
     default:
         return nullptr;
     }
 }
+
+void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
+    if (!spec.metrics) return;
+    for (uint8_t i = 0; i < spec.metric_count; ++i) {
+        const MetricBinding &m = spec.metrics[i];
+        const char *p = source_to_path(m.source);
+        if (p) out.add(p);
+        uint8_t ne = m.extras_count;
+        if (ne > 4) ne = 4;  // bound to the fixed extras[] array
+        for (uint8_t e = 0; e < ne; ++e) {
+            const char *pe = source_to_path(m.extras[e].source);
+            if (pe) out.add(pe);
+        }
+    }
+}
+
+#ifdef DBG_PERF_COUNTERS
+// Benchmark: when on, built-in screens shadow-resolve each metric through the
+// dynamic PathStore (the cost a real "port built-ins to the store" would add),
+// so bench-sweep can A/B the typed fast-path vs. the store path.
+bool g_bench_store_mode = false;
 #endif  // DBG_PERF_COUNTERS
 
 // ---------------------------------------------------------------------------

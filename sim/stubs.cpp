@@ -59,6 +59,11 @@ namespace ui {
 bool show_by_id(const char *) {
     return false;
 }
+// Slice 3: template screen build()s register a path collector; the sim harness
+// renders screens directly and has no screen registry, so this is a no-op.
+bool set_screen_collect_paths(const char *, CollectPathsFn) {
+    return false;
+}
 }  // namespace ui
 
 namespace beeper {

@@ -19,6 +19,10 @@
 #include <stdint.h>
 #include "signalk_parser.h"
 
+namespace sk {
+class SubscriptionSet;
+}
+
 namespace ui::layouts {
 
 enum class TemplateId : uint8_t {
@@ -126,5 +130,18 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
 // Drive the full-screen "zoom" view to a chosen metric (normally set by a tile
 // tap; also used by the sim harness and remote controllers).
 void set_zoom_target(const MetricBinding &m);
+
+// Reverse of layout_renderer's path_to_source(): the canonical SignalK path a
+// MetricSource consumes, or nullptr for non-path sources (None). Position and
+// APState ARE real paths a screen subscribes (navigation.position /
+// steering.autopilot.state) and so map to their strings. Used by the per-screen
+// subscription manager (collect_paths) and the perf-counter store shadow.
+const char *source_to_path(MetricSource s);
+
+// Collect every SignalK path the screen `spec` consumes (primary sources plus
+// every extras[] row) into `out`. `out` is NOT cleared first (so callers can
+// accumulate the baseline + a screen). Non-path sources are skipped. Pure /
+// host-testable; takes no LVGL or live state.
+void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out);
 
 }  // namespace ui::layouts

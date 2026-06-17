@@ -1,4 +1,5 @@
 #include "screens.h"
+#include "ui_screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
 #include "ui_layouts.h"
@@ -61,8 +62,13 @@ static const ui::layouts::ScreenVariantSpec s_spec = {
     0,
 };
 
+static void collect_paths(sk::SubscriptionSet &out) {
+    ui::layouts::collect_paths(s_spec, out);
+}
+
 lv_obj_t *build(lv_obj_t *parent) {
     s_root = ui::layouts::create(parent, s_spec);
+    ui::set_screen_collect_paths(s_spec.screen_id, collect_paths);
     return s_root;
 }
 

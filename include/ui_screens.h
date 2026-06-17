@@ -12,9 +12,20 @@
 // Global overlays (MOB, alarm banner, breadcrumb) attach to
 // lv_layer_top() so they survive screen swaps without re-parenting.
 
+namespace sk {
+class SubscriptionSet;
+}
+
 namespace ui {
 
 constexpr size_t MAX_SCREENS = 16;
+
+// Per-screen path collector: appends the SignalK paths this screen consumes to
+// `out` (does not clear it). Template screens register one so the subscription
+// manager subscribes only what the active screen shows; screens that read
+// sk::data directly (fullscreen HUDs) register none and fall back to the full
+// baseline. Runs on the UI/LVGL task (the screen-change path).
+typedef void (*CollectPathsFn)(sk::SubscriptionSet &out);
 
 struct Screen {
     const char *id;                     // short canonical id, e.g. "wind"
@@ -23,6 +34,7 @@ struct Screen {
     void (*refresh)();                  // called from the global 5 Hz refresh when visible
     bool hidden;                        // if true, skip in swipe cycle
     lv_obj_t *(*build_fn)(lv_obj_t *);  // lazy builder; NULL = eager (root pre-supplied)
+    CollectPathsFn collect_paths;       // NULL = HUD fallback (full baseline)
 };
 
 // Register a fullscreen panel. Must be called after the root LVGL object
@@ -46,6 +58,18 @@ void set_post_build_cb(ScreenPostBuildCb cb);
 // Replace an already-registered screen in place. Useful for generated screens
 // whose LVGL root can change after a central config reload.
 bool replace_screen(const char *id, const Screen &s);
+
+// Attach (or clear) a path collector for an already-registered screen by id.
+// Template screens call this from their build() so the subscription manager can
+// derive their path-set on show. Returns false if `id` isn't registered.
+bool set_screen_collect_paths(const char *id, CollectPathsFn fn);
+
+// Install a callback fired whenever the active screen changes (via show /
+// show_by_id / next / prev / replace of the active screen). The callback gets
+// the new screen's id and its CollectPathsFn (NULL = HUD fallback). main.cpp
+// wires this to the per-screen subscription manager. Runs on the UI task.
+typedef void (*ScreenChangeCb)(const char *id, CollectPathsFn collect);
+void set_screen_change_cb(ScreenChangeCb cb);
 
 bool set_screen_hidden(const char *id, bool hidden);
 

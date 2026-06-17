@@ -1527,6 +1527,30 @@ void main_touch_raw(int *raw_x, int *raw_y, int *pressed) {
 
 extern volatile uint32_t g_last_swipe_ms;
 
+// Slice 3 screen-change hook: build the active screen's desired path-set and
+// publish it to the SK subscription manager. `collect` is the screen's
+// CollectPathsFn (NULL for fullscreen HUDs that read sk::data directly, which
+// fall back to the full baseline so they keep all their data). The scratch set
+// is function-static: this runs serially on the UI/LVGL task, and a fresh
+// ~5 KB SubscriptionSet on the loopTask stack would overflow it (CLAUDE.md
+// large-struct-on-stack trap).
+static void on_screen_change_collect_paths(const char * /*id*/, ui::CollectPathsFn collect) {
+    static sk::SubscriptionSet s_screen_paths;  // UI-task-local, not on the stack
+    s_screen_paths.clear();
+    if (collect) {
+        // Introspectable screen: subscribe exactly what it shows (+ baseline,
+        // which setDesiredPaths unions in). An empty result is fine - the
+        // baseline still keeps the link alive.
+        collect(s_screen_paths);
+    } else {
+        // Fullscreen HUD (wind / wind_steer / autopilot) reads sk::data
+        // directly; we can't introspect its bindings, so fall back to the FULL
+        // legacy path list so it keeps all its data.
+        sk::fillFullPathSet(s_screen_paths);
+    }
+    sk::setDesiredPaths(s_screen_paths);
+}
+
 static void screen_gesture_handler(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     // Navigation now flows exclusively through touch_task's swipe
@@ -2230,6 +2254,15 @@ void setup() {
     ui::set_post_build_cb([](lv_obj_t *root, const char * /*id*/) {
         lv_obj_add_event_cb(root, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
     });
+
+    // Slice 3: when the active screen changes, compute the paths it shows and
+    // hand them to the SK subscription manager. Screens that can't be
+    // introspected (fullscreen HUDs reading sk::data directly; collect == NULL)
+    // get the full baseline so they keep all their data. The scratch
+    // SubscriptionSet is function-static (UI task runs this serially) - never a
+    // stack local: it's ~5 KB and would overflow the loopTask stack
+    // (CLAUDE.md large-struct-on-stack trap).
+    ui::set_screen_change_cb(on_screen_change_collect_paths);
 
     // Global overlays + gestures also live on lv_layer_top() so they
     // survive screen swaps and catch gestures that landed on overlay

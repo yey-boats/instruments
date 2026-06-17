@@ -94,7 +94,6 @@ static String s_token = "";
 // <host>`) which clears auto mode by saving a host.
 static bool s_auto_mode = true;
 static uint32_t s_last_discover_ms = 0;
-static bool subscribed = false;
 static TaskHandle_t s_sk_task = nullptr;
 static volatile bool s_running = false;
 static bool s_ws_started = false;
@@ -106,62 +105,181 @@ static volatile uint32_t s_loop_max_us = 0;
 static constexpr uint16_t DISCOVERY_PORT = 34300;
 static constexpr const char *DISCOVERY_QUERY = "espdisp.signalk.discover.v1";
 
-static void subscribe() {
-    if (subscribed) return;
-    JsonDocument sub(&espdisp::psram_json);
-    sub["context"] = "vessels.self";
-    JsonArray arr = sub["subscribe"].to<JsonArray>();
-    const char *paths[] = {
-        "navigation.position",
-        "navigation.speedOverGround",
-        "navigation.speedThroughWater",
-        "navigation.courseOverGroundTrue",
-        "navigation.headingTrue",
-        "environment.wind.angleApparent",
-        "environment.wind.speedApparent",
-        "environment.wind.angleTrueWater",
-        "environment.wind.speedTrue",
-        "environment.depth.belowTransducer",
-        "environment.depth.belowKeel",
-        "environment.water.temperature",
-        "electrical.batteries.house.voltage",
-        "electrical.batteries.house.stateOfCharge",
-        "tanks.fuel.0.currentLevel",
-        "tanks.freshWater.0.currentLevel",
-        "navigation.courseRhumbline.crossTrackError",
-        "navigation.courseRhumbline.bearingTrackTrue",
-        "navigation.courseRhumbline.nextPoint.bearingTrue",
-        "navigation.courseRhumbline.nextPoint.distance",
-        "navigation.courseRhumbline.velocityMadeGood",
-        // Polar targets (optional; from a SignalK polar plugin). The wind-steer
-        // screen uses these for tack/gybe angles, falling back to empirical
-        // estimates when absent.
-        "performance.beatAngle",
-        "performance.gybeAngle",
-        "steering.autopilot.target.headingTrue",
-        "steering.autopilot.state",
-        "environment.current.setTrue",
-        "environment.current.drift",
-        // Push-live: manager plugin emits this when a view is applied; the
-        // onText handler triggers an immediate config fetch for our device.
-        "network.espdisp.configPush",
-    };
-    for (auto p : paths) {
+// ---------------------------------------------------------------------------
+// Per-screen subscription manager (Slice 3).
+//
+// `g_active`   - the set the SK server is currently sending us deltas for.
+// `g_desired`  - baseline ∪ the active screen's paths; what we WANT subscribed.
+//                Written by the UI task (setDesiredPaths) under s_sub_mtx and
+//                consumed by the SK task in apply_pending_subs().
+// Both are ~5 KB; per CLAUDE.md they live in PSRAM (heap_caps_calloc + placement
+// new, same pattern as dynamicStore()), never on a task stack and never as a
+// large internal-SRAM .bss object (which would starve NimBLE).
+//
+// The legacy fixed list is the FULL-baseline fallback for screens we can't
+// introspect (fullscreen HUDs that read sk::data directly). It is also the
+// always-on baseline's superset source.
+static const char *const FULL_PATHS[] = {
+    "navigation.position",
+    "navigation.speedOverGround",
+    "navigation.speedThroughWater",
+    "navigation.courseOverGroundTrue",
+    "navigation.headingTrue",
+    "environment.wind.angleApparent",
+    "environment.wind.speedApparent",
+    "environment.wind.angleTrueWater",
+    "environment.wind.speedTrue",
+    "environment.depth.belowTransducer",
+    "environment.depth.belowKeel",
+    "environment.water.temperature",
+    "electrical.batteries.house.voltage",
+    "electrical.batteries.house.stateOfCharge",
+    "tanks.fuel.0.currentLevel",
+    "tanks.freshWater.0.currentLevel",
+    "navigation.courseRhumbline.crossTrackError",
+    "navigation.courseRhumbline.bearingTrackTrue",
+    "navigation.courseRhumbline.nextPoint.bearingTrue",
+    "navigation.courseRhumbline.nextPoint.distance",
+    "navigation.courseRhumbline.velocityMadeGood",
+    // Polar targets (optional; from a SignalK polar plugin). The wind-steer
+    // screen uses these for tack/gybe angles, falling back to empirical
+    // estimates when absent.
+    "performance.beatAngle",
+    "performance.gybeAngle",
+    "steering.autopilot.target.headingTrue",
+    "steering.autopilot.state",
+    "environment.current.setTrue",
+    "environment.current.drift",
+    // Push-live: manager plugin emits this when a view is applied; the
+    // onText handler triggers an immediate config fetch for our device.
+    "network.espdisp.configPush",
+};
+
+// Always-on baseline: subscribed on every screen so push-live config fetch and
+// autopilot-state liveness keep working regardless of what's shown.
+static const char *const BASELINE_PATHS[] = {
+    "network.espdisp.configPush",
+    "steering.autopilot.state",
+};
+
+// PSRAM-resident set singletons (see dynamicStore() for the exact pattern).
+static SubscriptionSet &psramSet(SubscriptionSet *&slot) {
+    if (!slot) {
+        void *mem = heap_caps_calloc(1, sizeof(SubscriptionSet), MALLOC_CAP_SPIRAM);
+        slot = mem ? new (mem) SubscriptionSet() : new SubscriptionSet();  // heap fallback
+    }
+    return *slot;
+}
+static SubscriptionSet *s_active_p = nullptr;   // SK task only
+static SubscriptionSet *s_desired_p = nullptr;  // shared, guarded by s_sub_mtx
+static SubscriptionSet &g_active() {
+    return psramSet(s_active_p);
+}
+static SubscriptionSet &g_desired() {
+    return psramSet(s_desired_p);
+}
+
+// Guards g_desired + the s_subs_dirty flag (UI writer vs SK reader). Separate
+// from s_data_mtx so the SK task never blocks the parser hot path on it.
+static SemaphoreHandle_t s_sub_mtx = nullptr;
+static volatile bool s_subs_dirty = false;
+
+static void fill_baseline(SubscriptionSet &s) {
+    for (auto p : BASELINE_PATHS)
+        s.add(p);
+}
+
+void fillFullPathSet(SubscriptionSet &out) {
+    for (auto p : FULL_PATHS)
+        out.add(p);
+}
+
+// Emit a SignalK subscribe (op="subscribe") or unsubscribe (op="unsubscribe")
+// message for every path in `set`. SK-task only (owns ws.sendTXT). No-op for an
+// empty set.
+static void send_sub_message(const SubscriptionSet &set, bool subscribe_op) {
+    if (set.size() == 0) return;
+    JsonDocument doc(&espdisp::psram_json);
+    doc["context"] = "vessels.self";
+    JsonArray arr = doc[subscribe_op ? "subscribe" : "unsubscribe"].to<JsonArray>();
+    for (int i = 0; i < set.size(); ++i) {
         JsonObject o = arr.add<JsonObject>();
-        o["path"] = p;
-        o["period"] = 1000;
-        o["minPeriod"] = 200;
-        o["format"] = "delta";
-        o["policy"] = "instant";
+        o["path"] = set.at(i);
+        if (subscribe_op) {
+            o["period"] = 1000;
+            o["minPeriod"] = 200;
+            o["format"] = "delta";
+            o["policy"] = "instant";
+        }
     }
     String out;
-    serializeJson(sub, out);
+    serializeJson(doc, out);
     ws.sendTXT(out);
-    subscribed = true;
+}
+
+// SK-task: diff g_desired vs g_active and send the incremental sub/unsub. The
+// toAdd/toRemove scratch sets are static (single-task = race-free) so we never
+// build ~5 KB structs on this task's 6 KB stack.
+static void apply_subscription_diff() {
+    static SubscriptionSet toAdd;     // SK-task-local, never on the stack
+    static SubscriptionSet toRemove;  // (see CLAUDE.md large-struct trap)
+    SubscriptionSet &active = g_active();
+
+    // Snapshot the desired set under the mutex into a SK-task-private copy so we
+    // don't hold s_sub_mtx across ws.sendTXT.
+    static SubscriptionSet desired;
+    if (s_sub_mtx) xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
+    desired = g_desired();  // SubscriptionSet copy is a POD assign (~5 KB)
+    if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
+
+    diff(desired, active, toAdd, toRemove);
+    if (toAdd.size() == 0 && toRemove.size() == 0) return;
+
+    send_sub_message(toAdd, /*subscribe_op=*/true);
+    send_sub_message(toRemove, /*subscribe_op=*/false);
+    active = desired;  // g_active = desired
 #ifdef DBG_PERF_COUNTERS
-    g_bench_sub_count = (int)(sizeof(paths) / sizeof(paths[0]));
+    g_bench_sub_count = active.size();
 #endif
-    net::logf("[sk] subscribed to %d paths", (int)(sizeof(paths) / sizeof(paths[0])));
+    net::logf("[sk] subs +%d -%d (active=%d)", toAdd.size(), toRemove.size(), active.size());
+}
+
+// SK-task: pump pending subscription changes. Called from the SK loop while
+// connected. Also re-asserts the desired set after a (re)connect, where
+// g_active was reset to empty so everything desired is re-sent.
+static void pump_subscriptions() {
+    if (!data.connected) return;
+    if (!s_subs_dirty) return;
+    s_subs_dirty = false;
+    apply_subscription_diff();
+}
+
+// On WS (re)connect: forget what the server had (a fresh stream subscribes
+// nothing) and re-send the full desired set on the next pump.
+static void reset_subscriptions_on_connect() {
+    g_active().clear();
+    // If the UI never published a desired set yet (early boot), seed g_desired
+    // with the full legacy list so the device still gets data before the first
+    // screen-change callback fires.
+    if (s_sub_mtx) xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
+    if (g_desired().size() == 0) {
+        for (auto p : FULL_PATHS)
+            g_desired().add(p);
+    }
+    if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
+    s_subs_dirty = true;
+}
+
+void setDesiredPaths(const SubscriptionSet &screenPaths) {
+    if (!s_sub_mtx) s_sub_mtx = xSemaphoreCreateMutex();
+    if (s_sub_mtx) xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
+    SubscriptionSet &d = g_desired();
+    d.clear();
+    fill_baseline(d);  // always-on paths
+    for (int i = 0; i < screenPaths.size(); ++i)
+        d.add(screenPaths.at(i));
+    s_subs_dirty = true;
+    if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
 }
 
 // Bounded substring search (payload may not be NUL-terminated).
@@ -236,13 +354,13 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
     case WStype_CONNECTED:
         net::logf("[sk] WS connected to %s:%u", s_host.c_str(), s_port);
         set_connected(true);
-        subscribed = false;
-        subscribe();
+        // Fresh stream: server is subscribed to nothing. Reset g_active and
+        // mark dirty so the SK loop re-sends the current desired set.
+        reset_subscriptions_on_connect();
         break;
     case WStype_DISCONNECTED:
         net::logf("[sk] WS disconnected (target %s:%u)", s_host.c_str(), s_port);
         set_connected(false);
-        subscribed = false;
         break;
     case WStype_TEXT:
         onText(payload, len);
@@ -594,6 +712,11 @@ static void sk_task(void *) {
         s_loop_iters++;
         if (dt > s_loop_max_us) s_loop_max_us = dt;
 
+        // Apply any pending per-screen subscription change (UI task set the
+        // desired set; we diff + send sub/unsub here, on the SK task that owns
+        // ws.sendTXT). Cheap no-op when nothing changed.
+        pump_subscriptions();
+
         // Forensic heap+temp watermark every 60s. Captures the slow-leak
         // trend that makes the device drop off WiFi after hours: free /
         // largest_free_block / min_ever / chip_temp_c. Cheap reads
@@ -632,6 +755,7 @@ static void sk_task(void *) {
 
 void setup(const String &host, uint16_t port) {
     if (!s_data_mtx) s_data_mtx = xSemaphoreCreateMutex();
+    if (!s_sub_mtx) s_sub_mtx = xSemaphoreCreateMutex();
     {
         storage::Namespace prefs("sk", true);
         s_host = String(prefs.get_string("host", host.c_str()).c_str());
@@ -803,7 +927,6 @@ bool handleSerialCommand(const String &line) {
         }
         ws.disconnect();
         s_ws_started = false;
-        subscribed = false;
         delay(200);
         start_ws();
         return true;

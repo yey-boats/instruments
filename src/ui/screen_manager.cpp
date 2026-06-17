@@ -8,6 +8,18 @@ static Screen s_screens[MAX_SCREENS];
 static size_t s_count = 0;
 static int s_index = 0;
 static ScreenPostBuildCb s_post_build_cb = nullptr;
+static ScreenChangeCb s_change_cb = nullptr;
+
+// Notify the subscription manager that screen `i` is now active. Called only
+// when the active screen actually changes (show() guards re-loads). The
+// callback hands off the new screen's path-collector; the manager itself
+// computes the desired set and records it for the SK task to apply. We do NOT
+// build a SubscriptionSet here - it's a ~5 KB struct and this runs on the UI
+// loopTask (8 KB stack); the manager owns the (static) scratch sets.
+static void notify_change(size_t i) {
+    if (!s_change_cb || i >= s_count) return;
+    s_change_cb(s_screens[i].id, s_screens[i].collect_paths);
+}
 
 void set_post_build_cb(ScreenPostBuildCb cb) {
     s_post_build_cb = cb;
@@ -26,8 +38,29 @@ void register_screen(const Screen &s) {
     if (s_count == 1 && s.root) {
         lv_screen_load(s.root);
         s_index = 0;
+        notify_change(0);  // the boot screen drives the initial subscription set
     }
     if (s.root && s_post_build_cb) s_post_build_cb(s.root, s.id);
+}
+
+void set_screen_change_cb(ScreenChangeCb cb) {
+    s_change_cb = cb;
+    // Drive the initial subscription set for whatever screen is already active
+    // (boot registers the first screen before main wires this callback).
+    if (cb && s_count) notify_change((size_t)s_index);
+}
+
+bool set_screen_collect_paths(const char *id, CollectPathsFn fn) {
+    if (!id) return false;
+    for (size_t i = 0; i < s_count; ++i) {
+        if (strcmp(s_screens[i].id, id) != 0) continue;
+        s_screens[i].collect_paths = fn;
+        // If this is the active screen, refresh its subscription set now that
+        // we know how to collect its paths (template build() registers late).
+        if ((int)i == s_index) notify_change(i);
+        return true;
+    }
+    return false;
 }
 
 void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_fn)(lv_obj_t *),
@@ -69,6 +102,7 @@ bool replace_screen(const char *id, const Screen &s) {
         // Fire the post-build callback so swipes work on the new root
         // (the gesture handler attached to the deleted old_root is gone).
         if (s.root && s_post_build_cb) s_post_build_cb(s.root, s_screens[i].id);
+        if (active) notify_change(i);  // re-diff subs if the live screen changed
         net::logf("[ui] screen replaced: %s", id);
         return true;
     }
@@ -98,6 +132,7 @@ void show(int index) {
     s_index = index;
     lv_screen_load(s_screens[s_index].root);
     net::logf("[ui] screen -> %d (%s)", s_index, s_screens[s_index].id);
+    notify_change((size_t)s_index);  // re-diff the per-screen subscription set
 }
 
 bool show_by_id(const char *id) {
