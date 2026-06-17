@@ -129,6 +129,17 @@ double resolve_numeric(const char *path, const sk::Data &d) {
     return NAN;
 }
 
+double resolve_numeric(const char *path, const sk::Data &d, const sk::PathStore *store) {
+    double v = resolve_numeric(path, d);                     // typed alias/known-field
+    if (!isnan(v)) return v;                                 // typed field wins
+    if (store && store->has(path)) return store->get(path);  // step 3: dynamic store
+    return NAN;
+}
+
+bool captureDynamic(const char *path, double value, sk::PathStore &store) {
+    return store.set(path, value);
+}
+
 bool resolve_string(const char *path, const sk::Data &d, char *out, size_t cap) {
     if (!out || cap == 0) return false;
     out[0] = 0;

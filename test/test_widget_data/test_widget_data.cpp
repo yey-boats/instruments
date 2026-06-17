@@ -77,6 +77,45 @@ static void test_is_known() {
     TEST_ASSERT_FALSE(widget_data::is_known(nullptr));
 }
 
+static void test_resolve_falls_back_to_store_for_unknown_path() {
+    sk::Data d = make_data();
+    sk::PathStore store;
+    store.set("propulsion.0.revolutions", 27.5);
+    // Unknown to the typed resolver -> uses the store.
+    TEST_ASSERT_EQUAL_DOUBLE(27.5,
+                             widget_data::resolve_numeric("propulsion.0.revolutions", d, &store));
+}
+
+static void test_known_path_prefers_typed_field_over_store() {
+    sk::Data d = make_data();  // sog = 3.5
+    sk::PathStore store;
+    store.set("navigation.speedOverGround", 99.0);  // stale store value
+    // Known typed field wins; store is only the fallback.
+    TEST_ASSERT_EQUAL_DOUBLE(3.5,
+                             widget_data::resolve_numeric("navigation.speedOverGround", d, &store));
+}
+
+static void test_unknown_path_without_store_is_nan() {
+    sk::Data d = make_data();
+    TEST_ASSERT_TRUE(std::isnan(widget_data::resolve_numeric("x.y.z", d, nullptr)));
+}
+
+static void test_capture_dynamic_round_trip() {
+    sk::PathStore store;
+    TEST_ASSERT_TRUE(widget_data::captureDynamic("foo.bar", 1.25, store));
+    TEST_ASSERT_EQUAL_DOUBLE(1.25, store.get("foo.bar"));
+}
+
+static void test_capture_then_resolve_arbitrary_path() {
+    sk::Data d = make_data();
+    sk::PathStore store;
+    // Simulate a WS delta for a path the typed parser does not know.
+    widget_data::captureDynamic("electrical.solar.0.power", 142.0, store);
+    // The renderer resolves the authored field by its path string.
+    TEST_ASSERT_EQUAL_DOUBLE(142.0,
+                             widget_data::resolve_numeric("electrical.solar.0.power", d, &store));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_local_alias_numeric);
@@ -85,5 +124,10 @@ int main(int, char **) {
     RUN_TEST(test_string_path_autopilot_state);
     RUN_TEST(test_string_path_unknown_returns_empty);
     RUN_TEST(test_is_known);
+    RUN_TEST(test_resolve_falls_back_to_store_for_unknown_path);
+    RUN_TEST(test_known_path_prefers_typed_field_over_store);
+    RUN_TEST(test_unknown_path_without_store_is_nan);
+    RUN_TEST(test_capture_dynamic_round_trip);
+    RUN_TEST(test_capture_then_resolve_arbitrary_path);
     return UNITY_END();
 }

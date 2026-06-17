@@ -5,13 +5,14 @@
 //
 //   1. local normalized alias (boat.sog, boat.headingTrue, ...)
 //   2. known SignalK parser field (navigation.speedOverGround, ...)
-//   3. raw SignalK dynamic value (not implemented; returns NaN)
+//   3. raw SignalK dynamic value (PathStore; see resolve_numeric overload)
 //   4. missing -> NaN
 //
 // Pure C++ - host-testable. Lives in its own header so D5 (render
 // plan -> LVGL) can pull just the resolver without dragging in
 // LVGL itself.
 
+#include "path_store.h"
 #include "signalk_parser.h"
 #include <math.h>
 
@@ -41,5 +42,15 @@ bool resolve_string(const char *path, const sk::Data &d, char *out, size_t cap);
 // alias or known SK field). Useful for early-validation in the
 // config parser.
 bool is_known(const char *path);
+
+// Same as resolve_numeric(path, d) but, when the path is NOT a known typed
+// field, falls back to the dynamic store (raw SignalK value). This is the
+// "step 3" the original resolution order documented but did not implement.
+double resolve_numeric(const char *path, const sk::Data &d, const sk::PathStore *store);
+
+// Upsert a numeric SignalK delta value into `store`. Used by the WS frame
+// handler so every incoming numeric path is renderable by string. Returns
+// true if a numeric value was captured (false only when the store is full).
+bool captureDynamic(const char *path, double value, sk::PathStore &store);
 
 }  // namespace widget_data
