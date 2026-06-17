@@ -11,6 +11,7 @@
 #include <ArduinoJson.h>
 #include <ESPmDNS.h>
 #include <HTTPClient.h>
+#include <LittleFS.h>
 #include <Update.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
@@ -40,6 +41,7 @@
 #include "manager_endpoint.h"
 #include "manager_config.h"
 #include "capabilities.h"
+#include "config_persist.h"
 #include "manager_screens.h"
 #include "manager_url.h"
 #include "net.h"
@@ -1529,6 +1531,215 @@ ManagerCall poll_commands() {
     return ManagerCall::ok(code);
 }
 
+// ---- Slice 4: flash-persistent applied config -------------------------
+// The raw applied config JSON is stored as a single LittleFS file on the
+// 4 MB `spiffs` data partition (NVS single-blob limits ~4 KB; the config
+// can be up to MAX_CONFIG_BYTES = 32 KB). The hash + schema version live
+// alongside in the "mgr" NVS namespace (cfg_hash already persisted; we add
+// cfg_schema), so a boot can decide whether to apply the blob and what
+// hash to report without parsing it first. Boot flow:
+//   read blob -> should_apply_on_boot() -> deserialize (PSRAM doc) ->
+//   apply_config + build managed screens -> report persisted hash.
+// On corrupt/stale blob we clear it and fall back to built-in defaults.
+constexpr const char *CONFIG_BLOB_PATH = "/applied_config.json";
+bool s_littlefs_ready = false;
+
+bool ensure_littlefs() {
+    if (s_littlefs_ready) return true;
+    // format-on-fail so a fresh / corrupt partition self-heals instead of
+    // wedging the persist path forever.
+    if (LittleFS.begin(true)) {
+        s_littlefs_ready = true;
+    } else {
+        record_error("[mgr] LittleFS mount failed; config persist disabled");
+    }
+    return s_littlefs_ready;
+}
+
+void clear_persisted_config() {
+    if (ensure_littlefs() && LittleFS.exists(CONFIG_BLOB_PATH)) {
+        LittleFS.remove(CONFIG_BLOB_PATH);
+    }
+    storage::Namespace p(NS, false);
+    p.remove("cfg_schema");
+}
+
+// Write `data[0..len)` (the serialized applied config JSON) to flash, then
+// stamp the schema version in NVS. Called from the worker task only.
+// Returns true on success. On any failure the blob is removed so a partial
+// write can't be mis-read on boot.
+bool write_persisted_config(const uint8_t *data, size_t len) {
+    if (!ensure_littlefs()) return false;
+    File f = LittleFS.open(CONFIG_BLOB_PATH, "w");
+    if (!f) {
+        record_error("[mgr] persist: open for write failed");
+        return false;
+    }
+    size_t wrote = f.write(data, len);
+    f.close();
+    if (wrote != len) {
+        record_error("[mgr] persist: short write %u/%u", (unsigned)wrote, (unsigned)len);
+        LittleFS.remove(CONFIG_BLOB_PATH);
+        return false;
+    }
+    storage::Namespace p(NS, false);
+    p.put_u8("cfg_schema", config_persist::SCHEMA_VERSION);
+    net::logf("[mgr] persisted applied config (%u bytes)", (unsigned)len);
+    return true;
+}
+
+// Read the persisted config blob into a PSRAM buffer. Returns the buffer
+// (caller heap_caps_free's it) and sets *out_len, or nullptr if absent /
+// unreadable / over MAX_CONFIG_BYTES. Never a large stack array.
+uint8_t *read_persisted_config(size_t *out_len) {
+    *out_len = 0;
+    if (!ensure_littlefs() || !LittleFS.exists(CONFIG_BLOB_PATH)) return nullptr;
+    File f = LittleFS.open(CONFIG_BLOB_PATH, "r");
+    if (!f) return nullptr;
+    size_t sz = f.size();
+    if (sz == 0 || sz > (size_t)MAX_CONFIG_BYTES) {
+        f.close();
+        record_error("[mgr] persisted config bad size %u; ignoring", (unsigned)sz);
+        return nullptr;
+    }
+    auto *buf = (uint8_t *)heap_caps_malloc(sz + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!buf) buf = (uint8_t *)heap_caps_malloc(sz + 1, MALLOC_CAP_8BIT);
+    if (!buf) {
+        f.close();
+        record_error("[mgr] persisted config alloc failed (%u bytes)", (unsigned)(sz + 1));
+        return nullptr;
+    }
+    size_t got = f.read(buf, sz);
+    f.close();
+    if (got != sz) {
+        heap_caps_free(buf);
+        record_error("[mgr] persisted config short read %u/%u", (unsigned)got, (unsigned)sz);
+        return nullptr;
+    }
+    buf[sz] = 0;
+    *out_len = sz;
+    return buf;
+}
+
+// Shared apply path used by both the HTTP fetch and the boot-from-flash
+// load. Takes a deserialized `config` object, validates + applies it,
+// builds the managed screens, and (on success) updates the resident hash /
+// version. The flash persist itself is handled by the fetch caller (which
+// owns the raw bytes); boot-load passes persist=false.
+//   cfg            : the config object (already a copy in a PSRAM doc)
+//   new_version    : version label for this config
+//   new_hash       : hash for this config (drift key + reported hash)
+// Returns true iff apply_config honored every field.
+bool apply_config_object(JsonDocument &cfg, const String &new_version, const String &new_hash) {
+    board::Geometry g = board::geometry();
+    // RenderPlan is ~12 KB - heap/PSRAM, never the worker stack.
+    auto *plan_p = (manager_config::RenderPlan *)heap_caps_calloc(
+        1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
+    if (!plan_p) {
+        record_error("[mgr] render plan alloc failed");
+    } else {
+        manager_config::ParseError perr;
+        bool parsed = manager_config::parse(cfg.as<JsonObjectConst>(), g.width_px, g.height_px,
+                                            *plan_p, perr);
+        if (parsed) {
+            if (ensure_render_plan()) {
+                *s_render_plan = *plan_p;
+                s_render_plan_valid = true;
+            } else {
+                record_error("[mgr] resident render plan alloc failed");
+            }
+            net::logf("[mgr] render plan: widgets=%u screens=%u variant=%s",
+                      (unsigned)plan_p->widget_count, (unsigned)plan_p->screen_count,
+                      plan_p->layout_variant[0] ? plan_p->layout_variant : "(none)");
+        } else {
+            record_error("[mgr] render plan parse failed: %s at %s",
+                         manager_config::parse_code_to_string(perr.code),
+                         perr.path[0] ? perr.path : "(root)");
+        }
+        if (parsed && plan_p->screen_count > 0) {
+            app::Command c;
+            c.type = app::CommandType::ApplyManagedScreens;
+            c.blob = plan_p;
+            c.blob_len = sizeof(manager_config::RenderPlan);
+            if (!app::post(c, 100)) {
+                net::logf("[mgr] ApplyManagedScreens post failed");
+                heap_caps_free(plan_p);
+            }
+            // ownership transferred to the queue on success
+        } else {
+            heap_caps_free(plan_p);
+        }
+    }
+    bool ok = apply_config(cfg);
+    if (ok) {
+        lock_state();
+        s_applied_config_version = new_version;
+        s_applied_config_hash = new_hash;
+        save_prefs();
+        unlock_state();
+        net::requestMdnsAdvertise();
+    }
+    return ok;
+}
+
+// Boot-time restore: load the last applied config from flash and apply it
+// so the device renders its configured layout offline, before any manager
+// contact. Runs on the manager worker task (LittleFS + apply both want a
+// real task stack, not loopTask). Best-effort: a missing / stale-schema /
+// corrupt blob is ignored (and cleared) and the device keeps its built-in
+// defaults. Sets the resident hash so the first heartbeat reports the
+// persisted hash and an unchanged config does NOT trigger a re-fetch.
+void load_persisted_config() {
+    uint8_t blob_schema = 0;
+    {
+        storage::Namespace p(NS, true);
+        blob_schema = p.get_u8("cfg_schema", 0);
+    }
+    size_t len = 0;
+    uint8_t *raw = read_persisted_config(&len);
+    bool has_blob = (raw != nullptr);
+    if (!config_persist::should_apply_on_boot(has_blob, blob_schema,
+                                              config_persist::SCHEMA_VERSION)) {
+        if (has_blob) {
+            // Blob present but wrong schema - drop it so we don't keep
+            // mis-parsing it every boot.
+            heap_caps_free(raw);
+            net::logf("[mgr] persisted config schema %u != %u; ignoring + clearing", blob_schema,
+                      config_persist::SCHEMA_VERSION);
+            clear_persisted_config();
+        }
+        return;
+    }
+
+    JsonDocument doc(&s_json_allocator);
+    DeserializationError err = deserializeJson(doc, raw, len);
+    if (err != DeserializationError::Ok) {
+        heap_caps_free(raw);
+        record_error("[mgr] persisted config parse failed: %s; clearing", err.c_str());
+        clear_persisted_config();
+        return;
+    }
+    heap_caps_free(raw);
+
+    // The blob is the `config` object itself (we persist the inner object,
+    // not the HTTP envelope). version/hash come from NVS (cfg_ver/cfg_hash,
+    // already loaded into s_applied_* by load_prefs()).
+    String ver = s_applied_config_version;
+    String hash = s_applied_config_hash;
+    JsonDocument cfg(&s_json_allocator);
+    cfg.set(doc.as<JsonObjectConst>());
+    bool ok = apply_config_object(cfg, ver, hash);
+    if (ok) {
+        net::logf("[mgr] restored persisted config from flash: version=%s hash=%s", ver.c_str(),
+                  hash.c_str());
+    } else {
+        // A persisted config that no longer applies cleanly (e.g. a field
+        // this firmware dropped) - keep what applied, but don't brick. The
+        // resident hash is unchanged so the manager will re-push on drift.
+        net::logf("[mgr] persisted config applied partial subset on boot");
+    }
+}
+
 ManagerCall fetch_config() {
     if (!is_provisioned()) return ManagerCall::fail(ManagerStatus::NotProvisioned);
     if (WiFi.status() != WL_CONNECTED) return ManagerCall::fail(ManagerStatus::WifiDown);
@@ -1560,69 +1771,33 @@ ManagerCall fetch_config() {
             if (cfg_src) {
                 JsonDocument cfg(&s_json_allocator);
                 cfg.set(cfg_src);
-                // Spec 19 D2 -> D5: build a RenderPlan from the
-                // config so diagnostics can show it. Failures don't
-                // block the legacy apply path below; the device
-                // continues to honor ui/sk/network blocks even when
-                // the spec-19 layout/widgets are malformed.
-                board::Geometry g = board::geometry();
-                // RenderPlan is ~12 KB - too big for the worker stack,
-                // so we heap-allocate it. PSRAM keeps internal SRAM
-                // available for LVGL and the network drivers.
-                auto *plan_p = (manager_config::RenderPlan *)heap_caps_calloc(
-                    1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
-                if (!plan_p) {
-                    record_error("[mgr] render plan alloc failed");
-                } else {
-                    manager_config::ParseError perr;
-                    bool parsed = manager_config::parse(cfg.as<JsonObjectConst>(), g.width_px,
-                                                        g.height_px, *plan_p, perr);
-                    if (parsed) {
-                        if (ensure_render_plan()) {
-                            *s_render_plan = *plan_p;
-                            s_render_plan_valid = true;
-                        } else {
-                            // Resident copy alloc failed; keep last-good plan
-                            // (s_render_plan_valid unchanged) and surface it.
-                            record_error("[mgr] resident render plan alloc failed");
-                        }
-                        net::logf("[mgr] render plan: widgets=%u screens=%u "
-                                  "variant=%s",
-                                  (unsigned)plan_p->widget_count, (unsigned)plan_p->screen_count,
-                                  plan_p->layout_variant[0] ? plan_p->layout_variant : "(none)");
-                    } else {
-                        record_error("[mgr] render plan parse failed: %s at %s",
-                                     manager_config::parse_code_to_string(perr.code),
-                                     perr.path[0] ? perr.path : "(root)");
-                    }
-                    if (parsed && plan_p->screen_count > 0) {
-                        // Hand the plan off to the LVGL/UI task - all
-                        // lv_obj_* calls in manager_screens::apply() must
-                        // run there. The pump() consumer frees the blob
-                        // after handling.
-                        app::Command c;
-                        c.type = app::CommandType::ApplyManagedScreens;
-                        c.blob = plan_p;
-                        c.blob_len = sizeof(manager_config::RenderPlan);
-                        if (!app::post(c, 100)) {
-                            net::logf("[mgr] ApplyManagedScreens post failed");
-                            heap_caps_free(plan_p);
-                        }
-                        // ownership transferred to the queue on success
-                    } else {
-                        heap_caps_free(plan_p);
-                    }
-                }
-                bool ok = apply_config(cfg);
+                // Snapshot the prior hash BEFORE apply so the flash-wear
+                // gate compares against what is actually on flash, not the
+                // value we are about to overwrite in s_applied_config_hash.
+                String prev_hash = s_applied_config_hash;
+                // Spec 19 D2 -> D5 + Slice 4: build the RenderPlan, apply
+                // the config, and (on success) update the resident hash /
+                // version - all via the shared helper that boot-from-flash
+                // reuses. Failures don't block the legacy ui/sk/network
+                // apply; those are honored inside apply_config.
+                bool ok = apply_config_object(cfg, new_version, new_hash);
                 if (ok) {
-                    lock_state();
-                    s_applied_config_version = new_version;
-                    s_applied_config_hash = new_hash;
-                    save_prefs();
-                    unlock_state();
                     net::logf("[mgr] config applied: version=%s hash=%s", new_version.c_str(),
                               new_hash.c_str());
-                    net::requestMdnsAdvertise();
+                    // Slice 4: persist the applied config to flash, but only
+                    // when the hash actually changed (flash-wear rule). We
+                    // store the inner `config` object so the boot loader can
+                    // re-apply it through the same path.
+                    if (config_persist::should_persist(ok, std::string(new_hash.c_str()),
+                                                       std::string(prev_hash.c_str()))) {
+                        PsramJsonPayload blob;
+                        if (serialize_json_payload(cfg, blob, "config persist")) {
+                            write_persisted_config(blob.data, blob.len);
+                        }
+                    } else {
+                        net::logf_at(net::LOG_DEBUG, "[mgr] config hash unchanged; "
+                                                     "skip flash persist");
+                    }
                 } else {
                     net::logf("[mgr] config %s had invalid fields; "
                               "applied valid subset only (not persisted)",
@@ -1687,8 +1862,12 @@ ManagerCall do_heartbeat() {
             lock_state();
             s_desired_config_version = want_ver;
             s_desired_config_hash = want_hash;
-            bool drift = (want_hash.length() && want_hash != s_applied_config_hash) ||
-                         (want_ver.length() && want_ver != s_applied_config_version);
+            // Slice 4: the drift rule is pinned in config_persist so the
+            // persisted-hash-after-boot path keeps it honest - an unchanged
+            // config restored from flash must NOT trigger a re-fetch.
+            bool drift = config_persist::should_refetch(
+                std::string(want_hash.c_str()), std::string(s_applied_config_hash.c_str()),
+                std::string(want_ver.c_str()), std::string(s_applied_config_version.c_str()));
             // Spec 17 §5 response handling: the plugin can ask the
             // device to re-register (e.g. after admin reset or token
             // rotation). Accept both camelCase and snake_case keys.
@@ -1748,6 +1927,12 @@ void worker(void *) {
     // configured timeout (3 s now) and we don't want a single slow
     // POST to brick the device.
     esp_task_wdt_delete(NULL);
+    // Slice 4: restore the last applied config from flash before any
+    // manager contact, so the device renders its configured layout offline
+    // immediately after reboot. Runs here (worker task) because LittleFS +
+    // apply_config + ApplyManagedScreens want a real task stack, and the
+    // app queue (app::setup) already exists by the time this task runs.
+    load_persisted_config();
     uint32_t next_register_attempt_ms = 0;
     uint32_t next_heartbeat_ms = 0;
     uint32_t next_command_poll_ms = 0;
