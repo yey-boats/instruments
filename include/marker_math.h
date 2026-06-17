@@ -46,7 +46,7 @@ inline double marker_screen_angle(double value_deg, double reference_deg) {
 inline bool marker_occluded(double screen_angle_deg, double half_window_deg) {
     if (isnan(screen_angle_deg)) return true;
     double rel = screen_angle_deg;
-    if (rel > 180.0) rel -= 360.0;  // -> [-180,180]
+    if (rel > 180.0) rel -= 360.0;  // -> [-180,180]; 180 stays 180 (> any sane half_window)
     return rel > half_window_deg || rel < -half_window_deg;
 }
 

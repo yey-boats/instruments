@@ -32,12 +32,16 @@ static void test_occluded_top_visible() {
     TEST_ASSERT_FALSE(ui::marker_occluded(0.0, 96.0));
     TEST_ASSERT_FALSE(ui::marker_occluded(90.0, 96.0));
     TEST_ASSERT_FALSE(ui::marker_occluded(300.0, 96.0));  // -60 deg
+    TEST_ASSERT_FALSE(ui::marker_occluded(96.0, 96.0));   // exactly at edge -> visible
+    TEST_ASSERT_FALSE(ui::marker_occluded(264.0, 96.0));  // folds to -96 -> visible
 }
 
 static void test_occluded_bottom_hidden() {
     TEST_ASSERT_TRUE(ui::marker_occluded(120.0, 96.0));
     TEST_ASSERT_TRUE(ui::marker_occluded(180.0, 96.0));
     TEST_ASSERT_TRUE(ui::marker_occluded(NAN, 96.0));
+    TEST_ASSERT_TRUE(ui::marker_occluded(97.0, 96.0));
+    TEST_ASSERT_TRUE(ui::marker_occluded(263.0, 96.0));  // folds to -97 -> hidden
 }
 
 static void test_glyph_token_roundtrip() {
@@ -50,6 +54,7 @@ static void test_glyph_token_roundtrip() {
 
 static void test_glyph_token_unknown() {
     TEST_ASSERT_EQUAL_UINT8((uint8_t)GlyphId::COUNT, (uint8_t)ui::glyph_from_token("nope"));
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)GlyphId::COUNT, (uint8_t)ui::glyph_from_token(nullptr));
 }
 
 int main(int, char **) {
