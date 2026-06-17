@@ -375,6 +375,69 @@ function registerRoutes (router, getManager) {
     res.json({ capabilities: manager.deviceCapabilities(req.params.id) })
   }))
 
+  // ---- Slice 5: manifest-gated layout editor CRUD (JSON) ----------------
+  // The field editor (public/field-editor.js) drives these. Each returns the
+  // fresh editorLayout { profileId, manifest, screens, items } so the UI can
+  // re-render without a second round-trip. Manifest gating + persistence +
+  // config.reload all happen in lib/manager.js.
+
+  // Effective manifest the editor gates to (device-reported, or the built-in
+  // default when offline / pre-manifest firmware) + the editable layout.
+  router.get('/devices/:id/editor/layout', wrap(getManager, (manager, req, res) => {
+    res.json(manager.editorLayout(req.params.id))
+  }))
+
+  router.post('/devices/:id/editor/screens', wrap(getManager, (manager, req, res) => {
+    res.json(manager.addScreen(req.params.id, req.body || {}))
+  }))
+
+  router.patch('/devices/:id/editor/screens/:screenId', wrap(getManager, (manager, req, res) => {
+    const b = req.body || {}
+    if (typeof b.title === 'string') {
+      res.json(manager.renameScreen(req.params.id, req.params.screenId, b.title))
+    } else {
+      res.json(manager.editorLayout(req.params.id))
+    }
+  }))
+
+  router.post('/devices/:id/editor/screens/reorder', wrap(getManager, (manager, req, res) => {
+    res.json(manager.reorderScreens(req.params.id, (req.body && req.body.order) || []))
+  }))
+
+  router.delete('/devices/:id/editor/screens/:screenId', wrap(getManager, (manager, req, res) => {
+    res.json(manager.deleteScreen(req.params.id, req.params.screenId))
+  }))
+
+  router.post('/devices/:id/editor/screens/:screenId/fields', wrap(getManager, (manager, req, res) => {
+    res.json(manager.addField(req.params.id, req.params.screenId, (req.body && req.body.field) || {}))
+  }))
+
+  router.patch('/devices/:id/editor/screens/:screenId/fields/:widgetId', wrap(getManager, (manager, req, res) => {
+    res.json(manager.updateField(req.params.id, req.params.screenId, req.params.widgetId, (req.body && req.body.field) || {}))
+  }))
+
+  router.delete('/devices/:id/editor/screens/:screenId/fields/:widgetId', wrap(getManager, (manager, req, res) => {
+    res.json(manager.removeField(req.params.id, req.params.screenId, req.params.widgetId))
+  }))
+
+  // "Save limits": persist configured range/zones onto the field, and OPTIONALLY
+  // write them back to the SignalK path meta (opt-in via writeBack:true). The
+  // SK meta write-back degrades gracefully — if SignalK rejects it (no perms),
+  // we still persist onto the field and report metaWriteBack:'failed'.
+  router.post('/devices/:id/editor/screens/:screenId/fields/:widgetId/limits',
+    wrap(getManager, async (manager, req, res) => {
+      const b = req.body || {}
+      const layout = manager.saveFieldLimits(req.params.id, req.params.screenId, req.params.widgetId, {
+        range: b.range, zones: b.zones
+      })
+      let metaWriteBack = 'skipped'
+      if (b.writeBack === true && typeof b.path === 'string' && b.path) {
+        metaWriteBack = await writeSignalKMeta(manager, b.path, { range: b.range, zones: b.zones })
+          .then(() => 'ok').catch(() => 'failed')
+      }
+      res.json({ ...layout, metaWriteBack })
+    }))
+
   router.get('/discovery/devices', wrap(getManager, (manager, req, res) => {
     res.json(manager.listDiscoveredDevices())
   }))
@@ -2666,6 +2729,36 @@ function escapeHtml (value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+// Opt-in SignalK meta write-back for "save limits". Emits a SignalK `meta`
+// delta (displayScale + zones) onto the bound path so the source and other
+// clients share the operator's configured limits. Best-effort: resolves on a
+// successful emit, rejects when the SignalK app can't accept it (caller maps
+// the rejection to metaWriteBack:'failed' and still persists onto the field).
+function writeSignalKMeta (manager, path, limits) {
+  return new Promise((resolve, reject) => {
+    const app = manager && manager.app
+    if (!app || typeof app.handleMessage !== 'function') {
+      return reject(new Error('signalk_app_unavailable'))
+    }
+    const value = {}
+    if (limits && limits.range && typeof limits.range.min === 'number' && typeof limits.range.max === 'number') {
+      value.displayScale = { lower: limits.range.min, upper: limits.range.max }
+    }
+    if (limits && Array.isArray(limits.zones) && limits.zones.length) {
+      value.zones = limits.zones
+    }
+    if (!Object.keys(value).length) return reject(new Error('no_limits_to_write'))
+    try {
+      app.handleMessage('espdisp-manager', {
+        updates: [{ meta: [{ path: String(path), value }] }]
+      })
+      resolve()
+    } catch (e) {
+      reject(e)
+    }
+  })
 }
 
 module.exports._test = {

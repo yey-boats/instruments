@@ -4,6 +4,7 @@ const http = require('http')
 const os = require('os')
 const { JsonStore } = require('./store')
 const { ProtoControl } = require('./proto-control')
+const fieldSchema = require('./field-schema')
 const {
   now,
   randomId,
@@ -438,6 +439,271 @@ class EspDispManager {
     const device = this.getDevice(id)
     const caps = device.status && device.status.ui && device.status.ui.capabilities
     return caps && typeof caps === 'object' ? caps : null
+  }
+
+  // The manifest the layout editor gates to: the device's reported
+  // `ui.capabilities`, or the built-in default set when the device is offline /
+  // running pre-manifest firmware, so the editor still works.
+  effectiveManifest (id) {
+    return fieldSchema.resolveManifest(this.deviceCapabilities(id))
+  }
+
+  // ---- Slice 5: manifest-gated layout editor CRUD ------------------------
+  //
+  // The editor authors a device's screens (views) + per-field bindings into the
+  // assigned profile's config: `layout.screens[*].tiles[*]` reference a key in
+  // `widgets.items`, and each item holds the typed-tuple field (type, paths,
+  // format, size, unit, color, range, zones, zoom). These methods are the
+  // single write path; index.js routes call them. Every write is gated to the
+  // device manifest (view/tile counts, field validity) and persisted, then a
+  // config.reload is queued (poll + configPush) so the device fetches it.
+
+  // The profile the editor mutates for a device (its assigned profile, default).
+  editorProfile (id) {
+    const device = this.getDevice(id)
+    const profileId = device.assignedProfile || 'default'
+    const profile = this.store.profiles.profiles[profileId]
+    if (!profile) throw httpError(404, 'profile_not_found', `profile ${profileId} not found`)
+    return profile
+  }
+
+  // The editable layout for a device: { manifest, screens:[{id,title,tiles}],
+  // items } drawn from the assigned profile's raw config (NOT the resolved one —
+  // the editor authors source, generateConfig resolves it for the device).
+  editorLayout (id) {
+    const profile = this.editorProfile(id)
+    const cfg = profile.config || {}
+    const screens = (cfg.layout && Array.isArray(cfg.layout.screens)) ? clone(cfg.layout.screens) : []
+    const items = (cfg.widgets && cfg.widgets.items) ? clone(cfg.widgets.items) : {}
+    return {
+      profileId: profile.id,
+      manifest: this.effectiveManifest(id),
+      screens,
+      items
+    }
+  }
+
+  // Mutate the assigned profile's config under a guarded transaction: clone,
+  // apply `mutate(cfg, manifest)`, validate counts, persist, reload. `mutate`
+  // throws httpError on a manifest violation. Returns the fresh editorLayout.
+  mutateEditorLayout (id, mutate) {
+    const profile = this.editorProfile(id)
+    const manifest = this.effectiveManifest(id)
+    const cfg = clone(profile.config || {})
+    cfg.layout = cfg.layout || { version: 1, screens: [] }
+    if (!Array.isArray(cfg.layout.screens)) cfg.layout.screens = []
+    cfg.widgets = cfg.widgets || { version: 1, items: {} }
+    if (!cfg.widgets.items || typeof cfg.widgets.items !== 'object') cfg.widgets.items = {}
+
+    mutate(cfg, manifest)
+
+    // Enforce the manifest caps after the mutation (defence in depth).
+    const maxViews = Number(manifest.maxViews || 8)
+    if (cfg.layout.screens.length > maxViews) {
+      throw httpError(409, 'max_views_exceeded', `max views reached (${maxViews})`)
+    }
+    const maxTiles = Number(manifest.maxTilesPerScreen || 4)
+    for (const s of cfg.layout.screens) {
+      if (Array.isArray(s.tiles) && s.tiles.length > maxTiles) {
+        throw httpError(409, 'max_tiles_exceeded', `screen "${s.id}" exceeds ${maxTiles} tiles`)
+      }
+    }
+    // Drop orphan widget items not referenced by any tile (keeps the config
+    // tidy and bounds growth). Built-in/legacy items referenced by preset tiles
+    // stay because their tiles stay.
+    const referenced = new Set()
+    for (const s of cfg.layout.screens) {
+      for (const t of (s.tiles || [])) if (t && t.widget) referenced.add(t.widget)
+    }
+    for (const key of Object.keys(cfg.widgets.items)) {
+      if (!referenced.has(key)) delete cfg.widgets.items[key]
+    }
+
+    profile.config = cfg
+    this.upsertProfile({ id: profile.id, name: profile.name || profile.id, config: cfg })
+    try { this.queueConfigReload(id) } catch (e) {}
+    return this.editorLayout(id)
+  }
+
+  // Reject reserved/dangerous object keys so a crafted id can never write onto
+  // Object.prototype via our config maps.
+  static safeKey (key) {
+    const k = String(key || '')
+    return k && k !== '__proto__' && k !== 'prototype' && k !== 'constructor'
+  }
+
+  // Stable slug for a new screen/widget id derived from a label, deduped.
+  static slugify (label, prefix, taken) {
+    let base = String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+    if (!base) base = prefix
+    let candidate = base
+    let n = 2
+    while (taken.has(candidate)) { candidate = `${base}-${n++}` }
+    return candidate
+  }
+
+  addScreen (id, opts) {
+    return this.mutateEditorLayout(id, (cfg, manifest) => {
+      const maxViews = Number(manifest.maxViews || 8)
+      if (cfg.layout.screens.length >= maxViews) {
+        throw httpError(409, 'max_views_exceeded', `max views reached (${maxViews})`)
+      }
+      const taken = new Set(cfg.layout.screens.map((s) => s.id))
+      const title = String((opts && opts.title) || 'New View').slice(0, 64)
+      const screenId = EspDispManager.slugify(title, 'view', taken)
+      cfg.layout.screens.push({ id: screenId, type: 'grid', title, tiles: [] })
+    })
+  }
+
+  renameScreen (id, screenId, title) {
+    return this.mutateEditorLayout(id, (cfg) => {
+      const s = cfg.layout.screens.find((x) => x.id === screenId)
+      if (!s) throw httpError(404, 'screen_not_found', `screen ${screenId} not found`)
+      s.title = String(title || s.title).slice(0, 64)
+    })
+  }
+
+  reorderScreens (id, order) {
+    return this.mutateEditorLayout(id, (cfg) => {
+      if (!Array.isArray(order)) throw httpError(400, 'invalid_request', 'order must be an array of screen ids')
+      const byId = new Map(cfg.layout.screens.map((s) => [s.id, s]))
+      const next = []
+      for (const sid of order) { if (byId.has(sid)) { next.push(byId.get(sid)); byId.delete(sid) } }
+      // Append any screens not named in `order` (never silently drop one).
+      for (const s of byId.values()) next.push(s)
+      cfg.layout.screens = next
+    })
+  }
+
+  deleteScreen (id, screenId) {
+    return this.mutateEditorLayout(id, (cfg) => {
+      const before = cfg.layout.screens.length
+      cfg.layout.screens = cfg.layout.screens.filter((s) => s.id !== screenId)
+      if (cfg.layout.screens.length === before) {
+        throw httpError(404, 'screen_not_found', `screen ${screenId} not found`)
+      }
+    })
+  }
+
+  // Add a field (tile + its widget item) to a screen. `field` is the typed
+  // tuple; it is coerced + validated against the manifest before persisting.
+  addField (id, screenId, field) {
+    return this.mutateEditorLayout(id, (cfg, manifest) => {
+      const s = cfg.layout.screens.find((x) => x.id === screenId)
+      if (!s) throw httpError(404, 'screen_not_found', `screen ${screenId} not found`)
+      if (!Array.isArray(s.tiles)) s.tiles = []
+      const maxTiles = Number(manifest.maxTilesPerScreen || 4)
+      if (s.tiles.length >= maxTiles) {
+        throw httpError(409, 'max_tiles_exceeded', `max tiles per screen reached (${maxTiles}) on "${screenId}"`)
+      }
+      const coerced = fieldSchema.coerceField(field || {}, manifest)
+      const result = fieldSchema.validateField(coerced, manifest)
+      if (!result.ok) {
+        throw httpError(422, 'field_invalid', 'field failed manifest validation', { errors: result.errors })
+      }
+      const taken = new Set(Object.keys(cfg.widgets.items))
+      const widgetId = EspDispManager.slugify(`${screenId}-${coerced.type}`, 'field', taken)
+      cfg.widgets.items[widgetId] = this._fieldToWidgetItem(coerced)
+      s.tiles.push({ widget: widgetId, ...this._fieldToTile(coerced) })
+    })
+  }
+
+  // Reconfigure an existing field in place (by its widget id on a screen).
+  updateField (id, screenId, widgetId, field) {
+    if (!EspDispManager.safeKey(widgetId)) throw httpError(400, 'invalid_request', 'invalid field id')
+    return this.mutateEditorLayout(id, (cfg, manifest) => {
+      const s = cfg.layout.screens.find((x) => x.id === screenId)
+      if (!s) throw httpError(404, 'screen_not_found', `screen ${screenId} not found`)
+      const tile = (s.tiles || []).find((t) => t && t.widget === widgetId)
+      if (!tile) throw httpError(404, 'field_not_found', `field ${widgetId} not on screen ${screenId}`)
+      if (!Object.prototype.hasOwnProperty.call(cfg.widgets.items, widgetId)) {
+        throw httpError(404, 'field_not_found', `widget item ${widgetId} not found`)
+      }
+      const coerced = fieldSchema.coerceField(field || {}, manifest)
+      const result = fieldSchema.validateField(coerced, manifest)
+      if (!result.ok) {
+        throw httpError(422, 'field_invalid', 'field failed manifest validation', { errors: result.errors })
+      }
+      cfg.widgets.items[widgetId] = this._fieldToWidgetItem(coerced)
+      Object.assign(tile, { widget: widgetId, ...this._fieldToTile(coerced) })
+    })
+  }
+
+  removeField (id, screenId, widgetId) {
+    return this.mutateEditorLayout(id, (cfg) => {
+      const s = cfg.layout.screens.find((x) => x.id === screenId)
+      if (!s) throw httpError(404, 'screen_not_found', `screen ${screenId} not found`)
+      const before = (s.tiles || []).length
+      s.tiles = (s.tiles || []).filter((t) => !(t && t.widget === widgetId))
+      if (s.tiles.length === before) {
+        throw httpError(404, 'field_not_found', `field ${widgetId} not on screen ${screenId}`)
+      }
+      // Orphan item cleanup happens in mutateEditorLayout.
+    })
+  }
+
+  // Map a coerced field tuple to a `widgets.items[*]` entry. We keep the full
+  // typed tuple plus a flattened `type`/`path` for back-compat with the
+  // existing resolve/preview pipeline (live-preview flattens to {widget,path}).
+  _fieldToWidgetItem (field) {
+    const item = {
+      type: field.type,
+      paths: field.paths || {},
+      // Flattened single path for legacy consumers (live-preview, resolveWidgets).
+      path: (field.paths && field.paths.value) || ''
+    }
+    if (field.title != null) item.title = field.title
+    if (field.format != null) item.format = field.format
+    if (field.size != null) item.size = field.size
+    if (field.unit != null) item.unit = field.unit
+    if (field.color != null) item.color = field.color
+    if (field.range != null) item.range = field.range
+    if (field.zones != null) item.zones = field.zones
+    if (field.zoomable != null) item.zoomable = field.zoomable
+    if (field.zoom != null) item.zoom = field.zoom
+    // Reserved compass marker fields (future slice) pass through untouched.
+    if (field.reference != null) item.reference = field.reference
+    if (Array.isArray(field.markers)) item.markers = field.markers
+    return item
+  }
+
+  // The tile half of an authored field (the part the layout/preview reads).
+  // Does NOT set `widget` — the caller owns the widget-item key so the tile
+  // points at `widgets.items[widgetId]`, not at the bare type.
+  _fieldToTile (field) {
+    const tile = {}
+    if (field.title != null) tile.title = field.title
+    if (field.paths && field.paths.value) tile.path = field.paths.value
+    if (field.unit != null) tile.unit = field.unit
+    return tile
+  }
+
+  // Persist configured range/zones onto a field's metadata ("save limits").
+  // Pure config write; the optional SK meta write-back is handled in index.js
+  // (it needs the SignalK PUT transport). Returns the fresh editorLayout.
+  saveFieldLimits (id, screenId, widgetId, limits) {
+    if (!EspDispManager.safeKey(widgetId)) throw httpError(400, 'invalid_request', 'invalid field id')
+    return this.mutateEditorLayout(id, (cfg, manifest) => {
+      if (!Object.prototype.hasOwnProperty.call(cfg.widgets.items, widgetId)) {
+        throw httpError(404, 'field_not_found', `field ${widgetId} not found`)
+      }
+      const item = cfg.widgets.items[widgetId]
+      if (!fieldSchema.RANGED_TYPES.includes(item.type)) {
+        throw httpError(409, 'limits_not_applicable', `${item.type} fields have no range/zones`)
+      }
+      if (limits && limits.range && typeof limits.range.min === 'number' && typeof limits.range.max === 'number') {
+        item.range = { min: limits.range.min, max: limits.range.max }
+      }
+      if (limits && Array.isArray(limits.zones)) {
+        item.zones = limits.zones
+      }
+      // Re-validate the whole field after applying limits.
+      const field = Object.assign({}, item, { paths: item.paths || { value: item.path } })
+      const result = fieldSchema.validateField(field, manifest)
+      if (!result.ok) {
+        throw httpError(422, 'field_invalid', 'limits failed manifest validation', { errors: result.errors })
+      }
+    })
   }
 
   listDiscoveredDevices () {

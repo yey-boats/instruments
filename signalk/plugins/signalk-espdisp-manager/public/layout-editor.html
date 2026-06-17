@@ -235,6 +235,46 @@
   <pre id="json-view" class="json-view"></pre>
 </details>
 
+<!-- ===================================================================== -->
+<!-- Slice 5: manifest-gated field editor. A device-and-manifest oriented  -->
+<!-- CRUD surface (distinct from the profile/display editor above): pick a  -->
+<!-- connected device, and author its views + per-field bindings gated to   -->
+<!-- the device's reported ui.capabilities (or a built-in default set when   -->
+<!-- the device is offline / pre-manifest). Writes go straight to the        -->
+<!-- assigned profile via the /editor/* JSON routes and reload the device.   -->
+<section id="fe" class="fe">
+  <h2>Field editor (device-gated)</h2>
+  <div class="toolbar">
+    <label>Device <select id="fe-device"><option value="">— select a device —</option></select></label>
+    <button id="fe-reload">Reload</button>
+    <button id="fe-add-screen" class="primary" disabled>+ Add view</button>
+    <span class="grow"></span>
+    <span id="fe-manifest-src" class="status"></span>
+    <span id="fe-status" class="status"></span>
+  </div>
+  <div id="fe-screens" class="fe-screens"></div>
+</section>
+<style>
+  .fe { margin-top: 28px; border-top: 1px solid var(--panel-edge); padding-top: 12px; }
+  .fe-screens { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 16px; }
+  .fe-screen { background: var(--panel); border: 1px solid var(--panel-edge); border-radius: 8px; padding: 14px; }
+  .fe-screen > header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .fe-screen > header input.title { flex: 1; }
+  .fe-screen .count { color: var(--fg-dim); font-size: 12px; }
+  .fe-field { background: var(--panel-2); border: 1px solid var(--panel-edge); border-radius: 6px;
+              padding: 10px; margin-bottom: 8px; display: grid; gap: 6px; }
+  .fe-field .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .fe-field .row > label { display: flex; gap: 4px; align-items: center; color: var(--fg-dim); font-size: 12px; }
+  .fe-field input, .fe-field select { padding: 4px 6px; }
+  .fe-field .swatches { display: flex; gap: 4px; align-items: center; }
+  .fe-field .swatch { width: 18px; height: 18px; border-radius: 3px; border: 1px solid var(--panel-edge); cursor: pointer; }
+  .fe-field .swatch.active { outline: 2px solid var(--accent); }
+  .fe-field .errs { color: var(--bad); font-size: 12px; }
+  .fe-field .zones { font-family: monospace; width: 100%; min-height: 40px; }
+  .fe-empty { color: var(--fg-dim); font-size: 13px; padding: 6px 0; }
+  .fe-mini { font-size: 12px; padding: 4px 8px; }
+</style>
+
 <div class="preset-picker" id="preset-picker">
   <div class="modal">
     <button class="ghost modal-close" id="preset-close">×</button>
@@ -1258,3 +1298,5 @@ window.addEventListener('beforeunload', (e) => {
   if (state.deviceUrl) fetchDevicePreview('initial');
 })();
 </script>
+<!-- Slice 5 field editor: separate module, talks to /editor/* JSON routes. -->
+<script src="field-editor.js"></script>
