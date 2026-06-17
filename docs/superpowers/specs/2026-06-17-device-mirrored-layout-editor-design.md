@@ -110,8 +110,15 @@ A field/tile is a typed tuple:
   semantic keys, e.g.
   `windCircle = { value: environment.wind.speedTrue, dir: environment.wind.directionTrue }`.
   Each view type's manifest entry declares which named keys it expects
-  (`numeric:{value}`, `compass:{value, dir?}`, `windCircle:{value, dir}`).
+  (`numeric:{value}`, `windCircle:{value, dir}`).
   `unit`/`format`/`size`/`range` apply to the displayed `value`.
+- **Compass-like widgets** (`compass`, `windCircle`) additionally carry a
+  `reference` (rotation origin) and a `markers[]` list (≤ `maxMarkersPerDial`)
+  of `{ id, glyph, filled, color, path }` — the abstract marker-ring model.
+  Marker `path`s are gated to **angle-typed** paths and may bind own-ship
+  HDG/COG/CTS/BTW, wind angles, or the bearing to an AIS/radar target. See
+  `2026-06-18-compass-marker-rings-design.md` for the full marker model,
+  placement contract (`screen_angle = marker.value − reference`), and glyph set.
 - **Color.** A named map keyed by the view type's elements (e.g. `value`,
   `label`, `needle`, `fill`). Any unset element falls back to the **current
   theme schema** (the consolidated style config), so an unconfigured field looks
@@ -132,8 +139,8 @@ editor only offers combinations the firmware can render:
 {
   "viewTypes": {
     "numeric":    { "paths": ["value"],         "attrs": ["title","format","size","unit","color"], "zoom": ["auto"] },
-    "compass":    { "paths": ["value","dir?"],   "attrs": ["title","size","color"],                 "zoom": ["auto","screenRef"] },
-    "windCircle": { "paths": ["value","dir"],    "attrs": ["title","format","size","unit","color"], "zoom": ["auto","screenRef"] },
+    "compass":    { "paths": ["value"], "markers": true, "attrs": ["title","size","color","reference"], "zoom": ["auto","screenRef"] },
+    "windCircle": { "paths": ["value","dir"], "markers": true, "attrs": ["title","format","size","unit","color","reference"], "zoom": ["auto","screenRef"] },
     "gauge":      { "paths": ["value"],          "attrs": ["title","size","unit","color","range","zones"], "zoom": ["auto"] },
     "bar":        { "paths": ["value"],          "attrs": ["title","size","unit","color","range","zones"], "zoom": ["auto"] },
     "trend":      { "paths": ["value"],          "attrs": ["title","size","unit","color"],          "zoom": ["auto"] },
@@ -144,6 +151,8 @@ editor only offers combinations the firmware can render:
   "units":     { "speed":["kn","m/s"], "angle":["deg"], "depth":["m","ft"], "temp":["C","F"], "ratio":["%"], "voltage":["V"] },
   "maxViews":   8,                      // max number of switchable screens (a "view" == a screen)
   "maxTilesPerScreen": 4,
+  "maxMarkersPerDial": 3,               // markers per compass-like dial (see marker-rings design)
+  "glyphs":     ["triangle","diamond","circle","bar","cross","chevron_in","chevron_out","chevron_left","chevron_right","chevron_double"],
   "paths":      "open",                 // "open" = generic store renders any path; or a curated array
   "controls":   ["autopilot"],
   "themes":     ["day","night","high-contrast"]
@@ -215,7 +224,10 @@ path (which now also drives the subscription diff).
   path binding(s) (autocomplete from the SignalK path tree; `paths:"open"`
   allows any), title, format mask, font size (from `fontSizes`), unit (from the
   unit family for the path's quantity), color, and — for gauge/bar — range and
-  zones.
+  zones. For compass-like fields it also offers a `reference` selector and marker
+  rows (add/remove/reorder, ≤ `maxMarkersPerDial`), each row a
+  `{ glyph, filled, color, path }` whose path picker is gated to angle-typed
+  paths — see `2026-06-18-compass-marker-rings-design.md`.
 - **Color** — a color-scheme preset selector (Day/Night/High-contrast palettes)
   sets element colors from the chosen scheme; an inline color-preset picker
   (theme named swatches + custom) overrides per element. Unset = theme default.
