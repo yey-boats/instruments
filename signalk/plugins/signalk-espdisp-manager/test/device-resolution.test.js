@@ -68,6 +68,30 @@ test('fetchDeviceJson rethrows the last error when all candidates fail', async (
     /device request timeout/)
 })
 
+test('hostnameConflict ignores stale/offline peers, flags only live ones', () => {
+  const m = mgr()
+  m.options = { heartbeatMs: 5000 }
+  const fresh = new Date().toISOString()
+  const ancient = new Date(Date.now() - 86400000).toISOString() // 1 day ago
+  m.store = {
+    registry: {
+      devices: {
+        live: { id: 'live', lastSeen: fresh, networkIdentity: { desiredHostname: 'espdisp-boat' } },
+        // a stale duplicate (mock/old registration) wanting the same hostname
+        stale: { id: 'stale', lastSeen: ancient, networkIdentity: { desiredHostname: 'espdisp-boat' } },
+        never: { id: 'never', networkIdentity: { desiredHostname: 'espdisp-boat' } }
+      }
+    }
+  }
+  // The live device must NOT conflict against stale/never-seen duplicates.
+  assert.strictEqual(m.hostnameConflict('live', 'espdisp-boat'), false)
+  // A peer that is itself online DOES count as a real conflict.
+  m.store.registry.devices.other = { id: 'other', lastSeen: fresh, networkIdentity: { desiredHostname: 'espdisp-boat' } }
+  assert.strictEqual(m.hostnameConflict('live', 'espdisp-boat'), true)
+  // deviceHealth surfaces a live, unflagged device as ok (no conflict).
+  assert.strictEqual(m.deviceHealth({ networkIdentity: { conflict: false } }, true, 0), 'ok')
+})
+
 test('a non-primary winning candidate is promoted to lastResolvedAddress', async () => {
   const m = mgr()
   m.deviceWebAuth = () => null

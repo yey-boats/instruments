@@ -2073,11 +2073,26 @@ class EspDispManager {
     }
   }
 
+  // True only when the device was seen within the online window. Used so a
+  // hostname "conflict" against a long-dead / mock registration doesn't flag a
+  // live device as network-conflict (registries accumulate stale duplicates).
+  isDeviceOnline (device) {
+    if (!device || !device.lastSeen) return false
+    const lastSeenMs = Date.parse(device.lastSeen)
+    if (!(lastSeenMs > 0)) return false
+    const onlineWindowMs = Math.max(this.options.heartbeatMs * 3, 15000)
+    return Date.now() - lastSeenMs <= onlineWindowMs
+  }
+
   hostnameConflict (id, hostname) {
+    // A conflict is only real when ANOTHER currently-online device wants the
+    // same hostname; stale/offline registrations are not actively competing for
+    // it on the network.
     return Object.values(this.store.registry.devices).some((device) => {
       return device.id !== id &&
         device.networkIdentity &&
-        device.networkIdentity.desiredHostname === hostname
+        device.networkIdentity.desiredHostname === hostname &&
+        this.isDeviceOnline(device)
     })
   }
 

@@ -1349,32 +1349,35 @@ function renderDevicePage (manager, id, live = {}) {
             <strong>Live view</strong>
             <span class="lp-now"><span class="lp-dot"></span>on device:&nbsp;<span id="lp-now-screen">…</span></span>
           </div>
-          <div class="lp-head-controls">
-            <label class="lp-ctl">Preview&nbsp;<select id="lp-screen">${previewScreenOptions || '<option value="">(none)</option>'}</select></label>
-            <label class="lp-ctl lp-edit-toggle"><input type="checkbox" id="lp-edit">&nbsp;Edit fields</label>
+        </div>
+        <div class="lp-body">
+          <div id="lp-root" class="lp-stage"></div>
+          <div class="lp-side">
+            <div class="lp-controls">
+              <label class="lp-ctl lp-ctl-block">Preview screen
+                <select id="lp-screen">${previewScreenOptions || '<option value="">(none)</option>'}</select></label>
+              <label class="lp-ctl lp-edit-toggle"><input type="checkbox" id="lp-edit">&nbsp;Edit fields</label>
+            </div>
+            <form id="lp-form" method="post"
+                  action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
+              <input type="hidden" name="screenId" id="lp-f-screen">
+              <input type="hidden" name="edits" id="lp-f-edits">
+              <input type="hidden" name="mode" id="lp-f-mode" value="update">
+              <div class="lp-actions">
+                <button type="button" class="primary" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
+                <button type="button" data-mode="update" title="Save edits to the assigned view + reload the device">Save to view</button>
+                <span class="lp-create">
+                  <input type="text" name="profileName" id="lp-f-name" placeholder="new view name">
+                  <button type="button" data-mode="create" title="Save the edited layout as a new view">Save as new</button>
+                </span>
+              </div>
+            </form>
+            <p class="muted lp-note" id="lp-note"><strong>Show on device</strong> switches the
+              device to the selected screen now; tick <strong>Edit fields</strong> to rebind a
+              tile's SignalK path, then <strong>Save to view</strong> or <strong>Save as new</strong>.</p>
           </div>
         </div>
-        <div id="lp-root" class="lp-stage"></div>
         <datalist id="lp-paths">${previewPaths.map((p) => `<option value="${escapeHtml(p)}"></option>`).join('')}</datalist>
-        <form id="lp-form" method="post"
-              action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/save-screen">
-          <input type="hidden" name="screenId" id="lp-f-screen">
-          <input type="hidden" name="edits" id="lp-f-edits">
-          <input type="hidden" name="mode" id="lp-f-mode" value="update">
-          <div class="actions lp-actions">
-            <button type="button" class="primary" data-mode="switch" title="Show the selected screen on the device now">Show on device</button>
-            <button type="button" data-mode="update" title="Save edits to the assigned view + reload the device">Save to view</button>
-            <span class="lp-create">
-              <input type="text" name="profileName" id="lp-f-name" placeholder="new view name">
-              <button type="button" data-mode="create" title="Save the edited layout as a new view">Save as new</button>
-            </span>
-          </div>
-        </form>
-        <p class="muted lp-note" id="lp-note">Live SignalK values for the selected
-          screen. <strong>Show on device</strong> switches the device to it now;
-          tick <strong>Edit fields</strong> to rebind a tile's SignalK path, then
-          <strong>Save to view</strong> (writes to the assigned profile + reloads)
-          or <strong>Save as new</strong> view.</p>
       </div>
       <form class="config-form lp-assign" method="post"
             action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}/switch-view">
@@ -1396,7 +1399,19 @@ function renderDevicePage (manager, id, live = {}) {
         .lp-head-controls{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
         .lp-ctl{font-size:12px;color:#8fb8da;display:inline-flex;align-items:center}
         .lp-ctl select{margin-left:4px;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:4px 6px}
-        .lp-stage{background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;max-width:400px;margin:0 auto;padding:10px;display:flex;align-items:center;justify-content:center}
+        /* Side-by-side: square stage on the left, all controls grouped on the
+           right so the whole live view fits one screen without scrolling. */
+        .lp-body{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+        .lp-side{flex:1;min-width:230px;display:flex;flex-direction:column;gap:12px}
+        .lp-controls{display:flex;flex-direction:column;gap:10px;background:#0a1420;border:1px solid #1c3043;border-radius:9px;padding:12px}
+        .lp-ctl-block{flex-direction:column;align-items:stretch;gap:5px;color:#9fc0dd;font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+        .lp-ctl-block select{margin-left:0;font-size:14px;padding:7px 8px;text-transform:none}
+        .lp-stage{background:radial-gradient(120% 120% at 50% 0%,#0c151f,#070b11);border:1px solid #16242f;border-radius:10px;aspect-ratio:1/1;width:360px;max-width:46vw;min-width:300px;margin:0;padding:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+        .lp-hud{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+        .lp-hud .hud-svg{width:100%;height:100%;display:block}
+        .lp-compass{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+        .lp-compass .hud-tile-svg{width:100%;height:100%;max-height:130px}
+        .lp-val-pos{font-size:18px;line-height:1.25;white-space:pre-line;font-weight:600}
         .lp-grid{display:grid;grid-template-columns:1fr 1fr;grid-auto-rows:1fr;gap:10px;width:100%;height:100%}
         .lp-tile{background:#11202f;border:1px solid #1c2f42;border-radius:9px;padding:10px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;min-height:80px}
         .lp-cap{font-size:11px;letter-spacing:.1em;color:#6f97ba;text-transform:uppercase}
@@ -1408,18 +1423,19 @@ function renderDevicePage (manager, id, live = {}) {
         .lp-empty{color:#6f97ba;font-size:13px;text-align:center;line-height:1.5}
         .lp-edit-path{width:100%;margin-top:8px;font-size:11px;background:#0a1420;color:#cfe0f0;border:1px solid #2a4156;border-radius:5px;padding:4px 5px}
         .lp-edit-path:focus{outline:none;border-color:#36d399}
-        .lp-actions{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
-        .lp-actions button{border-radius:7px;padding:7px 13px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:13px}
+        .lp-actions{display:flex;gap:8px;align-items:stretch;flex-direction:column}
+        .lp-actions button{border-radius:7px;padding:9px 13px;border:1px solid #2a4156;background:#13283a;color:#dbe9f6;cursor:pointer;font-size:13px}
         .lp-actions button:hover{border-color:#3a607e;background:#173248}
         .lp-actions button.primary{background:#1f8f5f;border-color:#27a86e;color:#eafff5;font-weight:600}
         .lp-actions button.primary:hover{background:#27a86e}
-        .lp-create{display:inline-flex;gap:6px;align-items:center;margin-left:auto}
-        .lp-create input{background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:6px 8px;font-size:12px;width:150px}
-        .lp-note{font-size:12px;line-height:1.55;margin-top:10px}
+        .lp-create{display:flex;gap:6px;align-items:center}
+        .lp-create input{flex:1;background:#0a1420;color:#eaf2fb;border:1px solid #2a4156;border-radius:6px;padding:8px;font-size:12px;min-width:0}
+        .lp-note{font-size:12px;line-height:1.5;margin:2px 0 0}
         .lp-assign{margin-bottom:18px}
         .lp-assign label{font-size:12px;color:#8fb8da}
       </style>
       <script>window.__espdispPreview=${previewJson};window.__espdispDeviceId=${JSON.stringify(id)};</script>
+      <script src="/signalk-espdisp-manager/device-hud.js"></script>
       <script src="/signalk-espdisp-manager/live-preview.js"></script>
       <div class="config-grid">
         ${renderLiveStatusWidget(live.status, live.statusError)}
@@ -1587,6 +1603,11 @@ function renderDeviceConfigPage (manager, id) {
   const device = manager.getDevice(id)
   const config = manager.generateConfig(id)
   const profiles = manager.listProfiles().profiles
+  // The device self-reports its real switchable screens (heartbeat ui.screens);
+  // drive the default-screen picker and the Screens list from that instead of
+  // the manager's generated preset catalogue.
+  let views = { views: [], current: null }
+  try { views = manager.deviceViews(id) || views } catch (e) { /* offline: leave empty */ }
   return `
     <section class="panel">
       <h2>${escapeHtml(device.name || device.id)} config</h2>
@@ -1597,9 +1618,15 @@ function renderDeviceConfigPage (manager, id) {
       <p>
         <a href="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(id)}">Back to device</a>
       </p>
-      ${renderDeviceConfigForm(device, config, profiles)}
-      ${renderDeviceConfigWidget(config)}
+      ${renderDeviceConfigForm(device, config, profiles, views)}
+      ${renderDeviceConfigWidget(config, views)}
     </section>`
+}
+
+// Built-in screen ids the firmware renders as fullscreen HUDs (not tile grids).
+const FULLSCREEN_SCREEN_IDS = new Set(['autopilot', 'ap_hud', 'wind', 'wind_classic', 'wind_steer', 'knob_wind', 'knob_compass', 'knob_big', 'zoom'])
+function screenKindLabel (id) {
+  return FULLSCREEN_SCREEN_IDS.has(String(id)) ? 'fullscreen' : 'grid'
 }
 
 function saveDeviceConfigForm (manager, id, body) {
@@ -1709,7 +1736,7 @@ function configOverridesFromForm (body) {
   }
 }
 
-function renderDeviceConfigForm (device, config, profiles) {
+function renderDeviceConfigForm (device, config, profiles, views) {
   const settings = config.settings || {}
   const nmea = config.nmea0183Wifi || {}
   const autopilot = config.autopilot || {}
@@ -1717,12 +1744,20 @@ function renderDeviceConfigForm (device, config, profiles) {
   const widgetItems = (config.widgets && config.widgets.items) || {}
   const layout = config.layout || {}
   const debug = config.debug || {}
+  // Default-screen picker: a dropdown of the device's own reported screens when
+  // we have them, so the operator can only pick a screen that actually exists.
+  // Falls back to a free-text input when the device is offline / unseen.
+  const dvViews = (views && Array.isArray(views.views)) ? views.views : []
+  const current = settings.defaultScreen || (views && views.current) || ''
+  const defaultScreenField = dvViews.length
+    ? select('defaultScreen', current, dvViews.map((v) => [v.id, `${v.title || v.id} (${screenKindLabel(v.id)})`]))
+    : input('defaultScreen', current || 'dashboard')
   return `
     <form class="config-form" method="post" action="/plugins/espdisp-manager/ui/devices/${encodeURIComponent(device.id)}/config">
       <h2>Configure device</h2>
       <div class="form-grid">
         ${field('Preset', profileSelect(profiles, device.assignedProfile || config.profile))}
-        ${field('Default screen', input('defaultScreen', settings.defaultScreen || 'dashboard'))}
+        ${field('Default screen', defaultScreenField)}
         ${field('Theme', select('theme', settings.theme || 'day', [['day', 'Day'], ['night', 'Night'], ['high-contrast', 'High contrast']]))}
         ${field('Brightness', input('brightness', settings.brightness == null ? 0.8 : settings.brightness, 'number', '0', '1', '0.05'))}
         ${field('Demo mode', checkbox('demoMode', settings.demoMode))}
@@ -2102,7 +2137,7 @@ function parseYamlScalar (value) {
   return value
 }
 
-function renderDeviceConfigWidget (config) {
+function renderDeviceConfigWidget (config, views) {
   const services = (((config.network || {}).mdns || {}).services || [])
     .map((service) => `${service.type}:${service.port}`)
     .join(', ')
@@ -2164,7 +2199,7 @@ function renderDeviceConfigWidget (config) {
         ['Command poll', config.management && `${config.management.commandPollMs} ms`]
       ]))}
       ${configSection('Widgets', renderWidgetsTable(config.widgets), true)}
-      ${configSection('Screens', renderScreensTable(config.layout), true)}
+      ${configSection('Screens', renderScreensTable(config.layout, views), true)}
     </div>`
 }
 
@@ -2206,7 +2241,26 @@ function renderWidgetsTable (widgets) {
     </table>`
 }
 
-function renderScreensTable (layout) {
+function renderScreensTable (layout, views) {
+  // Prefer the device's own reported screens (heartbeat ui.screens) so the list
+  // reflects what the firmware actually renders, not the manager's generated
+  // preset catalogue. Fall back to the generated layout when offline.
+  const dvViews = (views && Array.isArray(views.views)) ? views.views : []
+  if (dvViews.length) {
+    const current = views.current
+    const rows = dvViews.map((v) => `
+      <tr>
+        <td><strong>${escapeHtml(v.title || v.id)}</strong><br><span>${escapeHtml(v.id)}</span></td>
+        <td><span class="pill">${escapeHtml(screenKindLabel(v.id))}</span></td>
+        <td>${v.id === current ? '<span class="status good">on device</span>' : ''}</td>
+      </tr>`).join('')
+    return `
+      <p class="muted">Discovered from the device (${dvViews.length} switchable screen${dvViews.length === 1 ? '' : 's'}). Built-in screens are rendered by the firmware.</p>
+      <table>
+        <thead><tr><th>Screen</th><th>Type</th><th>Current</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`
+  }
   const screens = layout && Array.isArray(layout.screens) ? layout.screens : []
   const rows = screens.map((screen) => {
     const tiles = Array.isArray(screen.tiles) ? screen.tiles : []
@@ -2218,7 +2272,7 @@ function renderScreensTable (layout) {
       </tr>`
   }).join('')
   return `
-    <p class="muted">Variant ${escapeHtml(layout && layout.variant ? layout.variant : 'default')}.</p>
+    <p class="muted">Device offline — showing the manager's generated layout (variant ${escapeHtml(layout && layout.variant ? layout.variant : 'default')}).</p>
     <table>
       <thead><tr><th>Screen</th><th>Tiles</th><th>Widgets</th></tr></thead>
       <tbody>${rows || '<tr><td colspan="3">No screens selected for this device.</td></tr>'}</tbody>

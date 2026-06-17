@@ -63,9 +63,31 @@
     const scr = (cfg.screens || []).find((s) => s.id === id)
     return scr || (cfg.screens || [])[0] || null
   }
+  // A fullscreen HUD screen is one whose device id maps to a built-in HUD
+  // (autopilot / wind / wind_steer / wind_classic), or whose single tile is a
+  // fullscreen widget. Rendered faithfully (compass band, no-go sectors, etc.)
+  // by DeviceHud, bound to live SignalK values.
+  function fullscreenKind (scr) {
+    const Hud = window.DeviceHud
+    if (!Hud || !scr) return null
+    const byId = Hud.fullscreenForScreen(scr.id)
+    if (byId) return byId
+    const t = scr.tiles && scr.tiles[0]
+    if (scr.tiles && scr.tiles.length === 1 && t && Hud.isFullscreenWidget(t.widget)) return t.widget
+    return null
+  }
   function renderScreen () {
     root.replaceChildren()
     const scr = screenById(currentScreenId)
+    const Hud = window.DeviceHud
+    const kind = fullscreenKind(scr)
+    if (kind && Hud) {
+      const stage = document.createElement('div')
+      stage.className = 'lp-hud'
+      stage.innerHTML = Hud.fullscreen(kind, Hud.accessor(values))
+      root.appendChild(stage)
+      return
+    }
     if (!scr || !Array.isArray(scr.tiles) || !scr.tiles.length) {
       const m = document.createElement('div')
       m.className = 'lp-empty'
@@ -82,7 +104,15 @@
       cap.className = 'lp-cap'
       cap.textContent = (tile.title || (tile.path || '').split('.').pop() || '').toUpperCase()
       cell.appendChild(cap)
-      if (tile.widget === 'bar') {
+      const Hud = window.DeviceHud
+      const isPos = /position/i.test(tile.path || '')
+      if (tile.widget === 'compass' && Hud) {
+        // Faithful mini compass dial (heading-up ring + COG) instead of a
+        // bare number, matching the device's grid compass tile.
+        const holder = document.createElement('div'); holder.className = 'lp-compass'
+        holder.innerHTML = Hud.compassTileSVG(Hud.accessor(values), tile)
+        cell.appendChild(holder)
+      } else if (tile.widget === 'bar') {
         const bar = document.createElement('div'); bar.className = 'lp-bar'
         const fill = document.createElement('div'); fill.className = 'lp-bar-fill'
         fill.style.height = percent(tile) + '%'
@@ -90,6 +120,17 @@
         const val = document.createElement('div'); val.className = 'lp-val lp-val-sm'
         const u = unitFor(tile)
         val.textContent = valueFor(tile) + (u ? ' ' + u : '')
+        cell.appendChild(val)
+      } else if (tile.widget === 'text' || isPos) {
+        // Position / text tile: format lat-lon as DMS (two lines), like device.
+        const pos = Hud && Hud.accessor(values).position()
+        const val = document.createElement('div'); val.className = 'lp-val lp-val-pos'
+        if (pos) {
+          const [la, lo] = Hud.dms(pos)
+          val.textContent = la + '\n' + lo
+        } else {
+          val.textContent = valueFor(tile)
+        }
         cell.appendChild(val)
       } else {
         const val = document.createElement('div'); val.className = 'lp-val'

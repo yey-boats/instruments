@@ -20,7 +20,7 @@ assert.ok(source.includes('Apply to selected devices'), 'multi-device preset app
 assert.ok(source.includes('Resolve ${escapeHtml(blocked.join'), 'unsafe discovered-device claim guard is missing')
 assert.ok(source.includes('button[disabled]'), 'disabled claim button styling is missing')
 assert.ok(source.includes('renderWidgetsTable(config.widgets)'), 'widget summary table is not rendered')
-assert.ok(source.includes('renderScreensTable(config.layout)'), 'screen layout table is not rendered')
+assert.ok(source.includes('renderScreensTable(config.layout, views)'), 'screen layout table is not rendered')
 assert.ok(source.includes('SignalK and NMEA'), 'data source section is not rendered')
 assert.ok(source.includes('Live status</a>'), 'live status widget link is missing')
 assert.ok(source.includes('Live logs</a>'), 'live logs widget link is missing')
