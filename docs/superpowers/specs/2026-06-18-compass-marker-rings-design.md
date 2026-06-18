@@ -85,9 +85,11 @@ A compass-like widget = an optional **center value** + a **reference** + a
 The center number is its own binding, default `navigation.headingTrue` (HDG), and
 may be any scalar with its own unit/format (e.g. AWS on the wind instrument). It
 is **not** required to correspond to any marker. A marker for HDG is just one
-entry in the list — so on the steering compass HDG shows both as the big number
-and, with `reference = value`, as the offset-0 marker at top (the marine-correct
-lubber).
+entry in the list — so on the autopilot HUD (a rotating-scale, heading-up dial)
+HDG shows both as the big number and, with `reference = value`, as the offset-0
+marker at top under the lubber. The round Compass tile keeps a static bezel, so
+it is north-up (HDG is the big number and a marker at its true bearing); see the
+per-widget note under Reference.
 
 ### Reference (rotation origin)
 
@@ -95,8 +97,13 @@ lubber).
 the top of the dial:
 
 - `"value"` (default) — the center value, **when it is an angle**. Reproduces
-  heading-up automatically on the steering compass (center = HDG).
-- `"north"` — fixed 0°, i.e. north-up.
+  heading-up automatically on dials whose **scale rotates** (the autopilot HUD,
+  where the tick ring + labels turn by −heading so HDG rides under the lubber).
+- `"north"` — fixed 0°, i.e. north-up. The right default for **fixed-bezel**
+  dials whose cardinals do not rotate (the round Compass tile keeps a static
+  N/E/S/W bezel, so its markers sit at their true bearings to match it). Frame is
+  therefore **per-widget**: rotating-scale dials default to value-up, fixed-bezel
+  dials to north-up.
 - `<angle path>` — any angle-typed path (e.g. bind reference to HDG while the
   center value shows a non-angle like AWS).
 
@@ -191,7 +198,8 @@ All build/refresh runs on the UI/LVGL task (per the "LVGL only on UI task" rule)
 - **Steering tile compass** (`ui_layouts.cpp` `paint_compass_body`): replace the
   single `aux2` direction marker with a `MarkerRing`. Default list
   **HDG ▲filled (accent) / COG △hollow (good) / CTS ◆filled (warn)**,
-  `reference = value` (HDG). The CTS text line stays.
+  `reference = north` (the tile keeps its static N/E/S/W bezel, so markers sit at
+  true bearings; HDG is still the big center number). The CTS text line stays.
 - **Autopilot HUD** (`ui_compass.cpp` build + `screen_autopilot.cpp` refresh):
   the fixed red lubber stays as the top reference indicator; the single amber bug
   becomes a `MarkerRing`. Defaults HDG / COG / CTS, plus the **AP-target** marker
