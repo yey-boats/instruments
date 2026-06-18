@@ -21,6 +21,50 @@ import time
 import urllib.request
 
 
+# --- geo helpers ---
+
+R_EARTH = 6371000.0  # mean Earth radius, metres
+
+
+def bearing(a, b):
+    """Initial great-circle bearing a->b. Inputs (lat_deg, lon_deg). Radians 0..2pi."""
+    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
+    dlon = lon2 - lon1
+    y = math.sin(dlon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    return math.atan2(y, x) % (2 * math.pi)
+
+
+def distance(a, b):
+    """Great-circle distance in metres (haversine). Inputs (lat_deg, lon_deg)."""
+    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
+    dlat, dlon = lat2 - lat1, lon2 - lon1
+    h = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+    return 2 * R_EARTH * math.asin(min(1.0, math.sqrt(h)))
+
+
+def dead_reckon(lat, lon, cog_rad, sog_ms, dt):
+    """Advance (lat_deg, lon_deg) by dt seconds along cog at sog. Returns (lat_deg, lon_deg)."""
+    ang = (sog_ms * dt) / R_EARTH  # angular distance travelled
+    lat1, lon1 = math.radians(lat), math.radians(lon)
+    lat2 = math.asin(math.sin(lat1) * math.cos(ang)
+                     + math.cos(lat1) * math.sin(ang) * math.cos(cog_rad))
+    lon2 = lon1 + math.atan2(math.sin(cog_rad) * math.sin(ang) * math.cos(lat1),
+                             math.cos(ang) - math.sin(lat1) * math.sin(lat2))
+    return (math.degrees(lat2), math.degrees(lon2))
+
+
+def cross_track(start, end, p):
+    """Signed cross-track distance (m) of p from great-circle start->end.
+    Positive = p is to the RIGHT (starboard) of the track."""
+    d13 = distance(start, p) / R_EARTH  # angular
+    brg13 = bearing(start, p)
+    brg12 = bearing(start, end)
+    return math.asin(math.sin(d13) * math.sin(brg13 - brg12)) * R_EARTH
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="SignalK boat-data simulator")
     p.add_argument("host", nargs="?", default="localhost")
