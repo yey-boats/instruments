@@ -57,5 +57,22 @@ class TestGeo(unittest.TestCase):
         self.assertLess(xt, 0.0)
 
 
+class TestBoatState(unittest.TestCase):
+    def test_step_moves_along_cog(self):
+        bs = fb.BoatState(lat=41.0, lon=2.0)
+        start = (bs.lat, bs.lon)
+        bs.step(dt=10.0, desired_cog=math.radians(90.0), sog=5.0)  # due east
+        self.assertGreater(bs.lon, start[1])           # moved east
+        self.assertAlmostEqual(bs.lat, start[0], places=3)
+        self.assertAlmostEqual(bs.cog, math.radians(90.0), delta=math.radians(5))
+
+    def test_cog_lags_toward_desired(self):
+        bs = fb.BoatState(lat=41.0, lon=2.0, cog=0.0)
+        bs.step(dt=1.0, desired_cog=math.radians(90.0), sog=5.0)
+        # heading turns toward the target but does not snap instantly
+        self.assertGreater(bs.cog, 0.0)
+        self.assertLess(bs.cog, math.radians(90.0))
+
+
 if __name__ == "__main__":
     unittest.main()

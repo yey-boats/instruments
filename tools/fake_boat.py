@@ -65,6 +65,34 @@ def cross_track(start, end, p):
     return math.asin(math.sin(d13) * math.sin(brg13 - brg12)) * R_EARTH
 
 
+# --- own-vessel state ---
+
+def _wrap_pi(a):
+    """Wrap angle to (-pi, pi]."""
+    return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+class BoatState:
+    """Integrates own position from a desired course each tick. SOG/heading set
+    by the caller (driven by the route when active, else a gentle wander)."""
+
+    TURN_RATE = math.radians(10.0)  # max rad/s the heading slews toward desired
+
+    def __init__(self, lat, lon, cog=0.0):
+        self.lat = lat
+        self.lon = lon
+        self.cog = cog
+        self.sog = 0.0
+
+    def step(self, dt, desired_cog, sog):
+        # Slew cog toward desired_cog, capped by TURN_RATE.
+        err = _wrap_pi(desired_cog - self.cog)
+        max_step = self.TURN_RATE * dt
+        self.cog = (self.cog + max(-max_step, min(max_step, err))) % (2 * math.pi)
+        self.sog = sog
+        self.lat, self.lon = dead_reckon(self.lat, self.lon, self.cog, sog, dt)
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="SignalK boat-data simulator")
     p.add_argument("host", nargs="?", default="localhost")
