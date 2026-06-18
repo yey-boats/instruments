@@ -1390,9 +1390,25 @@ function renderDevicePage (manager, id, live = {}) {
       return presetTiles(screenId) || []
     }
     const dvViews = (views && Array.isArray(views.views) ? views.views : [])
+    // Device telemetry from the heartbeat status, for the System/status panel
+    // (the parts that aren't SignalK: wifi/ip/rssi/ble/sk/heap/psram/uptime/build).
+    const st = (device && device.status) || {}
+    const telemetry = {
+      wifiState: (st.network && st.network.state) || (st.network && st.network.wifi_up ? 'STA' : null),
+      ip: st.network && st.network.ip,
+      rssi: st.network && st.network.rssi,
+      ssid: st.network && st.network.ssid,
+      ble: (st.network && st.network.hostname) || device.id,
+      signalk: (st.signalk && st.signalk.state) || (st.sk && st.sk.state),
+      heapKb: st.memory && st.memory.heap_free_kb,
+      psramKb: st.memory && st.memory.psram_free_kb,
+      uptimeMs: st.ui && st.ui.uptime_ms,
+      build: (st.firmware && (st.firmware.build_time || st.firmware.version)) || null
+    }
     return {
       current: currentScreen,
       profileId: assigned,
+      telemetry,
       screens: dvViews.map((v) => ({ id: v.id, title: v.title || v.id, tiles: tilesFor(v.id) }))
     }
   })()

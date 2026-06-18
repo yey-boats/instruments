@@ -80,6 +80,16 @@
     root.replaceChildren()
     const scr = screenById(currentScreenId)
     const Hud = window.DeviceHud
+    // The built-in System/status panel: the device renders a diagnostics list,
+    // not a tile grid. Render it faithfully from live SignalK + the device's
+    // reported telemetry (cfg.telemetry), not the generic preset grid.
+    if (scr && Hud && Hud.isSystemScreen(scr.id)) {
+      const stage = document.createElement('div')
+      stage.className = 'lp-hud'
+      stage.innerHTML = Hud.systemPanel(Hud.accessor(values), cfg.telemetry || {})
+      root.appendChild(stage)
+      return
+    }
     const kind = fullscreenKind(scr)
     if (kind && Hud) {
       const stage = document.createElement('div')

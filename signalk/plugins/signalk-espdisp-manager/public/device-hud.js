@@ -38,7 +38,11 @@
     depthKeel: 'environment.depth.belowKeel',
     waterTemp: 'environment.water.temperature',
     currentSet: 'environment.current.setTrue',
-    currentDrift: 'environment.current.drift'
+    currentDrift: 'environment.current.drift',
+    battV: 'electrical.batteries.house.voltage',
+    battSoc: 'electrical.batteries.house.stateOfCharge',
+    fuel: 'tanks.fuel.0.currentLevel',
+    freshwater: 'tanks.freshWater.0.currentLevel'
   }
 
   const RAD2DEG = 180 / Math.PI
@@ -331,6 +335,60 @@
   }
 
   // ====================================================================== //
+  //  Fullscreen: SYSTEM / status diagnostics panel (screen_status.cpp)      //
+  // ====================================================================== //
+  // Two-column label:value list. Battery/SoC/Fuel/Water come from live
+  // SignalK (`a`); the device telemetry (wifi/ip/rssi/ble/sk/heap/psram/
+  // uptime/build) comes from the heartbeat-reported `t` object.
+  function systemPanel (a, t) {
+    t = t || {}
+    const pct = (name) => {
+      const v = a.num(name)
+      return isNaN(v) ? NaN : (v <= 1.0001 ? v * 100 : v)
+    }
+    const soc = pct('battSoc')
+    const fuel = pct('fuel')
+    const water = pct('freshwater')
+    const battV = a.num('battV')
+    const upS = t.uptimeMs ? Math.floor(t.uptimeMs / 1000) : null
+    const hhmmss = upS == null ? '--'
+      : [Math.floor(upS / 3600), Math.floor(upS / 60) % 60, upS % 60]
+        .map((n) => String(n).padStart(2, '0')).join(':')
+    const rows = [
+      ['BATTERY', isNaN(battV) ? '--' : battV.toFixed(2) + ' V', NaN],
+      ['SoC', isNaN(soc) ? '--' : Math.round(soc) + '%', soc, '#36d399'],
+      ['FUEL', isNaN(fuel) ? '--' : Math.round(fuel) + '%', fuel, '#ffb84d'],
+      ['WATER', isNaN(water) ? '--' : Math.round(water) + '%', water, '#4fc3f7'],
+      ['WIFI', t.wifiState || '--', NaN],
+      ['SSID', t.ssid || '--', NaN],
+      ['IP', t.ip || '--', NaN],
+      ['RSSI', t.rssi != null ? t.rssi + ' dBm' : '--', NaN],
+      ['BLE', t.ble || '--', NaN],
+      ['SIGNALK', t.signalk || '--', NaN],
+      ['HEAP', t.heapKb != null ? t.heapKb + ' kB' : '--', NaN],
+      ['PSRAM', t.psramKb != null ? t.psramKb + ' kB' : '--', NaN],
+      ['UPTIME', hhmmss, NaN],
+      ['BUILD', t.build || '--', NaN]
+    ]
+    const ROW_H = 30
+    let body = ''
+    rows.forEach(([label, val, frac, color], i) => {
+      const y = 64 + i * ROW_H
+      body += `<text x="22" y="${y}" font-family="Montserrat" font-size="13" fill="#8fa7bd" letter-spacing="0.06em">${label}</text>`
+      body += `<text x="150" y="${y}" font-family="Montserrat" font-size="18" font-weight="600" fill="#eef4fa">${val}</text>`
+      if (!isNaN(frac)) {
+        const w = 180, x = 282, f = Math.max(0, Math.min(100, frac)) / 100
+        body += `<rect x="${x}" y="${y - 9}" width="${w}" height="8" rx="4" fill="#1f2d3d"/>`
+        body += `<rect x="${x}" y="${y - 9}" width="${(w * f).toFixed(0)}" height="8" rx="4" fill="${color}"/>`
+      }
+    })
+    return svgWrap(`
+      <text x="240" y="34" font-family="Montserrat" font-size="26" font-weight="700" fill="#4fc3f7" text-anchor="middle">SYSTEM</text>
+      <rect x="8" y="48" width="464" height="424" rx="12" fill="#101b29" stroke="#1f2d3d"/>
+      ${body}`)
+  }
+
+  // ====================================================================== //
   //  Public surface                                                        //
   // ====================================================================== //
   const FULLSCREEN = { autopilotHud, windDial, windSteer }
@@ -358,6 +416,10 @@
       const base = Object.keys(SCREEN_FULLSCREEN).find((k) => id === k || id.indexOf(k + '_') === 0)
       return base || null
     },
+    // The device's built-in System/status diagnostics panel (its own renderer,
+    // fed by live SignalK + the device's heartbeat telemetry `t`).
+    isSystemScreen (id) { return id === 'status' || id === 'system' },
+    systemPanel,
     compassTileSVG
   }
 }())
