@@ -8,8 +8,8 @@ Each ESP display creates two kinds of SignalK server load:
 - Manager control plane: REST calls to the `espdisp-manager` plugin.
 
 The current firmware requests 24 SignalK paths with `period=1000` ms,
-`minPeriod=200` ms, and `policy=instant`. With the repo simulator
-(`tools/fake_boat.py`), this is normally one delta per second carrying the
+`minPeriod=200` ms, and `policy=instant`. With the boat simulator
+(`yey-boats-sim`), this is normally one delta per second carrying the
 changed navigation values.
 
 Manager traffic is lower rate:

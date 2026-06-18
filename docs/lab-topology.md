@@ -81,7 +81,7 @@ SignalK Docker on nav-server uses host networking and exposes:
 | SK discovery UDP    | `nav-server` | `0.0.0.0:34300/udp`        |
 | device-announce UDP | `nav-server` | `0.0.0.0:34301/udp`        |
 | `espdisp-manager`   | `nav-server` | `/plugins/espdisp-manager` |
-| `fake_boat.py`      | dev laptop   | pushes to SK over WS       |
+| `yey-boats-sim`     | dev laptop   | pushes to SK over WS       |
 | `hostapd`           | `nav-server` | `wlan-ap0`                 |
 | `dnsmasq` (DHCP)    | `nav-server` | `wlan-ap0`                 |
 
@@ -119,7 +119,7 @@ config when you want it permanent.
 set -a; source .env.test; set +a
 ssh nav-server "sudo bash /usr/local/sbin/espdisp-lab-ap-setup.sh '$ESP_LAB_PSK'"
 
-# Start SK + fake_boat:
+# Start SK + simulator:
 make demo-up-remote
 
 # Provision a fresh device over BLE (only needed once — reads
@@ -142,7 +142,7 @@ make demo-down-remote
 | `.env.test`                                  | Env vars the test suite sources       |
 | `signalk/scripts/lab-ap-setup.sh`            | hostapd + dnsmasq + iptables on nav-server |
 | `signalk/scripts/run-remote.sh`              | SK container in host-network mode      |
-| `signalk/scripts/stop-remote.sh`             | Stops the remote SK + local fake_boat |
+| `signalk/scripts/stop-remote.sh`             | Stops the remote SK + local simulator |
 | `signalk/config/`                            | SK home dir (rsync'd to nav-server)   |
 | `signalk/plugins/signalk-espdisp-manager/`   | Local plugin source                   |
 | `tests/system/`                              | pytest system suite                   |

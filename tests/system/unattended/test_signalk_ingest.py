@@ -21,7 +21,7 @@ def _reset(device):
 
 
 def test_signalk_sog_publish(device):
-    # fake_boat publishes SOG on a sinusoid, so we can't pin the
+    # The simulator publishes SOG on a sinusoid, so we can't pin the
     # device's view to our pushed value. Verify the field is owned
     # by SignalK and carries a numeric value within a plausible range.
     sk_pump.send(SK_HOST, SK_PORT,
@@ -32,18 +32,18 @@ def test_signalk_sog_publish(device):
 
 
 def test_signalk_depth_publish(device):
-    # fake_boat.py also publishes depth on a sinusoid; pin to a value
+    # The simulator also publishes depth on a sinusoid; pin to a value
     # well outside that range so the assertion can distinguish.
     sk_pump.send(SK_HOST, SK_PORT,
                  "environment.depth.belowTransducer", 99.9)
     f = device.wait_for_field("depth_m", "signalk", timeout_s=8)
-    # Accept the pinned value OR a value close to it (fake_boat may
+    # Accept the pinned value OR a value close to it (the simulator may
     # have over-written between push and read).
     assert f["value"] is not None and isinstance(f["value"], (int, float))
 
 
 def test_signalk_wind_publish(device):
-    # fake_boat publishes wind on a sinusoid, so we can't pin the
+    # The simulator publishes wind on a sinusoid, so we can't pin the
     # device's view to our pushed value. Verify source ownership +
     # plausible range only.
     sk_pump.send(SK_HOST, SK_PORT,

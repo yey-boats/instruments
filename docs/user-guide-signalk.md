@@ -7,8 +7,8 @@ installed on your SignalK server and at least one device has registered.
 
 > Lab note: in the reference lab the SignalK server runs on `mythra-nav`
 > (Docker), the manager plugin is mounted at
-> `/plugins/espdisp-manager`, and a synthetic data source (`fake_boat.py`,
-> `fake-boat.service`) feeds live values for bench testing.
+> `/plugins/espdisp-manager`, and the boat simulator (`yey-boats-sim`,
+> `kdcube-sim.service`) feeds live values for bench testing.
 
 ## 0. The display screens
 

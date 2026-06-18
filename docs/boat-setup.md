@@ -1,7 +1,7 @@
 # Boat Setup
 
 This document is for using ESPDISP on a real boat network.  The development lab
-topology with `nav-server`, `esp-lab`, `fake_boat.py`, static leases, and test
+topology with `nav-server`, `esp-lab`, the boat simulator, static leases, and test
 AP routing is separate and documented in [Lab topology](lab-topology.md).
 
 ESPDISP is not a certified navigation instrument.  Treat it as an auxiliary
@@ -45,7 +45,7 @@ Recommended baseline:
 - The SignalK server has a stable hostname or reserved DHCP address.
 - OTA is used only on the trusted LAN or while physically aboard.
 
-Do not use the development `esp-lab` AP, `fake_boat.py`, or lab static routes
+Do not use the development `esp-lab` AP, `yey-boats-sim`, or lab static routes
 for normal onboard operation.
 
 ## Install SignalK
@@ -246,7 +246,7 @@ Use the lab setup for repeatable development:
 
 - `make demo-up`
 - `make demo-up-remote`
-- `tools/fake_boat.py`
+- `yey-boats-sim` (boat simulator)
 - `docs/lab-topology.md`
 - `esp-lab` SSID and `10.42.0.0/24`
 

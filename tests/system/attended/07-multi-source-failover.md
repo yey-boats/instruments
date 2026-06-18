@@ -16,8 +16,8 @@ make ble
 
 # T2 - SignalK demo + slow synthetic data
 make demo-up
-python3 tools/fake_boat.py
-# fake_boat publishes SOG ~3-5 kn
+yey-boats-sim   # or: SIGNALK_HOST=localhost SIGNALK_PORT=3000 yey-boats-sim
+# yey-boats-sim publishes SOG ~3-5 kn
 
 # T3 - NMEA-WiFi UDP injector (held until you ctrl-C)
 python3 - <<'PY'

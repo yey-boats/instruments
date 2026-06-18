@@ -5,7 +5,7 @@ across all screens, and tracks bearing/distance back.
 
 ## Prereqs
 
-- A SignalK source with live position (or `fake_boat.py` running).
+- A SignalK source with live position (or `yey-boats-sim` running).
 - `screen dashboard`.
 
 ## Steps
@@ -16,8 +16,8 @@ across all screens, and tracks bearing/distance back.
    position. ⬜
 4. Switch through every screen (`screen wind`, `screen depth`, etc.).
    The MOB pill stays visible on each one at the same screen position. ⬜
-5. Send the device to a different lat/lon (modify `fake_boat.py` or
-   push a delta). Distance/bearing in the pill updates. ⬜
+5. Send the device to a different lat/lon (set `SIGNALK_HOST`/`SIGNALK_PORT` env vars
+   and restart `yey-boats-sim`, or push a delta manually). Distance/bearing in the pill updates. ⬜
 6. Long-press MOB again to clear. Pill returns to neutral state. ⬜
 
 ## Pass criteria

@@ -203,7 +203,7 @@ demo-up:  ## Start SignalK locally in Docker (from the Instruments-manager repo)
 	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
 	@SK_HOST=$(SK_HOST) SK_PORT=$(SK_PORT) $(MANAGER_DIR)/deploy/scripts/run.sh
 
-demo-down:  ## Stop local fake_boat + SignalK (from the Instruments-manager repo)
+demo-down:  ## Stop local simulator + SignalK (from the Instruments-manager repo)
 	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
 	@$(MANAGER_DIR)/deploy/scripts/stop.sh
 
@@ -213,7 +213,7 @@ demo-up-remote:  ## Start SignalK on REMOTE_HOST (default nav-server) via SSH+Do
 	  SK_HOST=$(REMOTE_SK_HOST) SK_PORT=$(SK_PORT) \
 	  $(MANAGER_DIR)/deploy/scripts/run-remote.sh
 
-demo-down-remote:  ## Stop the remote SignalK container + local fake_boat
+demo-down-remote:  ## Stop the remote SignalK container + local simulator
 	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
 	@REMOTE_HOST=$(REMOTE_HOST) $(MANAGER_DIR)/deploy/scripts/stop-remote.sh
 

@@ -119,7 +119,7 @@ def test_adjust_heading_moves_target(device):
     device.post_cmd("sk-ap-state auto")
     _wait_state("auto", timeout_s=6)
     # Adjust +10 deg. The emulator only exposes target/headingMagnetic
-    # after the adjust completes; allow up to 15 s. fake_boat doesn't
+    # after the adjust completes; allow up to 15 s. The simulator doesn't
     # touch this path so no interference.
     device.post_cmd("sk-ap-adjust 10")
     # The emulator only exposes a non-zero target after auto-lock has

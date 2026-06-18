@@ -50,7 +50,7 @@ def _udp(*sents: str) -> None:
 
 
 def test_signalk_then_nmea_wins_then_falls_back(device):
-    # Phase 1: SignalK provides SOG (fake_boat sinusoid is fine; we only
+    # Phase 1: SignalK provides SOG (simulator sinusoid is fine; we only
     # require source=signalk, not a specific value).
     sk_pump.send(SK_HOST, SK_PORT, "navigation.speedOverGround", 3.0)
     device.wait_for_field("sog_mps", "signalk", timeout_s=8)
@@ -63,7 +63,7 @@ def test_signalk_then_nmea_wins_then_falls_back(device):
     assert abs(f["value"] - 5.144) < 0.1  # 10 kn = 5.14 m/s
 
     # Phase 3: stop NMEA, wait past freshness -> SignalK reclaims.
-    # fake_boat keeps SK fresh on its own.
+    # The simulator keeps SK fresh on its own.
     deadline = time.time() + 8.0
     while time.time() < deadline:
         b = device.boat()

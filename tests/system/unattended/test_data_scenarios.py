@@ -30,22 +30,21 @@ SK_REQUIRED = pytest.mark.skipif(
     not _sk_available(), reason=f"SignalK demo not at {SK_HOST}:{SK_PORT}")
 
 
-def _fake_boat_running() -> bool:
-    """Heuristic: is fake_boat.py actively publishing nav data right now?"""
-    import urllib.request, json
+def _simulator_running() -> bool:
+    """Heuristic: is the boat simulator actively publishing nav data right now?"""
+    import subprocess
     try:
-        with urllib.request.urlopen(
-                f"http://{SK_HOST}:{SK_PORT}/signalk/v1/api/vessels/self/"
-                "navigation/speedOverGround/value", timeout=2) as r:
-            v = json.loads(r.read())
-            return isinstance(v, (int, float))
+        result = subprocess.run(
+            ["pgrep", "-f", "yey-boats-sim|simulator.py"],
+            capture_output=True, timeout=2)
+        return result.returncode == 0
     except Exception:
         return False
 
 
 CLEAN_SK_REQUIRED = pytest.mark.skipif(
-    _fake_boat_running(),
-    reason="fake_boat.py is publishing - stop it first (kill -HUP $(pgrep fake_boat))")
+    _simulator_running(),
+    reason="boat simulator is publishing - stop it first (kill -HUP $(pgrep -f 'yey-boats-sim|simulator.py'))")
 
 
 @pytest.fixture(autouse=True)

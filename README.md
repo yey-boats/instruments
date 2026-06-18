@@ -554,13 +554,13 @@ To exercise the firmware without a boat:
 ```sh
 make demo-up
 #   - starts signalk/signalk-server in Docker on :3000
-#   - launches tools/fake_boat.py that pushes sinusoidal nav data
+#   - launch yey-boats-sim to push synthetic nav data (see docs/sim/kdcube-simulator.md)
 make demo-down
 ```
 
-`fake_boat.py` connects to SignalK as an authenticated provider and emits
-deltas for navigation, wind, depth, water temperature, battery, and tanks
-once per second.
+`yey-boats-sim` (from `yey-boats/simulator`) connects to SignalK as an authenticated
+provider and emits a full modelled dataset at 1 Hz — nav, wind, depth, autopilot,
+AIS, current, and more.
 
 ### Development lab rig (remote SignalK + dedicated AP)
 
@@ -597,7 +597,7 @@ nc localhost 10110
 ```
 
 Expected demo output includes `GGA`, `RMC`, `HDT`, `MWV`, `VWR`, `VWT`, `DBT`,
-and `MTW` when `tools/fake_boat.py` is pushing data.
+and `MTW` when `yey-boats-sim` is pushing data.
 
 If rebuilding the local SignalK container from scratch, install and enable:
 
@@ -756,7 +756,7 @@ chars for ids/titles, 96 for SignalK paths.
 | `include/lv_conf.h` | LVGL build configuration |
 | `include/secrets.h.example` | Template for WiFi/OTA credentials |
 | `tools/ble_console.py` | BLE debug / config tool |
-| `tools/fake_boat.py` | Synthetic SignalK data pusher |
+| `yey-boats-sim` | Full-blown boat simulator (separate repo `yey-boats/simulator`; see `docs/sim/kdcube-simulator.md`) |
 | `tools/dump_chunked.sh` | Chunked, resumable full flash backup |
 
 ## Testing

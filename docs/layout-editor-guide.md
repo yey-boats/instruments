@@ -195,7 +195,7 @@ End-to-end latency from **Save** to **visible on device** is usually
   publishing on that path. Confirm by hitting
   `http://<sk-host>:3000/signalk/v1/api/vessels/self` and checking
   the path exists with a `value`. If you're in lab mode, start
-  `tools/fake_boat.py` to inject synthetic deltas.
+  `yey-boats-sim` to inject synthetic deltas (see `docs/sim/kdcube-simulator.md`).
 - **Editor changes don't show on device**: the device might be on a
   different profile. Check the Devices tab and confirm the
   `assignedProfile` matches what you edited.

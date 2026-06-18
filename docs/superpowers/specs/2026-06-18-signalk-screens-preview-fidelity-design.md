@@ -117,8 +117,9 @@ baseline; a renderer regressing to blank or diverging from baseline fails CI.
 
 - Changing the device firmware screen *designs* (device is canonical; we only serialize them).
 - Setup/built-in screens (touch_cal, touch_grid, wifi_setup, settings, demo_grid, manager).
-- The data-simulator enrichment (tracked separately; it makes route/AIS/AP data available
-  to *exercise* these previews but is not part of this rework).
+- The data-simulator enrichment (handled by `yey-boats/simulator` — the full-blown
+  `yey-boats-sim` CLI — which makes route/AIS/AP data available to *exercise* these
+  previews but is not part of this rework).
 
 ## Notes for the implementer
 
