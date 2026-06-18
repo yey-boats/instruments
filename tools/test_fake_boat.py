@@ -74,5 +74,39 @@ class TestBoatState(unittest.TestCase):
         self.assertLess(bs.cog, math.radians(90.0))
 
 
+class TestRoute(unittest.TestCase):
+    def _route(self):
+        # Two legs heading roughly east from the start area.
+        return fb.Route([(41.000, 2.000), (41.000, 2.020), (41.005, 2.040)])
+
+    def test_nav_toward_active_waypoint(self):
+        r = self._route()
+        nav = r.nav(pos=(41.000, 2.010), cog=math.radians(90.0), sog=5.0)
+        # BTW points east-ish toward wp index 1 at (41.000, 2.020)
+        self.assertAlmostEqual(math.degrees(nav["btw"]), 90.0, delta=2.0)
+        self.assertGreater(nav["dtw"], 0.0)
+        # VMG ~ sog when heading at the waypoint
+        self.assertAlmostEqual(nav["vmg"], 5.0, delta=0.5)
+
+    def test_xte_sign_right_of_track(self):
+        r = self._route()
+        # Boat south of an eastbound leg -> right of track -> positive XTE.
+        nav = r.nav(pos=(40.999, 2.010), cog=math.radians(90.0), sog=5.0)
+        self.assertGreater(nav["xte"], 0.0)
+
+    def test_advances_on_arrival(self):
+        r = self._route()
+        self.assertEqual(r.index, 1)
+        # Sit essentially on top of waypoint 1.
+        r.nav(pos=(41.000, 2.0200), cog=math.radians(90.0), sog=5.0)
+        self.assertEqual(r.index, 2)
+
+    def test_finished_after_last_waypoint(self):
+        r = self._route()
+        r.nav(pos=(41.000, 2.0200), cog=0.0, sog=5.0)  # arrive wp1 -> index 2
+        r.nav(pos=(41.005, 2.0400), cog=0.0, sog=5.0)  # arrive wp2 -> finished
+        self.assertTrue(r.finished)
+
+
 if __name__ == "__main__":
     unittest.main()

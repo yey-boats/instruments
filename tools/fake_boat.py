@@ -93,6 +93,43 @@ class BoatState:
         self.lat, self.lon = dead_reckon(self.lat, self.lon, self.cog, sog, dt)
 
 
+# --- route ---
+
+class Route:
+    """Ordered waypoints. Derives track/waypoint nav relative to the boat's
+    moving position. Advances to the next waypoint on arrival."""
+
+    ARRIVAL_M = 60.0  # metres; within this of the active waypoint -> advance
+
+    def __init__(self, waypoints):
+        self.waypoints = list(waypoints)
+        self.index = 1  # active waypoint; leg is waypoints[index-1] -> waypoints[index]
+        self.finished = False
+
+    def active(self):
+        return self.waypoints[self.index]
+
+    def nav(self, pos, cog, sog):
+        """Return dict {xte, cts, btw, dtw, vmg} for the active leg, advancing
+        the waypoint index if we have arrived. Returns None when finished."""
+        if self.finished:
+            return None
+        leg_start = self.waypoints[self.index - 1]
+        wp = self.waypoints[self.index]
+        btw = bearing(pos, wp)
+        dtw = distance(pos, wp)
+        cts = bearing(leg_start, wp)  # course to steer = the leg bearing
+        xte = cross_track(leg_start, wp, pos)
+        vmg = sog * math.cos(_wrap_pi(btw - cog))
+        result = {"xte": xte, "cts": cts, "btw": btw, "dtw": dtw, "vmg": vmg}
+        if dtw < self.ARRIVAL_M:
+            if self.index + 1 < len(self.waypoints):
+                self.index += 1
+            else:
+                self.finished = True
+        return result
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="SignalK boat-data simulator")
     p.add_argument("host", nargs="?", default="localhost")
