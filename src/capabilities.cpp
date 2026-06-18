@@ -2,6 +2,7 @@
 
 #include "font_resolver.h"
 #include "layout.h"
+#include "marker_math.h"
 
 namespace capabilities {
 
@@ -82,7 +83,15 @@ void build_manifest(JsonObject out) {
 
     out["maxViews"] = (int)layout::MAX_SCREENS;
     out["maxTilesPerScreen"] = (int)layout::MAX_TILES_PER_SCREEN;
+    out["maxMarkersPerDial"] = (int)ui::kMaxMarkersPerDial;
     out["paths"] = "open";  // generic path store renders any path (Slice 1)
+
+    // Marker glyph token set the firmware can render, in marker_math's canonical
+    // order. Single source of truth so firmware, manifest, and editor stay in
+    // lockstep (see marker_math.h).
+    JsonArray glyphs = out["glyphs"].to<JsonArray>();
+    for (uint8_t i = 0; i < (uint8_t)ui::GlyphId::COUNT; ++i)
+        glyphs.add(ui::glyph_to_token((ui::GlyphId)i));
 
     JsonArray controls = out["controls"].to<JsonArray>();
     controls.add("autopilot");
