@@ -484,35 +484,6 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     }
 }
 
-// A direction marker that orbits OUTSIDE the ring (so it never overlaps the
-// centre number): a transparent holder concentric with the ring, pivoting at
-// its centre, carrying a triangle (LV_SYMBOL_DOWN) at its top edge. Rotating
-// the holder (transform_rotation, 0.1° units) sweeps the triangle around the
-// outside of the dial, always pointing inward. `cy_off` matches the ring's
-// vertical alignment offset in the tile. Returned in t.aux2 so update spins it.
-static lv_obj_t *make_dir_marker(lv_obj_t *parent, int dia, int cy_off, uint32_t color) {
-    const int margin = 18;  // triangle sits this far outside the ring edge
-    const int side = dia + 2 * margin;
-    lv_obj_t *h = lv_obj_create(parent);
-    lv_obj_set_size(h, side, side);
-    lv_obj_align(h, LV_ALIGN_CENTER, 0, cy_off);  // concentric with the ring
-    lv_obj_set_style_bg_opa(h, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(h, 0, 0);
-    lv_obj_set_style_pad_all(h, 0, 0);
-    lv_obj_set_style_transform_pivot_x(h, side / 2, 0);
-    lv_obj_set_style_transform_pivot_y(h, side / 2, 0);
-    lv_obj_clear_flag(h, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *tri = lv_label_create(h);
-    lv_label_set_text(tri, LV_SYMBOL_DOWN);  // points inward at rotation 0
-    lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
-    lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -4);
-    lv_obj_clear_flag(tri, LV_OBJ_FLAG_CLICKABLE);
-    return h;
-}
-
 // Compass widget: round bezel with accent border, heading number in the
 // center, small "▲" marker at top, CTS label at bottom. Mirrors editor
 // .wpreview .compass.
@@ -912,18 +883,6 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
 
     lv_obj_set_user_data(root, st);
     return root;
-}
-
-// Rotate a tile's needle (t.aux2) to `deg` (display degrees, 0 = up/N).
-// Quantized to whole degrees; last value cached in t.last_aux_pct to skip
-// redundant transforms. No-op if the tile has no needle or data is NaN.
-static void rotate_needle(QuadGridTile &t, double deg) {
-    if (!t.aux2 || isnan(deg)) return;
-    int d = ((int)lround(deg)) % 360;
-    if (d < 0) d += 360;
-    if (d == t.last_aux_pct) return;
-    lv_obj_set_style_transform_rotation(t.aux2, d * 10, 0);
-    t.last_aux_pct = d;
 }
 
 static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
