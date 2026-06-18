@@ -306,8 +306,122 @@ def parse_args(argv=None):
     return p.parse_args(argv)
 
 
-async def run(args):  # replaced in Task 8
-    raise NotImplementedError
+# --- simulator + loop ---
+
+START = (41.3851, 2.1734)  # Barcelona-ish, matches the original sim
+
+
+def _route_from(start):
+    # Three legs trending NE from the start; ~1-2 km each so legs advance.
+    wps = [start]
+    pos, brg = start, math.radians(50.0)
+    for _ in range(3):
+        pos = dead_reckon(pos[0], pos[1], brg, 1500.0, 1.0)
+        wps.append(pos)
+        brg = (brg + math.radians(20.0)) % (2 * math.pi)
+    return Route(wps)
+
+
+class Simulator:
+    def __init__(self, steady=False, ais=4):
+        self.phase = PhaseScheduler(steady=steady)
+        self.boat = BoatState(lat=START[0], lon=START[1], cog=math.radians(50.0))
+        self.fleet = AisFleet(center=START)
+        self.route = _route_from(START)
+        self.ais_max = ais
+        self._static_at = -1e9
+
+    def tick(self, t, dt):
+        # Environment sinusoids (unchanged character from the original sim).
+        sog = 4.0 + 1.5 * math.sin(t / 30)
+        awa = math.radians(35 + 20 * math.sin(t / 12))
+        aws = 6.0 + 2 * math.cos(t / 18)
+        twa = awa + 0.1
+        tws = aws + 1.5
+        depth = 12.0 + 4 * math.sin(t / 45)
+        water_temp = 273.15 + 19 + math.sin(t / 600)
+        battv = 12.7 + 0.2 * math.sin(t / 90)
+        current_set = math.radians((210 + 30 * math.sin(t / 120)) % 360)
+        current_drift = 0.7 + 0.4 * math.sin(t / 75)
+
+        # Route phase -> derived nav; steer the boat down the leg when active.
+        nav = None
+        route_on = self.phase.route_active(t) and not self.route.finished
+        if route_on:
+            preview = self.route.nav((self.boat.lat, self.boat.lon), self.boat.cog, sog)
+            desired_cog = preview["btw"] + math.radians(3.0 * math.sin(t / 20))
+        else:
+            desired_cog = math.radians((50 + 10 * math.sin(t / 60)) % 360)
+        self.boat.step(dt, desired_cog, sog)
+        if route_on:
+            nav = self.route.nav((self.boat.lat, self.boat.lon), self.boat.cog, sog)
+
+        # Autopilot phase.
+        ap_mode = self.phase.ap_mode(t)
+        ap_target = None
+        if ap_mode == "auto":
+            ap_target = self.boat.cog
+        elif ap_mode == "wind":
+            ap_target = (self.boat.cog - twa) % (2 * math.pi)  # hold current TWA
+
+        # AIS fleet.
+        self.fleet.set_count(self.phase.ais_count(t, self.ais_max))
+        self.fleet.step(dt)
+        closest = None
+        near = self.fleet.nearest((self.boat.lat, self.boat.lon))
+        if near is not None:
+            closest = {
+                "bearing": bearing((self.boat.lat, self.boat.lon), (near.lat, near.lon)),
+                "distance": distance((self.boat.lat, self.boat.lon), (near.lat, near.lon)),
+            }
+
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        heading = self.boat.cog + 0.05
+        deltas = [build_self_delta(
+            (self.boat.lat, self.boat.lon), sog, self.boat.cog, heading,
+            awa, aws, twa, tws, depth, water_temp, battv,
+            current_set, current_drift, nav, ap_mode, ap_target, closest, ts)]
+
+        include_static = (t - self._static_at) >= 6.0
+        if include_static:
+            self._static_at = t
+        for v in self.fleet.vessels:
+            deltas.append(build_ais_delta(v, ts, include_static))
+        return deltas
+
+
+async def _login_token(host, port):
+    login = {"username": "admin", "password": "admin"}
+    req = urllib.request.Request(
+        "http://%s:%d/signalk/v1/auth/login" % (host, port),
+        data=json.dumps(login).encode(), headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read().decode())["token"]
+
+
+async def run(args):
+    sim = Simulator(steady=args.steady, ais=args.ais)
+    if args.dump:
+        for tick in range(0, 3):  # a few ticks is enough for inspection/smoke
+            for d in sim.tick(float(tick), 1.0):
+                print(json.dumps(d))
+        return
+
+    import websockets  # lazy: unit tests and --dump don't need it
+    token = await _login_token(args.host, args.port)
+    print("got token len=%d" % len(token))
+    uri = "ws://%s:%d/signalk/v1/stream?subscribe=none&token=%s" % (
+        args.host, args.port, token)
+    print("connecting (authenticated)")
+    async with websockets.connect(uri) as ws:
+        hello = await ws.recv()
+        print("server hello: %s..." % hello[:120])
+        t0 = time.time()
+        while True:
+            t = time.time() - t0
+            for d in sim.tick(t, 1.0):
+                await ws.send(json.dumps(d))
+            await asyncio.sleep(1.0)
 
 
 def main(argv=None):

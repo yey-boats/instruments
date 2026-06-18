@@ -244,5 +244,34 @@ class TestDeltaBuilders(unittest.TestCase):
         self.assertIn("navigation.position", m)
 
 
+class TestTick(unittest.TestCase):
+    def test_steady_tick_emits_all_feature_paths(self):
+        sim = fb.Simulator(steady=True, ais=4)
+        deltas = sim.tick(t=0.0, dt=1.0)          # list of delta dicts
+        self_delta = deltas[0]
+        m = _values_to_map(self_delta)
+        # route active
+        self.assertIn("navigation.courseRhumbline.crossTrackError", m)
+        self.assertIn("navigation.courseRhumbline.nextPoint.distance", m)
+        # autopilot engaged with a target
+        self.assertEqual(m["steering.autopilot.state"], "auto")
+        self.assertIn("steering.autopilot.target.headingTrue", m)
+        # polar + keel
+        self.assertIn("performance.beatAngle", m)
+        self.assertIn("environment.depth.belowKeel", m)
+        # closest-approach marker path present (fleet non-empty in steady)
+        self.assertIn("navigation.closestApproach.bearingTrue", m)
+        # at least one AIS context
+        ais_ctxs = [d for d in deltas if d["context"].startswith("vessels.urn:")]
+        self.assertGreaterEqual(len(ais_ctxs), 1)
+
+    def test_xte_consistent_with_offset(self):
+        sim = fb.Simulator(steady=True, ais=0)
+        sim.boat.lat -= 0.002  # nudge south of an eastbound leg -> right of track
+        deltas = sim.tick(t=0.0, dt=0.0)
+        m = _values_to_map(deltas[0])
+        self.assertGreater(m["navigation.courseRhumbline.crossTrackError"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
