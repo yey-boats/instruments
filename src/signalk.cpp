@@ -183,6 +183,19 @@ static SubscriptionSet &g_desired() {
 // from s_data_mtx so the SK task never blocks the parser hot path on it.
 static SemaphoreHandle_t s_sub_mtx = nullptr;
 static volatile bool s_subs_dirty = false;
+// Wall-clock of the most recent desired-set change (a screen switch).
+// Asymmetric apply: ADD subscriptions almost immediately (a brief settle so a
+// flurry of switches coalesces), but DEFER reductions until the screen has been
+// stable for SUBS_REDUCE_STABLE_MS. Reductions force this SignalK server to
+// close the WS (it does so on any unsubscribe), so deferring means browsing
+// through screens never thrashes the socket; only settling on a screen pays a
+// single brief reconnect to trim its subscription. A (re)connect sets the
+// change time in the past so the resubscribe applies at once (data resumes).
+static volatile uint32_t s_subs_change_ms = 0;
+static uint32_t s_last_pump_ms = 0;
+static constexpr uint32_t SUBS_ADD_DEBOUNCE_MS = 300;    // settle adds briefly
+static constexpr uint32_t SUBS_REDUCE_STABLE_MS = 4000;  // only reduce when settled
+static constexpr uint32_t SUBS_PUMP_MIN_MS = 500;        // deferred-reduce retry cadence
 
 static void fill_baseline(SubscriptionSet &s) {
     for (auto p : BASELINE_PATHS)
@@ -217,10 +230,25 @@ static void send_sub_message(const SubscriptionSet &set, bool subscribe_op) {
     ws.sendTXT(out);
 }
 
+// SK-task: one wildcard unsubscribe (clears the server's whole subscription for
+// our context). Used by the reduce path instead of per-path unsubscribe, which
+// makes the server drop the socket. The caller re-subscribes the desired set.
+static void send_unsubscribe_all() {
+    JsonDocument doc(&espdisp::psram_json);
+    doc["context"] = "vessels.self";
+    JsonObject o = doc["unsubscribe"].to<JsonArray>().add<JsonObject>();
+    o["path"] = "*";
+    String out;
+    serializeJson(doc, out);
+    ws.sendTXT(out);
+}
+
 // SK-task: diff g_desired vs g_active and send the incremental sub/unsub. The
 // toAdd/toRemove scratch sets are static (single-task = race-free) so we never
 // build ~5 KB structs on this task's 6 KB stack.
-static void apply_subscription_diff() {
+// Returns true when the desired state is fully applied (clear the dirty flag),
+// false when a reduction was deferred for stability (keep retrying).
+static bool apply_subscription_diff() {
     static SubscriptionSet toAdd;     // SK-task-local, never on the stack
     static SubscriptionSet toRemove;  // (see CLAUDE.md large-struct trap)
     SubscriptionSet &active = g_active();
@@ -233,25 +261,54 @@ static void apply_subscription_diff() {
     if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
 
     diff(desired, active, toAdd, toRemove);
-    if (toAdd.size() == 0 && toRemove.size() == 0) return;
+    if (toAdd.size() == 0 && toRemove.size() == 0) return true;
 
-    send_sub_message(toAdd, /*subscribe_op=*/true);
-    send_sub_message(toRemove, /*subscribe_op=*/false);
-    active = desired;  // g_active = desired
+    // Additions never make the server close the socket -> apply at once so a new
+    // screen's values populate immediately.
+    if (toAdd.size() > 0) {
+        send_sub_message(toAdd, /*subscribe_op=*/true);
+        for (int i = 0; i < toAdd.size(); ++i)
+            active.add(toAdd.at(i));  // active grows to the union
+    }
+
+    // Reductions: this SignalK server CLOSES the WebSocket on ANY unsubscribe
+    // (per-path AND wildcard, both confirmed by soak). So only reduce once the
+    // screen has been STABLE for SUBS_REDUCE_STABLE_MS — browsing through screens
+    // keeps growing `active` (no disconnects) and only settling pays one brief
+    // reconnect to trim. Until then, defer (stay dirty, retried by the pump).
+    bool stable = (uint32_t)(millis() - s_subs_change_ms) >= SUBS_REDUCE_STABLE_MS;
+    if (toRemove.size() > 0 && !stable) {
+        if (toAdd.size() > 0)
+            net::logf("[sk] subs +%d (active=%d; reduce -%d deferred)", toAdd.size(), active.size(),
+                      toRemove.size());
+        return false;  // keep s_subs_dirty: retry the reduce when settled
+    }
+    if (toRemove.size() > 0) {
+        // The wildcard unsubscribe trips the server close; the reconnect path
+        // (reset_subscriptions_on_connect) re-subscribes `desired`. We still send
+        // the resubscribe here in case this server build tolerates it.
+        send_unsubscribe_all();
+        send_sub_message(desired, /*subscribe_op=*/true);
+        active = desired;
+    }
 #ifdef DBG_PERF_COUNTERS
     g_bench_sub_count = active.size();
 #endif
     net::logf("[sk] subs +%d -%d (active=%d)", toAdd.size(), toRemove.size(), active.size());
+    return true;
 }
 
 // SK-task: pump pending subscription changes. Called from the SK loop while
-// connected. Also re-asserts the desired set after a (re)connect, where
-// g_active was reset to empty so everything desired is re-sent.
+// connected. Re-asserts the desired set after a (re)connect, and otherwise
+// applies adds (after a brief settle) and reductions (after a longer settle).
 static void pump_subscriptions() {
     if (!data.connected) return;
     if (!s_subs_dirty) return;
-    s_subs_dirty = false;
-    apply_subscription_diff();
+    uint32_t now = millis();
+    if ((uint32_t)(now - s_subs_change_ms) < SUBS_ADD_DEBOUNCE_MS) return;  // settle adds
+    if ((uint32_t)(now - s_last_pump_ms) < SUBS_PUMP_MIN_MS) return;        // retry cadence
+    s_last_pump_ms = now;
+    if (apply_subscription_diff()) s_subs_dirty = false;  // false -> reduce deferred
 }
 
 // On WS (re)connect: forget what the server had (a fresh stream subscribes
@@ -268,6 +325,9 @@ static void reset_subscriptions_on_connect() {
     }
     if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
     s_subs_dirty = true;
+    // Apply immediately on (re)connect (bypass the debounce) so data resumes
+    // without a 1.5 s delay after a WS drop.
+    s_subs_change_ms = millis() - SUBS_REDUCE_STABLE_MS - 1;
 }
 
 void setDesiredPaths(const SubscriptionSet &screenPaths) {
@@ -279,6 +339,7 @@ void setDesiredPaths(const SubscriptionSet &screenPaths) {
     for (int i = 0; i < screenPaths.size(); ++i)
         d.add(screenPaths.at(i));
     s_subs_dirty = true;
+    s_subs_change_ms = millis();  // (re)arm the debounce window
     if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
 }
 
