@@ -74,7 +74,7 @@ A compass-like widget = an optional **center value** + a **reference** + a
       "path": "navigation.headingTrue" },
     { "id": 2, "glyph": "triangle", "filled": false, "color": "good",
       "path": "navigation.courseOverGroundTrue" },
-    { "id": 3, "glyph": "diamond",  "filled": true,  "color": "warn",
+    { "id": 3, "glyph": "diamond",  "filled": true,  "color": "alarm",
       "path": "navigation.courseRhumbline.bearingTrackTrue" }
   ]
 }
@@ -197,7 +197,7 @@ All build/refresh runs on the UI/LVGL task (per the "LVGL only on UI task" rule)
 
 - **Steering tile compass** (`ui_layouts.cpp` `paint_compass_body`): replace the
   single `aux2` direction marker with a `MarkerRing`. Default list
-  **HDG ▲filled (accent) / COG △hollow (good) / CTS ◆filled (warn)**,
+  **HDG ▲filled (accent) / COG △hollow (good) / CTS ◆filled (alarm — amber reserved for the AP-target/TWD diamonds)**,
   `reference = north` (the tile keeps its static N/E/S/W bezel, so markers sit at
   true bearings; HDG is still the big center number). The CTS text line stays.
 - **Autopilot HUD** (`ui_compass.cpp` build + `screen_autopilot.cpp` refresh):

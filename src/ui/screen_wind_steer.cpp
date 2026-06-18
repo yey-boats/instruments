@@ -347,14 +347,14 @@ void refresh() {
     double hdg_b = hdg;
     double cog_b = isnan(d.cogTrue) ? NAN : rad_to_deg_pos(d.cogTrue);
     double cts_b = isnan(d.cts) ? NAN : rad_to_deg_pos(d.cts);
-    ui::MarkerSpec wind_live[4] = {
+    ui::MarkerSpec steer_live[4] = {
         {hdg_b, ui::Glyph::Triangle, true, theme.accent},
         {cog_b, ui::Glyph::Triangle, false, theme.good},
         {cts_b, ui::Glyph::Diamond, true, theme.alarm},
         {twd, ui::Glyph::Diamond, true, theme.warn},
     };
     double wind_ref = isnan(hdg) ? 0.0 : hdg;
-    ui::marker_ring_update(s_cp.markers, wind_live, 4, wind_ref);
+    ui::marker_ring_update(s_cp.markers, steer_live, 4, wind_ref);
 
     // XTE needle (same as AP).
     if (!isnan(d.xte)) {

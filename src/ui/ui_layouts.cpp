@@ -507,11 +507,13 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     t.aux = ring;
 
     // Steering marker set: HDG (solid triangle), COG (hollow triangle),
-    // CTS (solid diamond). Bearings filled live in update from metric_scalar().
+    // CTS (solid diamond, alarm/red). Bearings filled live in update from
+    // metric_scalar(). Amber is reserved for the AP-target / TWD diamonds so
+    // CTS and target stay distinguishable on the AP HUD.
     ui::MarkerSpec steer_markers[3] = {
         {NAN, ui::Glyph::Triangle, true, theme.accent},
         {NAN, ui::Glyph::Triangle, false, theme.good},
-        {NAN, ui::Glyph::Diamond, true, theme.warn},
+        {NAN, ui::Glyph::Diamond, true, theme.alarm},
     };
     t.markers = ui::build_marker_ring(t.root, w / 2, h / 2 + 4, dia / 2, steer_markers, 3,
                                       /*occlude_lower=*/false);
@@ -962,7 +964,7 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                 ui::MarkerSpec live[3] = {
                     {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
                     {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
-                    {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.warn},
+                    {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
                 };
                 // Fixed-bezel north-up tile: markers sit at their true bearings (HDG/COG/CTS),
                 // matching the static N/E/S/W cardinals. (The AP HUD, whose scale rotates, is
