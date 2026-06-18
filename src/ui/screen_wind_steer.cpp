@@ -134,7 +134,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // Wind display: LIGHT marks on the outer band -- a faint red no-go tint and
     // crisp slim green layline marks -- so the white band and scale numbers stay
-    // clear. Raise the ticks / numbers / bug / lubber back above them.
+    // clear. Raise the ticks / numbers / lubber back above them.
     int band_r = s_cp.r - 10;  // outer edge of the white band
     nogo = make_sector(s_cp.root, s_cp.cx, s_cp.cy, band_r, 14, theme.alarm);
     lv_obj_set_style_arc_opa(nogo, LV_OPA_40, LV_PART_MAIN);
@@ -144,8 +144,21 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_move_foreground(s_cp.scale);
     for (int i = 0; i < 12; ++i)
         if (s_cp.nums[i]) lv_obj_move_foreground(s_cp.nums[i]);
-    lv_obj_move_foreground(s_cp.bug);
     lv_obj_move_foreground(s_cp.lubber);
+
+    // Steering marker ring -> HDG/COG/CTS + amber TWD bug, heading-up. Built on
+    // s_root (not the dial-sized compass root, which would clip it) at the
+    // compass's screen-space centre; r - 42 lands the glyphs on the white band
+    // just inside the rail (same as the AP HUD). occlude_lower hides them in the
+    // bottom half. Driven by marker_ring_update in refresh().
+    ui::MarkerSpec ws_markers[4] = {
+        {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG (under lubber at offset 0)
+        {NAN, ui::Glyph::Triangle, false, theme.good},   // COG
+        {NAN, ui::Glyph::Diamond, true, theme.alarm},    // CTS
+        {NAN, ui::Glyph::Diamond, true, theme.warn},     // TWD wind bug (amber)
+    };
+    s_cp.markers = ui::build_marker_ring(s_root, scx, scy, s_cp.r - ui::kSemiMarkerInset,
+                                         ws_markers, 4, /*occlude_lower=*/true);
 
     // --- centre readouts (over the dial face) --- HDG + wind sub-line ---
     lv_obj_t *cap = lv_label_create(s_root);
@@ -216,8 +229,6 @@ static char s_last_awa[12] = {(char)0xFF};
 static char s_last_tws[12] = {(char)0xFF};
 static char s_last_twa[12] = {(char)0xFF};
 static int16_t s_last_scale_rot = INT16_MIN;
-static int16_t s_last_bug_rot = INT16_MIN;
-static int8_t s_last_bug_hidden = -1;
 static int s_last_xte_x = INT16_MIN;
 
 static double norm360(double d) {
@@ -325,15 +336,25 @@ void refresh() {
         lv_obj_clear_flag(nogo, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(target_a, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(target_b, LV_OBJ_FLAG_HIDDEN);
-        // Amber wind bug points at the wind direction.
-        set_rot_if_changed(s_cp.bug, &s_last_bug_rot, deg_to_lvgl(twd_rel));
-        set_hidden_if_changed(s_cp.bug, &s_last_bug_hidden, false);
     } else {
         lv_obj_add_flag(nogo, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(target_a, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(target_b, LV_OBJ_FLAG_HIDDEN);
-        set_hidden_if_changed(s_cp.bug, &s_last_bug_hidden, true);
     }
+
+    // Steering marker ring -> HDG/COG/CTS + amber TWD bug (heading-up). Bearings
+    // match the AP HUD exactly; marker_ring_update hides any NaN marker.
+    double hdg_b = hdg;
+    double cog_b = isnan(d.cogTrue) ? NAN : rad_to_deg_pos(d.cogTrue);
+    double cts_b = isnan(d.cts) ? NAN : rad_to_deg_pos(d.cts);
+    ui::MarkerSpec steer_live[4] = {
+        {hdg_b, ui::Glyph::Triangle, true, theme.accent},
+        {cog_b, ui::Glyph::Triangle, false, theme.good},
+        {cts_b, ui::Glyph::Diamond, true, theme.alarm},
+        {twd, ui::Glyph::Diamond, true, theme.warn},
+    };
+    double wind_ref = isnan(hdg) ? 0.0 : hdg;
+    ui::marker_ring_update(s_cp.markers, steer_live, 4, wind_ref);
 
     // XTE needle (same as AP).
     if (!isnan(d.xte)) {

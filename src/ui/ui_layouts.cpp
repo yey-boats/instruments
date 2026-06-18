@@ -6,6 +6,7 @@
 #include "ui_data.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
+#include "ui_markers.h"
 #include "signalk.h"
 #include "ui_screens.h"
 #include "board_pins.h"
@@ -37,8 +38,9 @@ struct QuadGridTile {
     lv_obj_t *extras[4];  // multi-row tiles - small label+value lines
     // Per-kind auxiliary widgets (compass needle, gauge arc, bar, etc.).
     // Painter sets only the slots it needs; updater uses them via `kind`.
-    lv_obj_t *aux;   // primary aux widget (arc / bar / ring)
-    lv_obj_t *aux2;  // secondary aux (gauge needle / autopilot pill)
+    lv_obj_t *aux;           // primary aux widget (arc / bar / ring)
+    lv_obj_t *aux2;          // secondary aux (gauge needle / autopilot pill)
+    ui::MarkerRing markers;  // compass steering markers (HDG/COG/CTS)
     char last_value[24];
     char last_secondary[24];
     char last_extras[4][32];
@@ -537,35 +539,6 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     }
 }
 
-// A direction marker that orbits OUTSIDE the ring (so it never overlaps the
-// centre number): a transparent holder concentric with the ring, pivoting at
-// its centre, carrying a triangle (LV_SYMBOL_DOWN) at its top edge. Rotating
-// the holder (transform_rotation, 0.1° units) sweeps the triangle around the
-// outside of the dial, always pointing inward. `cy_off` matches the ring's
-// vertical alignment offset in the tile. Returned in t.aux2 so update spins it.
-static lv_obj_t *make_dir_marker(lv_obj_t *parent, int dia, int cy_off, uint32_t color) {
-    const int margin = 18;  // triangle sits this far outside the ring edge
-    const int side = dia + 2 * margin;
-    lv_obj_t *h = lv_obj_create(parent);
-    lv_obj_set_size(h, side, side);
-    lv_obj_align(h, LV_ALIGN_CENTER, 0, cy_off);  // concentric with the ring
-    lv_obj_set_style_bg_opa(h, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(h, 0, 0);
-    lv_obj_set_style_pad_all(h, 0, 0);
-    lv_obj_set_style_transform_pivot_x(h, side / 2, 0);
-    lv_obj_set_style_transform_pivot_y(h, side / 2, 0);
-    lv_obj_clear_flag(h, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(h, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *tri = lv_label_create(h);
-    lv_label_set_text(tri, LV_SYMBOL_DOWN);  // points inward at rotation 0
-    lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
-    lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -4);
-    lv_obj_clear_flag(tri, LV_OBJ_FLAG_CLICKABLE);
-    return h;
-}
-
 // Compass widget: round bezel with accent border, heading number in the
 // center, small "▲" marker at top, CTS label at bottom. Mirrors editor
 // .wpreview .compass.
@@ -588,9 +561,17 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
     t.aux = ring;
 
-    // Heading triangle orbiting OUTSIDE the ring (rotated live to the heading
-    // bearing). Keeps the direction indicator clear of the centre number.
-    t.aux2 = make_dir_marker(t.root, dia, 4, theme.accent);
+    // Steering marker set: HDG (solid triangle), COG (hollow triangle),
+    // CTS (solid diamond, alarm/red). Bearings filled live in update from
+    // metric_scalar(). Amber is reserved for the AP-target / TWD diamonds so
+    // CTS and target stay distinguishable on the AP HUD.
+    ui::MarkerSpec steer_markers[3] = {
+        {NAN, ui::Glyph::Triangle, true, theme.accent},
+        {NAN, ui::Glyph::Triangle, false, theme.good},
+        {NAN, ui::Glyph::Diamond, true, theme.alarm},
+    };
+    t.markers = ui::build_marker_ring(t.root, w / 2, h / 2 + 4, dia / 2, steer_markers, 3,
+                                      /*occlude_lower=*/false);
 
     // N/E/S/W cardinals: padded in from the ring border so they don't
     // visually merge with the heading number (which is centered).
@@ -739,9 +720,16 @@ static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
     t.aux = ring;
 
-    // Apparent-wind triangle orbiting OUTSIDE the ring (rotated live to AWA),
-    // so it never overlaps the centre AWS number.
-    t.aux2 = make_dir_marker(t.root, dia, 4, theme.warn);
+    // Apparent + true wind heads orbiting OUTSIDE the ring (bow-up, bow-relative),
+    // so they never overlap the centre AWS number. Apparent = filled amber chevron
+    // pointing in; true = hollow green chevron pointing out. Bearings filled live
+    // in update from metric_scalar(); reference is the bow (0).
+    ui::MarkerSpec wind_markers[2] = {
+        {NAN, ui::Glyph::ChevronIn, true, theme.warn},    // apparent wind
+        {NAN, ui::Glyph::ChevronOut, false, theme.good},  // true wind
+    };
+    t.markers = ui::build_marker_ring(t.root, w / 2, h / 2 + 4, dia / 2, wind_markers, 2,
+                                      /*occlude_lower=*/false);
 
     // Wind speed (AWS) is the hero number, sized to dominate the ring (the
     // marker is now outside, so the number can fill the dial).
@@ -964,18 +952,6 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
     return root;
 }
 
-// Rotate a tile's needle (t.aux2) to `deg` (display degrees, 0 = up/N).
-// Quantized to whole degrees; last value cached in t.last_aux_pct to skip
-// redundant transforms. No-op if the tile has no needle or data is NaN.
-static void rotate_needle(QuadGridTile &t, double deg) {
-    if (!t.aux2 || isnan(deg)) return;
-    int d = ((int)lround(deg)) % 360;
-    if (d < 0) d += 360;
-    if (d == t.last_aux_pct) return;
-    lv_obj_set_style_transform_rotation(t.aux2, d * 10, 0);
-    t.last_aux_pct = d;
-}
-
 static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
     if (!root) return;
     auto *st = (QuadGridState *)lv_obj_get_user_data(root);
@@ -1044,22 +1020,42 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                 ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
                                         cts);
             }
-            // Spin the heading needle live to the heading bearing.
-            rotate_needle(t, metric_scalar(m, data));
+            // Markers: HDG/COG/CTS bearings at their true (north-up) bearings.
+            {
+                MetricBinding hdg = {}, cog = {}, cts = {};
+                hdg.source = MetricSource::HDG_deg;
+                cog.source = MetricSource::COG_deg;
+                cts.source = MetricSource::CTS_deg;
+                ui::MarkerSpec live[3] = {
+                    {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
+                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
+                    {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
+                };
+                // Fixed-bezel north-up tile: markers sit at their true bearings (HDG/COG/CTS),
+                // matching the static N/E/S/W cardinals. (The AP HUD, whose scale rotates, is
+                // heading-up; this round tile is not.)
+                ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
+            }
             break;
         default:
-            // Numeric, Compass, WindRose, Text, Trend fallback - all use
+            // Numeric, WindRose, Text, Trend fallback - all use
             // the value/secondary text slots populated by format_metric.
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
             if (t.secondary) {
                 ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
                                         sec);
             }
-            // WindRose: spin the apparent-wind needle to AWA.
+            // WindRose: apparent + true wind heads, bow-up and bow-relative
+            // (AWA/TWA are angles relative to the bow, 0 = wind from ahead).
             if (t.kind == WidgetKind::WindRose) {
-                MetricBinding awa = {};
+                MetricBinding awa = {}, twa = {};
                 awa.source = MetricSource::AWA_deg;
-                rotate_needle(t, metric_scalar(awa, data));
+                twa.source = MetricSource::TWA_deg;
+                ui::MarkerSpec wind[2] = {
+                    {metric_scalar(awa, data), ui::Glyph::ChevronIn, true, theme.warn},
+                    {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
+                };
+                ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);  // bow-up rose
             }
             break;
         }

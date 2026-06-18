@@ -16,7 +16,8 @@
 #include <string.h>
 
 // Reference glass-cockpit autopilot HUD. A semicircular heading compass with a
-// rotating scale, a fixed red lubber, and an amber target bug; a big HDG value
+// rotating scale, a fixed red lubber, and a HDG/COG/CTS + amber AP-target marker
+// ring orbiting the rim; a big HDG value
 // with a COG/SOG sub-line inside the arc; a cross-track-error strip; and a row
 // of numeric tiles (DEPTH / SPEED / AWS / AWA). Controls are touch + the
 // external network knob:
@@ -270,6 +271,25 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_width(lbl_cogsog, LCD_W);
     lv_obj_set_pos(lbl_cogsog, scx - LCD_W / 2, scy - 4);
 
+    // --- HDG/COG/CTS + AP-target marker ring ---
+    // Built on s_root (the full screen), NOT on the compass root: the compass
+    // root is sized exactly to the dial and would clip any glyph orbiting near
+    // its top/sides. Centered at the compass's screen-space center (scx, scy).
+    // A holder glyph orbits ~16px OUTSIDE the radius passed here (make_holder's
+    // MARGIN), so we pass r - 42 to land the glyphs on the white band just inside
+    // the green rail (at ~r - 26) — clear of the top bar above the dial AND the
+    // inset degree labels (LABEL_INSET = 44). occlude_lower hides the bottom half
+    // (it would overlap the XTE strip / tiles). Built AFTER the center readouts so
+    // it draws on top. glyph/filled/color are baked here; bearings fill in refresh.
+    ui::MarkerSpec ap_markers[4] = {
+        {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG (under the red lubber at offset 0)
+        {NAN, ui::Glyph::Triangle, false, theme.good},   // COG
+        {NAN, ui::Glyph::Diamond, true, theme.alarm},    // CTS
+        {NAN, ui::Glyph::Diamond, true, theme.warn},     // AP target (amber bug), hidden until set
+    };
+    s_cp.markers = ui::build_marker_ring(s_root, scx, scy, s_cp.r - ui::kSemiMarkerInset,
+                                         ap_markers, 4, /*occlude_lower=*/true);
+
     // --- dial tap zones (left = port/-, right = stbd/+) ---
     int dz_y = coy + 20;
     int dz_h = s_cp.r - 10;
@@ -323,8 +343,6 @@ static char s_last_speed[12] = {(char)0xFF};
 static char s_last_aws[12] = {(char)0xFF};
 static char s_last_awa[12] = {(char)0xFF};
 static int16_t s_last_scale_rot = INT16_MIN;
-static int16_t s_last_bug_rot = INT16_MIN;
-static int8_t s_last_bug_hidden = -1;
 static int s_last_xte_x = INT16_MIN;
 
 static int16_t deg_to_lvgl(double deg) {
@@ -376,15 +394,24 @@ void refresh() {
         ui::compass_layout_labels(s_cp, label_hdg);
     }
 
-    // Target bug: (target - heading), hidden when no target.
-    double target = !isnan(s_target_local) ? s_target_local : d.apTargetHdg;
-    if (!isnan(target) && !isnan(hdg_deg)) {
-        double rel = rad_to_deg_pos(target) - hdg_deg;
-        set_rot_if_changed(s_cp.bug, &s_last_bug_rot, deg_to_lvgl(rel));
-        set_hidden_if_changed(s_cp.bug, &s_last_bug_hidden, false);
-    } else {
-        set_hidden_if_changed(s_cp.bug, &s_last_bug_hidden, true);
-    }
+    // Marker ring: HDG/COG/CTS + AP target. The reference is HDG (heading-up,
+    // matching the rotating scale), so the HDG marker rides at offset 0 under the
+    // red lubber. The target uses the local pending nudge if set, else the AP's
+    // reported target; NaN hides any marker.
+    double hdg_b = hdg_deg;
+    double cog_b = isnan(d.cogTrue) ? NAN : rad_to_deg_pos(d.cogTrue);
+    double cts_b = isnan(d.cts) ? NAN : rad_to_deg_pos(d.cts);
+    double tgt_b = !isnan(s_target_local)
+                       ? rad_to_deg_pos(s_target_local)
+                       : (isnan(d.apTargetHdg) ? NAN : rad_to_deg_pos(d.apTargetHdg));
+    ui::MarkerSpec live[4] = {
+        {hdg_b, ui::Glyph::Triangle, true, theme.accent},
+        {cog_b, ui::Glyph::Triangle, false, theme.good},
+        {cts_b, ui::Glyph::Diamond, true, theme.alarm},
+        {tgt_b, ui::Glyph::Diamond, true, theme.warn},
+    };
+    double ref = isnan(hdg_b) ? 0.0 : hdg_b;
+    ui::marker_ring_update(s_cp.markers, live, 4, ref);
 
     // COG / SOG sub-line.
     char cogs[16], sogs[16];
