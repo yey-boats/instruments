@@ -152,13 +152,13 @@ static const char *const FULL_PATHS[] = {
     "environment.current.drift",
     // Push-live: manager plugin emits this when a view is applied; the
     // onText handler triggers an immediate config fetch for our device.
-    "network.espdisp.configPush",
+    "network.yeyboats.configPush",
 };
 
 // Always-on baseline: subscribed on every screen so push-live config fetch and
 // autopilot-state liveness keep working regardless of what's shown.
 static const char *const BASELINE_PATHS[] = {
-    "network.espdisp.configPush",
+    "network.yeyboats.configPush",
     "steering.autopilot.state",
 };
 
