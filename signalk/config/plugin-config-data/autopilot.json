@@ -1,8 +1,0 @@
-{
-  "_comment": "Disabled: @signalk/signalk-autopilot 2.5+ ships an ESM default export (exports.default = ...), but signalk-server 2.13.x's plugin loader calls the bare require() result directly, producing 'pluginConstructor is not a function'. Re-enable when SK upstream unwraps .default in lib/interfaces/plugins.js, or when the plugin reverts to CJS module.exports = fn. test_autopilot.py is designed to skip cleanly when the plugin isn't running.",
-  "enabled": false,
-  "configuration": {
-    "type": "emulator",
-    "enableV2API": true
-  }
-}

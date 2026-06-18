@@ -28,7 +28,7 @@ make monitor                            # serial @ 115200
 make ble                                # python BLE console (sends `ip`+`sk-status`, streams logs)
 make ble-cmd CMD="sk-status"            # one-shot BLE command
 make logs                               # listen on UDP :9999 (mirrored logs)
-make demo-up / demo-down                # docker SignalK + tools/fake_boat.py
+make demo-up / demo-down                # docker SignalK + tools/fake_boat.py (from ../signalk-espdisp-manager)
 make lint / make format                 # clang-format LLVM style + py_compile
 make pre-commit                         # same lint command used by hook + CI
 make hooks-install                      # set core.hooksPath=.githooks
@@ -214,6 +214,12 @@ PSRAM rule) in this file win where the two overlap.
   pre-release.
 
 ## Demo / SignalK auth note
+
+The SignalK manager plugin and its deployment (test-server config, Docker
+compose, `run.sh`/`run-remote.sh`/`stop*.sh`) now live in
+**yey-boats/Instruments-manager** — clone it next to this repo as
+`../signalk-espdisp-manager` (or set `MANAGER_DIR`). The `make demo-*`
+targets call its `deploy/scripts/`.
 
 `tools/fake_boat.py` and the firmware both authenticate against SignalK
 with a token (`?token=` on the WebSocket). The bundled `signalk/signalk-server`

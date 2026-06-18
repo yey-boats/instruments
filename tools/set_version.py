@@ -27,10 +27,14 @@ def main():
 
     (ROOT / "VERSION").write_text(version + "\n", encoding="utf-8")
 
+    # The SignalK manager plugin moved to the yey-boats/Instruments-manager
+    # repo; its version is bumped there. Only update it here if a plugin
+    # checkout still happens to live under signalk/ in this tree.
     package_path = ROOT / "signalk/plugins/signalk-espdisp-manager/package.json"
-    package = json.loads(package_path.read_text(encoding="utf-8"))
-    package["version"] = version
-    write_json(package_path, package)
+    if package_path.exists():
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["version"] = version
+        write_json(package_path, package)
 
     lock_path = ROOT / "signalk/plugins/signalk-espdisp-manager/package-lock.json"
     if lock_path.exists():

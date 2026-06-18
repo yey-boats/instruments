@@ -463,8 +463,9 @@ GitHub releases build every supported firmware target, package the matching
 release artifacts. Use those release assets for normal SignalK installs.
 
 To install the SignalK plugin from the release asset or build a local package,
-see
-[SignalK plugin install](signalk/README.md#install-esp-display-manager-from-this-repo).
+see the **yey-boats/Instruments-manager** repository (clone it next to this
+repo as `../signalk-espdisp-manager`), which now owns the manager plugin and
+its deployment.
 
 ## Console commands
 
@@ -539,6 +540,12 @@ chunked transfer is on the roadmap (see task #20).
 
 ## Running with synthetic data
 
+> **Note:** The SignalK manager plugin and its deployment (the test server
+> config, Docker compose, and `run.sh`/`run-remote.sh` scripts) now live in
+> **yey-boats/Instruments-manager**. Clone it next to this repo as
+> `../signalk-espdisp-manager` (or set `MANAGER_DIR`); the `make demo-*`
+> targets below call its `deploy/scripts/`.
+
 The local and remote demo stacks are for development and repeatable testing.
 For a real boat network, use [Boat setup](docs/boat-setup.md) instead.
 
@@ -595,10 +602,11 @@ and `MTW` when `tools/fake_boat.py` is pushing data.
 If rebuilding the local SignalK container from scratch, install and enable:
 
 ```sh
-./signalk/scripts/run.sh
+make demo-up   # runs ../signalk-espdisp-manager/deploy/scripts/run.sh
 ```
 
-The repo-owned config in `signalk/config` installs and enables:
+The repo-owned config in the Instruments-manager repo (`deploy/config`)
+installs and enables:
 
 ```text
 @signalk/signalk-to-nmea0183
@@ -615,10 +623,11 @@ pilot on the network.
 Install and enable it with the repo-owned SignalK test config:
 
 ```sh
-./signalk/scripts/run.sh
+make demo-up   # runs ../signalk-espdisp-manager/deploy/scripts/run.sh
 ```
 
-The config in `signalk/config/plugin-config-data/autopilot.json` enables:
+The config in the Instruments-manager repo
+(`deploy/config/plugin-config-data/autopilot.json`) enables:
 
 ```text
 @signalk/signalk-autopilot

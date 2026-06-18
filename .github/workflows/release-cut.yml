@@ -78,8 +78,7 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add VERSION signalk/plugins/signalk-espdisp-manager/package.json \
-                    signalk/plugins/signalk-espdisp-manager/package-lock.json 2>/dev/null || true
+            git add VERSION 2>/dev/null || true
             git commit -m "chore: release v${VERSION_INPUT}"
             git push origin "HEAD:${REF_NAME}"
           else

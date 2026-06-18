@@ -31,6 +31,13 @@ fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
 
+# The SignalK manager plugin + its config/scripts now live in the sibling
+# yey-boats/Instruments-manager repo, which deploys SignalK from its own
+# deploy/ tree. Clone it next to this repo (../signalk-espdisp-manager) or
+# set MANAGER_DIR to point elsewhere; it is referenced in operator-facing
+# messages below.
+MANAGER_DIR="${MANAGER_DIR:-${REPO_ROOT}/../signalk-espdisp-manager}"
+
 # Pull REMOTE_SUDO_PASS from .env.test.local if not in env.
 if [ -z "${REMOTE_SUDO_PASS:-}" ] && [ -f "${REPO_ROOT}/.env.test.local" ]; then
     REMOTE_SUDO_PASS="$(awk '
@@ -56,6 +63,20 @@ fi
 log() { printf '[server-setup] %s\n' "$*"; }
 die() { printf '[server-setup] %s\n' "$*" >&2; exit 1; }
 
+# The SignalK config/plugins and the manager plugin itself moved out of this
+# firmware repo into yey-boats/Instruments-manager. This installer used to ship
+# $REPO_ROOT/signalk/{config,plugins,scripts/lab-ap-setup.sh}; those trees are
+# gone. SignalK/manager provisioning is therefore deployed from the
+# Instruments-manager repo's own deploy/ tree, not from here.
+#
+# --sk-only used to re-push just the SK config/plugins from signalk/. That
+# source no longer exists, so point the operator at the manager repo and bail.
+case " ${INSTALL_FLAGS} " in
+    *" --sk-only "*)
+        die "SignalK/manager deployment moved to the yey-boats/Instruments-manager repo (${MANAGER_DIR}). Deploy SignalK from there (deploy/scripts/run-remote.sh / deploy/README.md) instead of 'server-sk-only'."
+        ;;
+esac
+
 REMOTE_TMP="/tmp/espdisp-server-setup"
 INSTALL_CMD="bash ${REMOTE_TMP}/tools/server-setup/install.sh ${INSTALL_FLAGS}"
 
@@ -64,22 +85,13 @@ log "uploading repo -> ${REMOTE}:${REMOTE_TMP}"
 ssh -o BatchMode=yes "${REMOTE}" \
     "rm -rf '${REMOTE_TMP}' && mkdir -p '${REMOTE_TMP}'"
 
-# Ship server-setup scripts, lab-logger, and signalk directory (config+plugins).
+# Ship server-setup scripts and lab-logger.
 rsync -az \
     "$REPO_ROOT/tools/server-setup/" \
     "${REMOTE}:${REMOTE_TMP}/tools/server-setup/"
 rsync -az \
     "$REPO_ROOT/tools/lab-logger/" \
     "${REMOTE}:${REMOTE_TMP}/tools/lab-logger/"
-rsync -az --exclude 'node_modules' --exclude '*.log' \
-    "$REPO_ROOT/signalk/config/" \
-    "${REMOTE}:${REMOTE_TMP}/signalk/config/"
-rsync -az --exclude 'node_modules' --exclude '*.log' \
-    "$REPO_ROOT/signalk/plugins/" \
-    "${REMOTE}:${REMOTE_TMP}/signalk/plugins/"
-rsync -az \
-    "$REPO_ROOT/signalk/scripts/lab-ap-setup.sh" \
-    "${REMOTE}:${REMOTE_TMP}/signalk/scripts/"
 
 log "upload complete"
 

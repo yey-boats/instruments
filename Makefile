@@ -21,6 +21,11 @@ REMOTE_USER ?= $(if $(findstring @,$(REMOTE_HOST)),$(firstword $(subst @, ,$(REM
 REMOTE_DIR  ?= /home/$(REMOTE_USER)/espdisp-signalk
 REMOTE_SK_HOST ?= $(lastword $(subst @, ,$(REMOTE_HOST)))
 
+# The SignalK manager plugin + its deployment scripts now live in the
+# sibling repo yey-boats/Instruments-manager. Clone it next to this repo
+# (../signalk-espdisp-manager) or override MANAGER_DIR to point elsewhere.
+MANAGER_DIR ?= ../signalk-espdisp-manager
+
 PIO ?= pio
 CLANG_FORMAT ?= clang-format
 
@@ -194,19 +199,23 @@ lab-up:  ## Build debug FW + OTA flash (verified) + deploy lab-logger
 	@echo "[lab-up] done. Recent logs:"
 	@$(MAKE) lab-logger-status REMOTE=$(REMOTE)
 
-demo-up:  ## Start SignalK locally in Docker (legacy/local-host path)
-	@SK_HOST=$(SK_HOST) SK_PORT=$(SK_PORT) ./signalk/scripts/run.sh
+demo-up:  ## Start SignalK locally in Docker (from the Instruments-manager repo)
+	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
+	@SK_HOST=$(SK_HOST) SK_PORT=$(SK_PORT) $(MANAGER_DIR)/deploy/scripts/run.sh
 
-demo-down:  ## Stop local fake_boat + SignalK
-	@./signalk/scripts/stop.sh
+demo-down:  ## Stop local fake_boat + SignalK (from the Instruments-manager repo)
+	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
+	@$(MANAGER_DIR)/deploy/scripts/stop.sh
 
 demo-up-remote:  ## Start SignalK on REMOTE_HOST (default nav-server) via SSH+Docker
+	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
 	@REMOTE_HOST=$(REMOTE_HOST) REMOTE_DIR=$(REMOTE_DIR) \
 	  SK_HOST=$(REMOTE_SK_HOST) SK_PORT=$(SK_PORT) \
-	  ./signalk/scripts/run-remote.sh
+	  $(MANAGER_DIR)/deploy/scripts/run-remote.sh
 
 demo-down-remote:  ## Stop the remote SignalK container + local fake_boat
-	@REMOTE_HOST=$(REMOTE_HOST) ./signalk/scripts/stop-remote.sh
+	@test -d "$(MANAGER_DIR)/deploy" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
+	@REMOTE_HOST=$(REMOTE_HOST) $(MANAGER_DIR)/deploy/scripts/stop-remote.sh
 
 # ---------------------------------------------------------------------------
 # Server provisioning (one-time + re-deploy)
@@ -256,17 +265,19 @@ sys-test-remote:  ## Run unattended system tests against the lab device + remote
 	  fi; \
 	  pytest tests/system/unattended
 
-# Manager plugin load test against the lab SignalK. Sources .env.test for
-# SIGNALK_URL/USERNAME/PASSWORD; npm doesn't inherit those from a bare
-# `npm run` so we have to spell it out here. Overrides:
+# Manager plugin load test against the lab SignalK. The plugin + its load
+# harness now live in the sibling Instruments-manager repo ($(MANAGER_DIR)).
+# Sources .env.test for SIGNALK_URL/USERNAME/PASSWORD; npm doesn't inherit
+# those from a bare `npm run` so we have to spell it out here. Overrides:
 #   make load-test DEVICES=100 DURATION=60
 DEVICES  ?= 20
 DURATION ?= 30
-load-test:  ## Plugin load test against $SIGNALK_URL (sources .env.test)
+load-test:  ## Plugin load test against $SIGNALK_URL (runs from the Instruments-manager repo)
 	@test -f .env.test || { echo ".env.test missing" >&2; exit 1; }
+	@test -f "$(MANAGER_DIR)/tools/load-test.js" || { echo "Manager repo not found at $(MANAGER_DIR). Clone yey-boats/Instruments-manager next to this repo (or set MANAGER_DIR)." >&2; exit 1; }
 	@set -a; . ./.env.test; set +a; \
 	  : "$${SIGNALK_URL:=http://$${SK_HOST:-localhost}:$${SK_PORT:-3000}}"; \
-	  cd signalk/plugins/signalk-espdisp-manager && \
+	  cd "$(MANAGER_DIR)" && \
 	  SIGNALK_URL="$$SIGNALK_URL" \
 	  SIGNALK_USERNAME="$$SIGNALK_USERNAME" \
 	  SIGNALK_PASSWORD="$$SIGNALK_PASSWORD" \

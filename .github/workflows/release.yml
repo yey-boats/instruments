@@ -22,12 +22,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20.10'
-          cache: npm
-          cache-dependency-path: signalk/plugins/signalk-espdisp-manager/package-lock.json
-
       - name: Cache PlatformIO
         uses: actions/cache@v5
         with:
@@ -109,18 +103,9 @@ jobs:
           done
           ls -la "$out"
 
-      - name: Package SignalK plugin
-        working-directory: signalk/plugins/signalk-espdisp-manager
-        run: |
-          npm ci
-          npm test
-          npx playwright install --with-deps chromium
-          npm run test:playwright
-          npm pack --pack-destination ../../../release-staging
-
       - name: Generate checksums
         run: |
-          ( cd release-staging && sha256sum *.bin *.elf *.tgz > SHA256SUMS )
+          ( cd release-staging && sha256sum *.bin *.elf > SHA256SUMS )
           ls -la release-staging
 
       - name: Generate release notes
@@ -163,18 +148,8 @@ jobs:
             echo ""
             echo "## SignalK plugin"
             echo ""
-            echo "Download the matching plugin package release asset:"
-            echo ""
-            echo '- `signalk-espdisp-manager-${TAG_NAME#v}.tgz`'
-            echo ""
-            echo 'Install it on the SignalK server:'
-            echo ""
-            echo '```sh'
-            echo "cd ~/.signalk"
-            echo "npm install /path/to/signalk-espdisp-manager-${TAG_NAME#v}.tgz"
-            echo '```'
-            echo ""
-            echo "Then restart SignalK and enable ESP Display Manager in the admin plugin UI."
+            echo "The SignalK manager plugin is released separately from the"
+            echo "**yey-boats/Instruments-manager** repository."
           } > release_notes.md
           cat release_notes.md
 
@@ -187,7 +162,6 @@ jobs:
           files: |
             release-staging/*.bin
             release-staging/*.elf
-            release-staging/*.tgz
             release-staging/SHA256SUMS
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}

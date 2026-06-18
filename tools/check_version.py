@@ -20,10 +20,14 @@ def main():
     if not SEMVER_RE.match(version):
         errors.append(f"VERSION is not semver: {version!r}")
 
+    # The SignalK manager plugin moved to the yey-boats/Instruments-manager
+    # repo; its version is checked there. Only validate it here if a plugin
+    # checkout still happens to live under signalk/ in this tree.
     plugin_package = ROOT / "signalk/plugins/signalk-espdisp-manager/package.json"
-    plugin_version = read_json(plugin_package).get("version")
-    if plugin_version != version:
-        errors.append(f"{plugin_package.relative_to(ROOT)} version {plugin_version!r} != {version!r}")
+    if plugin_package.exists():
+        plugin_version = read_json(plugin_package).get("version")
+        if plugin_version != version:
+            errors.append(f"{plugin_package.relative_to(ROOT)} version {plugin_version!r} != {version!r}")
 
     plugin_lock = ROOT / "signalk/plugins/signalk-espdisp-manager/package-lock.json"
     if plugin_lock.exists():

@@ -120,53 +120,6 @@ jobs:
       - name: Run host tests
         run: pio test -e native -v
 
-  plugin-test:
-    name: SignalK plugin tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: signalk/plugins/signalk-espdisp-manager
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20.10'
-          cache: npm
-          cache-dependency-path: signalk/plugins/signalk-espdisp-manager/package-lock.json
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-
-      - name: Check project version metadata
-        run: python3 ../../../tools/check_version.py
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run plugin tests
-        run: npm test
-
-      - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
-
-      - name: Run plugin UI tests
-        run: npm run test:playwright
-
-      - name: Build plugin package
-        run: |
-          mkdir -p ../../../dist/signalk
-          npm pack --pack-destination ../../../dist/signalk
-
-      - name: Upload plugin package artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: signalk-espdisp-manager-${{ github.sha }}
-          path: dist/signalk/signalk-espdisp-manager-*.tgz
-          if-no-files-found: error
-          retention-days: 14
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
