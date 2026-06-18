@@ -107,6 +107,23 @@ class TestRoute(unittest.TestCase):
         r.nav(pos=(41.005, 2.0400), cog=0.0, sog=5.0)  # arrive wp2 -> finished
         self.assertTrue(r.finished)
 
+    def test_bearing_to_active_no_mutation(self):
+        r = self._route()
+        idx_before = r.index
+        _ = r.bearing_to_active((41.000, 2.020))
+        self.assertEqual(r.index, idx_before)
+        self.assertFalse(r.finished)
+
+    def test_single_tick_advances_at_most_one(self):
+        # Place boat on top of the active waypoint; a single nav() call should
+        # advance index by exactly 1; a *second* separate call is what advances again.
+        r = self._route()
+        self.assertEqual(r.index, 1)
+        r.nav(pos=(41.000, 2.0200), cog=math.radians(90.0), sog=5.0)
+        self.assertEqual(r.index, 2)  # advanced by 1 from the single call
+        # The arrival of wp2 requires another explicit nav() call, not a phantom double.
+        self.assertFalse(r.finished)
+
 
 class TestAisFleet(unittest.TestCase):
     def test_set_count_spawns_and_despawns(self):
@@ -161,9 +178,12 @@ class TestPhaseScheduler(unittest.TestCase):
 
     def test_ais_count_breathes(self):
         ph = fb.PhaseScheduler(steady=False)
-        counts = {ph.ais_count(t, maxn=4) for t in range(0, int(ph.AIS_PERIOD))}
+        maxn = 4
+        counts = {ph.ais_count(t, maxn=maxn) for t in range(0, int(ph.AIS_PERIOD))}
         self.assertIn(0, counts)
-        self.assertIn(4, counts)
+        self.assertIn(maxn, counts)
+        # Partial count (half) also appears in the sampled set.
+        self.assertIn(maxn // 2, counts)
 
     def test_steady_pins_everything_populated(self):
         ph = fb.PhaseScheduler(steady=True)

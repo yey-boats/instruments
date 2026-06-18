@@ -62,13 +62,13 @@ def cross_track(start, end, p):
     d13 = distance(start, p) / R_EARTH  # angular
     brg13 = bearing(start, p)
     brg12 = bearing(start, end)
-    return math.asin(math.sin(d13) * math.sin(brg13 - brg12)) * R_EARTH
+    return math.asin(max(-1.0, min(1.0, math.sin(d13) * math.sin(brg13 - brg12)))) * R_EARTH
 
 
 # --- own-vessel state ---
 
 def _wrap_pi(a):
-    """Wrap angle to (-pi, pi]."""
+    """Wrap angle to [-pi, pi)."""
     return (a + math.pi) % (2 * math.pi) - math.pi
 
 
@@ -109,6 +109,10 @@ class Route:
     def active(self):
         return self.waypoints[self.index]
 
+    def bearing_to_active(self, pos):
+        """Bearing (rad) to the active waypoint; no state mutation."""
+        return bearing(pos, self.waypoints[self.index])
+
     def nav(self, pos, cog, sog):
         """Return dict {xte, cts, btw, dtw, vmg} for the active leg, advancing
         the waypoint index if we have arrived. Returns None when finished."""
@@ -140,7 +144,7 @@ _NAMES = ["MARINA", "ORCA", "SEA BREEZE", "NORDKAP", "ALBATROS", "POSEIDON"]
 
 
 class AisVessel:
-    def __init__(self, slot, center):
+    def __init__(self, slot, center, count=6):
         self.slot = slot
         mmsi = 244060800 + slot
         self.context = "vessels.urn:mrn:imo:mmsi:%d" % mmsi
@@ -148,7 +152,9 @@ class AisVessel:
         self.name = _NAMES[slot % len(_NAMES)]
         self.ship_type = _SHIP_TYPES[slot % len(_SHIP_TYPES)]
         # Place around the center on a ~1.5 NM ring; spread by slot.
-        ang = (slot / 6.0) * 2 * math.pi
+        # Divide the full circle by max(len(_SHIP_TYPES), count) so vessels
+        # stay distinct even when count > 6.
+        ang = (slot / max(len(_SHIP_TYPES), count)) * 2 * math.pi
         self.lat, self.lon = dead_reckon(center[0], center[1], ang, 2800.0, 1.0)
         self.sog = 3.0 + (slot % 4)  # 3..6 m/s
         # Slot 0 converges on the center (CPA); others run roughly tangential.
@@ -170,7 +176,7 @@ class AisFleet:
     def set_count(self, n):
         n = max(0, n)
         while len(self.vessels) < n:
-            self.vessels.append(AisVessel(len(self.vessels), self.center))
+            self.vessels.append(AisVessel(len(self.vessels), self.center, count=n))
         while len(self.vessels) > n:
             self.vessels.pop()
 
@@ -312,11 +318,12 @@ START = (41.3851, 2.1734)  # Barcelona-ish, matches the original sim
 
 
 def _route_from(start):
-    # Three legs trending NE from the start; ~1-2 km each so legs advance.
+    # Three legs trending NE from the start; 400 m each so waypoints advance
+    # within the active phase window and the route lifecycle is exercised.
     wps = [start]
     pos, brg = start, math.radians(50.0)
     for _ in range(3):
-        pos = dead_reckon(pos[0], pos[1], brg, 1500.0, 1.0)
+        pos = dead_reckon(pos[0], pos[1], brg, 400.0, 1.0)
         wps.append(pos)
         brg = (brg + math.radians(20.0)) % (2 * math.pi)
     return Route(wps)
@@ -345,11 +352,13 @@ class Simulator:
         current_drift = 0.7 + 0.4 * math.sin(t / 75)
 
         # Route phase -> derived nav; steer the boat down the leg when active.
+        # Use bearing_to_active() (non-mutating) to derive desired_cog, then call
+        # nav() exactly once AFTER boat.step() to compute the delta and advance.
         nav = None
         route_on = self.phase.route_active(t) and not self.route.finished
         if route_on:
-            preview = self.route.nav((self.boat.lat, self.boat.lon), self.boat.cog, sog)
-            desired_cog = preview["btw"] + math.radians(3.0 * math.sin(t / 20))
+            btw_pre = self.route.bearing_to_active((self.boat.lat, self.boat.lon))
+            desired_cog = btw_pre + math.radians(3.0 * math.sin(t / 20))
         else:
             desired_cog = math.radians((50 + 10 * math.sin(t / 60)) % 360)
         self.boat.step(dt, desired_cog, sog)
@@ -362,6 +371,9 @@ class Simulator:
         if ap_mode == "auto":
             ap_target = self.boat.cog
         elif ap_mode == "wind":
+            # Placeholder: populate target.headingTrue (a heading path) so the
+            # firmware widget has a value to display; this is NOT a semantically
+            # correct wind-angle target — a real AP would use a wind-angle path.
             ap_target = (self.boat.cog - twa) % (2 * math.pi)  # hold current TWA
 
         # AIS fleet.
