@@ -904,6 +904,14 @@ void saveWifi(const String &ssid, const String &pass) {
     ESP.restart();
 }
 
+void setOtaPassword(const char *pw) {
+    if (!pw) pw = "";
+    storage::Namespace prefs("net", false);
+    prefs.put_string("ota_pass", pw);
+    ArduinoOTA.setPassword(strlen(pw) ? pw : OTA_PASSWORD);
+    logf("[ota] password applied from config (len %u)", (unsigned)strlen(pw));
+}
+
 static void append_log_locked(const char *line, int n, uint8_t level) {
     if (!line || n <= 0) return;
     size_t idx = s_log_seq % LOG_RING_CAP;
@@ -1168,9 +1176,7 @@ bool handleSerialCommand(const String &line) {
     if (line.startsWith("ota-pass ")) {
         String pw = line.substring(9);
         pw.trim();
-        storage::Namespace prefs("net", false);
-        prefs.put_string("ota_pass", pw.c_str());
-        ArduinoOTA.setPassword(pw.length() ? pw.c_str() : OTA_PASSWORD);
+        setOtaPassword(pw.c_str());
         printf("[ota] password set (len %u); effective next OTA\n", (unsigned)pw.length());
         return true;
     }

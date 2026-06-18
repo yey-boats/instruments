@@ -1078,6 +1078,12 @@ bool apply_config(JsonDocument &cfg) {
                       "require_sha=%d max=%u",
                       (int)s_ota_enabled, (int)s_ota_require_sha, (unsigned)s_ota_max_size);
         }
+        // Manager-pushed OTA password (server-sourced provisioning, Slice 7).
+        // Persist + apply via net so OTA uses it; never log the value.
+        const char *ota_pw = ota["password"] | "";
+        if (ota_pw && ota_pw[0]) {
+            net::setOtaPassword(ota_pw);
+        }
     }
 
     // ---- 5. debug ---------------------------------------------------------

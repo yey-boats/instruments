@@ -83,6 +83,11 @@ const char *wifiStateName();
 // use when they already have the ssid/pass split (e.g. JSON over BLE / web).
 void saveWifi(const String &ssid, const String &pass);
 
+// Persist a manager-pushed OTA password to NVS (same key as the `ota-pass`
+// console command) and apply it immediately. Empty string clears to the
+// compile-time default. Does NOT log the password value.
+void setOtaPassword(const char *pw);
+
 // User-configurable device identity (BLE name, mDNS host, OTA host).
 // Default = espdisp-<wifi-sta-mac>; legacy OTA_HOSTNAME values migrate to it.
 const String &deviceId();
