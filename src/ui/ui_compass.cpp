@@ -147,20 +147,9 @@ Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
         cp.nums[i] = l;
     }
 
-    // Amber target bug riding on the rail; rotated by (target - heading).
-    lv_obj_t *bug = lv_obj_create(root);
-    lv_obj_set_size(bug, 24, r);
-    lv_obj_set_pos(bug, cx - 12, cy - r);
-    lv_obj_set_style_bg_opa(bug, LV_OPA_TRANSP, 0);
-    no_chrome(bug);
-    lv_obj_set_style_transform_pivot_x(bug, 12, 0);
-    lv_obj_set_style_transform_pivot_y(bug, r, 0);
-    lv_obj_t *bug_tri = lv_label_create(bug);
-    lv_label_set_text(bug_tri, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(bug_tri, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(bug_tri, lv_color_hex(theme.warn), 0);
-    lv_obj_align(bug_tri, LV_ALIGN_TOP_MID, 0, -6);
-    cp.bug = bug;
+    // The HDG/COG/CTS/target markers are an external ui::MarkerRing the screen
+    // builds on its own root (so glyphs orbiting just outside the rim are not
+    // clipped by this dial-sized root). Only the fixed lubber lives here.
 
     // Fixed red lubber at the very top: the boat's heading reference.
     lv_obj_t *lub = lv_label_create(root);

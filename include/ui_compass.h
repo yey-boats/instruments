@@ -3,6 +3,8 @@
 #include <lvgl.h>
 #include <stdint.h>
 
+#include "ui_markers.h"
+
 // Reference glass-cockpit primitives shared by the autopilot HUD (and any
 // future heading view). A semicircular compass band, rounded numeric tiles, and
 // a horizontal cross-track-error strip. All colors/metrics come from
@@ -11,18 +13,20 @@
 namespace ui {
 
 // Semicircular heading compass. The white band + green rail + lubber are fixed;
-// the `scale` ring (degree numbers + ticks) and `bug` (target marker) are
-// rotated by the refresh path via ui::set_rot_if_changed():
-//   scale -> -heading          (current heading rides under the top lubber)
-//   bug   -> (target - heading) (amber bug sits on the rail at the target)
+// the `scale` ring (degree numbers + ticks) is rotated by -heading so the
+// current heading rides under the top lubber (ui::set_rot_if_changed()).
+// HDG/COG/CTS/target markers live in a separate ui::MarkerRing the screen builds
+// on its OWN root (so glyphs that orbit just outside the rim are not clipped by
+// this compass root, which is sized exactly to the dial) and drives via
+// ui::marker_ring_update() with the heading as the reference.
 // (cx, cy, r) are in the returned root's local coordinates; the root clips to
 // the top semicircle so the lower half of the rotating ring never shows.
 struct Compass {
     lv_obj_t *root;
-    lv_obj_t *scale;     // rotating tick ring (rotated by -heading)
-    lv_obj_t *bug;       // amber target bug (rotated by target - heading)
-    lv_obj_t *nums[12];  // upright degree labels, repositioned per heading
-    lv_obj_t *lubber;    // fixed red top lubber (heading reference)
+    lv_obj_t *scale;         // rotating tick ring (rotated by -heading)
+    lv_obj_t *nums[12];      // upright degree labels, repositioned per heading
+    lv_obj_t *lubber;        // fixed red top lubber (heading reference)
+    ui::MarkerRing markers;  // HDG/COG/CTS/target ring (built by the screen on its root)
     int cx, cy, r;
     int h;  // total root height (top semicircle + label clearance)
 };
