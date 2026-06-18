@@ -987,7 +987,7 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                 ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
                                         cts);
             }
-            // Markers: HDG/COG/CTS bearings; reference = HDG so the dial is heading-up.
+            // Markers: HDG/COG/CTS bearings at their true (north-up) bearings.
             {
                 MetricBinding hdg = {}, cog = {}, cts = {};
                 hdg.source = MetricSource::HDG_deg;
@@ -998,9 +998,10 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                     {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
                     {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.warn},
                 };
-                double ref = metric_scalar(hdg, data);
-                if (isnan(ref)) ref = 0.0;  // no heading -> north-up
-                ui::marker_ring_update(t.markers, live, 3, ref);
+                // Fixed-bezel north-up tile: markers sit at their true bearings (HDG/COG/CTS),
+                // matching the static N/E/S/W cardinals. (The AP HUD, whose scale rotates, is
+                // heading-up; this round tile is not.)
+                ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
             }
             break;
         default:
