@@ -658,7 +658,7 @@ static void send_discovery_announcement() {
     }
 
     device_discovery::Info info = discovery_info();
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     device_discovery::build_announcement(doc, info);
     char buf[512];
     size_t n = serializeJson(doc, buf, sizeof(buf));

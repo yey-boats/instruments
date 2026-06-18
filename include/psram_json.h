@@ -19,7 +19,7 @@
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 
-namespace espdisp {
+namespace yeyboats {
 
 class PsramJsonAllocator : public ArduinoJson::Allocator {
   public:
@@ -40,10 +40,10 @@ class PsramJsonAllocator : public ArduinoJson::Allocator {
 // before #include of this header. Other TUs see only the extern.
 extern PsramJsonAllocator psram_json;
 
-}  // namespace espdisp
+}  // namespace yeyboats
 
 #ifdef PSRAM_JSON_DEFINE_SHARED
-namespace espdisp {
+namespace yeyboats {
 PsramJsonAllocator psram_json;
-}  // namespace espdisp
+}  // namespace yeyboats
 #endif

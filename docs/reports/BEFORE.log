@@ -1,0 +1,41 @@
+# soak -> /tmp/espdisp-soak/soak-2234.jsonl (interval 15.0s, target http://10.42.0.67/api/state)
+curl: (28) Connection timed out after 5001 milliseconds
+2026-06-12T22:34:10  t=0s  up=0s  heap=0k  sk=--
+curl: (28) Connection timed out after 5001 milliseconds
+2026-06-12T22:34:31  t=20s  up=0s  heap=0k  sk=--
+curl: (28) Connection timed out after 5001 milliseconds
+2026-06-12T22:34:51  t=40s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3065 ms: Couldn't connect to server
+2026-06-12T22:35:10  t=61s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3055 ms: Couldn't connect to server
+2026-06-12T22:35:28  t=79s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3075 ms: Couldn't connect to server
+2026-06-12T22:35:47  t=98s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 585 ms: Couldn't connect to server
+2026-06-12T22:36:03  t=116s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3055 ms: Couldn't connect to server
+2026-06-12T22:36:21  t=133s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3060 ms: Couldn't connect to server
+2026-06-12T22:36:40  t=151s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3058 ms: Couldn't connect to server
+2026-06-12T22:36:58  t=170s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3065 ms: Couldn't connect to server
+2026-06-12T22:37:17  t=188s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3063 ms: Couldn't connect to server
+2026-06-12T22:37:35  t=207s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3077 ms: Couldn't connect to server
+2026-06-12T22:37:54  t=225s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3062 ms: Couldn't connect to server
+2026-06-12T22:38:12  t=244s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3079 ms: Couldn't connect to server
+2026-06-12T22:38:31  t=262s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3065 ms: Couldn't connect to server
+2026-06-12T22:38:49  t=281s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 3049 ms: Couldn't connect to server
+2026-06-12T22:39:08  t=299s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 2991 ms: Couldn't connect to server
+2026-06-12T22:39:26  t=318s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 2954 ms: Couldn't connect to server
+2026-06-12T22:39:45  t=336s  up=0s  heap=0k  sk=--
+curl: (7) Failed to connect to 10.42.0.67 port 80 after 2893 ms: Couldn't connect to server
+2026-06-12T22:40:03  t=355s  up=0s  heap=0k  sk=--

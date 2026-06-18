@@ -212,7 +212,7 @@ void fillFullPathSet(SubscriptionSet &out) {
 // empty set.
 static void send_sub_message(const SubscriptionSet &set, bool subscribe_op) {
     if (set.size() == 0) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     doc["context"] = "vessels.self";
     JsonArray arr = doc[subscribe_op ? "subscribe" : "unsubscribe"].to<JsonArray>();
     for (int i = 0; i < set.size(); ++i) {
@@ -234,7 +234,7 @@ static void send_sub_message(const SubscriptionSet &set, bool subscribe_op) {
 // our context). Used by the reduce path instead of per-path unsubscribe, which
 // makes the server drop the socket. The caller re-subscribes the desired set.
 static void send_unsubscribe_all() {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     doc["context"] = "vessels.self";
     JsonObject o = doc["unsubscribe"].to<JsonArray>().add<JsonObject>();
     o["path"] = "*";
@@ -367,7 +367,7 @@ static void onText(uint8_t *payload, size_t len) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
 #ifdef DBG_PERF_COUNTERS
     uint32_t t0 = micros();
-    int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json, &dynamicStore());
+    int n = applyDelta((const char *)payload, len, data, &yeyboats::psram_json, &dynamicStore());
     uint32_t dt = micros() - t0;
     g_bench_ws_frames++;
     g_bench_ws_bytes += (uint32_t)len;
@@ -375,7 +375,7 @@ static void onText(uint8_t *payload, size_t len) {
     g_bench_parse_us_total += dt;
     if (dt > g_bench_parse_us_peak) g_bench_parse_us_peak = dt;
 #else
-    int n = applyDelta((const char *)payload, len, data, &espdisp::psram_json, &dynamicStore());
+    int n = applyDelta((const char *)payload, len, data, &yeyboats::psram_json, &dynamicStore());
 #endif
     uint32_t now = millis();
     // Always tick the WS frame timestamp: any TEXT we receive proves
@@ -540,7 +540,7 @@ static bool tryUdpDiscover() {
         if (n <= 0) continue;
         buf[n] = 0;
 
-        JsonDocument doc(&espdisp::psram_json);
+        JsonDocument doc(&yeyboats::psram_json);
         if (deserializeJson(doc, buf) != DeserializationError::Ok) {
             net::logf("[sk] UDP discovery: ignored non-json reply");
             continue;

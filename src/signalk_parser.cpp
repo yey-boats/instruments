@@ -114,7 +114,7 @@ static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocumen
 int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc,
                PathStore *dyn) {
     // alloc==nullptr -> default (internal heap) allocator. The device
-    // build passes &espdisp::psram_json so 1+ Hz SK deltas don't churn
+    // build passes &yeyboats::psram_json so 1+ Hz SK deltas don't churn
     // the tiny internal heap (largest free block was ~7 KB at idle).
     // Host tests pass nullptr and use the default.
     if (alloc) {

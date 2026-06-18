@@ -167,14 +167,14 @@ constexpr uint16_t HTTP_READ_TIMEOUT_MS = 1500;
 // PsramJsonAllocator moved to include/psram_json.h. The shared
 // definition lives at file scope (outside both `namespace manager`
 // and the anonymous namespace) further down so the symbol resolves
-// to `::espdisp::psram_json` and other TUs (notably web.cpp's
+// to `::yeyboats::psram_json` and other TUs (notably web.cpp's
 // handle_state) can link against the same instance.
 
 // Local alias to keep the existing call sites short.
-auto &s_json_allocator = ::espdisp::psram_json;
+auto &s_json_allocator = ::yeyboats::psram_json;
 
 String s_endpoint;
-String s_token;     // device/dev/provision token sent as X-EspDisp-Authorization
+String s_token;     // device/dev/provision token sent as X-YeyBoats-Authorization
 String s_sk_token;  // SignalK server bearer token used to pass SK security
 manager_endpoint::DiscoveryMethod s_discovery_method = manager_endpoint::DiscoveryMethod::None;
 AuthState s_auth = AuthState::Unprovisioned;
@@ -407,14 +407,14 @@ void record_error(const char *fmt, ...) {
     error_log::push((uint32_t)millis(), buf);
 }
 
-// Compose Authorization (SK security) + X-EspDisp-Authorization (plugin auth)
+// Compose Authorization (SK security) + X-YeyBoats-Authorization (plugin auth)
 // for any plugin HTTP request. SK security needs a server-issued token in the
-// standard Authorization header; the plugin itself reads X-EspDisp-Authorization
+// standard Authorization header; the plugin itself reads X-YeyBoats-Authorization
 // first (see yey-boats-display-manager index.js authFrom). When the device only
 // has one token (e.g. talking to the standalone mock), both headers carry it.
 //
 // Bootstrap: when s_token is empty (fresh device, no NVS entry) we
-// fall back to MANAGER_PROVISION_TOKEN for the X-EspDisp-Authorization
+// fall back to MANAGER_PROVISION_TOKEN for the X-YeyBoats-Authorization
 // slot. The plugin's dev-shared-token mode accepts that as a valid
 // provisioning credential on /devices/register and echoes it back as
 // the device token. Without this fallback the very first register call
@@ -427,7 +427,7 @@ void add_auth_headers(HTTPClient &http) {
     }
     const char *plugin_tok = s_token.length() ? s_token.c_str() : MANAGER_PROVISION_TOKEN;
     if (plugin_tok && *plugin_tok) {
-        http.addHeader("X-EspDisp-Authorization", String("Bearer ") + plugin_tok);
+        http.addHeader("X-YeyBoats-Authorization", String("Bearer ") + plugin_tok);
     }
 }
 

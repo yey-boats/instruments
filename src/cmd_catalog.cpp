@@ -87,7 +87,7 @@ static const Entry CATALOG[] = {
     {"manager", "manager-status", "Same as above", true, true},
     {"manager", "manager-register <url>", "Set the manager endpoint and re-register", true, true},
     {"manager", "manager-token <jwt|clear>",
-     "Set/clear the plugin/device bearer (X-EspDisp-Authorization)", true, true},
+     "Set/clear the plugin/device bearer (X-YeyBoats-Authorization)", true, true},
     {"manager", "manager-sk-token <jwt|clear>",
      "Set/clear the SK-level bearer used to pass SK security", true, true},
     {"manager", "manager-forget", "Wipe endpoint+token; back to idle", true, true},

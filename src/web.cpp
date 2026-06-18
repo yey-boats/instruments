@@ -303,7 +303,7 @@ static void build_state_doc(JsonDocument &doc) {
 static void handle_state() {
     if (!require_api_auth()) return;
     if (!heap_ok(HEAP_LIGHT)) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     build_state_doc(doc);
     send_json(200, doc);
 }
@@ -316,7 +316,7 @@ static void handle_state() {
 static void handle_diag() {
     if (!require_api_auth()) return;
     if (!heap_ok(HEAP_MEDIUM)) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
 
     {
         manager::Status st = manager::status();
@@ -377,7 +377,7 @@ static void handle_diag() {
 
 static void handle_screens() {
     if (!require_api_auth()) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonArray arr = doc.to<JsonArray>();
     int active = ui::current_index();
     for (size_t i = 0; i < ui::screen_count(); ++i) {
@@ -414,7 +414,7 @@ static void handle_screen_set() {
         server.send(503, "text/plain", "ui queue full");
         return;
     }
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     doc["queued"] = true;
     doc["target"] = id;
     send_json(202, doc);
@@ -431,7 +431,7 @@ static void handle_sk_data() {
     sk::Data d_snap;
     sk::copyData(d_snap);
     const sk::Data &d = d_snap;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject nav = doc["nav"].to<JsonObject>();
     put_double(nav, "lat", d.lat);
     put_double(nav, "lon", d.lon);
@@ -486,7 +486,7 @@ static void handle_boat() {
     boat::Priority p = boat::get_priority();
     uint32_t now = millis();
 
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject prio = doc["priority"].to<JsonObject>();
     JsonArray order = prio["order"].to<JsonArray>();
     for (uint8_t i = 0; i < 5; ++i) {
@@ -571,7 +571,7 @@ static void handle_boat() {
 
 static void handle_commands_json() {
     if (!require_api_auth()) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonArray arr = doc["commands"].to<JsonArray>();
     const auto *list = cmd_catalog::entries();
     size_t n = cmd_catalog::entry_count();
@@ -699,7 +699,7 @@ static void handle_layout_put() {
         server.send(503, "text/plain", "ui queue full");
         return;
     }
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     doc["queued"] = true;
     doc["size"] = (uint32_t)len;
     send_json(202, doc);
@@ -733,7 +733,7 @@ static void handle_dashboard_config_put() {
 
 static void handle_security() {
     if (!require_api_auth()) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject web = doc["web"].to<JsonObject>();
     web["bind"] = net::wifiUp() ? "station-ip" : "setup-ap";
     web["auth"] = api_auth_required() ? "basic" : "none-on-device";
@@ -783,7 +783,7 @@ static void handle_wifi_scan() {
 static void handle_wifi_networks() {
     if (!require_api_auth()) return;
     int n = WiFi.scanComplete();
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (n == WIFI_SCAN_RUNNING) {
         doc["running"] = true;
         send_json(200, doc);
@@ -818,7 +818,7 @@ static void handle_wifi_connect() {
         server.send(413, "text/plain", "body too large (1 KB max)");
         return;
     }
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (deserializeJson(doc, server.arg("plain"))) {
         server.send(400, "text/plain", "bad json");
         return;
@@ -839,7 +839,7 @@ static void handle_wifi_connect() {
         server.send(503, "text/plain", "net queue full");
         return;
     }
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     out["queued"] = true;
     out["rebooting"] = true;
     out["ssid"] = ssid;
@@ -857,7 +857,7 @@ static void handle_wifi_forget() {
         server.send(503, "text/plain", "net queue full");
         return;
     }
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     out["queued"] = true;
     out["rebooting"] = true;
     send_json(202, out);
@@ -882,7 +882,7 @@ static void handle_wifi_saved_delete() {
     // URL-decode minimally (replace +)
     ssid.replace("+", " ");
     bool ok = wifi_store::remove(ssid.c_str());
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     out["ok"] = ok;
     out["ssid"] = ssid;
     out["count"] = (uint32_t)wifi_store::count();
@@ -927,7 +927,7 @@ static void handle_cmd() {
         server.send(503, "text/plain", "ui queue full");
         return;
     }
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     doc["queued"] = true;
     doc["cmd"] = line;
     send_json(202, doc);
@@ -956,7 +956,7 @@ static void handle_config() {
     ::config::AlarmConfig al = ::config::alarms();
     ::config::SignalKConfig sk = ::config::signalk();
 
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject root = doc.to<JsonObject>();
 
     JsonObject ui_obj = root["ui"].to<JsonObject>();
@@ -990,7 +990,7 @@ static void handle_config() {
 
 static void handle_config_status() {
     if (!require_api_auth()) return;
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject root = doc.to<JsonObject>();
     root["jobs_queued"] = ::config::persist_jobs_queued();
     root["jobs_completed"] = ::config::persist_jobs_completed();
@@ -1148,7 +1148,7 @@ static void handle_logs() {
     }
     size_t n = net::copyLogs(entries, limit, since);
 
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonArray arr = doc["entries"].to<JsonArray>();
     uint32_t last = since;
     for (size_t i = 0; i < n; ++i) {
@@ -1503,7 +1503,7 @@ static bool p2p_read_body(JsonDocument &doc) {
 }
 
 template <typename Ack> static void p2p_send_ack(const Ack &ack) {
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     proto::to_json(out.to<JsonObject>(), ack);
     String payload;
     serializeJson(out, payload);
@@ -1513,7 +1513,7 @@ template <typename Ack> static void p2p_send_ack(const Ack &ack) {
 }
 
 static void handle_p2p_device() {
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     // DeviceRecord is ~1.5 KB; keep it off the web task stack. Handlers run
     // serially on the single WebServer task, so a function-static is race-free.
     static proto::DeviceRecord r;
@@ -1528,7 +1528,7 @@ static void handle_p2p_device() {
 }
 
 static void handle_p2p_attach() {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (!p2p_read_body(doc)) return;
     proto::Attach req;
     proto::from_json(doc.as<JsonObjectConst>(), req);
@@ -1545,7 +1545,7 @@ static void handle_p2p_attach() {
 }
 
 static void handle_p2p_switch() {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (!p2p_read_body(doc)) return;
     proto::Switch req;
     proto::from_json(doc.as<JsonObjectConst>(), req);
@@ -1559,7 +1559,7 @@ static void handle_p2p_switch() {
 }
 
 static void handle_p2p_heartbeat() {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (!p2p_read_body(doc)) return;
     proto::Heartbeat req;
     proto::from_json(doc.as<JsonObjectConst>(), req);
@@ -1576,7 +1576,7 @@ static void handle_p2p_heartbeat() {
 }
 
 static void handle_p2p_detach() {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (!p2p_read_body(doc)) return;
     proto::Detach req;
     proto::from_json(doc.as<JsonObjectConst>(), req);
@@ -1585,7 +1585,7 @@ static void handle_p2p_detach() {
         return;
     }
     bool ok = proto_target::handle_detach(req.sessionId);
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     JsonObject o = out.to<JsonObject>();
     o["v"] = "1.0";
     o["t"] = "detachAck";
@@ -1598,7 +1598,7 @@ static void handle_p2p_detach() {
 }
 
 static void handle_p2p_state() {
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
     // ControlState is ~2 KB (Session[16]); static keeps it off the web stack.
     static proto::ControlState cs;
     memset(&cs, 0, sizeof(cs));

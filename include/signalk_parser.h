@@ -78,7 +78,7 @@ struct Data {
 // pairs that matched a known field and were applied to `out`.
 //   = 0  ->  no relevant values (e.g. hello / keepalive)
 //   < 0  ->  JSON parse error
-// Pass `alloc` (e.g. &espdisp::psram_json) to keep the parser's working
+// Pass `alloc` (e.g. &yeyboats::psram_json) to keep the parser's working
 // buffer off internal heap on the device; nullptr (default) uses the
 // internal-heap allocator, which host tests rely on.
 // `dyn` (optional): mirror every numeric delta value into this dynamic store

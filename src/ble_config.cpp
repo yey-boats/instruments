@@ -27,7 +27,7 @@ static NimBLECharacteristic *s_ctrl_resp = nullptr;
 
 // Build the JSON document returned on CONNECTION reads.
 static String connectionJson() {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject wifi = doc["wifi"].to<JsonObject>();
     wifi["mode"] = net::wifiUp() ? "STA" : "AP";
     wifi["ssid"] = WiFi.SSID();
@@ -57,7 +57,7 @@ static String connectionJson() {
 //   {"wifi":{"ssid":"X","password":"Y"}, "sk":{"host":"...","port":3000}}
 // Empty / missing fields are left alone.
 static void applyConnectionWrite(const std::string &data) {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (deserializeJson(doc, data)) {
         net::logf("[bleconfig] connection write: invalid JSON");
         return;
@@ -141,7 +141,7 @@ class ConfigCb : public NimBLECharacteristicCallbacks {
             return;
         }
         // Fall back to summary: total size + screen list
-        JsonDocument doc(&espdisp::psram_json);
+        JsonDocument doc(&yeyboats::psram_json);
         doc["truncated"] = true;
         doc["size"] = (uint32_t)(have ? body.length() : 0);
         if (layout::loaded()) {
@@ -218,7 +218,7 @@ static String controlDeviceJson() {
         truncated = true;
     }
 
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     JsonObject o = doc.to<JsonObject>();
     proto::to_json(o, r);
     if (truncated) o["viewsTruncated"] = true;  // hint: fetch full list over IP
@@ -259,7 +259,7 @@ static String controlStateJson() {
     static proto::ControlState cs;
     memset(&cs, 0, sizeof(cs));
     proto_target::fill_state(cs);
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     proto::to_json(doc.to<JsonObject>(), cs);
     String out;
     serializeJson(doc, out);
@@ -270,7 +270,7 @@ static String controlStateJson() {
 // like web.cpp; returns the ack JSON to stash on RESP. Rejects incompatible
 // protocol versions (mirrors the HTTP 400 incompatible_version gate).
 static String dispatchControl(const std::string &data) {
-    JsonDocument doc(&espdisp::psram_json);
+    JsonDocument doc(&yeyboats::psram_json);
     if (deserializeJson(doc, data) != DeserializationError::Ok) {
         return String("{\"v\":\"1.0\",\"ok\":false,\"reason\":\"bad_json\"}");
     }
@@ -282,7 +282,7 @@ static String dispatchControl(const std::string &data) {
         return String("{\"v\":\"1.0\",\"ok\":false,\"reason\":\"incompatible_version\"}");
     }
 
-    JsonDocument out(&espdisp::psram_json);
+    JsonDocument out(&yeyboats::psram_json);
 
     if (strcmp(t, "attach") == 0) {
         // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the small
