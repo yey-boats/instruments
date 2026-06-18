@@ -4,6 +4,8 @@
 #include <string.h>
 #include <unity.h>
 
+#include "marker_math.h"
+
 void setUp() {
 }
 void tearDown() {
@@ -70,6 +72,32 @@ static void test_controls_and_themes() {
     TEST_ASSERT_EQUAL_STRING("day", themes[0].as<const char *>());
 }
 
+static void test_markers_glyphs_and_cap() {
+    JsonDocument doc;
+    capabilities::build_manifest(doc.to<JsonObject>());
+    // Per-dial marker cap mirrors marker_math's single source of truth.
+    TEST_ASSERT_EQUAL_INT((int)ui::kMaxMarkersPerDial, doc["maxMarkersPerDial"].as<int>());
+    TEST_ASSERT_EQUAL_INT(12, doc["maxMarkersPerDial"].as<int>());
+    // Glyph token set: one entry per GlyphId, in canonical order.
+    TEST_ASSERT_TRUE_MESSAGE(doc["glyphs"].is<JsonArray>(), "glyphs is not an array");
+    JsonArray glyphs = doc["glyphs"];
+    TEST_ASSERT_EQUAL_INT((int)ui::GlyphId::COUNT, (int)glyphs.size());
+    TEST_ASSERT_EQUAL_INT(10, (int)glyphs.size());
+    bool has_triangle = false, has_diamond = false, has_chevron_in = false,
+         has_chevron_double = false;
+    for (JsonVariant g : glyphs) {
+        const char *t = g.as<const char *>();
+        if (!strcmp(t, "triangle")) has_triangle = true;
+        if (!strcmp(t, "diamond")) has_diamond = true;
+        if (!strcmp(t, "chevron_in")) has_chevron_in = true;
+        if (!strcmp(t, "chevron_double")) has_chevron_double = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(has_triangle, "glyphs missing triangle");
+    TEST_ASSERT_TRUE_MESSAGE(has_diamond, "glyphs missing diamond");
+    TEST_ASSERT_TRUE_MESSAGE(has_chevron_in, "glyphs missing chevron_in");
+    TEST_ASSERT_TRUE_MESSAGE(has_chevron_double, "glyphs missing chevron_double");
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_version_and_limits);
@@ -77,5 +105,6 @@ int main(int, char **) {
     RUN_TEST(test_gauge_has_range_and_zones);
     RUN_TEST(test_font_sizes_and_units);
     RUN_TEST(test_controls_and_themes);
+    RUN_TEST(test_markers_glyphs_and_cap);
     return UNITY_END();
 }
