@@ -109,6 +109,33 @@ test('deviceCapabilities returns the reported manifest, else null', () => {
   assert.strictEqual(m.deviceCapabilities('cold'), null) // never reported
 })
 
+test('deleteOfflineDevices removes only stale entries; clearAllDevices empties the list', () => {
+  const m = mgr()
+  m.options = { heartbeatMs: 5000 }
+  const fresh = new Date().toISOString()
+  const old = new Date(Date.now() - 86400000).toISOString()
+  const noop = () => {}
+  m.store = {
+    registry: {
+      devices: {
+        live: { id: 'live', lastSeen: fresh },
+        stale1: { id: 'stale1', lastSeen: old },
+        stale2: { id: 'stale2' } // never seen
+      }
+    },
+    commands: { queues: {} },
+    discovery: { devices: {} },
+    saveRegistry: noop, saveCommands: noop, saveDiscovery: noop, audit: noop
+  }
+  const r = m.deleteOfflineDevices()
+  assert.strictEqual(r.removed, 2)
+  assert.deepStrictEqual(Object.keys(m.store.registry.devices), ['live']) // online kept
+  m.store.registry.devices.x = { id: 'x', lastSeen: fresh }
+  const r2 = m.clearAllDevices()
+  assert.strictEqual(r2.removed, 2)
+  assert.strictEqual(Object.keys(m.store.registry.devices).length, 0)
+})
+
 test('a non-primary winning candidate is promoted to lastResolvedAddress', async () => {
   const m = mgr()
   m.deviceWebAuth = () => null

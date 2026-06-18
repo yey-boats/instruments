@@ -1570,6 +1570,23 @@ class EspDispManager {
     return { id, removed: true }
   }
 
+  // Bulk cleanup: remove every registered device that isn't currently online
+  // (registries accumulate stale/mock entries — see the network-conflict fix).
+  deleteOfflineDevices () {
+    const ids = Object.values(this.store.registry.devices)
+      .filter((device) => !this.isDeviceOnline(device))
+      .map((device) => device.id)
+    ids.forEach((id) => this.deleteDevice(id))
+    return { removed: ids.length, remaining: Object.keys(this.store.registry.devices).length }
+  }
+
+  // Bulk cleanup: remove ALL registered devices (full reset of the list).
+  clearAllDevices () {
+    const ids = Object.keys(this.store.registry.devices)
+    ids.forEach((id) => this.deleteDevice(id))
+    return { removed: ids.length, remaining: Object.keys(this.store.registry.devices).length }
+  }
+
   // Firmware artifact cleanup: drop an artifact from the catalog.
   // Active jobs that referenced it keep going to completion; we
   // just stop offering it to new updates.

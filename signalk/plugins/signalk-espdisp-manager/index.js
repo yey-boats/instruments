@@ -658,6 +658,19 @@ function registerRoutes (router, getManager) {
     res.setHeader('location', '/plugins/espdisp-manager/ui/devices')
     res.end()
   }))
+  // Bulk cleanup of the registered-devices list.
+  router.post('/ui/devices/clear-offline', wrap(getManager, (manager, req, res) => {
+    const r = manager.deleteOfflineDevices()
+    res.statusCode = 303
+    res.setHeader('location', `/plugins/espdisp-manager/ui/devices?cleared=offline&removed=${r.removed}`)
+    res.end()
+  }))
+  router.post('/ui/devices/clear-all', wrap(getManager, (manager, req, res) => {
+    const r = manager.clearAllDevices()
+    res.statusCode = 303
+    res.setHeader('location', `/plugins/espdisp-manager/ui/devices?cleared=all&removed=${r.removed}`)
+    res.end()
+  }))
   router.delete('/firmware/artifacts/:artifactId', wrap(getManager, (manager, req, res) => {
     res.json(manager.deleteFirmwareArtifact(req.params.artifactId))
   }))
@@ -1251,12 +1264,25 @@ function renderDevicesPage (devices, req, manager) {
   const managerUrl = host ? `http://${host}/plugins/espdisp-manager` : '/plugins/espdisp-manager'
   const discovered = manager ? manager.listDiscoveredDevices().devices : []
   const pendingDevices = discovered.filter((d) => !d.registered)
+  const offlineCount = devices.filter((d) => !d.online).length
+  const q = (req && req.query) || {}
+  const clearedBanner = q.cleared
+    ? `<p class="muted" style="color:#2e8b57;">Removed ${escapeHtml(String(q.removed || 0))} ${q.cleared === 'all' ? 'device(s) — list cleared' : 'offline device(s)'}.</p>`
+    : ''
+  const act = (path, label, confirmMsg, danger) =>
+    `<form method="post" action="/plugins/espdisp-manager/ui/devices/${path}" style="display:inline"
+           onsubmit="return confirm('${escapeHtml(confirmMsg)}');">
+      <button type="submit"${danger ? ' style="background:#c0392b;border-color:#a82716;"' : ''}>${escapeHtml(label)}</button>
+    </form>`
   return `
     <section class="panel">
       <h2>Devices</h2>
       <p class="muted">${devices.length} registered · ${pendingDevices.length} pending</p>
+      ${clearedBanner}
       <div class="actions">
         <a href="/plugins/espdisp-manager/ui/devices">Refresh</a>
+        ${devices.length ? act('clear-offline', `Clear offline (${offlineCount})`, `Remove all ${offlineCount} offline device(s) from the list?`, false) : ''}
+        ${devices.length ? act('clear-all', `Clear all (${devices.length})`, `Remove ALL ${devices.length} registered device(s)? This cannot be undone.`, true) : ''}
       </div>
       ${pendingDevices.length ? renderPendingDiscoverySection(manager, pendingDevices) : ''}
       <h3 style="margin-top:24px;">Registered (${devices.length})</h3>
