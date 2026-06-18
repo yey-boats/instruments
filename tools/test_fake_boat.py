@@ -108,5 +108,37 @@ class TestRoute(unittest.TestCase):
         self.assertTrue(r.finished)
 
 
+class TestAisFleet(unittest.TestCase):
+    def test_set_count_spawns_and_despawns(self):
+        fleet = fb.AisFleet(center=(41.0, 2.0))
+        fleet.set_count(3)
+        self.assertEqual(len(fleet.vessels), 3)
+        fleet.set_count(1)
+        self.assertEqual(len(fleet.vessels), 1)
+        fleet.set_count(0)
+        self.assertEqual(len(fleet.vessels), 0)
+
+    def test_vessel_has_distinct_context_and_moves(self):
+        fleet = fb.AisFleet(center=(41.0, 2.0))
+        fleet.set_count(2)
+        ctxs = {v.context for v in fleet.vessels}
+        self.assertEqual(len(ctxs), 2)
+        for c in ctxs:
+            self.assertTrue(c.startswith("vessels.urn:mrn:imo:mmsi:"))
+        before = (fleet.vessels[0].lat, fleet.vessels[0].lon)
+        fleet.step(dt=10.0)
+        after = (fleet.vessels[0].lat, fleet.vessels[0].lon)
+        self.assertNotEqual(before, after)
+
+    def test_nearest_returns_closest(self):
+        fleet = fb.AisFleet(center=(41.0, 2.0))
+        fleet.set_count(3)
+        near = fleet.nearest((41.0, 2.0))
+        self.assertIsNotNone(near)
+        d_near = fb.distance((41.0, 2.0), (near.lat, near.lon))
+        for v in fleet.vessels:
+            self.assertLessEqual(d_near, fb.distance((41.0, 2.0), (v.lat, v.lon)) + 1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

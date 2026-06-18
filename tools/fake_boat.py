@@ -130,6 +130,60 @@ class Route:
         return result
 
 
+# --- AIS ---
+
+_SHIP_TYPES = [
+    (30, "Fishing"), (36, "Sailing"), (60, "Passenger"),
+    (70, "Cargo"), (80, "Tanker"), (52, "Tug"),
+]
+_NAMES = ["MARINA", "ORCA", "SEA BREEZE", "NORDKAP", "ALBATROS", "POSEIDON"]
+
+
+class AisVessel:
+    def __init__(self, slot, center):
+        self.slot = slot
+        mmsi = 244060800 + slot
+        self.context = "vessels.urn:mrn:imo:mmsi:%d" % mmsi
+        self.mmsi = mmsi
+        self.name = _NAMES[slot % len(_NAMES)]
+        self.ship_type = _SHIP_TYPES[slot % len(_SHIP_TYPES)]
+        # Place around the center on a ~1.5 NM ring; spread by slot.
+        ang = (slot / 6.0) * 2 * math.pi
+        self.lat, self.lon = dead_reckon(center[0], center[1], ang, 2800.0, 1.0)
+        self.sog = 3.0 + (slot % 4)  # 3..6 m/s
+        # Slot 0 converges on the center (CPA); others run roughly tangential.
+        if slot == 0:
+            self.cog = bearing((self.lat, self.lon), center)
+        else:
+            self.cog = (ang + math.pi / 2) % (2 * math.pi)
+        self.heading = self.cog
+
+    def step(self, dt):
+        self.lat, self.lon = dead_reckon(self.lat, self.lon, self.cog, self.sog, dt)
+
+
+class AisFleet:
+    def __init__(self, center):
+        self.center = center
+        self.vessels = []
+
+    def set_count(self, n):
+        n = max(0, n)
+        while len(self.vessels) < n:
+            self.vessels.append(AisVessel(len(self.vessels), self.center))
+        while len(self.vessels) > n:
+            self.vessels.pop()
+
+    def step(self, dt):
+        for v in self.vessels:
+            v.step(dt)
+
+    def nearest(self, pos):
+        if not self.vessels:
+            return None
+        return min(self.vessels, key=lambda v: distance(pos, (v.lat, v.lon)))
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="SignalK boat-data simulator")
     p.add_argument("host", nargs="?", default="localhost")
