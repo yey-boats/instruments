@@ -128,6 +128,13 @@ Key contracts:
 - **`board_pins.h` ST7701 init table and the NUS UUID `#define` block
   are wrapped in `// clang-format off`/`on`** — keep that protection when
   editing or `make lint` will fail in CI.
+- **`ui_markers::draw_glyph` allocates a per-glyph PSRAM canvas buffer that
+  is intentionally never freed** (lifetime = the screen session, like all
+  built-once screen objects). Marker rings build their glyph canvases at
+  screen-build time; `marker_ring_update` never allocates. If you ever add a
+  path that *deletes* glyph canvases (dynamic/rebuilt dials), you must
+  `heap_caps_free(buf)` the canvas buffer first or it leaks PSRAM — LVGL does
+  not own a user-supplied canvas buffer. Keep glyph drawing on the UI task.
 
 ## Adding things
 
