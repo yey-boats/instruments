@@ -436,28 +436,35 @@ make clean         Remove build artifacts
 
 ## Versioning
 
-`VERSION` is the project version source. `tools/check_version.py` verifies
-that it matches the SignalK plugin package metadata. PlatformIO runs
-`tools/version.py` before each build and injects:
+Firmware versions are `MAJOR.MINOR.BUILD`:
 
-- `FW_VERSION` from `VERSION`, or `YEYBOATS_VERSION` when set by release CI.
+- **MAJOR.MINOR** is the repo-configured source of truth, held in the
+  `VERSION` file (committed as `MAJOR.MINOR.0`). `tools/check_version.py`
+  verifies the patch component is `0` (it is CI-owned, never hand-edited).
+- **BUILD** is `github.run_number` in CI (monotonic per repo), or `0` for
+  local builds. CI stamps it via `YEYBOATS_VERSION=MAJOR.MINOR.<run_number>`.
+
+PlatformIO runs `tools/version.py` before each build and injects:
+
+- `FW_VERSION` from `YEYBOATS_VERSION` when set (CI / `make`), else a
+  `MAJOR.MINOR.0+<commits>.g<sha>` dev string derived from `VERSION` + Git.
 - `FW_GIT_COMMIT` from `GITHUB_SHA` or local Git.
 - `PIO_ENV` from the active PlatformIO environment.
 
 The firmware exposes those fields through device identity, mDNS discovery,
-manager registration, `/api/state`, and OTA confirmation payloads. The
-SignalK plugin reports its version from its `package.json`.
+manager registration, `/api/state`, and OTA confirmation payloads.
 
 Local version commands:
 
 ```sh
 make version-check
-make version-set VERSION=0.1.1
-make build
-make build PROJECT_VERSION=0.1.1-dev
+make version-set VERSION=0.3      # set MAJOR.MINOR (BUILD stays CI-owned)
+make build                        # stamps MAJOR.MINOR.0 locally
+make build PROJECT_VERSION=0.3.99 # override the full version for a one-off
 ```
 
-Release tags must match the `VERSION` file, for example `v0.1.0`. Tagged
+Release tags must share the `VERSION` file's MAJOR.MINOR, for example `v0.3.42`
+when `VERSION` is `0.3.0`; the tag's BUILD is authoritative for the release. Tagged
 GitHub releases build every supported firmware target, package the matching
 `signalk-espdisp-manager-<version>.tgz` plugin, and publish checksums for all
 release artifacts. Use those release assets for normal SignalK installs.
@@ -781,7 +788,16 @@ git push origin v0.1.0
 ```
 
 For tagged releases, GitHub builds with `YEYBOATS_VERSION=${TAG_NAME#v}` so
-firmware version `0.1.0` corresponds to Git tag `v0.1.0`.
+firmware version `0.3.42` corresponds to Git tag `v0.3.42` (the tag's BUILD is
+authoritative; only its MAJOR.MINOR must match the `VERSION` file).
+
+Every push to `main` also publishes a rolling **tip** prerelease (the `tip` job
+in `ci.yml`): after the build matrix, host tests, and lint pass, it builds the
+8 shippable targets, merges them, and force-updates a single GitHub release
+tagged `tip` (named `tip (main @ <sha>)`, `prerelease: true`) with the merged
+images + `SHA256SUMS`. The SignalK manager lists this as the TIP build
+alongside the formal tagged RELEASES. It is an unstable, continuously-updated
+build; use a `v*` tagged release for stable firmware.
 
 The `release.yml` workflow builds all supported firmware targets from
 `release-*` PlatformIO environments on push of a `v*` tag. These profiles keep

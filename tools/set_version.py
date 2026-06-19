@@ -15,15 +15,34 @@ def write_json(path, data):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Set espdisp project version metadata.")
-    parser.add_argument("version", help="Semver version without a leading v, for example 0.1.0 or 0.1.0-rc1")
+    parser = argparse.ArgumentParser(
+        description="Set espdisp project MAJOR.MINOR version metadata.",
+    )
+    parser.add_argument(
+        "version",
+        help=(
+            "MAJOR.MINOR (e.g. 0.3) or a full MAJOR.MINOR.BUILD / tag-style "
+            "version (e.g. 0.3.42 or v0.3.42). Only MAJOR.MINOR is recorded; "
+            "the VERSION file is normalised to MAJOR.MINOR.0. The BUILD "
+            "component is set by CI (github.run_number) at build time and "
+            "defaults to 0 for local builds -- it is not hand-edited here."
+        ),
+    )
     args = parser.parse_args()
 
     version = args.version.strip()
     if version.startswith("v"):
         version = version[1:]
-    if not SEMVER_RE.match(version):
-        parser.error("version must be semver, for example 0.1.0 or 0.1.0-rc1")
+
+    # Accept either a bare MAJOR.MINOR or a full semver; we only keep the
+    # MAJOR.MINOR, which is the repo-configured source of truth. The patch /
+    # BUILD and any pre-release/build metadata are dropped because CI owns
+    # the BUILD number now.
+    m = re.match(r"^(\d+)\.(\d+)(?:\.\d+)?(?:[-+].*)?$", version)
+    if not m:
+        parser.error("version must be MAJOR.MINOR or MAJOR.MINOR.BUILD, for example 0.3 or 0.3.42")
+    major, minor = m.group(1), m.group(2)
+    version = f"{major}.{minor}.0"
 
     (ROOT / "VERSION").write_text(version + "\n", encoding="utf-8")
 

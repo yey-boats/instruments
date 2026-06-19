@@ -11,7 +11,13 @@ PORT      ?= auto
 DEVICE_IP ?=
 SK_HOST   ?= localhost
 SK_PORT   ?= 3000
-PROJECT_VERSION ?= $(shell cat VERSION)
+# VERSION holds the repo-configured MAJOR.MINOR.0 source of truth. MAJOR.MINOR
+# are authoritative; the third component (BUILD) is owned by CI
+# (github.run_number). Local builds stamp MAJOR.MINOR.0 so a bench binary is
+# always identifiable as a local build (run number 0). CI overrides
+# YEYBOATS_VERSION with MAJOR.MINOR.<run_number>.
+VERSION_BASE    := $(shell cut -d. -f1-2 VERSION)
+PROJECT_VERSION ?= $(VERSION_BASE).0
 
 # Lab default for the current setup: SignalK on nav-server over SSH,
 # device reachable only via OTA + BLE. Override on the command line if
@@ -46,7 +52,7 @@ help:  ## Show this help
 	@printf "  PORT        serial port for USB flash (default: auto-detect)\n"
 	@printf "  DEVICE_IP   target IP for OTA flash (required for 'make ota')\n"
 	@printf "  SK_HOST     SignalK server host for 'make demo' (default: localhost)\n"
-	@printf "  PROJECT_VERSION firmware/plugin version (default: $(PROJECT_VERSION))\n"
+	@printf "  PROJECT_VERSION firmware version MAJOR.MINOR.BUILD (default: $(PROJECT_VERSION); CI sets BUILD=run_number)\n"
 
 setup:  ## First-time setup: copy secrets.h template, verify PlatformIO
 	@command -v $(PIO) >/dev/null 2>&1 || { \
@@ -64,8 +70,8 @@ version:  ## Print project version and verify metadata
 version-check:  ## Verify project/plugin version metadata is consistent
 	@python3 tools/check_version.py
 
-version-set:  ## Set project/plugin version (use VERSION=0.1.0)
-	@test -n "$(VERSION)" || { echo "Usage: make version-set VERSION=0.1.0" >&2; exit 1; }
+version-set:  ## Set project MAJOR.MINOR (use VERSION=0.3; BUILD is CI-owned)
+	@test -n "$(VERSION)" || { echo "Usage: make version-set VERSION=0.3 (MAJOR.MINOR; BUILD is set by CI)" >&2; exit 1; }
 	python3 tools/set_version.py $(VERSION)
 
 build: setup version-check  ## Build firmware
@@ -333,8 +339,10 @@ release-tag:  ## (legacy) Tag a release locally. Prefer the "Cut Release" CI wor
 	@test -n "$(VERSION)" || { echo "Usage: make release-tag VERSION=v0.1.0" >&2; exit 1; }
 	@echo "$(VERSION)" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$$' \
 	  || { echo "Version must look like v0.1.0 or v0.1.0-rc1" >&2; exit 1; }
-	@test "$$(cat VERSION)" = "$$(echo $(VERSION) | sed 's/^v//')" || { \
-	  echo "VERSION file must match tag $(VERSION)" >&2; exit 1; }
+	@tag_mm=$$(echo $(VERSION) | sed 's/^v//' | cut -d. -f1-2); \
+	  repo_mm=$$(cut -d. -f1-2 VERSION); \
+	  test "$$tag_mm" = "$$repo_mm" || { \
+	    echo "Tag MAJOR.MINOR ($$tag_mm) must match VERSION file ($$repo_mm); the tag's BUILD is authoritative" >&2; exit 1; }
 	git tag -a $(VERSION) -m "Release $(VERSION)"
 	@echo "Tag $(VERSION) created locally. Push with: git push origin $(VERSION)"
 

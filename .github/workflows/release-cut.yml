@@ -13,7 +13,10 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version (semver, no v prefix). E.g. 0.2.0'
+        description: >-
+          Release version MAJOR.MINOR.BUILD (semver, no v prefix), e.g. 0.3.42.
+          MAJOR.MINOR must match (or bump) the VERSION file; BUILD is the
+          formal release build number baked into this tag.
         required: true
         type: string
       dry_run:
@@ -52,11 +55,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Bump VERSION + plugin manifests
+      - name: Bump VERSION (MAJOR.MINOR only) + plugin manifests
         env:
           VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
+          # set_version normalises to MAJOR.MINOR.0 -- a build-only bump
+          # (same MAJOR.MINOR) produces no diff, so the commit step below is
+          # skipped and we just tag. The tag's BUILD is authoritative.
           python3 tools/set_version.py "${VERSION_INPUT}"
           python3 tools/check_version.py
 

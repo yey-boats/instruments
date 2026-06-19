@@ -36,8 +36,15 @@ jobs:
       - name: Check project version metadata
         run: |
           python3 tools/check_version.py
-          test "$(cat VERSION)" = "${TAG_NAME#v}" || {
-            echo "::error::VERSION must match release tag ${TAG_NAME}"
+          # MAJOR.MINOR is the repo-configured source of truth and must match
+          # the tag. The tag's BUILD (third component) is authoritative for a
+          # formal release -- it is NOT required to match the VERSION file's
+          # placeholder 0 (the VERSION file pins MAJOR.MINOR.0; CI/the tag own
+          # BUILD). So we compare only MAJOR.MINOR here.
+          repo_mm=$(cut -d. -f1-2 VERSION)
+          tag_mm=$(printf '%s' "${TAG_NAME#v}" | cut -d. -f1-2)
+          test "$repo_mm" = "$tag_mm" || {
+            echo "::error::tag MAJOR.MINOR (${tag_mm}) must match VERSION file (${repo_mm}); the tag's BUILD is authoritative"
             exit 1
           }
 

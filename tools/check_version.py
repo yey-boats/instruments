@@ -20,6 +20,21 @@ def main():
     if not SEMVER_RE.match(version):
         errors.append(f"VERSION is not semver: {version!r}")
 
+    # VERSION is the repo-configured MAJOR.MINOR source of truth. The third
+    # component (BUILD) is owned by CI -- it is github.run_number on CI builds
+    # and 0 for local builds -- so the committed VERSION file must always pin
+    # it to MAJOR.MINOR.0. This catches an accidental hand-bump of the patch.
+    mm = re.match(r"^(\d+)\.(\d+)\.(\d+)$", version)
+    if mm is None:
+        errors.append(
+            f"VERSION must be MAJOR.MINOR.0 (BUILD is CI-owned): {version!r}"
+        )
+    elif mm.group(3) != "0":
+        errors.append(
+            f"VERSION patch/BUILD must be 0 (it is set by CI run_number, "
+            f"not hand-edited): {version!r}"
+        )
+
     # The SignalK manager plugin moved to the yey-boats/Instruments-manager
     # repo; its version is checked there. Only validate it here if a plugin
     # checkout still happens to live under signalk/ in this tree.
