@@ -1,0 +1,19 @@
+{
+  "name": "@yey-boats/midl",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "yaml": "^2.4.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
