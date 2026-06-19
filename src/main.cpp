@@ -173,6 +173,13 @@ static volatile bool g_ff_arm = false;
 static volatile uint32_t g_ff_show_us = 0;
 static volatile uint32_t g_ff_us = 0;
 
+// DIRECT render path: when non-null, LVGL renders straight into the RGB panel's
+// PSRAM scanout framebuffer, so disp_flush_cb only writes back the dirty rows
+// (cache coherency for the LCD DMA) instead of CPU-copying every tile. Set in
+// setup() from gfx->getFramebuffer(). Cache_WriteBack_Addr (declared by the GFX
+// panel header) is the S3 ROM cache op the library itself uses after FB writes.
+static uint16_t *g_direct_fb = nullptr;
+
 static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map) {
     uint32_t t0 = micros();
     if (g_ff_arm) {  // first flush after a bench-sweep screen-show: record load latency
@@ -182,7 +189,14 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
     uint32_t w = area->x2 - area->x1 + 1;
     uint32_t h = area->y2 - area->y1 + 1;
     uint32_t px = w * h;
-    gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
+    if (g_direct_fb) {
+        // LVGL already rendered this area into the scanout framebuffer; just
+        // write back the dirty rows so the RGB DMA sees them. No pixel copy.
+        Cache_WriteBack_Addr((uint32_t)(g_direct_fb + (size_t)area->y1 * LCD_W),
+                             (uint32_t)(LCD_W * h * sizeof(uint16_t)));
+    } else {
+        gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
+    }
     lv_display_flush_ready(d);
     uint32_t dt = micros() - t0;
     g_flush_count++;
@@ -2140,31 +2154,44 @@ void setup() {
     lv_init();
     lv_tick_set_cb(lv_tick_cb);
 
-    // LVGL partial draw buffers. disp_flush_cb blits via the CPU
-    // (gfx->draw16bitRGBBitmap), so these do NOT need to be DMA-capable or
-    // live in internal SRAM. Each buffer is LCD_W*40*2 = ~37.5 KB; keeping the
-    // pair in internal heap (the old default) consumed ~75 KB of the ~90 KB
-    // internal pool, starving WiFi/lwIP and wedging the network while the
-    // already-open SK socket kept running ("unstable but live"). Allocating
-    // them from PSRAM frees that ~75 KB back to the internal heap. The panel
-    // framebuffer is already PSRAM-backed, so the only cost is a PSRAM read
-    // during the flush blit. Fall back to internal only if PSRAM is somehow
-    // unavailable.
-    size_t buf_px = LCD_W * 40;
-    uint16_t *buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-    uint16_t *buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-    if (!buf_a || !buf_b) {
-        puts("[lvgl] PSRAM buf alloc failed, falling back to internal DMA");
-        buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
-                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-        buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
-                                             MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
-    }
-
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     lv_display_set_flush_cb(disp, disp_flush_cb);
-    lv_display_set_buffers(disp, buf_a, buf_b, buf_px * sizeof(uint16_t),
-                           LV_DISPLAY_RENDER_MODE_PARTIAL);
+
+    // Render path: prefer DIRECT mode into the RGB panel's PSRAM framebuffer
+    // (gfx->getFramebuffer() = the buffer the LCD DMA continuously scans out).
+    // LVGL renders changed areas straight into it, so disp_flush_cb only writes
+    // back the dirty rows (cache mgmt) instead of CPU-copying every tile via
+    // draw16bitRGBBitmap. Removes the whole blit + one of the three PSRAM
+    // round-trips per pixel -> shorter first-paint stalls and flush cost.
+    // Trade-off: single scanout buffer can tear on large repaints (acceptable
+    // for a 5 Hz instrument UI). Falls back to the PARTIAL two-buffer + blit
+    // path if the framebuffer pointer is unavailable.
+    uint16_t *fb = gfx->getFramebuffer();
+    if (fb) {
+        g_direct_fb = fb;
+        lv_display_set_buffers(disp, fb, NULL, (uint32_t)LCD_W * LCD_H * sizeof(uint16_t),
+                               LV_DISPLAY_RENDER_MODE_DIRECT);
+        puts("[lvgl] DIRECT render into panel framebuffer (no flush copy)");
+    } else {
+        // PARTIAL fallback. Buffers in PSRAM (LCD_W*40*2 = ~37.5 KB each):
+        // keeping the pair in internal SRAM starved WiFi/lwIP before
+        // ("unstable but live"); fall back to internal DMA only if PSRAM fails.
+        size_t buf_px = LCD_W * 40;
+        uint16_t *buf_a =
+            (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        uint16_t *buf_b =
+            (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        if (!buf_a || !buf_b) {
+            puts("[lvgl] PSRAM buf alloc failed, falling back to internal DMA");
+            buf_a = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
+                                                 MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+            buf_b = (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t),
+                                                 MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
+        }
+        lv_display_set_buffers(disp, buf_a, buf_b, buf_px * sizeof(uint16_t),
+                               LV_DISPLAY_RENDER_MODE_PARTIAL);
+        puts("[lvgl] PARTIAL render (framebuffer unavailable)");
+    }
 
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
