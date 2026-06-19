@@ -1,0 +1,9 @@
+# IDF-5 / pioarduino hybrid defaults. The pure-Arduino framework sets these
+# implicitly; under the espidf hybrid (or pioarduino's IDF-5 build) they must be
+# declared or the octal-PSRAM cache config mismatches and the app faults at
+# entry (same silent-reboot signature as the qio_opi trap in CLAUDE.md).
+CONFIG_FREERTOS_HZ=1000
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_ESP32S3_SPIRAM_SUPPORT=y
+CONFIG_SPIRAM=y

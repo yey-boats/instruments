@@ -6,7 +6,11 @@
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
 #include <ESPmDNS.h>
+// BLE (NimBLE-Arduino) is compiled out under YEYBOATS_DISABLE_BLE for the
+// esp-idf 5.x toolchain where the 1.4 library is absent.
+#ifndef YEYBOATS_DISABLE_BLE
 #include <NimBLEDevice.h>
+#endif
 #include <esp_mac.h>
 #include <esp_attr.h>
 #include <esp_system.h>
@@ -181,7 +185,10 @@ static ExtraCommandHandler s_extra = nullptr;
 static String s_device_id;
 static volatile WifiState s_wifi_state = WifiState::Idle;
 static TaskHandle_t s_wifi_task = nullptr;
+// BLE advertising watchdog handle; only exists when BLE is compiled in.
+#ifndef YEYBOATS_DISABLE_BLE
 static TaskHandle_t s_ble_adv_task = nullptr;
+#endif
 static bool s_discovery_announcements = false;
 static uint32_t s_discovery_last_ms = 0;
 static uint32_t s_discovery_sent = 0;
@@ -283,6 +290,10 @@ const String &deviceId() {
 }
 
 // ---- BLE ----
+// The entire BLE NUS console (NimBLE) is compiled out under
+// YEYBOATS_DISABLE_BLE for the esp-idf 5.x toolchain where NimBLE-Arduino 1.4
+// is absent. When the flag is undefined this block is byte-for-byte unchanged.
+#ifndef YEYBOATS_DISABLE_BLE
 // Nordic UART service UUIDs (de facto BLE serial standard).
 // clang-format off
 #define NUS_SERVICE     "6e400001-b5a3-f393-e0a3-9f4dd9e3a05a"
@@ -380,6 +391,12 @@ static void bleSetup() {
     xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1, &s_ble_adv_task,
                             0);
 }
+#else   // YEYBOATS_DISABLE_BLE
+// No-op BLE setup when NimBLE is compiled out. Serial + UDP logging continue
+// to work; only the BLE console is absent.
+static void bleSetup() {
+}
+#endif  // YEYBOATS_DISABLE_BLE
 
 // ---- WiFi / OTA ----
 
@@ -1008,10 +1025,14 @@ static void log_emit(uint8_t level, const char *fmt, va_list ap) {
         s_rtc_min_free_heap = min_free;
     }
 
+    // BLE-notify branch is compiled out under YEYBOATS_DISABLE_BLE; Serial +
+    // UDP logging below are unaffected.
+#ifndef YEYBOATS_DISABLE_BLE
     if (bleConnected && bleTxChar) {
         bleTxChar->setValue((uint8_t *)buf, n);
         bleTxChar->notify();
     }
+#endif
 #ifdef YEYBOATS_DEBUG_UDP_LOG
     udp_log_emit(level, buf, n);
 #else

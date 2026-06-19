@@ -9,6 +9,11 @@
 #include "proto/records_generated.h"
 
 #include <ArduinoJson.h>
+// BLE (NimBLE-Arduino) is compiled out under YEYBOATS_DISABLE_BLE for the
+// esp-idf 5.x toolchain where the 1.4 library is absent. When the flag is
+// undefined this whole file is byte-for-byte unchanged. When it is defined,
+// the NimBLE body below vanishes and harmless no-op stubs take its place.
+#ifndef YEYBOATS_DISABLE_BLE
 #include <NimBLEDevice.h>
 #include "storage.h"
 #include <WiFi.h>
@@ -472,3 +477,16 @@ void notifyAll() {
 }
 
 }  // namespace bleconfig
+
+#else  // YEYBOATS_DISABLE_BLE
+
+// No-op stubs so callers (net.cpp, layout_loader.cpp) still link when NimBLE
+// is compiled out. Signatures match include/ble_config.h exactly.
+namespace bleconfig {
+void setup() {
+}
+void notifyAll() {
+}
+}  // namespace bleconfig
+
+#endif  // YEYBOATS_DISABLE_BLE
