@@ -1,0 +1,13 @@
+{
+  "midl": "1.0.0",
+  "firmwareVersion": "0.5.0",
+  "board": "sunton-4848s040",
+  "classes": [{ "id": "sunton-480", "width": 480, "height": 480, "maxTiles": 4, "maxDepth": 3, "elements": ["single-value", "compass"] }],
+  "elements": [
+    { "type": "single-value", "bindings": ["value"], "units": ["kn", "m"] },
+    { "type": "compass", "bindings": ["value"], "glyphs": ["triangle", "diamond"] }
+  ],
+  "sources": ["signalk"],
+  "actionKinds": ["put", "nav", "command"],
+  "presets": ["full", "hero-split"]
+}

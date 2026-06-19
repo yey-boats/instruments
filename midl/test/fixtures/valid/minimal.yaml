@@ -1,0 +1,6 @@
+midl: 1.0.0
+screens:
+  - id: dash
+    elements:
+      sog: { type: single-value, bindings: { value: { kind: signalk, path: navigation.speedOverGround } } }
+    layout: { element: sog }

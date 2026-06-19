@@ -1,0 +1,8 @@
+{
+  "midl": "1.0.0",
+  "screens": [{
+    "id": "dash",
+    "elements": { "w": { "type": "windrose" } },
+    "layout": { "element": "w" }
+  }]
+}

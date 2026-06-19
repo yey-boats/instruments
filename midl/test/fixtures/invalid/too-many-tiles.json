@@ -1,0 +1,14 @@
+{
+  "midl": "1.0.0",
+  "screens": [{
+    "id": "dash",
+    "elements": {
+      "a": { "type": "single-value" }, "b": { "type": "single-value" },
+      "c": { "type": "single-value" }, "d": { "type": "single-value" },
+      "e": { "type": "single-value" }
+    },
+    "layout": { "dir": "col", "children": [
+      { "element": "a" }, { "element": "b" }, { "element": "c" }, { "element": "d" }, { "element": "e" }
+    ] }
+  }]
+}
