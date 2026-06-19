@@ -588,7 +588,11 @@ bool tryAutoDiscover(uint32_t now_ms) {
         return true;
     }
     String host = MDNS.hostname(0);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    IPAddress ip = MDNS.address(0);  // ESPmDNS renamed IP() -> address() in Arduino 3.x
+#else
     IPAddress ip = MDNS.IP(0);
+#endif
     uint16_t port = MDNS.port(0);
     if (host.length() == 0 && ip == IPAddress(0, 0, 0, 0)) return false;
     String target = ip != IPAddress(0, 0, 0, 0) ? ip.toString() : host;

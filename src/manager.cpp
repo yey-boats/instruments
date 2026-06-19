@@ -2481,12 +2481,20 @@ bool handleSerialCommand(const String &line) {
         for (int i = 0; i < n; ++i) {
             String host = MDNS.hostname(i);
             uint16_t port = MDNS.port(i);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+            IPAddress ip = MDNS.address(i);  // ESPmDNS renamed IP() -> address() in Arduino 3.x
+#else
             IPAddress ip = MDNS.IP(i);
+#endif
             net::logf("[mgr]   [%d] %s @ %s:%u", i, host.c_str(), ip.toString().c_str(),
                       (unsigned)port);
         }
         if (n == 1) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+            IPAddress ip = MDNS.address(0);
+#else
             IPAddress ip = MDNS.IP(0);
+#endif
             uint16_t port = MDNS.port(0);
             // Prefer the resolved IP - .local hostnames re-resolve at
             // every HTTP call which is wasteful and flaky on iOS hot-

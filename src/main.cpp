@@ -9,6 +9,10 @@
 #include "board_pins.h"
 #include "net.h"
 #include "signalk.h"
+#ifdef RENDER_DOUBLE_BUFFER
+#include "esp_lcd_panel_ops.h"
+#include "esp_lcd_panel_rgb.h"
+#endif
 #ifdef DBG_PERF_COUNTERS
 #include "bench_row.h"
 #include <freertos/FreeRTOS.h>
@@ -134,6 +138,13 @@ static const uint8_t st7701_4848S040_init[] = {
 };
 // clang-format on
 
+// Arduino_GFX's RGB panel classes (Arduino_ESP32RGBPanel / Arduino_RGB_Display)
+// exist only in the library's ESP_ARDUINO_VERSION_MAJOR<3 branch, so on the
+// IDF-5 / Arduino-3.x build (RENDER_DOUBLE_BUFFER) they don't compile. There we
+// drive the RGB panel directly via esp_lcd (display_db_init, num_fbs=2). `bus`
+// (Arduino_SWSPI, above) survives on Arduino 3.x and still carries the ST7701
+// 3-wire SPI init in both paths.
+#ifndef RENDER_DOUBLE_BUFFER
 static Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
     RGB_DE, RGB_VSYNC, RGB_HSYNC, RGB_PCLK, RGB_R0, RGB_R1, RGB_R2, RGB_R3, RGB_R4, RGB_G0, RGB_G1,
     RGB_G2, RGB_G3, RGB_G4, RGB_G5, RGB_B0, RGB_B1, RGB_B2, RGB_B3, RGB_B4, 1 /* hsync_polarity */,
@@ -143,6 +154,7 @@ static Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
 static Arduino_RGB_Display *gfx =
     new Arduino_RGB_Display(LCD_W, LCD_H, rgbpanel, 0 /* rotation */, true /* auto_flush */, bus,
                             -1 /* RST */, st7701_4848S040_init, sizeof(st7701_4848S040_init));
+#endif  // !RENDER_DOUBLE_BUFFER
 #endif  // BOARD_ID_WAVESHARE_KNOB_1_8
 
 static bool touch_present = false;
@@ -180,6 +192,71 @@ static volatile uint32_t g_ff_us = 0;
 // panel header) is the S3 ROM cache op the library itself uses after FB writes.
 static uint16_t *g_direct_fb = nullptr;
 
+#ifdef RENDER_DOUBLE_BUFFER
+// Double-buffered RGB panel via esp_lcd (IDF 5, num_fbs=2). LVGL renders into
+// the back framebuffer; disp_flush_cb presents the whole fb with
+// esp_lcd_panel_draw_bitmap, which swaps the scanout to it on the next vsync ->
+// the scanout always shows a COMPLETE frame (no flicker) and the swap is
+// zero-copy (no blit). esp_lcd handles PSRAM cache coherency internally.
+static esp_lcd_panel_handle_t g_db_panel = nullptr;
+static uint16_t *g_db_fb0 = nullptr;
+static uint16_t *g_db_fb1 = nullptr;
+
+// ST7701 register init over the existing 3-wire SPI bus (Arduino_SWSPI survives
+// on Arduino 3.x), then a 2-framebuffer RGB panel with the exact timings / pins
+// / data-line order of the verified Arduino_GFX panel (board_pins.h; the RGB565
+// data order is the verified map - do NOT reorder, see CLAUDE.md R/B trap).
+// Returns false on any esp_lcd error.
+static bool display_db_init() {
+    bus->begin();
+    bus->batchOperation((uint8_t *)st7701_4848S040_init, sizeof(st7701_4848S040_init));
+
+    esp_lcd_rgb_panel_config_t cfg = {};
+    cfg.clk_src = LCD_CLK_SRC_PLL160M;
+    cfg.timings.pclk_hz = 12000000;
+    cfg.timings.h_res = LCD_W;
+    cfg.timings.v_res = LCD_H;
+    cfg.timings.hsync_pulse_width = 8;
+    cfg.timings.hsync_back_porch = 50;
+    cfg.timings.hsync_front_porch = 10;
+    cfg.timings.vsync_pulse_width = 8;
+    cfg.timings.vsync_back_porch = 20;
+    cfg.timings.vsync_front_porch = 10;
+    cfg.timings.flags.pclk_active_neg = 1;
+    cfg.data_width = 16;
+    cfg.bits_per_pixel = 16;
+    cfg.num_fbs = 2;
+    // NOTE: bounce buffers (cfg.bounce_buffer_size_px) are the textbook fix for
+    // the RGB-DMA-vs-flash-write cache panic, BUT they need the refill ISR built
+    // IRAM-safe (CONFIG_LCD_RGB_ISR_IRAM_SAFE), which the Arduino framework's
+    // precompiled esp_lcd is NOT — so enabling them here makes the panic
+    // CONSTANT (the bounce ISR faults every flash access). Left off until the
+    // espidf-hybrid framework can rebuild esp_lcd IRAM-safe. See results.md.
+    cfg.sram_trans_align = 8;
+    cfg.psram_trans_align = 64;
+    cfg.hsync_gpio_num = RGB_HSYNC;
+    cfg.vsync_gpio_num = RGB_VSYNC;
+    cfg.de_gpio_num = RGB_DE;
+    cfg.pclk_gpio_num = RGB_PCLK;
+    cfg.disp_gpio_num = -1;
+    const int dg[16] = {RGB_B0, RGB_B1, RGB_B2, RGB_B3, RGB_B4, RGB_G0, RGB_G1, RGB_G2,
+                        RGB_G3, RGB_G4, RGB_G5, RGB_R0, RGB_R1, RGB_R2, RGB_R3, RGB_R4};
+    for (int i = 0; i < 16; ++i)
+        cfg.data_gpio_nums[i] = dg[i];
+    cfg.flags.fb_in_psram = 1;
+
+    if (esp_lcd_new_rgb_panel(&cfg, &g_db_panel) != ESP_OK) return false;
+    if (esp_lcd_panel_reset(g_db_panel) != ESP_OK) return false;
+    if (esp_lcd_panel_init(g_db_panel) != ESP_OK) return false;
+    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 2, (void **)&g_db_fb0, (void **)&g_db_fb1) !=
+        ESP_OK)
+        return false;
+    memset(g_db_fb0, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
+    memset(g_db_fb1, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
+    return true;
+}
+#endif  // RENDER_DOUBLE_BUFFER
+
 static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_map) {
     uint32_t t0 = micros();
     if (g_ff_arm) {  // first flush after a bench-sweep screen-show: record load latency
@@ -189,6 +266,13 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
     uint32_t w = area->x2 - area->x1 + 1;
     uint32_t h = area->y2 - area->y1 + 1;
     uint32_t px = w * h;
+#ifdef RENDER_DOUBLE_BUFFER
+    // px_map is the back framebuffer LVGL just rendered (DIRECT mode, 2 fbs).
+    // Present the whole fb; the driver swaps the scanout to it on the next
+    // vsync - zero copy, complete frame, no flicker. (esp_lcd recognises px_map
+    // as one of its own framebuffers, so this is a pointer swap, not a copy.)
+    esp_lcd_panel_draw_bitmap(g_db_panel, 0, 0, LCD_W, LCD_H, px_map);
+#else
     if (g_direct_fb) {
         // LVGL already rendered this area into the scanout framebuffer; just
         // write back the dirty rows so the RGB DMA sees them. No pixel copy.
@@ -197,6 +281,7 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
     } else {
         gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
     }
+#endif
     lv_display_flush_ready(d);
     uint32_t dt = micros() - t0;
     g_flush_count++;
@@ -2086,6 +2171,14 @@ void setup() {
     // §"Backlight"). main.cpp just asks for "off until display ready".
     board::set_backlight(0);
 
+#ifdef RENDER_DOUBLE_BUFFER
+    if (!display_db_init()) {
+        puts("[gfx] esp_lcd double-buffer init FAILED");
+        while (1)
+            delay(1000);
+    }
+    puts("[gfx] ST7701 + esp_lcd DOUBLE-BUFFER (num_fbs=2) ok");
+#else
     if (!gfx->begin()) {
         puts("[gfx] begin FAILED");
         while (1)
@@ -2093,6 +2186,7 @@ void setup() {
     }
     gfx->fillScreen(BLACK);
     puts("[gfx] ST7701 RGB panel ok");
+#endif
 
     Wire.begin(TOUCH_SDA, TOUCH_SCL);
     Wire.setClock(400000);
@@ -2159,6 +2253,14 @@ void setup() {
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     lv_display_set_flush_cb(disp, disp_flush_cb);
 
+#ifdef RENDER_DOUBLE_BUFFER
+    // Two driver framebuffers (display_db_init); flush page-flips on vsync, so
+    // complete frames only (no flicker) and no blit. This is the fast + smooth
+    // path the single-buffer DIRECT/PARTIAL modes can't give on one scanout fb.
+    lv_display_set_buffers(disp, g_db_fb0, g_db_fb1, (uint32_t)LCD_W * LCD_H * sizeof(uint16_t),
+                           LV_DISPLAY_RENDER_MODE_DIRECT);
+    puts("[lvgl] DOUBLE-BUFFER direct (num_fbs=2, vsync flip)");
+#else
     // Render path. DIRECT mode renders straight into the RGB panel's scanout
     // framebuffer (gfx->getFramebuffer()), so disp_flush_cb only writes back the
     // dirty rows instead of CPU-copying every tile - fastest, but a SINGLE
@@ -2201,6 +2303,7 @@ void setup() {
                                LV_DISPLAY_RENDER_MODE_PARTIAL);
         puts("[lvgl] PARTIAL render (framebuffer unavailable)");
     }
+#endif  // RENDER_DOUBLE_BUFFER
 
     lv_indev_t *indev = lv_indev_create();
     lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);

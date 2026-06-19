@@ -7,3 +7,9 @@ CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_ESP32S3_SPIRAM_SUPPORT=y
 CONFIG_SPIRAM=y
+# RGB LCD + PSRAM framebuffer: run the bounce-buffer refill ISR (and its GDMA
+# callbacks) from IRAM so they don't touch flash/PSRAM while the cache is
+# disabled during a flash write — prevents the "Cache disabled but cached
+# memory region accessed" panic. Pairs with bounce_buffer_size_px in code.
+CONFIG_LCD_RGB_ISR_IRAM_SAFE=y
+CONFIG_GDMA_CTRL_FUNC_IN_IRAM=y
