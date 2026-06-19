@@ -5,7 +5,7 @@
 # `sudo` for the root-owned bits). Idempotent and safe to re-run.
 #
 # It does NOT change anything the device depends on for connectivity:
-#   - WiFi SSID stays `esp-lab` / passphrase `esp-lab-2026`
+#   - WiFi SSID stays `yey-net` / passphrase `yey-net-2026`
 #   - the static DHCP lease 28:37:2f:8a:02:90 -> 10.42.0.67 stays (it is
 #     hard-coded in the AP setup script's heredoc, regenerated verbatim)
 #   - the SignalK docker-compose mounts are relative (./config, ./plugins),
@@ -19,7 +19,7 @@
 #                  /etc/NetworkManager/conf.d/99-espdisp-lab-ap.conf -> 99-yeydisp-*
 #   - AP logs      /var/log/espdisp-lab-*.log   -> /var/log/yeydisp-lab-*.log
 #
-# Brief downtime: the esp-lab AP and the SignalK container each restart once,
+# Brief downtime: the yey-net AP and the SignalK container each restart once,
 # so the device drops off the network for ~10-30s and then re-registers.
 #
 # Usage:   scp tools/migrate-lab-rename.sh compulab@mythra-nav:/tmp/
@@ -46,7 +46,7 @@ if [ "$DRY" = 0 ]; then
 fi
 
 # ----------------------------------------------------------------------------
-say "1/5  stop services (esp-lab AP + SignalK drop briefly)"
+say "1/5  stop services (yey-net AP + SignalK drop briefly)"
 for u in espdisp-watch espdisp-signalk espdisp-lab-ap; do
     run "sudo systemctl stop ${u}.service 2>/dev/null || true"
 done
@@ -60,7 +60,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-say "3/5  AP setup script + config (keeps esp-lab SSID + the 10.42.0.67 lease)"
+say "3/5  AP setup script + config (keeps yey-net SSID + the 10.42.0.67 lease)"
 # The script self-generates /etc/<dir>, the NM conf, the unit and the configs,
 # so we rename + sed it and let it rebuild everything under yeydisp on run.
 if test -f /usr/local/sbin/espdisp-lab-ap-setup.sh; then
@@ -68,8 +68,8 @@ if test -f /usr/local/sbin/espdisp-lab-ap-setup.sh; then
 fi
 if test -f /usr/local/sbin/yeydisp-lab-ap-setup.sh; then
     # s/espdisp-lab/yeydisp-lab/g rewrites the conf dir, NM conf, log names,
-    # self-path and unit name. It does NOT match `esp-lab` (the SSID) or
-    # `esp-lab-2026` (the passphrase), which have no `espdisp-lab` substring.
+    # self-path and unit name. It does NOT match `yey-net` (the SSID) or
+    # `yey-net-2026` (the passphrase), which have no `espdisp-lab` substring.
     run "sudo sed -i 's/espdisp-lab/yeydisp-lab/g' /usr/local/sbin/yeydisp-lab-ap-setup.sh"
 fi
 # Drop the stale espdisp copies; the renamed script regenerates the yeydisp ones.
@@ -108,7 +108,7 @@ migrate_unit watch
 say "5/5  reload, enable, start, verify"
 run "sudo systemctl daemon-reload"
 # Bring the AP up via its renamed self-installing script (also (re)writes +
-# enables yeydisp-lab-ap.service). Preserves esp-lab + the static lease.
+# enables yeydisp-lab-ap.service). Preserves yey-net + the static lease.
 run "sudo /usr/local/sbin/yeydisp-lab-ap-setup.sh"
 run "sudo systemctl enable yeydisp-signalk.service 2>/dev/null || true"
 run "sudo systemctl start  yeydisp-signalk.service"
@@ -124,12 +124,12 @@ echo
 docker ps --format '{{.Names}}' | grep -qx signalk-server \
     && echo "  OK   signalk-server container up" \
     || echo "  WARN signalk-server not up — sudo systemctl status yeydisp-signalk"
-iw dev wlan-ap0 info 2>/dev/null | grep -q "ssid esp-lab" \
-    && echo "  OK   esp-lab AP up on wlan-ap0" \
-    || echo "  WARN esp-lab AP down — sudo systemctl status yeydisp-lab-ap"
+iw dev wlan-ap0 info 2>/dev/null | grep -q "ssid yey-net" \
+    && echo "  OK   yey-net AP up on wlan-ap0" \
+    || echo "  WARN yey-net AP down — sudo systemctl status yeydisp-lab-ap"
 systemctl list-unit-files 2>/dev/null | grep -qi espdisp \
     && { echo "  NOTE espdisp-* units still present:"; systemctl list-unit-files | grep -i espdisp; } \
     || echo "  OK   no espdisp-* systemd units remain"
 echo
-echo "Done. The device reconnects to esp-lab (keeps 10.42.0.67) and re-registers within ~30s."
+echo "Done. The device reconnects to yey-net (keeps 10.42.0.67) and re-registers within ~30s."
 echo "Verify the manager:  curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:3000/signalk"
