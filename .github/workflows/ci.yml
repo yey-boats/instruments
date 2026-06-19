@@ -290,23 +290,24 @@ jobs:
           } > tip_notes.md
           cat tip_notes.md
 
-      - name: Move tip tag to current commit
+      - name: Publish rolling tip release (immutable-safe draft -> publish)
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f tip "$SHORT_SHA"
-          git push -f origin tip
-
-      - name: Publish rolling tip release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: tip
-          name: tip (main @ ${{ github.sha }})
-          body_path: tip_notes.md
-          files: |
-            release-staging/*-merged_firmware.bin
-            release-staging/SHA256SUMS
-          draft: false
-          prerelease: true
-          make_latest: false
+          short="${SHORT_SHA:0:7}"
+          # Immutable releases forbid changing a PUBLISHED release's assets, so a
+          # rolling `tip` can't be edited in place. Rebuild it each push: delete
+          # the old release + its tag, create a fresh DRAFT (asset upload is only
+          # allowed before publish), then publish the draft so it ships WITH the
+          # binaries already attached. See the immutable-release upload error.
+          gh release delete tip --yes --cleanup-tag 2>/dev/null || true
+          gh release create tip \
+            release-staging/*-merged_firmware.bin \
+            release-staging/SHA256SUMS \
+            --target "$SHORT_SHA" \
+            --title "tip (main @ ${short})" \
+            --notes-file tip_notes.md \
+            --prerelease \
+            --draft
+          gh release edit tip --draft=false --prerelease
