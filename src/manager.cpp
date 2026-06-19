@@ -606,6 +606,7 @@ void build_status_body(JsonDocument &doc) {
     net_o["wifi_up"] = net::wifiUp();
     net_o["state"] = net::wifiStateName();
     net_o["ip"] = net::ipString();
+    net_o["ssid"] = net::ssidString();
     net_o["rssi"] = net::rssi();
     // F5: current FQDN + OTA address derived from device id.
     String hostname = net::deviceId();

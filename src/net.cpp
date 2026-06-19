@@ -905,6 +905,12 @@ int rssi() {
     return wifiUp() ? WiFi.RSSI() : 0;
 }
 
+String ssidString() {
+    // In STA the joined network; in AP mode the soft-AP name. Empty when down.
+    if (ap_mode) return String("yey-d-setup");
+    return wifiUp() ? WiFi.SSID() : String();
+}
+
 void setExtraCommandHandler(ExtraCommandHandler h) {
     s_extra = h;
 }

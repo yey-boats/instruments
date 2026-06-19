@@ -42,7 +42,7 @@ MetricSource path_to_source(const char *p) {
     if (strcmp(p, "navigation.headingTrue") == 0) return MetricSource::HDG_deg;
     if (strcmp(p, "navigation.position") == 0) return MetricSource::Position;
     if (strcmp(p, "environment.depth.belowTransducer") == 0) return MetricSource::Depth_m;
-    if (strcmp(p, "environment.depth.belowKeel") == 0) return MetricSource::Depth_m;
+    if (strcmp(p, "environment.depth.belowKeel") == 0) return MetricSource::DepthKeel_m;
     if (strcmp(p, "environment.water.temperature") == 0) return MetricSource::WaterTemp_C;
     if (strcmp(p, "electrical.batteries.house.voltage") == 0) return MetricSource::BatteryV;
     if (strcmp(p, "electrical.batteries.house.stateOfCharge") == 0)
@@ -52,8 +52,43 @@ MetricSource path_to_source(const char *p) {
         return MetricSource::BTW_deg;
     if (strcmp(p, "navigation.courseRhumbline.crossTrackError") == 0) return MetricSource::XTE;
     if (strcmp(p, "navigation.courseRhumbline.velocityMadeGood") == 0) return MetricSource::VMG_kn;
+    if (strcmp(p, "navigation.courseRhumbline.bearingTrackTrue") == 0) return MetricSource::CTS_deg;
     if (strcmp(p, "steering.autopilot.state") == 0) return MetricSource::APState;
     return MetricSource::None;
+}
+
+// Native unit suffix for an editor-pushed tile that didn't carry one. The
+// device renders values in fixed SI-derived units (kn / m / nm / °C / ...),
+// so a tile's unit label is fully determined by its bound source. Sources
+// whose formatted value already embeds its qualifier (AWA/TWA carry a P/S
+// side letter, SOC and XTE embed % / side, Position/APState are text) return
+// "" so we never double-print. Mirrors the unit strings the built-in
+// QuadGrid presets assign by hand.
+static const char *unit_for_source(MetricSource s) {
+    switch (s) {
+    case MetricSource::AWS_kn:
+    case MetricSource::TWS_kn:
+    case MetricSource::SOG_kn:
+    case MetricSource::VMG_kn:
+        return "kn";
+    case MetricSource::COG_deg:
+    case MetricSource::HDG_deg:
+    case MetricSource::BTW_deg:
+    case MetricSource::CTS_deg:
+        return "\xC2\xB0";  // UTF-8 degree sign
+    case MetricSource::Depth_m:
+    case MetricSource::DepthKeel_m:
+    case MetricSource::XTE:
+        return "m";
+    case MetricSource::WaterTemp_C:
+        return "\xC2\xB0\x43";  // °C
+    case MetricSource::BatteryV:
+        return "V";
+    case MetricSource::DTW:
+        return "nm";
+    default:
+        return "";  // AWA/TWA/SOC (embedded qualifier), Position, APState, None
+    }
 }
 
 // Bounded pool: one renderer slot per layout::MAX_SCREENS so the
@@ -151,8 +186,11 @@ size_t apply() {
             slot.tile_labels[t][sizeof(slot.tile_labels[t]) - 1] = 0;
             mb.id = slot.screen_id;  // safe static-ish reference
             mb.label = slot.tile_labels[t];
-            mb.unit = "";
             mb.source = path_to_source(lt.primary_path);
+            // Editor-pushed tiles carry no unit string; derive the native unit
+            // from the bound source so SOG/DEPTH/BATT/etc. are not unitless on
+            // the panel (the built-in presets set this by hand).
+            mb.unit = unit_for_source(mb.source);
             mb.accent = 0x57c7d8;
             mb.target_screen = nullptr;
             mb.extras_count = 0;

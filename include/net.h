@@ -55,6 +55,7 @@ bool handleSerialCommand(const String &line);
 
 bool wifiUp();
 String ipString();
+String ssidString();
 int rssi();
 
 // True for "placeholder" device IDs the firmware has used historically:

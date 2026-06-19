@@ -2506,6 +2506,11 @@ lv_obj_t *build(lv_obj_t *parent) {
     // view instead of overflowing. Width is bounded to the screen and centered.
     s_value = lv_label_create(s_root);
     lv_obj_set_style_text_font(s_value, &font_xl_64, 0);
+    // Pivot the scale about the label's own center; otherwise transform_scale
+    // grows from the default (0,0) top-left pivot, pushing the hero digits
+    // down-right of the CENTER align and clipping their top edge.
+    lv_obj_set_style_transform_pivot_x(s_value, lv_pct(50), 0);
+    lv_obj_set_style_transform_pivot_y(s_value, lv_pct(50), 0);
     lv_obj_set_style_transform_scale(s_value, 410, 0);
     lv_obj_set_style_text_color(s_value, lv_color_hex(ui::theme.fg), 0);
     lv_obj_set_style_text_align(s_value, LV_TEXT_ALIGN_CENTER, 0);
