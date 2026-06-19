@@ -1109,3 +1109,13 @@ git commit -m "feat(midl): validateDocument pipeline + golden corpus"
 - Preset registry currently has `full` and `hero-split`; the remaining spec presets (`{1,{2,3,4}}`, `MxN`, `{{2|3|4},1,{2|3|4}}`) are added the same way in `presets.ts` with corresponding tests.
 - The native (C++) satisfaction validator for `pio test -e native` is part of the firmware plan (**Plan 6**); the shared golden corpus in `test/fixtures/` is the cross-implementation parity oracle.
 - Local-source taxonomy (spec §10 open item) is currently `{signalk, local, const, computed}` in the schema; refine when Plan 6 enumerates device-local sources.
+
+## Deferred from Plan 1 final review (validation-coverage gaps, non-blocking)
+
+Implemented and accepted; these tighten validation as the language/corpus grow (schedule into Plans 2–6):
+
+- **Per-kind source required-field check** — a `source` with a valid `kind` but missing its required field (`signalk` without `path`, `local` without `id`, `const` without `value`, `computed` without `expr`) currently validates ok. Tighten via `if/then` in the source schema or a check in `checkElement`.
+- **Grid `cells.length === rows*cols`** — an over/under-full grid node is silently accepted; assert in `satisfies` after `expand`.
+- **`weights.length === children.length`** — mismatched split weights are accepted; emit an issue.
+- **Duplicate element-id in a layout** — counts as N independent tiles toward `maxTiles`; make this a deliberate, commented decision.
+- **Test gaps to add**: pipeline-level minor-gating (same major, config.minor > device.minor); grid node coverage in `presets`/`satisfy`; a `maxDepth` reject; an `action kind not supported` reject; a `layout references unknown element` case; a preset-inside-variant case.
