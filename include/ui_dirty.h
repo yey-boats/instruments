@@ -32,9 +32,16 @@ inline void set_text_if_changed(lv_obj_t *obj, char *cache, size_t cap, const ch
 
 inline void set_rot_if_changed(lv_obj_t *obj, int16_t *cache, int16_t value) {
     if (!obj || !cache) return;
-    if (*cache != value) {
-        *cache = value;
-        lv_obj_set_style_transform_rotation(obj, value, 0);
+    // Quantize to whole degrees. LVGL rotation is in 0.1deg units, so noisy
+    // heading/wind data (sub-degree jitter every 5 Hz tick) would otherwise
+    // re-rotate large object trees - the compass bezel (36 ticks + cardinals)
+    // and marker rings - for visually identical output. Snapping to multiples
+    // of 10 (1deg) collapses that jitter into no-ops. Round half away from zero.
+    int q = (value + (value >= 0 ? 5 : -5)) / 10 * 10;
+    int16_t qv = (int16_t)q;
+    if (*cache != qv) {
+        *cache = qv;
+        lv_obj_set_style_transform_rotation(obj, qv, 0);
     }
 }
 
