@@ -32,3 +32,11 @@ test("a cross-major config is rejected as incompatible", () => {
   expect(r.ok).toBe(false);
   expect(r.issues.some((i) => /incompatible MIDL/.test(i.message))).toBe(true);
 });
+
+test("a structurally malformed manifest is reported, not thrown", () => {
+  const badManifest = { ...manifest, midl: "bogus" } as unknown as Manifest;
+  const r = validateDocument(read("valid/minimal.yaml"), badManifest, "sunton-480");
+  expect(r.ok).toBe(false);
+  expect(r.issues.length).toBeGreaterThan(0);
+  expect(r.issues.some((i) => i.path.startsWith("/manifest"))).toBe(true);
+});
