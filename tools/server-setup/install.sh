@@ -4,7 +4,7 @@
 # WiFi AP (hostapd + dnsmasq), and ufw firewall rules.
 #
 # Run on the nav-server as root:
-#   sudo bash install.sh [--skip-ap] [--skip-fw] [ESP_LAB_PSK=<psk>]
+#   sudo bash install.sh [--skip-ap] [--skip-fw] [YEY_NET_PSK=<psk>]
 #
 # Or via make (unattended, from dev laptop):
 #   make server-setup REMOTE=compulab@192.168.2.11
@@ -148,13 +148,13 @@ fi
 # -----------------------------------------------------------------------
 if [ "$SK_ONLY" -eq 0 ] && [ "$SKIP_AP" -eq 0 ]; then
     AP_SCRIPT="$REPO_ROOT/signalk/scripts/lab-ap-setup.sh"
-    PSK="${ESP_LAB_PSK:-${1:-}}"
+    PSK="${YEY_NET_PSK:-${1:-}}"
     if [ -z "$PSK" ]; then
-        warn "ESP_LAB_PSK not set – skipping AP setup (run manually:"
-        warn "  ESP_LAB_PSK=<psk> sudo bash $AP_SCRIPT)"
+        warn "YEY_NET_PSK not set – skipping AP setup (run manually:"
+        warn "  YEY_NET_PSK=<psk> sudo bash $AP_SCRIPT)"
     elif [ -f "$AP_SCRIPT" ]; then
-        log "setting up esp-lab AP"
-        ESP_LAB_PSK="$PSK" bash "$AP_SCRIPT"
+        log "setting up yey-net AP"
+        YEY_NET_PSK="$PSK" bash "$AP_SCRIPT"
         ok "AP configured"
     else
         warn "lab-ap-setup.sh not found at $AP_SCRIPT"

@@ -573,7 +573,7 @@ AIS, current, and more.
 
 The remote lab workflow is intentionally separate from the onboard setup. It
 uses a Docker-capable Linux mini-PC (`nav-server`) to run SignalK and broadcast
-a dedicated `esp-lab` AP for repeatable development tests. My lab host is a
+a dedicated `yey-net` AP for repeatable development tests. My lab host is a
 [Compulab IOT-GATE-IMX8PLUS industrial ARM IoT gateway](https://www.compulab.com/products/iot-gateways/iot-gate-imx8plus-industrial-arm-iot-gateway/).
 
 See [Lab topology](docs/lab-topology.md) for the full development diagram,

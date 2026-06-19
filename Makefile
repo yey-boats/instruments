@@ -130,7 +130,7 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 # actually running by matching __DATE__ __TIME__ baked into the .bin
 # against device.build in /api/state. Pass REMOTE=user@host to flash
 # through a relay (used when this host can't reach the device subnet,
-# e.g. via compulab on the esp-lab AP).
+# e.g. via compulab on the yey-net AP).
 ota-verify: setup  ## OTA + verify via /api/state. REMOTE=user@host to flash through a relay.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved" >&2; exit 1; }
@@ -174,7 +174,7 @@ logs:  ## Listen for UDP log broadcasts on port 9999 (debug FW only)
 
 # Lab logger persistence: ship tools/lab-logger/ to REMOTE via SSH and
 # install the systemd unit + logrotate config there. REMOTE defaults to
-# compulab@192.168.2.11 (the lab box hosting the esp-lab AP). The remote
+# compulab@192.168.2.11 (the lab box hosting the yey-net AP). The remote
 # user needs sudo (interactive password prompt is fine; `-t` allocates
 # a pty so sudo can read the password).
 REMOTE ?= compulab@192.168.2.11

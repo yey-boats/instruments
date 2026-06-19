@@ -49,11 +49,11 @@ if [ -z "${REMOTE_SUDO_PASS:-}" ] && [ -f "${REPO_ROOT}/.env.test.local" ]; then
         }' "${REPO_ROOT}/.env.test.local")" || true
 fi
 
-# Pull ESP_LAB_PSK from .env.test.local if not in env.
-if [ -z "${ESP_LAB_PSK:-}" ] && [ -f "${REPO_ROOT}/.env.test.local" ]; then
-    ESP_LAB_PSK="$(awk '
-        /^[[:space:]]*(export[[:space:]]+)?ESP_LAB_PSK=/ {
-            sub(/^[[:space:]]*(export[[:space:]]+)?ESP_LAB_PSK=/, "")
+# Pull YEY_NET_PSK from .env.test.local if not in env.
+if [ -z "${YEY_NET_PSK:-}" ] && [ -f "${REPO_ROOT}/.env.test.local" ]; then
+    YEY_NET_PSK="$(awk '
+        /^[[:space:]]*(export[[:space:]]+)?YEY_NET_PSK=/ {
+            sub(/^[[:space:]]*(export[[:space:]]+)?YEY_NET_PSK=/, "")
             sub(/^"/, ""); sub(/"$/, "")
             sub(/^'\''/, ""); sub(/'\''$/, "")
             print; exit
@@ -99,12 +99,12 @@ log "upload complete"
 if ssh -o BatchMode=yes "${REMOTE}" 'sudo -n true' 2>/dev/null; then
     log "passwordless sudo available; running install"
     ssh -o BatchMode=yes "${REMOTE}" \
-        "ESP_LAB_PSK='${ESP_LAB_PSK:-}' sudo -E -n ${INSTALL_CMD}"
+        "YEY_NET_PSK='${YEY_NET_PSK:-}' sudo -E -n ${INSTALL_CMD}"
 elif [ -n "${REMOTE_SUDO_PASS:-}" ]; then
     log "using REMOTE_SUDO_PASS via sudo -S (unattended)"
     printf '%s\n' "${REMOTE_SUDO_PASS}" | \
         ssh -o BatchMode=yes "${REMOTE}" \
-        "ESP_LAB_PSK='${ESP_LAB_PSK:-}' sudo -S -p '' ${INSTALL_CMD}"
+        "YEY_NET_PSK='${YEY_NET_PSK:-}' sudo -S -p '' ${INSTALL_CMD}"
 else
     die "no sudo path. Set REMOTE_SUDO_PASS in .env.test.local or configure passwordless sudo."
 fi

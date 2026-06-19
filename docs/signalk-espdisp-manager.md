@@ -683,7 +683,7 @@ Threat model:
 
 | Environment | Assumption | Required practice |
 |---|---|---|
-| Lab LAN / `esp-lab` | Developers control the AP, SignalK server, and devices. Debug builds and shared development tokens may be used. | Keep lab credentials out of boat presets, rotate tokens after shared sessions, and do not expose lab SignalK to public networks. |
+| Lab LAN / `yey-net` | Developers control the AP, SignalK server, and devices. Debug builds and shared development tokens may be used. | Keep lab credentials out of boat presets, rotate tokens after shared sessions, and do not expose lab SignalK to public networks. |
 | Trusted boat LAN | The boat router/firewall protects SignalK, ESP displays, OTA, and local web endpoints from marina/public clients. | Use SignalK authentication, per-device manager tokens, reserved DHCP or stable hostnames, and keep USB recovery available before OTA. |
 | Setup AP / first provisioning | The device may temporarily expose local setup surfaces before it joins the boat LAN. | Use only during installation, avoid entering long-lived secrets on untrusted clients, and move the device to the trusted LAN before managed operation. |
 | Public or shared marina WiFi | Other clients may scan, replay, or attempt writes to local HTTP/BLE surfaces. | Do not place displays directly on this network. Use an onboard AP/VLAN or firewall rules that block unsolicited access. |

@@ -4,7 +4,7 @@
 #
 # Network topology:
 #   eth0       192.168.2.0/24   — LAN (dev laptops, WAN router)
-#   wlan-ap0   10.42.0.0/24    — esp-lab AP (ESP32 devices)
+#   wlan-ap0   10.42.0.0/24    — yey-net AP (ESP32 devices)
 #
 # Policy: deny all inbound by default; allow only what the lab needs.
 

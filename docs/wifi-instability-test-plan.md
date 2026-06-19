@@ -67,7 +67,7 @@ sudo tcpdump -i <iface> -n -w /tmp/alt_ap.pcap \
 ## Restore lab network
 
 ```sh
-python3 tools/yeydisp.py ble cmd "wifi esp-lab <password>"
+python3 tools/yeydisp.py ble cmd "wifi yey-net <password>"
 ```
 
 (or just `wifi-forget` and pick from saved networks on the next boot)

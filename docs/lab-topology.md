@@ -37,10 +37,10 @@ on `192.168.2.11`.
                                                       +----------+-----------+
                                                                  |
                                             wlan-ap0 10.42.0.1/24|
-                                       SSID esp-lab, WPA2, 2.4GHz|
+                                       SSID yey-net, WPA2, 2.4GHz|
                                                                  v
                                                       +----------------------+
-                                                      | esp-lab AP segment   |
+                                                      | yey-net AP segment   |
                                                       | 10.42.0.0/24         |
                                                       | DHCP 10.42.0.50-150  |
                                                       +----------+-----------+
@@ -111,19 +111,19 @@ config when you want it permanent.
 
 ```sh
 # One-time: copy `.env.test.local.example` to `.env.test.local` and fill in
-# ESP_LAB_PSK with the WPA2 password you want the lab AP to use.
+# YEY_NET_PSK with the WPA2 password you want the lab AP to use.
 # `.env.test` auto-sources it. The file is gitignored.
 
 # Start (or restart) the AP on nav-server (PSK is a CLI arg so it
 # survives sudo without an env-preserving sudoers rule):
 set -a; source .env.test; set +a
-ssh nav-server "sudo bash /usr/local/sbin/yeydisp-lab-ap-setup.sh '$ESP_LAB_PSK'"
+ssh nav-server "sudo bash /usr/local/sbin/yeydisp-lab-ap-setup.sh '$YEY_NET_PSK'"
 
 # Start SK + simulator:
 make demo-up-remote
 
 # Provision a fresh device over BLE (only needed once — reads
-# ESP_LAB_PSK from env automatically):
+# YEY_NET_PSK from env automatically):
 make provision
 
 # Tests:
@@ -151,7 +151,7 @@ make demo-down-remote
 
 The current `nav-server` has a Realtek combo WiFi+BT chip (BT MAC 4C:49:6C:80:CB:**49**,
 wlan-ap0 MAC 4C:49:6C:80:CB:**46** — same OUI prefix, shared radio).  While
-hostapd hammers 2.4 GHz for `esp-lab`, BlueZ's LE scan parameter setup
+hostapd hammers 2.4 GHz for `yey-net`, BlueZ's LE scan parameter setup
 returns `Input/output error` and `bleak` sees only anonymous advertisements
 (no names, no service UUIDs).  Coexistence is upstream-broken on this
 class of chip; we don't fight it.
@@ -171,7 +171,7 @@ and tears the tunnel down on exit.
 - **Device stops responding on IP but BLE works.** It's likely
   deassociated from the AP (often after a `lab-ap-setup.sh` rerun).
   Re-save credentials via BLE — that triggers reboot + fresh assoc:
-  `wifi esp-lab "$ESP_LAB_PSK"` (from your `.env.test.local`).
+  `wifi yey-net "$YEY_NET_PSK"` (from your `.env.test.local`).
 - **`make demo-up-remote` chmod errors on `node_modules`.** Harmless;
   those files are owned by container uid 1000 and already have the
   right perms. The script ignores the failure.

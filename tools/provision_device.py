@@ -159,12 +159,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--ble-name", default=env.get("YEYBOATS_BLE_NAME", "yey-d"),
                    help="BLE advertised name (default: yey-d)")
-    p.add_argument("--wifi-ssid", default=env.get("ESP_LAB_SSID", "esp-lab"),
-                   help="WiFi SSID to join (default: esp-lab, or ESP_LAB_SSID)")
+    p.add_argument("--wifi-ssid", default=env.get("YEY_NET_SSID", "yey-net"),
+                   help="WiFi SSID to join (default: yey-net, or YEY_NET_SSID)")
     p.add_argument("--wifi-pass",
-                   default=os.environ.get("ESP_LAB_PSK",
-                                          env.get("ESP_LAB_PSK", "")),
-                   help="WiFi password (default: $ESP_LAB_PSK from "
+                   default=os.environ.get("YEY_NET_PSK",
+                                          env.get("YEY_NET_PSK", "")),
+                   help="WiFi password (default: $YEY_NET_PSK from "
                         "process env or .env.test.local). Required unless "
                         "--skip-wifi.")
     p.add_argument("--sk-host", default=env.get("SK_HOST", "192.168.2.11"),
@@ -193,7 +193,7 @@ def main() -> int:
     if args.skip_wifi:
         args.wifi_ssid = ""
     elif not args.wifi_pass:
-        print("error: WiFi password required (set ESP_LAB_PSK in env or "
+        print("error: WiFi password required (set YEY_NET_PSK in env or "
               ".env.test.local, or pass --wifi-pass). Use --skip-wifi to "
               "leave WiFi unchanged.", file=sys.stderr)
         return 64
