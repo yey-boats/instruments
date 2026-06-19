@@ -7,12 +7,12 @@ received datagram in the form:
     YYYY-MM-DDTHH:MM:SS.mmm  [SRC_IP]  <log line>
 
 The firmware emits each logf() line as its own datagram only when
-built with -D ESPDISP_DEBUG_UDP_LOG=1 (PlatformIO env
+built with -D YEYBOATS_DEBUG_UDP_LOG=1 (PlatformIO env
 esp32-4848s040-debug). Release builds never broadcast, so a
 production device on the same LAN produces no output here.
 
 stdout is the persistence transport: systemd captures it into
-/var/log/espdisp/device.log, and logrotate handles weekly rotation
+/var/log/yeydisp/device.log, and logrotate handles weekly rotation
 + compression. Stay stdlib-only so the lab computer doesn't need a
 venv.
 """
@@ -30,9 +30,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--port", type=int,
-                    default=int(os.environ.get("ESPDISP_LOG_PORT", "9999")),
-                    help="UDP port to bind (default: 9999 or $ESPDISP_LOG_PORT).")
-    ap.add_argument("--bind", default=os.environ.get("ESPDISP_LOG_BIND", "0.0.0.0"),
+                    default=int(os.environ.get("YEYBOATS_LOG_PORT", "9999")),
+                    help="UDP port to bind (default: 9999 or $YEYBOATS_LOG_PORT).")
+    ap.add_argument("--bind", default=os.environ.get("YEYBOATS_LOG_BIND", "0.0.0.0"),
                     help="Interface to bind (default: 0.0.0.0).")
     args = ap.parse_args()
 

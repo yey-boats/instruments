@@ -152,7 +152,7 @@ calibrate it on first power-up **without reflashing** (see step 3).
 
 8. **Soak before any stability claim.**
    ```sh
-   tools/espdisp.py soak --remote <user@server> --device-ip <knob-ip>
+   tools/yeydisp.py soak --remote <user@server> --device-ip <knob-ip>
    ```
    This records reboots / stalls / heap to JSONL and prints a PASS/FAIL verdict;
    run it from a host on the device's subnet. Do not call the knob "stable" until

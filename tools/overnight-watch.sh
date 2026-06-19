@@ -5,7 +5,7 @@
 # successful polls (the same logic espdisp watch uses now that it
 # correctly skips failed polls).
 #
-# Output: /var/log/espdisp/overnight-<YYYYMMDD>.csv
+# Output: /var/log/yeydisp/overnight-<YYYYMMDD>.csv
 # Columns: iso_ts, uptime_s, heap_kb, psram_kb, sk_state, mgr_hb,
 #          sk_iters, fetch_ok
 #
@@ -13,7 +13,7 @@
 # tail tells you the running totals.
 
 set -u
-LOG_DIR=${LOG_DIR:-/var/log/espdisp}
+LOG_DIR=${LOG_DIR:-/var/log/yeydisp}
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/overnight-$(date +%Y%m%d).csv"
 

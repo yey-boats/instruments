@@ -13,7 +13,7 @@ import pytest
 from tests.system.inject import bench, nmea0183
 
 
-UDP_PORT = int(os.environ.get("ESPDISP_NMEA_WIFI_PORT", "10110"))
+UDP_PORT = int(os.environ.get("YEYBOATS_NMEA_WIFI_PORT", "10110"))
 
 
 def test_gesture_spam_no_crash(device, console, udp_logs):

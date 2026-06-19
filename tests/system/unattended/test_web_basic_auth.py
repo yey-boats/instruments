@@ -1,6 +1,6 @@
 """Device web Basic Auth contract tests.
 
-Set ESPDISP_WEB_USERNAME and ESPDISP_WEB_PASSWORD when the flashed device has
+Set YEYBOATS_WEB_USERNAME and YEYBOATS_WEB_PASSWORD when the flashed device has
 web auth enabled. The shared Device fixture uses those credentials for normal
 requests; these tests additionally verify that unauthenticated browser/API
 requests receive a Basic challenge.
@@ -17,7 +17,7 @@ def _require_enabled_auth(device):
     if not web_auth.get("enabled"):
         pytest.skip("device web auth is not enabled")
     if not device.auth:
-        pytest.skip("set ESPDISP_WEB_USERNAME and ESPDISP_WEB_PASSWORD")
+        pytest.skip("set YEYBOATS_WEB_USERNAME and YEYBOATS_WEB_PASSWORD")
 
 
 def _assert_basic_challenge(response):

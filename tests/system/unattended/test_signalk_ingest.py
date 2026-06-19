@@ -10,8 +10,8 @@ import pytest
 from tests.system.inject import sk_pump
 
 
-SK_HOST = os.environ.get("ESPDISP_SK_HOST", "localhost")
-SK_PORT = int(os.environ.get("ESPDISP_SK_PORT", "3000"))
+SK_HOST = os.environ.get("YEYBOATS_SK_HOST", "localhost")
+SK_PORT = int(os.environ.get("YEYBOATS_SK_PORT", "3000"))
 
 
 @pytest.fixture(autouse=True)

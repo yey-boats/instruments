@@ -1,7 +1,7 @@
 """Spec 19 D6 system tests against the real signalk-espdisp-manager plugin.
 
 Lane: real plugin (not the manager_mock.py). Skipped unless the env
-vars ESPDISP_MGR_URL + ESPDISP_MGR_SK_TOKEN are set; see the
+vars YEYBOATS_MGR_URL + YEYBOATS_MGR_SK_TOKEN are set; see the
 `real_manager` fixture in conftest.py.
 
 What's covered:

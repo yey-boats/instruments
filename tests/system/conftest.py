@@ -29,8 +29,8 @@ ARTIFACTS.mkdir(parents=True, exist_ok=True)
 
 
 def _web_auth() -> tuple[str, str] | None:
-    username = os.environ.get("ESPDISP_WEB_USERNAME")
-    password = os.environ.get("ESPDISP_WEB_PASSWORD")
+    username = os.environ.get("YEYBOATS_WEB_USERNAME")
+    password = os.environ.get("YEYBOATS_WEB_PASSWORD")
     if username and password:
         return username, password
     return None
@@ -95,8 +95,8 @@ class Device:
 
     # ---- Touch / gesture injection (BLE / USB serial only) ------------
     # The HTTP path deliberately does NOT support injection - /api/cmd
-    # 403s these words. Tests need ESPDISP_BLE_NAME or
-    # ESPDISP_SERIAL_PORT set; the `console` fixture wraps the
+    # 403s these words. Tests need YEYBOATS_BLE_NAME or
+    # YEYBOATS_SERIAL_PORT set; the `console` fixture wraps the
     # appropriate transport.
 
     def touch(self, console, x: int, y: int, pressed: bool) -> None:
@@ -159,16 +159,16 @@ class Device:
 
 def pytest_addoption(parser):
     group = parser.getgroup("espdisp")
-    group.addoption("--espdisp-device", action="append", default=[],
+    group.addoption("--yeydisp-device", action="append", default=[],
                     help="Explicit espdisp host, host:port, or URL. "
                          "Can be repeated.")
-    group.addoption("--espdisp-devices", default=None,
+    group.addoption("--yeydisp-devices", default=None,
                     help="Comma/space-separated espdisp host list.")
-    group.addoption("--espdisp-no-discovery", action="store_true",
+    group.addoption("--yeydisp-no-discovery", action="store_true",
                     help="Disable mDNS discovery and use explicit devices only.")
-    group.addoption("--espdisp-no-udp-discovery", action="store_true",
+    group.addoption("--yeydisp-no-udp-discovery", action="store_true",
                     help="Disable UDP device announcement discovery.")
-    group.addoption("--espdisp-scan-cidr", action="append", default=[],
+    group.addoption("--yeydisp-scan-cidr", action="append", default=[],
                     help="Actively probe a CIDR for devices.")
     group.addoption("--espdisp-discovery-timeout", type=float, default=2.5,
                     help="mDNS discovery timeout in seconds.")
@@ -178,17 +178,17 @@ def pytest_addoption(parser):
 
 def _configured_device_specs(config) -> list[str]:
     specs: list[str] = []
-    specs.extend(config.getoption("--espdisp-device") or [])
-    specs.extend(split_device_specs(config.getoption("--espdisp-devices")))
-    specs.extend(split_device_specs(os.environ.get("ESPDISP_DEVICES")))
-    specs.extend(split_device_specs(os.environ.get("ESPDISP_HOST")))
+    specs.extend(config.getoption("--yeydisp-device") or [])
+    specs.extend(split_device_specs(config.getoption("--yeydisp-devices")))
+    specs.extend(split_device_specs(os.environ.get("YEYBOATS_DEVICES")))
+    specs.extend(split_device_specs(os.environ.get("YEYBOATS_HOST")))
     return specs
 
 
 def _configured_scan_cidrs(config) -> list[str]:
     cidrs: list[str] = []
-    cidrs.extend(config.getoption("--espdisp-scan-cidr") or [])
-    cidrs.extend(split_device_specs(os.environ.get("ESPDISP_DISCOVERY_CIDRS")))
+    cidrs.extend(config.getoption("--yeydisp-scan-cidr") or [])
+    cidrs.extend(split_device_specs(os.environ.get("YEYBOATS_DISCOVERY_CIDRS")))
     return cidrs
 
 
@@ -197,9 +197,9 @@ def _collect_test_devices(config) -> list[DiscoveredDevice]:
     if cached is not None:
         return cached
     explicit = _configured_device_specs(config)
-    no_discovery = bool(config.getoption("--espdisp-no-discovery"))
+    no_discovery = bool(config.getoption("--yeydisp-no-discovery"))
     udp_listen = not no_discovery and not bool(
-        config.getoption("--espdisp-no-udp-discovery"))
+        config.getoption("--yeydisp-no-udp-discovery"))
     devices = discover_devices(
         explicit=explicit,
         mdns=not no_discovery,
@@ -218,7 +218,7 @@ def pytest_generate_tests(metafunc):
         return
     devices = _collect_test_devices(metafunc.config)
     if not devices:
-        metafunc.parametrize("device", [None], ids=["no-espdisp-device"],
+        metafunc.parametrize("device", [None], ids=["no-yeydisp-device"],
                              indirect=True)
         return
     metafunc.parametrize("device", devices,
@@ -230,8 +230,8 @@ def pytest_generate_tests(metafunc):
 def device(request) -> Device:
     target = getattr(request, "param", None)
     if target is None:
-        pytest.skip("no espdisp devices discovered; set ESPDISP_HOST, "
-                    "ESPDISP_DEVICES, or --espdisp-device")
+        pytest.skip("no espdisp devices discovered; set YEYBOATS_HOST, "
+                    "YEYBOATS_DEVICES, or --yeydisp-device")
     d = Device(target.host, port=target.port, discovered=target)
     # Sanity probe.
     try:
@@ -347,14 +347,14 @@ def manager():
 def console():
     """Open a persistent BLE or USB-serial console for injection tests.
 
-    Skips the test if neither ESPDISP_SERIAL_PORT nor ESPDISP_BLE_NAME
+    Skips the test if neither YEYBOATS_SERIAL_PORT nor YEYBOATS_BLE_NAME
     is set. The HTTP path does NOT carry injection - this fixture is
     the only way to drive tap/swipe/gesture/touch from tests.
     """
     from tests.system.inject.console import make_console
     c = make_console()
     if c is None:
-        pytest.skip("set ESPDISP_SERIAL_PORT or ESPDISP_BLE_NAME "
+        pytest.skip("set YEYBOATS_SERIAL_PORT or YEYBOATS_BLE_NAME "
                     "for injection tests")
     yield c
     try:
@@ -367,7 +367,7 @@ def console():
 class RealManager:
     """Thin client for the real signalk-espdisp-manager plugin.
 
-    Skipped when ESPDISP_MGR_URL / ESPDISP_MGR_SK_TOKEN aren't set, so
+    Skipped when YEYBOATS_MGR_URL / YEYBOATS_MGR_SK_TOKEN aren't set, so
     tests that talk to the real plugin remain opt-in. The device must
     already be provisioned (manager-register / manager-sk-token /
     manager-token via BLE or USB serial) - this fixture only drives the
@@ -410,9 +410,9 @@ class RealManager:
 
 @pytest.fixture(scope="session")
 def real_manager() -> RealManager:
-    base = os.environ.get("ESPDISP_MGR_URL")
-    token = os.environ.get("ESPDISP_MGR_SK_TOKEN")
+    base = os.environ.get("YEYBOATS_MGR_URL")
+    token = os.environ.get("YEYBOATS_MGR_SK_TOKEN")
     if not base or not token:
-        pytest.skip("set ESPDISP_MGR_URL and ESPDISP_MGR_SK_TOKEN to "
+        pytest.skip("set YEYBOATS_MGR_URL and YEYBOATS_MGR_SK_TOKEN to "
                     "run tests against the real plugin")
     return RealManager(base=base.rstrip("/"), sk_token=token)

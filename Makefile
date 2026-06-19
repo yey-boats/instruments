@@ -18,7 +18,7 @@ PROJECT_VERSION ?= $(shell cat VERSION)
 # you spin up a different host or rotate creds.
 REMOTE_HOST ?= nav-server
 REMOTE_USER ?= $(if $(findstring @,$(REMOTE_HOST)),$(firstword $(subst @, ,$(REMOTE_HOST))),nav-server)
-REMOTE_DIR  ?= /home/$(REMOTE_USER)/espdisp-signalk
+REMOTE_DIR  ?= /home/$(REMOTE_USER)/yeydisp-signalk
 REMOTE_SK_HOST ?= $(lastword $(subst @, ,$(REMOTE_HOST)))
 
 # The SignalK manager plugin + its deployment scripts now live in the
@@ -51,12 +51,12 @@ help:  ## Show this help
 setup:  ## First-time setup: copy secrets.h template, verify PlatformIO
 	@command -v $(PIO) >/dev/null 2>&1 || { \
 	  echo "PlatformIO not found. Install with: pip install platformio" >&2; exit 1; }
-	@if [ -n "$$ESPDISP_OTA_PASSWORD" ] || [ -n "$$ESPDISP_WIFI_SSID" ] || [ -n "$$ESPDISP_WIFI_PASS" ]; then \
+	@if [ -n "$$YEYBOATS_OTA_PASSWORD" ] || [ -n "$$YEYBOATS_WIFI_SSID" ] || [ -n "$$YEYBOATS_WIFI_PASS" ]; then \
 	  python3 tools/write_secrets_header.py; \
 	elif [ ! -f include/secrets.h ]; then \
 	  cp include/secrets.h.example include/secrets.h; \
 	fi
-	@echo "Setup complete. Set ESPDISP_OTA_PASSWORD to bake in ArduinoOTA auth."
+	@echo "Setup complete. Set YEYBOATS_OTA_PASSWORD to bake in ArduinoOTA auth."
 
 version:  ## Print project version and verify metadata
 	@python3 tools/check_version.py
@@ -69,7 +69,7 @@ version-set:  ## Set project/plugin version (use VERSION=0.1.0)
 	python3 tools/set_version.py $(VERSION)
 
 build: setup version-check  ## Build firmware
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV)
+	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV)
 
 test: version-check  ## Run host-side unit tests
 	$(PIO) test -e native
@@ -77,9 +77,9 @@ test: version-check  ## Run host-side unit tests
 sim:  ## Render dashboard at all resolutions via headless LVGL harness -> docs/sim-shots/
 	bash tools/sim_render.sh
 
-sys-test:  ## Run unattended system tests against ESPDISP_HOST (set env var)
-	@if [ -z "$$ESPDISP_HOST" ]; then \
-		echo "ESPDISP_HOST not set. Example: ESPDISP_HOST=yey-boats-instruments.local make sys-test"; \
+sys-test:  ## Run unattended system tests against YEYBOATS_HOST (set env var)
+	@if [ -z "$$YEYBOATS_HOST" ]; then \
+		echo "YEYBOATS_HOST not set. Example: YEYBOATS_HOST=yey-boats-instruments.local make sys-test"; \
 		exit 1; \
 	fi
 	pytest tests/system/unattended
@@ -90,7 +90,7 @@ sys-test-attended:  ## Open the attended-test checklist
 
 flash: setup  ## Flash via USB (uses PORT, auto-detected if not set)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
+	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
 
 discover:  ## Discover the device (mDNS, then BLE); prints IP. NAME=<device_id> for exact match.
 	@python3 tools/discover_device.py $(if $(NAME),--name $(NAME),)
@@ -99,7 +99,7 @@ discover-json:  ## Same as discover but prints full JSON record.
 	@python3 tools/discover_device.py --json $(if $(NAME),--name $(NAME),)
 
 # ota target: explicit DEVICE_IP wins. Otherwise we run tools/discover_device.py
-# (mDNS _espdisp._tcp -> _arduino._tcp -> BLE NUS `ip` query). Both transports
+# (mDNS _yeyboats._tcp -> _arduino._tcp -> BLE NUS `ip` query). Both transports
 # are unauthenticated - any spoofed responder on the LAN/BLE can steer the
 # upload, and if OTA_PASSWORD is empty in secrets.h the attacker captures
 # firmware.bin (including any baked-in WiFi PSK). For unattended/lab use,
@@ -109,7 +109,7 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or fix discovery (see 'make discover')" >&2; exit 1; }
 	@echo "[ota] target=$(OTA_TARGET)"
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
+	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
 	bash tools/ota_flash.sh $(OTA_TARGET) \
 	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
 	  $(if $(REMOTE),--remote $(REMOTE),)
@@ -128,7 +128,7 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 ota-verify: setup  ## OTA + verify via /api/state. REMOTE=user@host to flash through a relay.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved" >&2; exit 1; }
-	ESPDISP_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
+	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
 	bash tools/ota_flash.sh $(OTA_TARGET) \
 	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
 	  $(if $(REMOTE),--remote $(REMOTE),)
@@ -185,10 +185,10 @@ lab-logger-deploy:  ## Install UDP log listener + logrotate on REMOTE, fully una
 	@bash tools/lab-logger/deploy.sh $(REMOTE)
 
 lab-logger-status:  ## Show systemd status + last 20 log lines on REMOTE
-	@ssh $(REMOTE) 'sudo -n systemctl --no-pager --full status espdisp-loglistener 2>/dev/null || sudo -S systemctl --no-pager --full status espdisp-loglistener; echo ---; sudo -n tail -n 20 /var/log/espdisp/device.log 2>/dev/null || true'
+	@ssh $(REMOTE) 'sudo -n systemctl --no-pager --full status yeydisp-loglistener 2>/dev/null || sudo -S systemctl --no-pager --full status yeydisp-loglistener; echo ---; sudo -n tail -n 20 /var/log/yeydisp/device.log 2>/dev/null || true'
 
 lab-logger-tail:  ## Stream live logs from REMOTE
-	@ssh -t $(REMOTE) 'sudo -n tail -F /var/log/espdisp/device.log'
+	@ssh -t $(REMOTE) 'sudo -n tail -F /var/log/yeydisp/device.log'
 
 # One-shot orchestrator: build debug FW, flash via OTA, deploy lab-logger,
 # show recent logs. Each step is idempotent and unattended (provided
@@ -242,26 +242,26 @@ server-sk-only:  ## Re-deploy SK config/plugins and restart the SK service on RE
 server-status:  ## Show service status (SK + AP + logger) on REMOTE
 	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
 	@ssh $(REMOTE) '\
-	  echo "=== espdisp-signalk ==="; \
-	  sudo -n systemctl --no-pager status espdisp-signalk 2>/dev/null | head -10; \
-	  echo "=== espdisp-lab-ap ==="; \
-	  sudo -n systemctl --no-pager status espdisp-lab-ap 2>/dev/null | head -6; \
-	  echo "=== espdisp-loglistener ==="; \
-	  sudo -n systemctl --no-pager status espdisp-loglistener 2>/dev/null | head -6; \
+	  echo "=== yeydisp-signalk ==="; \
+	  sudo -n systemctl --no-pager status yeydisp-signalk 2>/dev/null | head -10; \
+	  echo "=== yeydisp-lab-ap ==="; \
+	  sudo -n systemctl --no-pager status yeydisp-lab-ap 2>/dev/null | head -6; \
+	  echo "=== yeydisp-loglistener ==="; \
+	  sudo -n systemctl --no-pager status yeydisp-loglistener 2>/dev/null | head -6; \
 	  echo "=== recent device log ==="; \
-	  sudo -n tail -n 20 /var/log/espdisp/device.log 2>/dev/null || echo "(no log yet)"'
+	  sudo -n tail -n 20 /var/log/yeydisp/device.log 2>/dev/null || echo "(no log yet)"'
 
 server-teardown:  ## Stop all lab services on REMOTE (SK + AP + logger) – non-destructive
 	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
 	@ssh $(REMOTE) '\
-	  sudo -n systemctl stop espdisp-signalk espdisp-lab-ap espdisp-loglistener 2>/dev/null; \
+	  sudo -n systemctl stop yeydisp-signalk yeydisp-lab-ap yeydisp-loglistener 2>/dev/null; \
 	  echo "stopped"'
 
 sys-test-remote:  ## Run unattended system tests against the lab device + remote SK (sources .env.test)
 	@test -f .env.test || { echo ".env.test missing - regenerate from this repo" >&2; exit 1; }
 	@set -a; . ./.env.test; set +a; \
-	  if [ -z "$$ESPDISP_HOST" ]; then \
-	    echo "ESPDISP_HOST still unset after sourcing .env.test" >&2; exit 1; \
+	  if [ -z "$$YEYBOATS_HOST" ]; then \
+	    echo "YEYBOATS_HOST still unset after sourcing .env.test" >&2; exit 1; \
 	  fi; \
 	  pytest tests/system/unattended
 
@@ -299,8 +299,8 @@ sys-test-mac:  ## Run sys-tests from Mac: native BLE + SSH-tunneled HTTP via nav
 	  && echo "tunnel up: localhost:$(TUNNEL_PORT) -> $(DEVICE_LAN_IP):80"
 	@trap 'pkill -f "ssh.*$(TUNNEL_PORT):$(DEVICE_LAN_IP)" 2>/dev/null || true' EXIT; \
 	  set -a; . ./.env.test; set +a; \
-	  ESPDISP_HOST=localhost:$(TUNNEL_PORT) ESPDISP_BLE_NAME=espdisp \
-	    pytest tests/system/unattended --espdisp-no-udp-discovery --espdisp-no-discovery
+	  YEYBOATS_HOST=localhost:$(TUNNEL_PORT) YEYBOATS_BLE_NAME=yey-d \
+	    pytest tests/system/unattended --yeydisp-no-udp-discovery --yeydisp-no-discovery
 
 proto:  ## Regenerate protocol code (C++ + TS) from the schema
 	python3 proto/gen/gen_cpp.py

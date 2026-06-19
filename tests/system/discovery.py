@@ -1,6 +1,6 @@
 """Discovery helpers for espdisp system tests.
 
-The primary path is mDNS service discovery for `_espdisp._tcp.local.` as
+The primary path is mDNS service discovery for `_yeyboats._tcp.local.` as
 advertised by the firmware. Explicit hosts remain supported for lab setups and
 CI, and optional CIDR probing covers networks where mDNS multicast is blocked.
 """
@@ -202,7 +202,7 @@ def discover_mdns(timeout: float = 2.5) -> list[DiscoveredDevice]:
 
     zeroconf = Zeroconf()
     try:
-        ServiceBrowser(zeroconf, "_espdisp._tcp.local.", Listener())
+        ServiceBrowser(zeroconf, "_yeyboats._tcp.local.", Listener())
         time.sleep(timeout)
     finally:
         zeroconf.close()
@@ -270,8 +270,8 @@ def discover_devices(
 
 
 def env_auth() -> tuple[str, str] | None:
-    username = os.environ.get("ESPDISP_WEB_USERNAME")
-    password = os.environ.get("ESPDISP_WEB_PASSWORD")
+    username = os.environ.get("YEYBOATS_WEB_USERNAME")
+    password = os.environ.get("YEYBOATS_WEB_PASSWORD")
     if username and password:
         return username, password
     return None
@@ -281,10 +281,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Discover espdisp devices")
     parser.add_argument("--device", action="append", default=[],
                         help="Explicit host, host:port, or URL to include")
-    parser.add_argument("--devices", default=os.environ.get("ESPDISP_DEVICES"),
+    parser.add_argument("--devices", default=os.environ.get("YEYBOATS_DEVICES"),
                         help="Comma/space-separated explicit device list")
     parser.add_argument("--no-mdns", action="store_true",
-                        help="Disable _espdisp._tcp.local mDNS discovery")
+                        help="Disable _yeyboats._tcp.local mDNS discovery")
     parser.add_argument("--scan-cidr", action="append", default=[],
                         help="CIDR to actively probe, e.g. 192.168.1.0/24")
     parser.add_argument("--listen-udp", action="store_true",
@@ -299,14 +299,14 @@ def main(argv: list[str] | None = None) -> int:
 
     explicit = list(args.device)
     explicit.extend(split_device_specs(args.devices))
-    explicit.extend(split_device_specs(os.environ.get("ESPDISP_HOST")))
+    explicit.extend(split_device_specs(os.environ.get("YEYBOATS_HOST")))
     devices = discover_devices(
         explicit=explicit,
         mdns=not args.no_mdns,
         cidrs=args.scan_cidr or split_device_specs(
-            os.environ.get("ESPDISP_DISCOVERY_CIDRS")),
+            os.environ.get("YEYBOATS_DISCOVERY_CIDRS")),
         udp_listen=args.listen_udp or
-        os.environ.get("ESPDISP_DISCOVERY_UDP") == "1",
+        os.environ.get("YEYBOATS_DISCOVERY_UDP") == "1",
         udp_timeout=args.udp_timeout,
         auth=env_auth(),
         mdns_timeout=args.timeout,

@@ -763,7 +763,7 @@ build_flags =
     -D BOARD_HAS_PSRAM
     -I include
     -DCORE_DEBUG_LEVEL=3
-    -D ESPDISP_HARNESS=1
+    -D YEYBOATS_HARNESS=1
 build_src_filter =
     -<*>
     +<harness_main.cpp>

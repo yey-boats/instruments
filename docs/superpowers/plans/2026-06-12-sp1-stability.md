@@ -6,9 +6,9 @@
 
 **Architecture:** Four independent workstreams. **A — Manager reachability** (plugin JS, host-testable now) fixes the verified defect that orphans the device on IP rotation. **B — Firmware net-health + canaries + heartbeat labeling** (C++/sdkconfig, device-gated). **C — Soak rig** (Python, runs on mythra-nav). **D — Rideshare cleanups** (firmware). A and C need no physical device and run first; B and D are gated on physical access to the bench device, currently unreachable (see `docs/reports/stability-evidence-2026-06-12.md`).
 
-**STATUS 2026-06-12:** ✅ **Workstream A complete** (commit `fc591a9`, deployed+verified on mythra-nav — 9.2 s three-candidate fall-through proven; the device's IP did rotate to `10.42.0.67`, confirming the scenario). ✅ **Workstream C complete** (commit `15bbd81` — `espdisp soak` + pure verdict, 7 host tests, relay-verified). ✅ **ROOT-CAUSE NETWORK FIX shipped** (commit `46e22e3`) — evidence-first capture found internal-heap starvation (11.5 KB free / 7.6 KB largest block); LVGL draw buffers moved to PSRAM → 89.5 KB free / 77.8 KB largest; soak went 20/20 unreachable → **25/25 reachable, PASS**. This was the actual "unstable for network but live" cause, not in the original task list — surfaced by the evidence-first method. ✅ **B1 (canaries)** shipped (`e1b05aa`, `-fstack-protector-strong`; sdkconfig toggle is inert on the prebuilt Arduino core). ✅ **B2 (net_health)** shipped (`de5de37`, 9 host tests). ✅ **B3 (stall ladder rewire)** shipped (`dffb154`, verified on device). ✅ **B4 (S5 heartbeat labeling)** shipped (`e78bc7d`). ✅ **D1 (touch_cal release gate)** already in place (`ESPDISP_ENABLE_TOUCH_CAL_UI=0` in `release_common`; release env builds clean). ✅ **D2 (settings segmented)** already consolidated (all 6 controls use the `make_segmented` factory; no duplication). **SP1 COMPLETE.** ⏳ **24 h soak** to be re-run on the final firmware for the formal done-gate sign-off.
+**STATUS 2026-06-12:** ✅ **Workstream A complete** (commit `fc591a9`, deployed+verified on mythra-nav — 9.2 s three-candidate fall-through proven; the device's IP did rotate to `10.42.0.67`, confirming the scenario). ✅ **Workstream C complete** (commit `15bbd81` — `espdisp soak` + pure verdict, 7 host tests, relay-verified). ✅ **ROOT-CAUSE NETWORK FIX shipped** (commit `46e22e3`) — evidence-first capture found internal-heap starvation (11.5 KB free / 7.6 KB largest block); LVGL draw buffers moved to PSRAM → 89.5 KB free / 77.8 KB largest; soak went 20/20 unreachable → **25/25 reachable, PASS**. This was the actual "unstable for network but live" cause, not in the original task list — surfaced by the evidence-first method. ✅ **B1 (canaries)** shipped (`e1b05aa`, `-fstack-protector-strong`; sdkconfig toggle is inert on the prebuilt Arduino core). ✅ **B2 (net_health)** shipped (`de5de37`, 9 host tests). ✅ **B3 (stall ladder rewire)** shipped (`dffb154`, verified on device). ✅ **B4 (S5 heartbeat labeling)** shipped (`e78bc7d`). ✅ **D1 (touch_cal release gate)** already in place (`YEYBOATS_ENABLE_TOUCH_CAL_UI=0` in `release_common`; release env builds clean). ✅ **D2 (settings segmented)** already consolidated (all 6 controls use the `make_segmented` factory; no duplication). **SP1 COMPLETE.** ⏳ **24 h soak** to be re-run on the final firmware for the formal done-gate sign-off.
 
-**Tech Stack:** Node.js (SignalK plugin, `node:test` via `test/run.js`), C++17 (firmware, Unity host tests via `pio test -e native`), ESP-IDF sdkconfig, Python 3 (`tools/espdisp.py`).
+**Tech Stack:** Node.js (SignalK plugin, `node:test` via `test/run.js`), C++17 (firmware, Unity host tests via `pio test -e native`), ESP-IDF sdkconfig, Python 3 (`tools/yeydisp.py`).
 
 ---
 
@@ -401,7 +401,7 @@ HTTP API (or the manager proxy if direct access is blocked), writing JSONL and a
 verdict table.
 
 **Files:**
-- Modify: `tools/espdisp.py` (add a `soak` subcommand)
+- Modify: `tools/yeydisp.py` (add a `soak` subcommand)
 - Test: `tools/test_soak.py` (create — pure-Python unit test of the verdict logic, no network)
 
 All commands run from repo root.
@@ -514,11 +514,11 @@ git commit -m "feat(soak): pure verdict logic for reboot/stall detection"
 ### Task C2: Scraper subcommand wiring
 
 **Files:**
-- Modify: `tools/espdisp.py` (add `soak` subcommand that polls `/api/state`+`/api/diag` every 30 s, appends `Sample` rows to JSONL, prints `analyze()` at exit/SIGINT)
+- Modify: `tools/yeydisp.py` (add `soak` subcommand that polls `/api/state`+`/api/diag` every 30 s, appends `Sample` rows to JSONL, prints `analyze()` at exit/SIGINT)
 
 - [ ] **Step 1: Inspect the existing CLI structure**
 
-Run: `grep -nE "add_parser|argparse|subcommand|def cmd_" tools/espdisp.py | head`
+Run: `grep -nE "add_parser|argparse|subcommand|def cmd_" tools/yeydisp.py | head`
 Expected: reveals the subparser pattern to mirror. Follow it exactly — do not
 restructure the CLI.
 
@@ -539,7 +539,7 @@ trusting them.
 
 Run (from a host that can reach mythra-nav):
 ```bash
-python3 tools/espdisp.py soak \
+python3 tools/yeydisp.py soak \
   --host "http://mythra-nav:3000/plugins/espdisp-manager/devices/espdisp/live" \
   --interval 30 --out /tmp/soak-smoke.jsonl
 # let it take 2-3 samples, then Ctrl-C
@@ -551,8 +551,8 @@ rig behavior; the verdict notes zero usable samples.)
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tools/espdisp.py
-git commit -m "feat(soak): espdisp.py soak subcommand scrapes state/diag to JSONL"
+git add tools/yeydisp.py
+git commit -m "feat(soak): yeydisp.py soak subcommand scrapes state/diag to JSONL"
 ```
 
 ---
@@ -594,7 +594,7 @@ tasks (A/C pattern) once `make flash`/`make ota` works again.
 - **D1 — Release-gate `touch_cal`.** `src/ui/screen_touch_cal.cpp` builds the
   calibration UI unconditionally. Wrap the **screen builder** (not the core
   `touch_cal::apply/set/reset` path, which must stay) behind a
-  `#ifndef ESPDISP_RELEASE_BUILD`. Add the `-D ESPDISP_RELEASE_BUILD` flag to a
+  `#ifndef YEYBOATS_RELEASE_BUILD`. Add the `-D YEYBOATS_RELEASE_BUILD` flag to a
   release env in `platformio.ini`. Acceptance: dev build still shows the screen;
   release build drops it and shrinks the binary.
 - **D2 — Settings segmented control.** NOTE: `src/ui/screen_settings.cpp`

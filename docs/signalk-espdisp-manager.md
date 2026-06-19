@@ -867,8 +867,8 @@ pytest tests/system/unattended/test_espdisp_manager_contract.py -q
 Run firmware contract tests against a real device:
 
 ```sh
-ESPDISP_MANAGER_CONTRACT=1 \
-ESPDISP_HOST=<device-ip> \
+YEYBOATS_MANAGER_CONTRACT=1 \
+YEYBOATS_HOST=<device-ip> \
 SIGNALK_URL=http://localhost:3000 \
 pytest tests/system/unattended/test_espdisp_manager_contract.py
 ```

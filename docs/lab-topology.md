@@ -117,7 +117,7 @@ config when you want it permanent.
 # Start (or restart) the AP on nav-server (PSK is a CLI arg so it
 # survives sudo without an env-preserving sudoers rule):
 set -a; source .env.test; set +a
-ssh nav-server "sudo bash /usr/local/sbin/espdisp-lab-ap-setup.sh '$ESP_LAB_PSK'"
+ssh nav-server "sudo bash /usr/local/sbin/yeydisp-lab-ap-setup.sh '$ESP_LAB_PSK'"
 
 # Start SK + simulator:
 make demo-up-remote
@@ -132,7 +132,7 @@ make sys-test-remote
 # Tear down:
 make demo-down-remote
 # (the AP keeps running — it's a systemd unit on nav-server.
-#  to stop it explicitly: ssh nav-server 'sudo systemctl stop espdisp-lab-ap')
+#  to stop it explicitly: ssh nav-server 'sudo systemctl stop yeydisp-lab-ap')
 ```
 
 ## Files in this repo that own pieces of the rig
@@ -163,7 +163,7 @@ So the test transports split:
   to `10.42.0.0/24`.
 
 `make sys-test-mac` opens the tunnel, sources `.env.test`, points the
-suite at `localhost:10067` + `ESPDISP_BLE_NAME=espdisp`, runs pytest,
+suite at `localhost:10067` + `YEYBOATS_BLE_NAME=espdisp`, runs pytest,
 and tears the tunnel down on exit.
 
 ## Recovery cheats

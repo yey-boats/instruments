@@ -43,7 +43,7 @@ static bool ota_started = false;
 // the upload uninterrupted bandwidth; see net::otaInProgress() callers.
 static volatile bool s_ota_in_progress = false;
 
-// Runtime log filter knobs. Honored only when ESPDISP_DEBUG_UDP_LOG is
+// Runtime log filter knobs. Honored only when YEYBOATS_DEBUG_UDP_LOG is
 // compiled in; in release builds the UDP path is gone entirely so these
 // just hold values nobody reads. Defaults are conservative (WARN+, no
 // tag filter) so a freshly-flashed debug build doesn't drown the lab
@@ -135,7 +135,7 @@ static const char *reset_reason_name(esp_reset_reason_t r) {
     }
 }
 
-#ifdef ESPDISP_DEBUG_UDP_LOG
+#ifdef YEYBOATS_DEBUG_UDP_LOG
 // Lab-only UDP log sink. Compiled out of release builds entirely.
 // Wire format: one logf() line per UDP datagram, broadcast to
 // `broadcastAddr:UDP_LOG_PORT`. The lab logger (tools/lab-logger/)
@@ -325,7 +325,7 @@ class RxCb : public NimBLECharacteristicCallbacks {
         // UI), but a console-issued `scan` still routes through there
         // cleanly via dispatchCommand.
         bool inline_ok = (line == "ip" ||
-#if ESPDISP_ENABLE_BENCH
+#if YEYBOATS_ENABLE_BENCH
                           line == "bench" ||
 #endif
                           line == "screen" || line == "sk-status" || line == "sk-dump" ||
@@ -719,7 +719,7 @@ static void wifi_manager_task(void *) {
         }
         printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(), WiFi.SSID().c_str(),
                WiFi.RSSI());
-#ifdef ESPDISP_DEBUG_UDP_LOG
+#ifdef YEYBOATS_DEBUG_UDP_LOG
         // Replay any log lines that were written before WiFi came up
         // (most importantly the `[boot] reset_reason=...` line that
         // emits in net::setup() before broadcastAddr is valid). One-shot
@@ -857,7 +857,7 @@ bool dispatchCommand(const String &line) {
     if (nmea2000::handleSerialCommand(line)) return true;
     if (boat::handleSerialCommand(line)) return true;
     if (board::handleSerialCommand(line)) return true;
-#if ESPDISP_ENABLE_INPUT_TEST
+#if YEYBOATS_ENABLE_INPUT_TEST
     if (input_test::handleConsoleCommand(line)) return true;
 #endif
     if (manager::handleSerialCommand(line)) return true;
@@ -1012,7 +1012,7 @@ static void log_emit(uint8_t level, const char *fmt, va_list ap) {
         bleTxChar->setValue((uint8_t *)buf, n);
         bleTxChar->notify();
     }
-#ifdef ESPDISP_DEBUG_UDP_LOG
+#ifdef YEYBOATS_DEBUG_UDP_LOG
     udp_log_emit(level, buf, n);
 #else
     (void)level;
@@ -1104,7 +1104,7 @@ bool handleSerialCommand(const String &line) {
     if (line == "log-status") {
         logf("[log] level=%s tag=%s udp=%s", log_level_name(s_udp_log_level),
              s_udp_log_tag[0] ? s_udp_log_tag : "(none)",
-#ifdef ESPDISP_DEBUG_UDP_LOG
+#ifdef YEYBOATS_DEBUG_UDP_LOG
              "enabled"
 #else
              "disabled-by-build"

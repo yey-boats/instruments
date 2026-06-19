@@ -1,13 +1,13 @@
 #include "build_config.h"
 
-// Gated by ESPDISP_ENABLE_TOUCH_CAL_UI (default ON; release_common sets =0).
+// Gated by YEYBOATS_ENABLE_TOUCH_CAL_UI (default ON; release_common sets =0).
 // The core calibration application path (touch_cal::apply / set / reset
 // in src/touch_cal.cpp) is unconditional - it reads the saved matrix
 // from NVS every frame regardless of whether this UI is compiled in.
 // What this file provides is the first-boot crosshair-tap flow that
 // PRODUCES that matrix; a shipped device never needs to run it again,
 // so we drop the screen + its build/refresh symbols from release.
-#if ESPDISP_ENABLE_TOUCH_CAL_UI
+#if YEYBOATS_ENABLE_TOUCH_CAL_UI
 
 #include "screens.h"
 #include "ui_theme.h"
@@ -250,4 +250,4 @@ void refresh() {
 
 }  // namespace ui::touch_cal_screen
 
-#endif  // ESPDISP_ENABLE_TOUCH_CAL_UI
+#endif  // YEYBOATS_ENABLE_TOUCH_CAL_UI

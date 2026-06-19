@@ -58,7 +58,7 @@ runtime decisions Rust expresses the same as C++ does.
    caught the "I thought -1 meant WiFi-down but it actually means
    connection-refused" bug I made today.
 
-4. **No `#if ESPDISP_ENABLE_X` flag mess**: `#[cfg(feature = "demo")]`
+4. **No `#if YEYBOATS_ENABLE_X` flag mess**: `#[cfg(feature = "demo")]`
    is structurally the same but cleaner; `cargo build --no-default-features`
    gives release/debug variants without our current platformio.ini
    release_common gymnastics.

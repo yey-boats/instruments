@@ -854,7 +854,7 @@ static uint32_t s_stall_begin_ms = 0;
 static uint32_t s_stall_iters_baseline = 0;
 
 void pollStallTelemetry() {
-#if ESPDISP_ENABLE_STALL_TELEMETRY
+#if YEYBOATS_ENABLE_STALL_TELEMETRY
     String status = connectionStatus();
     bool now_stalled = (status == "stalled");
     if (now_stalled == s_prev_stalled) return;

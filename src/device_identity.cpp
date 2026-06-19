@@ -12,7 +12,7 @@
 #include "board.h"
 #include "net.h"
 
-#if !defined(ESPDISP_HARNESS)
+#if !defined(YEYBOATS_HARNESS)
 #include <lvgl.h>  // for the compiled font sizes list (spec 19 D1); headless
                    // harness links no LVGL and uses none of its symbols here.
 #endif

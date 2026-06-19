@@ -7,8 +7,8 @@ refuses these words. Tests therefore drive injection through one of
 the two transports here.
 
 Selection (in order):
-    ESPDISP_SERIAL_PORT=/dev/cu.usbserial-XXXX  -> USB serial (fast, CI-friendly)
-    ESPDISP_BLE_NAME=espdisp                    -> BLE NUS (no cables)
+    YEYBOATS_SERIAL_PORT=/dev/cu.usbserial-XXXX  -> USB serial (fast, CI-friendly)
+    YEYBOATS_BLE_NAME=espdisp                    -> BLE NUS (no cables)
 
 If neither is set, tests requiring console injection skip with a clear
 message.
@@ -148,10 +148,10 @@ def make_console() -> Optional[Console]:
     """Return whichever transport is configured, or None if neither.
     Tests should pytest.skip when this returns None.
     """
-    port = os.environ.get("ESPDISP_SERIAL_PORT")
+    port = os.environ.get("YEYBOATS_SERIAL_PORT")
     if port:
         return SerialConsole(port)
-    name = os.environ.get("ESPDISP_BLE_NAME")
+    name = os.environ.get("YEYBOATS_BLE_NAME")
     if name:
         return BleConsole(name)
     return None

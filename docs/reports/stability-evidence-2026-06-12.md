@@ -73,7 +73,7 @@ status.ui.uptime_ms:   32232   (~32 s uptime at last heartbeat)
 
 Manager re-resolution fix (`fix(manager): re-resolve device address across
 candidates`, commit `fc591a9`) deployed to the lab plugin install
-(`/home/compulab/espdisp-signalk/plugins/signalk-espdisp-manager`, volume-mounted
+(`/home/compulab/yeydisp-signalk/plugins/signalk-espdisp-manager`, volume-mounted
 into the `signalk` Docker container on mythra-nav) and the container restarted.
 
 **Result — fall-through proven by timing.** A `live/status` proxy call to the

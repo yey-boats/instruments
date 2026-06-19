@@ -38,7 +38,7 @@ def compute_version(base):
     """Return (full_version_string, source_label).
 
     Rules (first match wins):
-      1. `ESPDISP_VERSION` env override (CI release path) - take verbatim.
+      1. `YEYBOATS_VERSION` env override (CI release path) - take verbatim.
       2. Current HEAD is exactly the tag `v<base>` - return bare `base`.
          This is what the tag-triggered release build produces.
       3. Repo has a history - return `<base>+<N>.g<sha>[.dirty]` where N
@@ -46,10 +46,10 @@ def compute_version(base):
          release tag) when that tag exists, else total commit count.
       4. Not a git checkout - return `<base>+local`.
     """
-    env_override = os.environ.get("ESPDISP_VERSION", "").strip()
+    env_override = os.environ.get("YEYBOATS_VERSION", "").strip()
     if env_override:
         if not SEMVER_RE.match(env_override):
-            raise ValueError(f"invalid ESPDISP_VERSION '{env_override}'")
+            raise ValueError(f"invalid YEYBOATS_VERSION '{env_override}'")
         return env_override, "env"
 
     sha = git_output(["rev-parse", "--short=12", "HEAD"])

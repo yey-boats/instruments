@@ -34,8 +34,8 @@ fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "${HERE}/../.." && pwd)"
-SK_DIR="/home/compulab/espdisp-signalk"
-SK_SERVICE="espdisp-signalk"
+SK_DIR="/home/compulab/yeydisp-signalk"
+SK_SERVICE="yeydisp-signalk"
 
 log()  { printf '\033[1;34m[server-setup]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m[server-setup] ✓\033[0m %s\n' "$*"; }
@@ -80,7 +80,7 @@ if [ "$SK_ONLY" -eq 0 ]; then
 fi
 
 # -----------------------------------------------------------------------
-# 3. Create espdisp-signalk directory structure
+# 3. Create yeydisp-signalk directory structure
 # -----------------------------------------------------------------------
 log "ensuring $SK_DIR/{config,plugins}"
 install -d -m 0775 "$SK_DIR/config/plugin-config-data" \
@@ -181,10 +181,10 @@ echo
 echo "=============================="
 echo " espdisp nav-server status"
 echo "=============================="
-systemctl --no-pager --full status espdisp-signalk   2>/dev/null | head -8  || true
-systemctl --no-pager --full status espdisp-lab-ap    2>/dev/null | head -5  || true
-systemctl --no-pager --full status espdisp-loglistener 2>/dev/null | head -5 || true
+systemctl --no-pager --full status yeydisp-signalk   2>/dev/null | head -8  || true
+systemctl --no-pager --full status yeydisp-lab-ap    2>/dev/null | head -5  || true
+systemctl --no-pager --full status yeydisp-loglistener 2>/dev/null | head -5 || true
 echo "=============================="
 echo "SignalK:    http://$(hostname -I | awk '{print $1}'):3000"
-echo "Logs (UDP): sudo tail -f /var/log/espdisp/device.log"
+echo "Logs (UDP): sudo tail -f /var/log/yeydisp/device.log"
 echo "=============================="

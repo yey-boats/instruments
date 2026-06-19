@@ -42,14 +42,14 @@ fi
 log() { printf '[lab-logger] %s\n' "$*"; }
 die() { printf '[lab-logger] %s\n' "$*" >&2; exit 1; }
 
-INSTALL_CMD='bash /tmp/espdisp-lab-logger/install.sh'
+INSTALL_CMD='bash /tmp/yeydisp-lab-logger/install.sh'
 
 # --- upload (no sudo) ---
-log "uploading tools/lab-logger/ -> ${REMOTE}:/tmp/espdisp-lab-logger"
+log "uploading tools/lab-logger/ -> ${REMOTE}:/tmp/yeydisp-lab-logger"
 ssh -o BatchMode=yes "${REMOTE}" \
-    'rm -rf /tmp/espdisp-lab-logger && mkdir -p /tmp/espdisp-lab-logger'
+    'rm -rf /tmp/yeydisp-lab-logger && mkdir -p /tmp/yeydisp-lab-logger'
 tar -czf - -C "${HERE}" . | \
-    ssh -o BatchMode=yes "${REMOTE}" 'tar -xzf - -C /tmp/espdisp-lab-logger'
+    ssh -o BatchMode=yes "${REMOTE}" 'tar -xzf - -C /tmp/yeydisp-lab-logger'
 
 # --- install (sudo) ---
 if ssh -o BatchMode=yes "${REMOTE}" 'sudo -n true' 2>/dev/null; then

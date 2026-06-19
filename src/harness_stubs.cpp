@@ -9,9 +9,9 @@
 // the headless image links. Add entries here only in response to the linker's
 // "undefined reference" errors -- nothing speculative.
 //
-// Gated by ESPDISP_HARNESS so it is an empty TU on the display/knob firmware
+// Gated by YEYBOATS_HARNESS so it is an empty TU on the display/knob firmware
 // builds (where main.cpp / src/ui provide the real implementations).
-#if defined(ESPDISP_HARNESS)
+#if defined(YEYBOATS_HARNESS)
 
 #include <Arduino.h>
 #include <stddef.h>
@@ -123,4 +123,4 @@ bool is_applied() {
 }
 }  // namespace manager_screens
 
-#endif  // ESPDISP_HARNESS
+#endif  // YEYBOATS_HARNESS

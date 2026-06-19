@@ -15,9 +15,9 @@ import pytest
 
 from tests.system.inject import nmea0183, sk_pump
 
-SK_HOST = os.environ.get("ESPDISP_SK_HOST", "localhost")
-SK_PORT = int(os.environ.get("ESPDISP_SK_PORT", "3000"))
-UDP_PORT = int(os.environ.get("ESPDISP_NMEA_WIFI_PORT", "10110"))
+SK_HOST = os.environ.get("YEYBOATS_SK_HOST", "localhost")
+SK_PORT = int(os.environ.get("YEYBOATS_SK_PORT", "3000"))
+UDP_PORT = int(os.environ.get("YEYBOATS_NMEA_WIFI_PORT", "10110"))
 
 
 def _sk_available() -> bool:

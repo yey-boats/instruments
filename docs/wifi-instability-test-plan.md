@@ -33,7 +33,7 @@ is the suspect.
 
 ```sh
 # via BLE or USB serial
-python3 tools/espdisp.py ble cmd "wifi <ssid> <pass>"
+python3 tools/yeydisp.py ble cmd "wifi <ssid> <pass>"
 # (device reboots, tries the new network first)
 ```
 
@@ -67,7 +67,7 @@ sudo tcpdump -i <iface> -n -w /tmp/alt_ap.pcap \
 ## Restore lab network
 
 ```sh
-python3 tools/espdisp.py ble cmd "wifi esp-lab <password>"
+python3 tools/yeydisp.py ble cmd "wifi esp-lab <password>"
 ```
 
 (or just `wifi-forget` and pick from saved networks on the next boot)

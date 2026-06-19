@@ -321,7 +321,7 @@ target. Source: `src/harness_main.cpp`.
    frames.
 5. Soak the display while the harness loops:
    ```sh
-   tools/espdisp.py soak --remote <user@server> --device-ip <display-ip>
+   tools/yeydisp.py soak --remote <user@server> --device-ip <display-ip>
    ```
    Expect PASS (no heap regression).
 

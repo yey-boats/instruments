@@ -23,8 +23,8 @@
 // headless harness. Display-only boards stay peripheral-only: proto_ble.cpp is
 // still in their build_src_filter but the body is #ifdef'd out so nothing here
 // can call NimBLE's central API on a display.
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8) || defined(ESPDISP_HARNESS)
-#define ESPDISP_BLE_CENTRAL 1
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8) || defined(YEYBOATS_HARNESS)
+#define YEYBOATS_BLE_CENTRAL 1
 #endif
 
 namespace proto_ble {

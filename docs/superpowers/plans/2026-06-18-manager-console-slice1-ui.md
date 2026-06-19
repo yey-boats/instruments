@@ -236,7 +236,7 @@ git push origin main
 
 ```bash
 rsync -az --exclude node_modules --exclude test-results --exclude .git --exclude .gitignore --exclude deploy --exclude '*.bak*' \
-  ./ compulab@mythra-nav:/home/compulab/espdisp-signalk/plugins/signalk-espdisp-manager/
+  ./ compulab@mythra-nav:/home/compulab/yeydisp-signalk/plugins/signalk-espdisp-manager/
 ssh compulab@mythra-nav 'docker restart signalk-server >/dev/null && for i in $(seq 1 30); do c=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/signalk); [ "$c" = 200 -o "$c" = 401 ] && { echo "up $c"; break; }; sleep 3; done'
 ```
 

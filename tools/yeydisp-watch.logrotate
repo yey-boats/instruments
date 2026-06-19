@@ -1,4 +1,4 @@
-/var/log/espdisp/*.log {
+/var/log/yeydisp/*.log {
     daily
     rotate 14
     compress

@@ -154,7 +154,7 @@ identical helm repeaters.
 
 ## 5. Health & troubleshooting
 
-- **Soak / stability**: `tools/espdisp.py soak --remote <user@server>
+- **Soak / stability**: `tools/yeydisp.py soak --remote <user@server>
   --device-ip <ip>` records reboots/stalls/heap to JSONL and prints a
   PASS/FAIL verdict. Run it on a host on the device's subnet.
 - **Heap pressure**: `/api/state` exposes `heap_internal_free` and
@@ -164,7 +164,7 @@ identical helm repeaters.
   `lastHeartbeatStatus` plus `heartbeatPreflightRefusals` /
   `heartbeatTransportFailures` so a looping heartbeat is diagnosable.
 - **Reach a device on another subnet** for any HTTP/ping op: add
-  `--remote <user@server>` to `espdisp.py` to relay through the SignalK host.
+  `--remote <user@server>` to `yeydisp.py` to relay through the SignalK host.
 
 ## 6. Using the rotary knob remote
 

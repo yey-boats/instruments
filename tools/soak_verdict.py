@@ -1,7 +1,7 @@
 """Pure verdict logic for espdisp soak runs.
 
 No network, no I/O — just analysis of a sequence of polled samples so it can
-be unit-tested on the host. The `espdisp.py soak` subcommand feeds real
+be unit-tested on the host. The `yeydisp.py soak` subcommand feeds real
 /api/state + /api/diag scrapes into Sample rows and calls analyze() at the end.
 """
 from dataclasses import dataclass

@@ -1,8 +1,8 @@
 """Touch + gesture injection via BLE NUS or USB serial.
 
 Injection is deliberately NOT carried over HTTP. The `console` fixture
-opens whichever transport is configured (ESPDISP_SERIAL_PORT preferred,
-falls back to ESPDISP_BLE_NAME) and stays connected for the session.
+opens whichever transport is configured (YEYBOATS_SERIAL_PORT preferred,
+falls back to YEYBOATS_BLE_NAME) and stays connected for the session.
 
 Two injection levels:
 

@@ -9,7 +9,7 @@ yet" at the bottom.
 
 ## Baseline measurements (pre-fix, live device)
 
-Captured via `python3 tools/espdisp.py watch --interval 5 --remote compulab@192.168.2.11 --device-ip 10.42.0.67`:
+Captured via `python3 tools/yeydisp.py watch --interval 5 --remote compulab@192.168.2.11 --device-ip 10.42.0.67`:
 
 ```
 2026-06-03T01:40:23  heap=16k psram=7517k sk=live task_iters=25457 mgr.hb=-1 uptime=404s

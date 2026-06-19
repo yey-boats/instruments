@@ -77,7 +77,7 @@ case " ${INSTALL_FLAGS} " in
         ;;
 esac
 
-REMOTE_TMP="/tmp/espdisp-server-setup"
+REMOTE_TMP="/tmp/yeydisp-server-setup"
 INSTALL_CMD="bash ${REMOTE_TMP}/tools/server-setup/install.sh ${INSTALL_FLAGS}"
 
 # --- Upload the relevant repo subtrees ---

@@ -34,7 +34,7 @@ Common options:
 
 Configuration precedence (highest first):
   1. command-line flag                 --remote compulab@192.168.2.11
-  2. process environment               ESPDISP_REMOTE=compulab@192.168.2.11
+  2. process environment               YEYBOATS_REMOTE=compulab@192.168.2.11
   3. `.env.test.local` at repo root    REMOTE_HOST=compulab@192.168.2.11
      (gitignored; same file used by lab-logger/deploy.sh and the
      existing system-test tooling, so one config covers everything)
@@ -44,11 +44,11 @@ Configuration precedence (highest first):
 Recognised env keys (and the .env aliases we also accept for
 interoperability with the existing scripts):
 
-  ESPDISP_REMOTE      | REMOTE_HOST            -> --remote
-  ESPDISP_DEVICE_IP   | DEVICE_IP | ESPDISP_HOST -> --device-ip
-  ESPDISP_BLE_NAME    | ESPDISP_BLE_NAME       -> --name
+  YEYBOATS_REMOTE      | REMOTE_HOST            -> --remote
+  YEYBOATS_DEVICE_IP   | DEVICE_IP | YEYBOATS_HOST -> --device-ip
+  YEYBOATS_BLE_NAME    | YEYBOATS_BLE_NAME       -> --name
 
-Print effective config with `espdisp config`.
+Print effective config with `yeydisp config`.
 
 Exit codes: 0 success, 1 not found / not reachable, 2 usage error.
 """
@@ -76,15 +76,15 @@ NUS_TX = "6e400003-b5a3-f393-e0a3-9f4dd9e3a05a"  # notify from device
 DEFAULT_BLE_TIMEOUT = 10.0
 DEFAULT_HTTP_TIMEOUT = 8.0
 
-# Aliases for env keys we map onto our canonical ESPDISP_* names. The
+# Aliases for env keys we map onto our canonical YEYBOATS_* names. The
 # left column wins on first match (process env), then we fall through
 # to the right column - which uses the same names other repo tools
 # already set in .env.test / .env.test.local. Single source of truth
 # for "where does the lab IP come from" across the repo.
 ENV_ALIASES: dict[str, tuple[str, ...]] = {
-    "ESPDISP_REMOTE":    ("ESPDISP_REMOTE", "REMOTE_HOST"),
-    "ESPDISP_DEVICE_IP": ("ESPDISP_DEVICE_IP", "DEVICE_IP", "ESPDISP_HOST"),
-    "ESPDISP_BLE_NAME":  ("ESPDISP_BLE_NAME",),
+    "YEYBOATS_REMOTE":    ("YEYBOATS_REMOTE", "REMOTE_HOST"),
+    "YEYBOATS_DEVICE_IP": ("YEYBOATS_DEVICE_IP", "DEVICE_IP", "YEYBOATS_HOST"),
+    "YEYBOATS_BLE_NAME":  ("YEYBOATS_BLE_NAME",),
 }
 
 _ENV_FILE_PATTERN = re.compile(
@@ -152,14 +152,14 @@ def _load_env_file(path: str) -> dict[str, str]:
 def load_env_defaults() -> None:
     """Populate os.environ from .env.test and .env.test.local at the
     repo root (.local wins). Only fills keys that aren't already set in
-    the process environment - so a one-off `ESPDISP_REMOTE=foo espdisp`
+    the process environment - so a one-off `YEYBOATS_REMOTE=foo yeydisp`
     invocation overrides the file just as a CLI flag overrides env.
 
-    Then canonicalize: for each ESPDISP_* canonical key, if it's unset
+    Then canonicalize: for each YEYBOATS_* canonical key, if it's unset
     and an alias is set, copy the alias value over so the rest of the
     CLI only has to read the canonical name.
     """
-    # tools/espdisp.py lives in <repo>/tools/, so .. is the repo root.
+    # tools/yeydisp.py lives in <repo>/tools/, so .. is the repo root.
     here = os.path.dirname(os.path.abspath(__file__))
     repo = os.path.dirname(here)
     base = _load_env_file(os.path.join(repo, ".env.test"))
@@ -358,13 +358,13 @@ def cmd_logs(args) -> int:
 
 def cmd_logs_tail(args) -> int:
     """Equivalent to tools/lab-logger/loglistener.py - included here so
-    a single `espdisp logs tail` works without the lab-logger bundle."""
+    a single `yeydisp logs tail` works without the lab-logger bundle."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     s.bind(("0.0.0.0", args.port))
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
-    sys.stdout.write(f"# espdisp UDP log tail on :{args.port}\n")
+    sys.stdout.write(f"# yeydisp UDP log tail on :{args.port}\n")
     sys.stdout.flush()
     while True:
         data, addr = s.recvfrom(4096)
@@ -530,13 +530,13 @@ def add_common_args(p: argparse.ArgumentParser) -> None:
     # in main() and we pick up any .env.test.local values.
     p.add_argument("--device-ip", default=None,
                    help="Pin HTTP target; otherwise auto-discover. "
-                        "Falls back to $ESPDISP_DEVICE_IP / $DEVICE_IP.")
+                        "Falls back to $YEYBOATS_DEVICE_IP / $DEVICE_IP.")
     p.add_argument("--remote", default=None,
                    help="user@host SSH relay for HTTP/ping operations. "
-                        "Falls back to $ESPDISP_REMOTE / $REMOTE_HOST.")
+                        "Falls back to $YEYBOATS_REMOTE / $REMOTE_HOST.")
     p.add_argument("--name", default=None,
-                   help="BLE device-name filter (default: any 'espdisp*'). "
-                        "Falls back to $ESPDISP_BLE_NAME.")
+                   help="BLE device-name filter (default: any 'yey-d*'). "
+                        "Falls back to $YEYBOATS_BLE_NAME.")
     p.add_argument("--timeout", type=float, default=DEFAULT_HTTP_TIMEOUT,
                    help=f"Per-op timeout in seconds (default {DEFAULT_HTTP_TIMEOUT}).")
 
@@ -546,11 +546,11 @@ def apply_env_defaults(args: argparse.Namespace) -> None:
     them). Keeps the precedence rule simple: CLI flag wins; otherwise
     env (which already includes .env.test*); otherwise None/default."""
     if getattr(args, "device_ip", None) is None:
-        args.device_ip = os.environ.get("ESPDISP_DEVICE_IP")
+        args.device_ip = os.environ.get("YEYBOATS_DEVICE_IP")
     if getattr(args, "remote", None) is None:
-        args.remote = os.environ.get("ESPDISP_REMOTE")
+        args.remote = os.environ.get("YEYBOATS_REMOTE")
     if getattr(args, "name", None) is None:
-        args.name = os.environ.get("ESPDISP_BLE_NAME")
+        args.name = os.environ.get("YEYBOATS_BLE_NAME")
 
 
 def cmd_config(args) -> int:

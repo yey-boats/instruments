@@ -1,26 +1,26 @@
 #!/bin/bash
-# espdisp lab watcher. Runs forever; one log line per sample. Captures
+# yeydisp lab watcher. Runs forever; one log line per sample. Captures
 # reachability + internal heap + chip temp so we can correlate any future
 # L2 disassociation or heap pressure with what the device was doing at
 # the time.
 #
 # Designed to be run as a systemd service on the lab AP host. See
-# tools/espdisp-watch.service for the unit file. Logs land in
-# /var/log/espdisp/watch.log with built-in daily rotation; install
-# tools/espdisp-watch.logrotate into /etc/logrotate.d/ to keep ~14 days.
+# tools/yeydisp-watch.service for the unit file. Logs land in
+# /var/log/yeydisp/watch.log with built-in daily rotation; install
+# tools/yeydisp-watch.logrotate into /etc/logrotate.d/ to keep ~14 days.
 
 set -u
 
-DEVICE_IP="${ESPDISP_DEVICE_IP:-10.42.0.67}"
-DEVICE_MAC="${ESPDISP_DEVICE_MAC:-28:37:2f:8a:02:90}"
-INTERVAL_S="${ESPDISP_WATCH_INTERVAL_S:-60}"
-LOG_DIR="${ESPDISP_WATCH_LOG_DIR:-/var/log/espdisp}"
+DEVICE_IP="${YEYBOATS_DEVICE_IP:-10.42.0.67}"
+DEVICE_MAC="${YEYBOATS_DEVICE_MAC:-28:37:2f:8a:02:90}"
+INTERVAL_S="${YEYBOATS_WATCH_INTERVAL_S:-60}"
+LOG_DIR="${YEYBOATS_WATCH_LOG_DIR:-/var/log/yeydisp}"
 LOG_FILE="${LOG_DIR}/watch.log"
 
 mkdir -p "$LOG_DIR" 2>/dev/null || {
-    # Fall back to /tmp if no permission for /var/log/espdisp.
+    # Fall back to /tmp if no permission for /var/log/yeydisp.
     LOG_DIR=/tmp
-    LOG_FILE="${LOG_DIR}/espdisp-watch.log"
+    LOG_FILE="${LOG_DIR}/yeydisp-watch.log"
 }
 
 log() {

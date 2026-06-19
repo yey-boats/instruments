@@ -25,13 +25,13 @@ static const Entry CATALOG[] = {
     {"ui", "bright", "Read backlight (0..255)", true, true},
     {"ui", "bright <0-255>", "Set backlight", true, true},
     {"ui", "theme <day|night|auto>", "Set theme", true, true},
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
     {"ui", "demo on|off", "Toggle synthetic demo data", true, true},
 #endif
     {"ui", "mob", "Long-press equivalent: activate MOB", true, true},
     {"ui", "mob-clear", "Clear MOB overlay", true, true},
 
-#if ESPDISP_ENABLE_BENCH
+#if YEYBOATS_ENABLE_BENCH
     // --- bench / diagnostics ---
     {"diag", "bench", "Dump FPS, flush, latencies, queues, gestures", true, true},
     {"diag", "bench-reset", "Zero the latency histograms", true, true},
@@ -104,7 +104,7 @@ static const Entry CATALOG[] = {
     {"layout", "layout-fetch", "Pull layout from SK REST and apply", true, true},
     {"layout", "layout-load <name>", "Load a built-in/saved layout", true, true},
 
-#if ESPDISP_ENABLE_INPUT_TEST
+#if YEYBOATS_ENABLE_INPUT_TEST
     // --- input injection (BLE/serial only) ---
     {"input-test", "touch <x> <y> <0|1>", "Write raw touch snapshot", false, true},
     {"input-test", "tap <x> <y> [hold_ms]", "Synth tap: press, hold, release (LVGL CLICKED)", false,
@@ -147,7 +147,7 @@ static const Entry CATALOG[] = {
     // --- config (spec 08) ---
     {"config", "config-status", "Print config_runtime status", true, true},
 
-#if ESPDISP_ENABLE_BENCH
+#if YEYBOATS_ENABLE_BENCH
     // --- touch IRQ probe (spec 14) ---
     {"touch", "irq-probe", "Arm GT911 INT line probe", true, true},
     {"touch", "irq-probe-dump", "Print probe counters", true, true},

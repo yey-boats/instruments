@@ -2,11 +2,11 @@
 // See proto_ble.h for the on-demand contract (scan -> connect-one -> control ->
 // disconnect -> deleteClient, never an idle connection). This file is in the
 // build_src_filter of the display envs too, but its whole body is gated on
-// ESPDISP_BLE_CENTRAL so display-only builds compile it to nothing — the
+// YEYBOATS_BLE_CENTRAL so display-only builds compile it to nothing — the
 // display stays peripheral-only and never links NimBLE's central API.
 #include "proto_ble.h"
 
-#if defined(ESPDISP_BLE_CENTRAL)
+#if defined(YEYBOATS_BLE_CENTRAL)
 
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
@@ -206,4 +206,4 @@ bool get_device_on_peer(const char *addr, proto::DeviceRecord &out) {
 
 }  // namespace proto_ble
 
-#endif  // ESPDISP_BLE_CENTRAL
+#endif  // YEYBOATS_BLE_CENTRAL

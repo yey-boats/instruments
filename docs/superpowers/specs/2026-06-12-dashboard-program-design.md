@@ -66,7 +66,7 @@ failure modes named and measured, not guessed.
    (currently NONE). Converts silent stack corruption into named crashes
    during soaks. Accept the small CPU/flash cost in dev builds; measure
    before deciding for release builds.
-4. **Soak rig** (`tools/espdisp.py soak` or equivalent): scrape
+4. **Soak rig** (`tools/yeydisp.py soak` or equivalent): scrape
    `/api/state` + `/api/diag` every 30 s to JSONL; detect uptime regression
    (reboot), `sk` last-update age growth (stall), heap trends, WiFi RSSI;
    end-of-run verdict table. **Runs on `mythra-nav`** (same subnet as the

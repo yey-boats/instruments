@@ -43,7 +43,7 @@ jobs:
 
       - name: Generate release secrets.h
         env:
-          ESPDISP_OTA_PASSWORD: ${{ secrets.ESPDISP_OTA_PASSWORD }}
+          YEYBOATS_OTA_PASSWORD: ${{ secrets.YEYBOATS_OTA_PASSWORD }}
         run: python3 tools/write_secrets_header.py --require-ota-password
 
       - name: Build supported firmware environments
@@ -70,7 +70,7 @@ jobs:
           for entry in "${targets[@]}"; do
             public="${entry%%:*}"
             env="${entry##*:}"
-            ESPDISP_VERSION="${TAG_NAME#v}" pio run -e "$env"
+            YEYBOATS_VERSION="${TAG_NAME#v}" pio run -e "$env"
             # Snapshot artifacts immediately. cp errors out (set -e) if
             # anything is missing, so a missing bootloader.bin fails the
             # right env's step rather than 10 minutes later.
@@ -143,7 +143,7 @@ jobs:
             echo 'Or via authenticated OTA once the device is on the network:'
             echo ""
             echo '```sh'
-            echo "ESPDISP_OTA_PASSWORD='<ota-password>' make ota DEVICE_IP=<device-ip>"
+            echo "YEYBOATS_OTA_PASSWORD='<ota-password>' make ota DEVICE_IP=<device-ip>"
             echo '```'
             echo ""
             echo "## SignalK plugin"

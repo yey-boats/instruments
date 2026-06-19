@@ -4,7 +4,7 @@ different transport.
 
 Requires the runner's LAN IP to be reachable from the device. The
 test auto-detects it via a UDP-trick socket; override with
-ESPDISP_TEST_HOST_IP if you're on a multi-homed machine.
+YEYBOATS_TEST_HOST_IP if you're on a multi-homed machine.
 """
 import os
 import socket
@@ -16,7 +16,7 @@ from tests.system.inject import nmea0183
 
 
 def _runner_ip(device_host: str) -> str:
-    override = os.environ.get("ESPDISP_TEST_HOST_IP")
+    override = os.environ.get("YEYBOATS_TEST_HOST_IP")
     if override:
         return override
     # Pick the local interface that would be used to reach the device.

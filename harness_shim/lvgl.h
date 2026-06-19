@@ -1,7 +1,7 @@
 #pragma once
 //
 // Minimal <lvgl.h> shim for the HEADLESS protocol harness build only
-// (ESPDISP_HARNESS). It is on the include path solely for that env via
+// (YEYBOATS_HARNESS). It is on the include path solely for that env via
 // `-I harness_shim`. The harness links NO LVGL: every LVGL-using .cpp TU
 // (src/main.cpp, src/ui/*, layout_renderer, manager_screens, ...) is excluded
 // from the harness build_src_filter. But several infra TUs that the harness DOES

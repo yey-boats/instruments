@@ -10,10 +10,10 @@
 // reconfigurable over BLE/serial without a reflash. The protocol cycle runs
 // only when WiFi is up and no OTA is in flight, so OTA always wins.
 //
-// Gated by ESPDISP_HARNESS so this translation unit contributes an empty body
+// Gated by YEYBOATS_HARNESS so this translation unit contributes an empty body
 // (no second setup()/loop()) on the display/knob firmware builds, where the
 // default build_src_filter would otherwise pull it in alongside main.cpp.
-#if defined(ESPDISP_HARNESS)
+#if defined(YEYBOATS_HARNESS)
 
 #include <Arduino.h>
 #include <Preferences.h>
@@ -235,4 +235,4 @@ void loop() {
     delay(1000);
 }
 
-#endif  // ESPDISP_HARNESS
+#endif  // YEYBOATS_HARNESS

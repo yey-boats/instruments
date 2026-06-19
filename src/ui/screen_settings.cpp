@@ -37,12 +37,12 @@ struct Segmented {
 static Segmented seg_brightness;
 static Segmented seg_theme;
 static Segmented seg_format;
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
 static Segmented seg_demo;
 #endif
 static Segmented seg_depth;
 static Segmented seg_battery;
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
 static bool demo_enabled = false;
 #endif
 
@@ -201,7 +201,7 @@ static void on_format(lv_event_t *e) {
 }
 
 static void on_demo(lv_event_t *e) {
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int)(intptr_t)lv_event_get_user_data(e);
     demo_enabled = (index == 1);
@@ -267,7 +267,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     static const char *const brightness_labels[] = {"20", "35", "50", "80", "100"};
     static const char *const theme_labels[] = {"DAY", "NIGHT"};
     static const char *const format_labels[] = {"DDM", "DD", "DMS"};
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
     static const char *const demo_labels[] = {"OFF", "ON"};
 #endif
     static const char *const depth_labels[] = {"1", "2", "3", "5", "10"};
@@ -306,7 +306,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     make_segmented(s_root, seg_battery, battery_labels, 5, segment_x, y0 + row_h * 4, segment_w, 40,
                    on_battery);
 
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
     make_label(s_root, "DEMO", label_x, y0 + row_h * 5 + 12);
     make_segmented(s_root, seg_demo, demo_labels, 2, segment_x, y0 + row_h * 5, 154, 40, on_demo);
     make_action(s_root, "trip reset", 318, y0 + row_h * 5 - 1, 150, theme.warn, on_trip_reset);
@@ -333,7 +333,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     update_segment(seg_battery, nearest_double_index(battery_alarm_v(), BATTERY_VALUES, 5));
     update_battery_label();
 
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
     update_segment(seg_demo, demo_enabled ? 1 : 0);
 #endif
 

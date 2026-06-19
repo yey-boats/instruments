@@ -1,4 +1,4 @@
-# /etc/systemd/system/espdisp-signalk.service
+# /etc/systemd/system/yeydisp-signalk.service
 #
 # Persistent SignalK server for the espdisp lab.
 # Installed by tools/server-setup/install.sh (run via `make server-setup`).
@@ -11,12 +11,12 @@
 #      container via PID file rather than the `docker run` child.
 #
 # Override SIGNALK_DIR by creating
-#   /etc/systemd/system/espdisp-signalk.service.d/override.conf
+#   /etc/systemd/system/yeydisp-signalk.service.d/override.conf
 # and setting:
 #   [Service]
 #   Environment=SIGNALK_DIR=/your/path
 #
-# Logs: journalctl -u espdisp-signalk -f
+# Logs: journalctl -u yeydisp-signalk -f
 #       docker logs -f signalk
 
 [Unit]
@@ -26,7 +26,7 @@ After=docker.service network-online.target
 Requires=docker.service
 Wants=network-online.target
 # Restart after the AP is up so the server binds to wlan-ap0 addresses.
-After=espdisp-lab-ap.service
+After=yeydisp-lab-ap.service
 
 [Service]
 Type=oneshot
@@ -35,7 +35,7 @@ TimeoutStartSec=180
 
 Environment=CONTAINER=signalk
 Environment=IMAGE=signalk/signalk-server:latest
-Environment=SIGNALK_DIR=/home/compulab/espdisp-signalk
+Environment=SIGNALK_DIR=/home/compulab/yeydisp-signalk
 
 # Remove stale container (idempotent on fresh boot).
 ExecStartPre=/bin/bash -c 'docker rm -f $CONTAINER 2>/dev/null; true'

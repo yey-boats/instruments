@@ -17,8 +17,8 @@ if [ "${EUID}" -ne 0 ]; then
 fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR=/opt/espdisp-loglistener
-SERVICE=espdisp-loglistener.service
+INSTALL_DIR=/opt/yeydisp-loglistener
+SERVICE=yeydisp-loglistener.service
 LOGROTATE_DST=/etc/logrotate.d/espdisp
 
 echo "[install] copying listener -> ${INSTALL_DIR}"
@@ -48,5 +48,5 @@ echo
 systemctl --no-pager --full status "${SERVICE}" | head -10 || true
 echo
 echo "[install] done. Tail logs with:"
-echo "  sudo tail -f /var/log/espdisp/device.log"
+echo "  sudo tail -f /var/log/yeydisp/device.log"
 echo "  sudo journalctl -u ${SERVICE} -f"

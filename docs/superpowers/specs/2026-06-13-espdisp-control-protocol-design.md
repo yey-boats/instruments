@@ -39,7 +39,7 @@ Success criteria:
 ### 2.2 Codegen
 - **C++** → `include/proto/` (generated, checked in): a small project-owned generator
   (`proto/gen/gen_cpp.py`) emits ArduinoJson-based `parse()/serialize()` + typed POD structs +
-  `constexpr ESPDISP_PROTO_MAJOR/MINOR`. Run via a PlatformIO `extra_script` and a
+  `constexpr YEYBOATS_PROTO_MAJOR/MINOR`. Run via a PlatformIO `extra_script` and a
   `make proto` target; CI verifies the checked-in output is up to date (regenerate + `git diff
   --exit-code`). Hand-rolled (not quicktype) so the output is ArduinoJson-idiomatic and small.
 - **JS/TS** → `proto/js/` (an npm package consumed by the plugin/phone): types via
@@ -68,7 +68,7 @@ All messages share an envelope `{ "v": "<major>.<minor>", "t": "<type>", ... }`.
   a higher `minor` is backward-compatible; **unknown fields are ignored** (forward-compat).
   A `major` mismatch is rejected with `reason:"incompatible_version"` and logged. Discovery
   advertises `pv` so a controller filters incompatible targets before attaching.
-- `ESPDISP_PROTO_MAJOR/MINOR` live in the schema `$id`/`const` and flow into both codegens, so
+- `YEYBOATS_PROTO_MAJOR/MINOR` live in the schema `$id`/`const` and flow into both codegens, so
   the constant can't drift from the wire format.
 
 ### 2.5 Auth (optional shared key)

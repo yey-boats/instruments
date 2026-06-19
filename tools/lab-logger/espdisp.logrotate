@@ -6,7 +6,7 @@
 # DynamicUser=yes, so we don't `create` (the original file is never
 # removed) and `su root root` lets logrotate read/truncate regardless
 # of the transient UID the listener runs as.
-/var/log/espdisp/device.log {
+/var/log/yeydisp/device.log {
     daily
     rotate 7
     compress

@@ -6,14 +6,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /opt/espdisp-loglistener/loglistener.py
+ExecStart=/usr/bin/python3 /opt/yeydisp-loglistener/loglistener.py
 Restart=on-failure
 RestartSec=5
 # Capture stdout to a real file. logrotate handles weekly rotation;
 # we use copytruncate (see espdisp.logrotate) because the listener
 # holds the fd open and has no SIGHUP-style reopen.
-StandardOutput=append:/var/log/espdisp/device.log
-StandardError=append:/var/log/espdisp/device.log
+StandardOutput=append:/var/log/yeydisp/device.log
+StandardError=append:/var/log/yeydisp/device.log
 
 # The listener runs unprivileged and only needs IPv4 UDP. systemd's
 # sandboxing knobs cost nothing here and keep the blast radius small

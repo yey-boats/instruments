@@ -14,7 +14,7 @@
 # Usage:
 #   tools/ota_flash.sh <ip> <firmware.bin> [--remote user@host]
 #
-# Set ESPDISP_OTA_PASSWORD or OTA_PASSWORD to pass ArduinoOTA auth.
+# Set YEYBOATS_OTA_PASSWORD or OTA_PASSWORD to pass ArduinoOTA auth.
 #
 # If --remote is given, scp the binary + espota.py to that host and
 # run there (used to flash a device on a network only reachable from
@@ -36,7 +36,7 @@ TIMEOUT_BOOT_HARD=120
 DEVICE_IP=""
 FW=""
 REMOTE=""
-OTA_AUTH="${ESPDISP_OTA_PASSWORD:-${OTA_PASSWORD:-}}"
+OTA_AUTH="${YEYBOATS_OTA_PASSWORD:-${OTA_PASSWORD:-}}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --remote) REMOTE="$2"; shift 2;;
@@ -95,13 +95,13 @@ run_espota() {
     fi
     if [ -n "${REMOTE}" ]; then
         log "flashing via ${REMOTE}"
-        ssh "${REMOTE}" 'rm -rf /tmp/espdisp-ota && mkdir -p /tmp/espdisp-ota'
-        scp -q "${ESPOTA_DEFAULT}" "${FW}" "${REMOTE}:/tmp/espdisp-ota/"
+        ssh "${REMOTE}" 'rm -rf /tmp/yeydisp-ota && mkdir -p /tmp/yeydisp-ota'
+        scp -q "${ESPOTA_DEFAULT}" "${FW}" "${REMOTE}:/tmp/yeydisp-ota/"
         local auth_remote=""
         if [ -n "${OTA_AUTH}" ]; then
             printf -v auth_remote ' -a %q' "${OTA_AUTH}"
         fi
-        ssh "${REMOTE}" "python3 /tmp/espdisp-ota/espota.py -i ${DEVICE_IP} -p ${PORT}${auth_remote} -f /tmp/espdisp-ota/$(basename "${FW}")" \
+        ssh "${REMOTE}" "python3 /tmp/yeydisp-ota/espota.py -i ${DEVICE_IP} -p ${PORT}${auth_remote} -f /tmp/yeydisp-ota/$(basename "${FW}")" \
             2>&1 | tr '\r' '\n' | grep -E "Sending|Error|Uploading 1|Success|Result" | tail -3 || true
     else
         log "flashing direct (this host -> ${DEVICE_IP})"

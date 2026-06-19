@@ -48,7 +48,7 @@ def load_env_test(repo_root: Path) -> dict:
         return out
     pattern = re.compile(r'^(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$')
     # Recognize the shell fallback idiom `${NAME:-default}` so values
-    # like `export ESPDISP_BLE_NAME="${ESPDISP_BLE_NAME:-yey-d}"` work:
+    # like `export YEYBOATS_BLE_NAME="${YEYBOATS_BLE_NAME:-yey-d}"` work:
     # we treat the current process env as authoritative, falling back to
     # the literal default the .env.test file declares.
     fallback = re.compile(r'^\$\{([A-Z_][A-Z0-9_]*):-([^}]*)\}$')
@@ -157,7 +157,7 @@ def main() -> int:
     env = load_env_test(repo_root)
 
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("--ble-name", default=env.get("ESPDISP_BLE_NAME", "yey-d"),
+    p.add_argument("--ble-name", default=env.get("YEYBOATS_BLE_NAME", "yey-d"),
                    help="BLE advertised name (default: yey-d)")
     p.add_argument("--wifi-ssid", default=env.get("ESP_LAB_SSID", "esp-lab"),
                    help="WiFi SSID to join (default: esp-lab, or ESP_LAB_SSID)")

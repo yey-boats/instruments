@@ -1,7 +1,7 @@
 """Spec 20 system tests: dashboard config import/export + /api/security.
 
 These hit the device's web surface only (no plugin dependency); they
-require ESPDISP_HOST. The dashboard config endpoints are aliases for
+require YEYBOATS_HOST. The dashboard config endpoints are aliases for
 the existing layout document, so the round-trip uses a minimal valid
 layout we know the parser accepts.
 """

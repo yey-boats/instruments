@@ -66,7 +66,7 @@ percentiles per operation.
 
 If the server already has a token, use `--signalk-token <token>` or set
 `SIGNALK_TOKEN`. The ESP manager device/dev token is separate; pass it with
-`--device-token` or `ESPDISP_MANAGER_TOKEN`.
+`--device-token` or `YEYBOATS_MANAGER_TOKEN`.
 
 Run a comparison matrix with SignalK container CPU/memory sampling:
 

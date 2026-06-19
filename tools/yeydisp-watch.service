@@ -1,16 +1,16 @@
 [Unit]
-Description=espdisp lab reachability + heap watcher
+Description=yeydisp lab reachability + heap watcher
 After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=compulab
-ExecStart=/home/compulab/espdisp-signalk/tools/espdisp-watch.sh
+ExecStart=/home/compulab/yeydisp-signalk/tools/yeydisp-watch.sh
 Restart=always
 RestartSec=15
 # Don't spam the journal with every probe line — they already live in
-# /var/log/espdisp/watch.log. Keep stderr in case the script itself
+# /var/log/yeydisp/watch.log. Keep stderr in case the script itself
 # misbehaves.
 StandardOutput=null
 StandardError=journal

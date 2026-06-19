@@ -440,7 +440,7 @@ make clean         Remove build artifacts
 that it matches the SignalK plugin package metadata. PlatformIO runs
 `tools/version.py` before each build and injects:
 
-- `FW_VERSION` from `VERSION`, or `ESPDISP_VERSION` when set by release CI.
+- `FW_VERSION` from `VERSION`, or `YEYBOATS_VERSION` when set by release CI.
 - `FW_GIT_COMMIT` from `GITHUB_SHA` or local Git.
 - `PIO_ENV` from the active PlatformIO environment.
 
@@ -780,13 +780,13 @@ make release-tag VERSION=v0.1.0
 git push origin v0.1.0
 ```
 
-For tagged releases, GitHub builds with `ESPDISP_VERSION=${TAG_NAME#v}` so
+For tagged releases, GitHub builds with `YEYBOATS_VERSION=${TAG_NAME#v}` so
 firmware version `0.1.0` corresponds to Git tag `v0.1.0`.
 
 The `release.yml` workflow builds all supported firmware targets from
 `release-*` PlatformIO environments on push of a `v*` tag. These profiles keep
 the same board IDs as development builds, but compile with
-`ESPDISP_RELEASE_BUILD=1`, `CORE_DEBUG_LEVEL=0`, and debug/test controls
+`YEYBOATS_RELEASE_BUILD=1`, `CORE_DEBUG_LEVEL=0`, and debug/test controls
 disabled. The release publishes target-prefixed `firmware.bin`,
 `merged_firmware.bin`, ELF, bootloader, partition table, plugin package, and
 SHA-256 sums to the GitHub release, and generates release notes from commits

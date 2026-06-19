@@ -9,9 +9,9 @@ import time
 
 import pytest
 
-ENABLED = os.environ.get("ESPDISP_MANAGER_CONTRACT") == "1"
+ENABLED = os.environ.get("YEYBOATS_MANAGER_CONTRACT") == "1"
 pytestmark = pytest.mark.skipif(
-    not ENABLED, reason="ESPDISP_MANAGER_CONTRACT=1 not set")
+    not ENABLED, reason="YEYBOATS_MANAGER_CONTRACT=1 not set")
 
 
 def _register(device, manager):

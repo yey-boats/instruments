@@ -3,8 +3,8 @@
 These tests are opt-in because the current firmware does not yet implement the
 manager client. Enable them when working on that firmware support:
 
-    ESPDISP_MANAGER_CONTRACT=1 \
-    ESPDISP_HOST=<device-ip> \
+    YEYBOATS_MANAGER_CONTRACT=1 \
+    YEYBOATS_HOST=<device-ip> \
     SIGNALK_URL=http://localhost:3000 \
     pytest tests/system/unattended/test_espdisp_manager_contract.py
 """
@@ -20,8 +20,8 @@ import requests
 
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("ESPDISP_MANAGER_CONTRACT") != "1",
-    reason="ESPDISP_MANAGER_CONTRACT=1 not set; future manager contract test is opt-in",
+    os.environ.get("YEYBOATS_MANAGER_CONTRACT") != "1",
+    reason="YEYBOATS_MANAGER_CONTRACT=1 not set; future manager contract test is opt-in",
 )
 
 

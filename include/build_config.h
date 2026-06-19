@@ -3,24 +3,24 @@
 // Defaults for development builds. Release PlatformIO environments override
 // these with -D flags so CI release artifacts do not expose debug/test controls.
 
-#ifndef ESPDISP_RELEASE_BUILD
-#define ESPDISP_RELEASE_BUILD 0
+#ifndef YEYBOATS_RELEASE_BUILD
+#define YEYBOATS_RELEASE_BUILD 0
 #endif
 
-#ifndef ESPDISP_ENABLE_INPUT_TEST
-#define ESPDISP_ENABLE_INPUT_TEST 1
+#ifndef YEYBOATS_ENABLE_INPUT_TEST
+#define YEYBOATS_ENABLE_INPUT_TEST 1
 #endif
 
-#ifndef ESPDISP_ENABLE_BENCH
-#define ESPDISP_ENABLE_BENCH 1
+#ifndef YEYBOATS_ENABLE_BENCH
+#define YEYBOATS_ENABLE_BENCH 1
 #endif
 
-#ifndef ESPDISP_ENABLE_DEMO
-#define ESPDISP_ENABLE_DEMO 1
+#ifndef YEYBOATS_ENABLE_DEMO
+#define YEYBOATS_ENABLE_DEMO 1
 #endif
 
-#ifndef ESPDISP_ENABLE_STALL_TELEMETRY
-#define ESPDISP_ENABLE_STALL_TELEMETRY 1
+#ifndef YEYBOATS_ENABLE_STALL_TELEMETRY
+#define YEYBOATS_ENABLE_STALL_TELEMETRY 1
 #endif
 
 // Touch calibration UI screen. The core calibration application
@@ -31,8 +31,8 @@
 // flow and isn't needed on shipped devices that have already been
 // calibrated at the factory. Disabling drops ~3 KiB of Flash + the
 // "touch_cal" hidden screen.
-#ifndef ESPDISP_ENABLE_TOUCH_CAL_UI
-#define ESPDISP_ENABLE_TOUCH_CAL_UI 1
+#ifndef YEYBOATS_ENABLE_TOUCH_CAL_UI
+#define YEYBOATS_ENABLE_TOUCH_CAL_UI 1
 #endif
 
 // Manager provisioning token sent as `X-EspDisp-Authorization: Bearer <tok>`

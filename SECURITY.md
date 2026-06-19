@@ -24,14 +24,14 @@ for a fix or coordinated disclosure plan.
 ## Known sharp edges
 
 This is firmware for a development-class device. Local builds still default to
-empty secrets unless `include/secrets.h` or `ESPDISP_OTA_PASSWORD` is provided.
-CI firmware builds read `ESPDISP_OTA_PASSWORD` from GitHub Secrets when it is
+empty secrets unless `include/secrets.h` or `YEYBOATS_OTA_PASSWORD` is provided.
+CI firmware builds read `YEYBOATS_OTA_PASSWORD` from GitHub Secrets when it is
 available, and tagged release builds require that secret before producing
 firmware artifacts.
 
 - ArduinoOTA runs **without a password** if `OTA_PASSWORD` is empty. Set
-  `ESPDISP_OTA_PASSWORD` before `make build`/`make ota`, or configure the
-  GitHub Actions secret `ESPDISP_OTA_PASSWORD` for CI and release builds.
+  `YEYBOATS_OTA_PASSWORD` before `make build`/`make ota`, or configure the
+  GitHub Actions secret `YEYBOATS_OTA_PASSWORD` for CI and release builds.
 - BLE GATT accepts commands with **no pairing** (anyone in BLE range can
   rewrite the WiFi credentials).
 - WiFi credentials are stored in NVS in plaintext.

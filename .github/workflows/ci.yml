@@ -59,7 +59,7 @@ jobs:
 
       - name: Generate secrets.h
         env:
-          ESPDISP_OTA_PASSWORD: ${{ secrets.ESPDISP_OTA_PASSWORD }}
+          YEYBOATS_OTA_PASSWORD: ${{ secrets.ESPDISP_OTA_PASSWORD }}
         run: python3 tools/write_secrets_header.py
 
       - name: Build (${{ matrix.env }})

@@ -2,14 +2,14 @@
 
 #include <math.h>
 
-#if defined(ARDUINO) && !defined(ESPDISP_NATIVE_BUILD)
+#if defined(ARDUINO) && !defined(YEYBOATS_NATIVE_BUILD)
 #include <Arduino.h>
 #endif
 
 namespace board {
 
 float chipTempC() {
-#if defined(ARDUINO) && !defined(ESPDISP_NATIVE_BUILD)
+#if defined(ARDUINO) && !defined(YEYBOATS_NATIVE_BUILD)
     // Arduino-ESP32 wraps the SoC temperature sensor and returns NAN on
     // boards/cores where it's not wired up. Pass the raw value through
     // - callers must already cope with NaN (the BatteryV/Depth/etc.

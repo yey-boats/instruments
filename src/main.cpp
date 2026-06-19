@@ -730,7 +730,7 @@ bool is_injection_command(const String &line) {
            line == "touch" || line.startsWith("touch ");
 }
 
-#if ESPDISP_ENABLE_INPUT_TEST
+#if YEYBOATS_ENABLE_INPUT_TEST
 bool inject_touch(int16_t x, int16_t y, bool pressed) {
     if (!g_touch_mtx) return false;
     if (xSemaphoreTake(g_touch_mtx, pdMS_TO_TICKS(20)) != pdTRUE) return false;
@@ -1612,7 +1612,7 @@ static void screen_gesture_handler(lv_event_t *e) {
 // ----- Command handler --------------------------------------------------
 
 static bool handleMainCommand(const String &line) {
-#if ESPDISP_ENABLE_DEMO
+#if YEYBOATS_ENABLE_DEMO
     if (line == "demo" || line.startsWith("demo ")) {
         uint32_t period = 3000;
         if (line.length() > 5) period = (uint32_t)line.substring(5).toInt() * 1000;
@@ -1624,7 +1624,7 @@ static bool handleMainCommand(const String &line) {
         return true;
     }
 #endif
-#if ESPDISP_ENABLE_BENCH
+#if YEYBOATS_ENABLE_BENCH
     if (line == "fps") {
         fps_overlay_toggle();
         return true;
@@ -1660,7 +1660,7 @@ static bool handleMainCommand(const String &line) {
         gt911_dump_config();
         return true;
     }
-#if ESPDISP_ENABLE_TOUCH_CAL_UI
+#if YEYBOATS_ENABLE_TOUCH_CAL_UI
     if (line == "touch-cal" || line == "calibrate") {
         ui::show_by_id("touch_cal");
         return true;
@@ -1698,7 +1698,7 @@ static bool handleMainCommand(const String &line) {
         return true;
     }
     if (line == "latency-reset" || line == "bench-reset") {
-#if ESPDISP_ENABLE_BENCH
+#if YEYBOATS_ENABLE_BENCH
         latency::reset_all();
         g_flush_count = 0;
         g_flush_us_total = 0;
@@ -2010,7 +2010,7 @@ static void ui_refresh(lv_timer_t *) {
         int ctl_n = proto_target::active_session_snapshot(ctl_buf, proto::kMaxSessions);
         ui::control_frame::set_sessions(ctl_buf, ctl_n);
     }
-#if ESPDISP_ENABLE_STALL_TELEMETRY
+#if YEYBOATS_ENABLE_STALL_TELEMETRY
     sk::pollStallTelemetry();
 #endif
     alarm_check();
@@ -2234,7 +2234,7 @@ void setup() {
                              true);
     ui::register_screen_lazy("settings", "Settings", ui::settings::build, ui::settings::refresh,
                              true);
-#if ESPDISP_ENABLE_TOUCH_CAL_UI
+#if YEYBOATS_ENABLE_TOUCH_CAL_UI
     ui::register_screen_lazy("touch_cal", "Touch Cal", ui::touch_cal_screen::build,
                              ui::touch_cal_screen::refresh, true);
 #endif

@@ -1415,7 +1415,7 @@ With the lab SignalK + KDCube sim running, confirm a knob heading change and a m
 
 - [ ] **Step 4: Soak before any stability claim**
 
-Run: `python3 tools/espdisp.py soak --remote compulab@mythra-nav` (per the soak rig). Expected: PASS.
+Run: `python3 tools/yeydisp.py soak --remote compulab@mythra-nav` (per the soak rig). Expected: PASS.
 
 - [ ] **Step 5: Commit any tuning**
 

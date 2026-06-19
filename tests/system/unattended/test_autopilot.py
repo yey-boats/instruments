@@ -20,8 +20,8 @@ import urllib.request
 
 import pytest
 
-SK_HOST = os.environ.get("ESPDISP_SK_HOST", "10.75.205.84")
-SK_PORT = int(os.environ.get("ESPDISP_SK_PORT", "3000"))
+SK_HOST = os.environ.get("YEYBOATS_SK_HOST", "10.75.205.84")
+SK_PORT = int(os.environ.get("YEYBOATS_SK_PORT", "3000"))
 SK_USER = os.environ.get("SIGNALK_USERNAME", "admin")
 SK_PASS = os.environ.get("SIGNALK_PASSWORD", "admin")
 

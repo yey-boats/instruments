@@ -177,7 +177,7 @@ that apply to *this* firmware repo, distilled:
   writing it from scratch.
 - **Do, don't ask.** Anything the agent can do unattended (commit,
   push, lint, build, run tests, OTA-flash via `make ota-verify`, recover
-  the device via `python3 tools/espdisp.py recover`) should happen
+  the device via `python3 tools/yeydisp.py recover`) should happen
   without prompting the user. Only ask when a decision is genuinely
   the user's (security tradeoff, design choice, missing credential).
 - **Verify after acting.** Read the modified file. Run `make pre-commit`
