@@ -1,3 +1,3 @@
 [submodule "midl"]
 	path = midl
-	url = /Users/borissorochkin/code/embedded/midl
+	url = git@github.com:yey-boats/midl.git
