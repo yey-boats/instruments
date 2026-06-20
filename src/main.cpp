@@ -200,7 +200,6 @@ static uint16_t *g_direct_fb = nullptr;
 // zero-copy (no blit). esp_lcd handles PSRAM cache coherency internally.
 static esp_lcd_panel_handle_t g_db_panel = nullptr;
 static uint16_t *g_db_fb0 = nullptr;
-static uint16_t *g_db_fb1 = nullptr;
 
 // ST7701 register init over the existing 3-wire SPI bus (Arduino_SWSPI survives
 // on Arduino 3.x), then a 2-framebuffer RGB panel with the exact timings / pins
@@ -225,7 +224,12 @@ static bool display_db_init() {
     cfg.timings.flags.pclk_active_neg = 1;
     cfg.data_width = 16;
     cfg.bits_per_pixel = 16;
-    cfg.num_fbs = 2;
+    // Single framebuffer + LVGL PARTIAL mode: disp_flush_cb copies only the
+    // dirty rectangle into the fb (draw_bitmap of the area), like the Arduino_GFX
+    // blit that never flickered. num_fbs=2 + full-screen present is NOT a clean
+    // vsync swap on this driver - it copies the whole frame into the live fb, so
+    // it tears (full-screen flicker) and re-rendering the whole screen is slow.
+    cfg.num_fbs = 1;
     // NOTE: bounce buffers (cfg.bounce_buffer_size_px) are the textbook fix for
     // the RGB-DMA-vs-flash-write cache panic, BUT they need the refill ISR built
     // IRAM-safe (CONFIG_LCD_RGB_ISR_IRAM_SAFE), which the Arduino framework's
@@ -248,11 +252,9 @@ static bool display_db_init() {
     if (esp_lcd_new_rgb_panel(&cfg, &g_db_panel) != ESP_OK) return false;
     if (esp_lcd_panel_reset(g_db_panel) != ESP_OK) return false;
     if (esp_lcd_panel_init(g_db_panel) != ESP_OK) return false;
-    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 2, (void **)&g_db_fb0, (void **)&g_db_fb1) !=
-        ESP_OK)
+    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 1, (void **)&g_db_fb0) != ESP_OK)
         return false;
     memset(g_db_fb0, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
-    memset(g_db_fb1, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
     return true;
 }
 #endif  // RENDER_DOUBLE_BUFFER
@@ -267,11 +269,10 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
     uint32_t h = area->y2 - area->y1 + 1;
     uint32_t px = w * h;
 #ifdef RENDER_DOUBLE_BUFFER
-    // px_map is the back framebuffer LVGL just rendered (DIRECT mode, 2 fbs).
-    // Present the whole fb; the driver swaps the scanout to it on the next
-    // vsync - zero copy, complete frame, no flicker. (esp_lcd recognises px_map
-    // as one of its own framebuffers, so this is a pointer swap, not a copy.)
-    esp_lcd_panel_draw_bitmap(g_db_panel, 0, 0, LCD_W, LCD_H, px_map);
+    // PARTIAL mode: px_map is just the dirty tile. Copy only that rectangle into
+    // the single framebuffer (driver handles PSRAM cache writeback). Small fast
+    // copies don't visibly tear - the no-flicker behaviour of the old blit.
+    esp_lcd_panel_draw_bitmap(g_db_panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
 #else
     if (g_direct_fb) {
         // LVGL already rendered this area into the scanout framebuffer; just
@@ -2254,12 +2255,22 @@ void setup() {
     lv_display_set_flush_cb(disp, disp_flush_cb);
 
 #ifdef RENDER_DOUBLE_BUFFER
-    // Two driver framebuffers (display_db_init); flush page-flips on vsync, so
-    // complete frames only (no flicker) and no blit. This is the fast + smooth
-    // path the single-buffer DIRECT/PARTIAL modes can't give on one scanout fb.
-    lv_display_set_buffers(disp, g_db_fb0, g_db_fb1, (uint32_t)LCD_W * LCD_H * sizeof(uint16_t),
-                           LV_DISPLAY_RENDER_MODE_DIRECT);
-    puts("[lvgl] DOUBLE-BUFFER direct (num_fbs=2, vsync flip)");
+    // PARTIAL mode over the esp_lcd single framebuffer (display_db_init). LVGL
+    // renders only dirty tiles into these small off-screen buffers; disp_flush_cb
+    // copies each tile into the fb via esp_lcd_panel_draw_bitmap(area). Tiles
+    // appear atomically -> no flicker, and only changed regions are touched ->
+    // fast. Buffers in PSRAM (LCD_W*40*2 ~= 37.5 KB each); internal SRAM is now
+    // freer (BLE disabled) but keep them in PSRAM for headroom.
+    {
+        size_t buf_px = LCD_W * 40;
+        uint16_t *buf_a =
+            (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        uint16_t *buf_b =
+            (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
+        lv_display_set_buffers(disp, buf_a, buf_b, buf_px * sizeof(uint16_t),
+                               LV_DISPLAY_RENDER_MODE_PARTIAL);
+        puts("[lvgl] esp_lcd PARTIAL (single fb, dirty-tile copy)");
+    }
 #else
     // Render path. DIRECT mode renders straight into the RGB panel's scanout
     // framebuffer (gfx->getFramebuffer()), so disp_flush_cb only writes back the
