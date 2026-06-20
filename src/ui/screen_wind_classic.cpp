@@ -47,7 +47,7 @@ static lv_obj_t *lbl_aws_value, *lbl_tws_value;
 static lv_obj_t *lbl_awa_value, *lbl_twa_value;
 static lv_obj_t *lbl_hdg_value, *lbl_cog_value;
 static lv_obj_t *lbl_sog_value, *lbl_stw_value;
-static lv_obj_t *lbl_tide_speed;
+static lv_obj_t *lbl_tide_speed, *lbl_drift_cap;
 
 // Geometry derived from LCD_W/LCD_H so the same source compiles for
 // 480x480 sunton, 800x480 waveshare-4.3/5/7, and 1024x600 waveshare-5/7B.
@@ -508,12 +508,26 @@ lv_obj_t *build(lv_obj_t *parent) {
     build_boat(s_root);
     build_tide(s_root);
 
-    // Tide speed text at dial center (under markers, over boat)
+    // Tide/current drift speed at dial center (under markers, over boat). The
+    // bare number used to read as an unlabeled "0.8" near the boat icon; a small
+    // "DRIFT" caption + "kn" unit make it unambiguous (current set/drift speed,
+    // bound to sk::Data.currentDrift, paired with the blue set arrow).
+    lbl_drift_cap = lv_label_create(s_root);
+    lv_label_set_text(lbl_drift_cap, "DRIFT");
+    lv_obj_set_style_text_font(lbl_drift_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_set_style_text_align(lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(lbl_drift_cap, 60);
+    lv_obj_set_pos(lbl_drift_cap, CX - 30, CY - 26);
+    lv_obj_add_flag(lbl_drift_cap, LV_OBJ_FLAG_HIDDEN);
+
     lbl_tide_speed = lv_label_create(s_root);
     lv_label_set_text(lbl_tide_speed, "");
     lv_obj_set_style_text_font(lbl_tide_speed, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_tide_speed, lv_color_hex(theme.fg), 0);
-    lv_obj_set_pos(lbl_tide_speed, CX - 22, CY - 10);
+    lv_obj_set_style_text_align(lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(lbl_tide_speed, 60);
+    lv_obj_set_pos(lbl_tide_speed, CX - 30, CY - 10);
 
     // Wind indices (T white, A amber). T below A in z-order so amber wins when
     // they overlap (apparent is the one you steer to). Each is a triangle that
@@ -598,6 +612,7 @@ static int8_t s_last_twa_hidden = -1;
 static int8_t s_last_tide_hidden = -1;
 static int8_t s_last_tide_zero_hidden = -1;
 static int8_t s_last_wp_hidden = -1;
+static int8_t s_last_drift_cap_hidden = -1;
 
 // Helpers moved to include/ui_dirty.h - shared across all screens.
 using ui::set_hidden_if_changed;
@@ -702,14 +717,17 @@ void refresh() {
         set_rot_if_changed(tide_arrow, &s_last_tide_rot, deg_to_lvgl(tide_rel));
         set_hidden_if_changed(tide_arrow, &s_last_tide_hidden, false);
         set_hidden_if_changed(tide_zero, &s_last_tide_zero_hidden, true);
-        snprintf(buf, sizeof(buf), "%.1f", mps_to_kn(d.currentDrift));
+        snprintf(buf, sizeof(buf), "%.1fkn", mps_to_kn(d.currentDrift));
         set_text_if_changed(lbl_tide_speed, s_last_tide, sizeof(s_last_tide), buf);
+        set_hidden_if_changed(lbl_drift_cap, &s_last_drift_cap_hidden, false);
     } else {
         set_hidden_if_changed(tide_arrow, &s_last_tide_hidden, true);
         // Calm current (have data, ~0 drift) -> ring; no data -> hide both.
         set_hidden_if_changed(tide_zero, &s_last_tide_zero_hidden, !have_current);
         set_text_if_changed(lbl_tide_speed, s_last_tide, sizeof(s_last_tide),
-                            have_current ? "0.0" : "");
+                            have_current ? "0.0kn" : "");
+        // Show the DRIFT caption only when there is current data to label.
+        set_hidden_if_changed(lbl_drift_cap, &s_last_drift_cap_hidden, !have_current);
     }
 
     // --- waypoint pip ---

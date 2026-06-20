@@ -346,6 +346,7 @@ static char s_last_aws[12] = {(char)0xFF};
 static char s_last_awa[12] = {(char)0xFF};
 static int16_t s_last_scale_rot = INT16_MIN;
 static int s_last_xte_x = INT16_MIN;
+static char s_last_xte_txt[16] = {(char)0xFF};
 
 static int16_t deg_to_lvgl(double deg) {
     int16_t r = (int16_t)(lround(deg) * 10);
@@ -439,6 +440,13 @@ void refresh() {
             s_last_xte_x = nx;
             lv_obj_set_x(s_xte.needle, nx);
         }
+    }
+    // Numeric readout (meters + P/S, over-range clamped). Lets the operator read
+    // the magnitude rather than inferring it from the needle deflection alone.
+    if (s_xte.value) {
+        char xbuf[16];
+        ui::format_xte(d.xte, xbuf, sizeof(xbuf));
+        set_text_if_changed(s_xte.value, s_last_xte_txt, sizeof(s_last_xte_txt), xbuf);
     }
 
     // Tiles.

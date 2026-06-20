@@ -53,9 +53,16 @@ lv_obj_t *numeric_tile(lv_obj_t *parent, int x, int y, int w, int h, const char 
 struct XteStrip {
     lv_obj_t *root;
     lv_obj_t *needle;
-    int center_x;  // local x of the zero mark (within root)
-    int half_px;   // pixels per full-scale (1.0 nm) deflection
+    lv_obj_t *value;  // numeric cross-track readout (meters, P/S suffix)
+    int center_x;     // local x of the zero mark (within root)
+    int half_px;      // pixels per full-scale (1.0 nm) deflection
 };
 XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h);
+
+// Format a cross-track-error magnitude (meters) for display with the firmware's
+// P/S convention and an over-range clamp. `xte_m` is the signed SignalK value
+// (+ve = right of track, steer port). Shared by the XTE strip readout and the
+// QuadGrid XTE tile so both clamp identically. NaN -> "--".
+void format_xte(double xte_m, char *out, size_t cap);
 
 }  // namespace ui

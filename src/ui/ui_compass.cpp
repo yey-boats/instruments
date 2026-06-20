@@ -224,6 +224,29 @@ lv_obj_t *numeric_tile(lv_obj_t *parent, int x, int y, int w, int h, const char 
 
 // ---- XTE strip --------------------------------------------------------------
 
+// Sane upper bound on a displayable cross-track error. The sim has been seen
+// publishing degenerate XTE of hundreds of km (no active route / bad reference),
+// which renders as a meaningless over-precise number. Beyond 5 nm off track the
+// magnitude carries no steering value, so clamp to a ">5nm" indicator with the
+// side preserved. 5 nm = 9260 m.
+static constexpr double kXteSaneCapM = 9260.0;  // 5 nm
+
+void format_xte(double xte_m, char *out, size_t cap) {
+    if (isnan(xte_m)) {
+        snprintf(out, cap, "--");
+        return;
+    }
+    char side = xte_m >= 0 ? 'P' : 'S';  // +ve = right of track -> steer port
+    if (fabs(xte_m) > kXteSaneCapM) {
+        snprintf(out, cap, ">5nm%c", side);
+        return;
+    }
+    // In-range (<= 5 nm): plain whole meters + the P/S side suffix. Capped at
+    // 9260 m so this is at most 4 digits; no k/M scaling needed (and scaling
+    // here would mislabel a "9.3k" string with a trailing "m").
+    snprintf(out, cap, "%.0fm%c", fabs(xte_m), side);
+}
+
 XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
     XteStrip xs = {};
     lv_obj_t *root = lv_obj_create(parent);
@@ -277,6 +300,16 @@ XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_obj_set_style_text_font(stbd, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(stbd, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(stbd, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+    // Numeric cross-track readout (meters + P/S side) centered at the top, so the
+    // operator can read the magnitude, not just which side the needle is on.
+    // Updated in the screen refresh via format_xte().
+    lv_obj_t *val = lv_label_create(root);
+    lv_label_set_text(val, "--");
+    lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(val, lv_color_hex(theme.fg), 0);
+    lv_obj_align(val, LV_ALIGN_TOP_MID, 0, 0);
+    xs.value = val;
 
     // Red deviation needle, centered (zero) at build time.
     lv_obj_t *needle = lv_obj_create(root);

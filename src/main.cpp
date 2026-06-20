@@ -1716,6 +1716,17 @@ static void on_screen_change_collect_paths(const char * /*id*/, ui::CollectPaths
     sk::setDesiredPaths(s_screen_paths);
 }
 
+// Recursively tag every descendant of `o` with LV_OBJ_FLAG_EVENT_BUBBLE so a
+// gesture starting on any child bubbles up to the screen-root gesture handler.
+static void bubble_gestures(lv_obj_t *o) {
+    uint32_t n = lv_obj_get_child_count(o);
+    for (uint32_t i = 0; i < n; i++) {
+        lv_obj_t *c = lv_obj_get_child(o, i);
+        lv_obj_add_flag(c, LV_OBJ_FLAG_EVENT_BUBBLE);
+        bubble_gestures(c);
+    }
+}
+
 static void screen_gesture_handler(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_GESTURE) return;
     // Navigation now flows exclusively through touch_task's swipe
@@ -2466,6 +2477,16 @@ void setup() {
     // when its root is built on first activation.
     ui::set_post_build_cb([](lv_obj_t *root, const char * /*id*/) {
         lv_obj_add_event_cb(root, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
+        // LVGL delivers LV_EVENT_GESTURE to the widget the touch landed on; it
+        // only reaches the root handler above if intermediate children carry
+        // LV_OBJ_FLAG_EVENT_BUBBLE. Hand-built screens (wind_classic,
+        // wind_steer, autopilot, ...) have dial/tile/button children without
+        // that flag, so a swipe starting on a child never bubbles and those
+        // screens become unreachable/un-leavable by swipe. Tag every
+        // descendant so the gesture always bubbles to root. (CLICK also
+        // bubbles, but root handles only LV_EVENT_GESTURE and a swipe does not
+        // fire a button CLICK, so the buttons' own click handlers are intact.)
+        bubble_gestures(root);
     });
 
     // Slice 3: when the active screen changes, compute the paths it shows and

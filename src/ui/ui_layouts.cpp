@@ -246,9 +246,17 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
         // "%+.0f" rendered a tofu box). +ve = right of track (steer port -> 'P'),
         // -ve = left of track (steer starboard -> 'S'). Unit label "m" stays.
         if (!isnan(d.xte)) {
-            char mag[20];
-            vfmt::format_scaled(fabs(d.xte), s_fmt.distance, mag, sizeof(mag));
-            snprintf(primary, pcap, "%s%c", mag, d.xte >= 0 ? 'P' : 'S');
+            // Sanity guard: the sim has published degenerate XTE of hundreds of
+            // km (no active route / bad reference). Beyond 5 nm (9260 m) off track
+            // the precise figure is meaningless, so show ">5kP"/">5kS" instead.
+            // The static unit label is "m", hence ">5k" reads as ">5 km".
+            if (fabs(d.xte) > 9260.0) {
+                snprintf(primary, pcap, ">5k%c", d.xte >= 0 ? 'P' : 'S');
+            } else {
+                char mag[20];
+                vfmt::format_scaled(fabs(d.xte), s_fmt.distance, mag, sizeof(mag));
+                snprintf(primary, pcap, "%s%c", mag, d.xte >= 0 ? 'P' : 'S');
+            }
         } else {
             snprintf(primary, pcap, "--");
         }
@@ -736,7 +744,7 @@ static void paint_bar_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, 
 // Wind rose: dashed warn ring with center AWS value. Mirrors editor
 // .wpreview .rose - small visual stand-in; the fullscreen wind dial
 // (screen_wind.cpp) is the high-fidelity render.
-static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
+static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     int dia = (w < h ? w : h) - 56;
     if (dia < 80) dia = 80;
     lv_obj_t *ring = lv_obj_create(t.root);
@@ -774,8 +782,19 @@ static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(theme.warn), 0);
-    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, m.unit && m.unit[0] ? -8 : 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+
+    // Unit ("kn") under the AWS hero number so the wind dial is consistent with
+    // the SOG / DEPTH numeric tiles (was a bare number with no unit).
+    if (m.unit && m.unit[0]) {
+        t.unit = lv_label_create(ring);
+        lv_label_set_text(t.unit, m.unit);
+        lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
+        lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
+    }
 }
 
 // Text widget: monospace value centered. Mirrors editor .wpreview .text-val.

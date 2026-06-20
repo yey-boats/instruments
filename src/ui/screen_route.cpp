@@ -8,7 +8,9 @@
 
 // Route screen delegated to the QuadGrid template. Matches the editor's
 // `routeScreen()` preset: numeric DTW / numeric BTW / numeric XTE /
-// numeric VMG.
+// numeric VMG. CTS (course-to-steer) was missing; the QuadGrid only renders
+// 4 tiles, so CTS rides as a secondary line under BTW (both are bearings, and
+// CTS is the angle you actually steer to make the leg good against current).
 
 namespace ui::route {
 
@@ -30,8 +32,8 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      ui::layouts::MetricSource::BTW_deg,
      0x39d98a /*good*/,
      nullptr,
-     0,
-     {},
+     1,
+     {{"CTS", ui::layouts::MetricSource::CTS_deg}},
      ui::layouts::WidgetKind::Numeric},
     {"xte",
      "XTE",

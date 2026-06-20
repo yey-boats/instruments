@@ -333,6 +333,7 @@ static char s_last_tws[12] = {(char)0xFF};
 static char s_last_twa[12] = {(char)0xFF};
 static int16_t s_last_scale_rot = INT16_MIN;
 static int s_last_xte_x = INT16_MIN;
+static char s_last_xte_txt[16] = {(char)0xFF};
 
 static double norm360(double d) {
     while (d < 0)
@@ -469,6 +470,12 @@ void refresh() {
             s_last_xte_x = nx;
             lv_obj_set_x(s_xte.needle, nx);
         }
+    }
+    // Numeric XTE readout (meters + P/S, over-range clamped). Same as AP.
+    if (s_xte.value) {
+        char xbuf[16];
+        ui::format_xte(d.xte, xbuf, sizeof(xbuf));
+        set_text_if_changed(s_xte.value, s_last_xte_txt, sizeof(s_last_xte_txt), xbuf);
     }
 
     // Tiles: AWS / AWA / TWS / TWA.

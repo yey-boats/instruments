@@ -17,7 +17,11 @@ namespace ui::nav {
 static lv_obj_t *s_root = nullptr;
 
 static const ui::layouts::MetricBinding s_tiles[] = {
-    // Compass: heading with COG shown as secondary reference angle.
+    // Compass: heading with CTS (course-to-steer) as the secondary reference
+    // angle. COG was previously the secondary here AND a dedicated tile below
+    // (tile 2) -- a duplicate readout, and the "COG" bottom line crowded the
+    // ring's W cardinal. CTS is the steering reference (not otherwise shown on
+    // this screen), so it removes the duplication and earns the bottom slot.
     {"hdg",
      "HDG",
      "",
@@ -25,7 +29,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      0x57c7d8 /*accent*/,
      nullptr,
      1,
-     {{"COG", ui::layouts::MetricSource::COG_deg}},
+     {{"CTS", ui::layouts::MetricSource::CTS_deg}},
      ui::layouts::WidgetKind::Compass},
     {"sog",
      "SOG",
