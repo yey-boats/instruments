@@ -1039,10 +1039,22 @@ enum AlarmId {
     ALARM_BATT_LOW,
     ALARM_MGR_OVERLAY
 };
-static AlarmId g_alarm = ALARM_NONE;
 static bool g_overlay_pinned = false;
 static lv_obj_t *alarm_banner = nullptr;
 static lv_obj_t *alarm_label = nullptr;
+// Active alarms share ONE blinking banner: when several fire they rotate through
+// the same slot (cycled + blinked by g_alarm_timer on the LVGL task). Filled by
+// alarm_check() or, while a manager overlay is pinned, by overlay_show().
+struct ActiveAlarm {
+    AlarmId id;
+    const char *msg;
+};
+static ActiveAlarm g_active_alarms[6];
+static int g_active_alarm_n = 0;
+static int g_alarm_cycle = 0;
+static lv_timer_t *g_alarm_timer = nullptr;
+// Defined below alarms_build (which creates the timer pointing at it).
+static void alarm_tick(lv_timer_t *);
 
 // FPS overlay
 static lv_obj_t *g_fps_overlay = nullptr;
@@ -1195,8 +1207,10 @@ static void mob_build(lv_obj_t *scr) {
 
 static void alarms_build(lv_obj_t *scr) {
     alarm_banner = lv_obj_create(scr);
-    lv_obj_set_size(alarm_banner, 360, 36);
-    lv_obj_align(alarm_banner, LV_ALIGN_BOTTOM_MID, 0, -4);
+    lv_obj_set_size(alarm_banner, 300, 34);
+    // TOP-center, not BOTTOM: the bottom-center is occupied by data tiles on the
+    // wind/compass HUDs, which the banner used to cover. The top strip is clear.
+    lv_obj_align(alarm_banner, LV_ALIGN_TOP_MID, 0, 4);
     lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(ui::theme.alarm), 0);
     lv_obj_set_style_border_color(alarm_banner, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_border_width(alarm_banner, 1, 0);
@@ -1209,46 +1223,75 @@ static void alarms_build(lv_obj_t *scr) {
     lv_obj_set_style_text_color(alarm_label, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_text_font(alarm_label, &lv_font_montserrat_20, 0);
     lv_obj_center(alarm_label);
+    // Blink + multi-alarm cycle driver (no-op while nothing is active).
+    if (!g_alarm_timer) g_alarm_timer = lv_timer_create(alarm_tick, 500, nullptr);
 }
 
-static void alarm_set(AlarmId id, const char *msg) {
-    if (g_alarm == id) return;
-    g_alarm = id;
+// Show the current cycle entry (or hide when nothing is active).
+static void alarm_render() {
     if (!alarm_banner) return;
-    if (id == ALARM_NONE) {
+    if (g_active_alarm_n == 0) {
         lv_obj_add_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
-        net::logf("[alarm] cleared");
-    } else {
-        lv_label_set_text(alarm_label, msg);
-        lv_obj_clear_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
-        net::logf("[alarm] %s", msg);
+        return;
     }
+    if (g_alarm_cycle >= g_active_alarm_n) g_alarm_cycle = 0;
+    lv_label_set_text(alarm_label, g_active_alarms[g_alarm_cycle].msg);
+    lv_obj_clear_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Blink (opacity pulse) + rotate through multiple active alarms. lv_timer on the
+// LVGL task, so lv_obj_* mutations are safe. 500 ms blink; advance every 3 ticks
+// (~1.5 s) when more than one alarm is active.
+static void alarm_tick(lv_timer_t *) {
+    static uint8_t phase = 0, cyc = 0;
+    if (g_active_alarm_n == 0 || !alarm_banner) return;
+    phase ^= 1;
+    lv_obj_set_style_bg_opa(alarm_banner, phase ? LV_OPA_COVER : LV_OPA_30, 0);
+    lv_obj_set_style_text_opa(alarm_label, phase ? LV_OPA_COVER : LV_OPA_50, 0);
+    if (g_active_alarm_n > 1 && ++cyc >= 3) {
+        cyc = 0;
+        g_alarm_cycle = (g_alarm_cycle + 1) % g_active_alarm_n;
+        lv_label_set_text(alarm_label, g_active_alarms[g_alarm_cycle].msg);
+    }
+}
+
+// Replace the active-alarm set; reset the cycle + log only when it actually
+// changes (alarm_check runs at 5 Hz). Used by alarm_check and overlay_show.
+static void alarm_set_list(const ActiveAlarm *list, int n) {
+    if (n > 6) n = 6;
+    bool changed = (n != g_active_alarm_n);
+    for (int i = 0; !changed && i < n; ++i)
+        if (g_active_alarms[i].id != list[i].id) changed = true;
+    for (int i = 0; i < n; ++i)
+        g_active_alarms[i] = list[i];
+    g_active_alarm_n = n;
+    if (changed) {
+        g_alarm_cycle = 0;
+        if (n == 0)
+            net::logf("[alarm] cleared");
+        else
+            for (int i = 0; i < n; ++i)
+                net::logf("[alarm] %s", list[i].msg);
+    }
+    alarm_render();
 }
 
 static void alarm_check() {
     // While a manager overlay is pinned, leave the banner alone so the
     // operator message isn't overwritten by data-driven alarms.
     if (g_overlay_pinned) return;
-    if (!isnan(sk::data.depth) && sk::data.depth > 0 && sk::data.depth < ui::depth_alarm_m()) {
-        alarm_set(ALARM_DEPTH_SHALLOW, "SHALLOW WATER");
-        return;
-    }
-    {
-        String sk_state = sk::connectionStatus();
-        if (sk_state == "stalled") {
-            alarm_set(ALARM_SK_STALLED, "SIGNALK STALLED");
-            return;
-        }
-        if (sk_state == "no-data") {
-            alarm_set(ALARM_SK_NODATA, "SIGNALK NO DATA");
-            return;
-        }
-    }
-    if (!isnan(sk::data.battVoltage) && sk::data.battVoltage < ui::battery_alarm_v()) {
-        alarm_set(ALARM_BATT_LOW, "BATTERY LOW");
-        return;
-    }
-    alarm_set(ALARM_NONE, "");
+    ActiveAlarm a[6];
+    int n = 0;
+    if (!isnan(sk::data.depth) && sk::data.depth > 0 && sk::data.depth < ui::depth_alarm_m())
+        a[n++] = {ALARM_DEPTH_SHALLOW, "SHALLOW WATER"};
+    String sk_state = sk::connectionStatus();
+    if (sk_state == "stalled")
+        a[n++] = {ALARM_SK_STALLED, "SIGNALK STALLED"};
+    else if (sk_state == "no-data")
+        a[n++] = {ALARM_SK_NODATA, "SIGNALK NO DATA"};
+    if (!isnan(sk::data.battVoltage) && sk::data.battVoltage < ui::battery_alarm_v())
+        a[n++] = {ALARM_BATT_LOW, "BATTERY LOW"};
+    alarm_set_list(a, n);
 }
 
 // Spec 17 §8 overlay primitives. Must run on the LVGL task (via the
@@ -1291,15 +1334,14 @@ namespace ui {
 
 void overlay_show(const char *message) {
     g_overlay_pinned = true;
-    // Force the set even if g_alarm == ALARM_MGR_OVERLAY already so the
-    // message text refreshes on a repeated push.
-    g_alarm = ALARM_NONE;
-    alarm_set(ALARM_MGR_OVERLAY, message && *message ? message : "OVERLAY");
+    // Pinned manager overlay = a single banner entry (no data-alarm cycling).
+    ActiveAlarm a = {ALARM_MGR_OVERLAY, message && *message ? message : "OVERLAY"};
+    alarm_set_list(&a, 1);
 }
 
 void overlay_clear() {
     g_overlay_pinned = false;
-    alarm_set(ALARM_NONE, "");
+    alarm_set_list(nullptr, 0);
     // Let the next ui_refresh tick re-evaluate auto-alarms.
 }
 
