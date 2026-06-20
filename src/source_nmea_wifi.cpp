@@ -19,7 +19,11 @@ constexpr const char *NS = "n0183w";
 constexpr uint16_t DEFAULT_PORT = 10110;  // NMEA0183 over TCP/UDP convention
 
 bool s_enabled = false;
-Protocol s_proto = Protocol::Tcp;
+// UDP is the default transport: it's listen-only (non-blocking parsePacket, no
+// connect()) so it never stalls its task, and it's the common NMEA0183-over-WiFi
+// multicast/broadcast setup. TCP is opt-in (`nmea-wifi tcp <host> <port>` or
+// manager config) for the less common point-to-point server case.
+Protocol s_proto = Protocol::Udp;
 String s_host = "";
 uint16_t s_port = DEFAULT_PORT;
 
@@ -108,7 +112,9 @@ void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
 void load_prefs() {
     storage::Namespace p(NS, true);
     s_enabled = p.get_u8("enabled", 0) != 0;
-    s_proto = static_cast<Protocol>(p.get_u8("proto", 0));
+    // Default proto = UDP when nothing is stored (Protocol::Udp); TCP only if a
+    // prior `nmea-wifi tcp ...` / manager config persisted it.
+    s_proto = static_cast<Protocol>(p.get_u8("proto", static_cast<uint8_t>(Protocol::Udp)));
     s_host = String(p.get_string("host", "").c_str());
     s_port = p.get_u16("port", DEFAULT_PORT);
 }
@@ -133,9 +139,12 @@ void run_tcp() {
             continue;
         }
         net::logf("[n0183w] TCP connect %s:%u", s_host.c_str(), s_port);
-        if (!client.connect(s_host.c_str(), s_port, 4000)) {
+        // Short connect timeout: this is a fallback source on its own task, but a
+        // misconfigured/unreachable host should not stall it for seconds. Back
+        // off 5 s after a failure so a bad host can't busy-spin DNS/connect.
+        if (!client.connect(s_host.c_str(), s_port, 1200)) {
             net::logf("[n0183w] TCP connect failed");
-            vTaskDelay(pdMS_TO_TICKS(3000));
+            vTaskDelay(pdMS_TO_TICKS(5000));
             continue;
         }
         s_connected = true;
