@@ -32,6 +32,7 @@
 #include "psram_json.h"
 #include "proto_target.h"
 #include "proto/proto.h"
+#include "generated_midl_manifest.h"
 
 // Gesture diagnostics live in main.cpp (top-level - not in any namespace).
 extern "C" {
@@ -651,6 +652,16 @@ static void handle_commands_html() {
               "</p>\n");
 
     server.send(200, "text/html", html);
+}
+
+// ---- /api/midl/manifest (GET) ------------------------------------------
+// Serves the embedded MIDL capabilities manifest verbatim from flash/rodata.
+// No heap allocation: the const char* pointer is passed directly to send().
+
+static void handle_midl_manifest() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", midl_manifest::JSON);
 }
 
 // ---- /api/layout (GET / PUT) -------------------------------------------
@@ -1644,6 +1655,7 @@ static void bind_routes() {
     server.on("/help/commands", HTTP_GET, handle_commands_html);
     server.on("/api/layout", HTTP_GET, handle_layout_get);
     server.on("/api/layout", HTTP_PUT, handle_layout_put);
+    server.on("/api/midl/manifest", HTTP_GET, handle_midl_manifest);
     server.on("/api/dashboard/config.json", HTTP_GET, handle_dashboard_config_get_json);
     server.on("/api/dashboard/config.json", HTTP_PUT, handle_dashboard_config_put);
     server.on("/api/dashboard/config.yaml", HTTP_GET, handle_dashboard_config_get_yaml);
