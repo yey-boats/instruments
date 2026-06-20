@@ -52,6 +52,19 @@ static const char *NS_UI = "cfg_ui";
 static const char *NS_ALARMS = "cfg_alarm";
 static const char *NS_SK = "cfg_sk";
 
+// Pack a UnitFormat into one byte: low 4 bits = decimals (0..4), bit 7 = si.
+static uint8_t pack_unit(const vfmt::UnitFormat &u) {
+    return (uint8_t)((u.decimals & 0x0F) | (u.si_prefix ? 0x80 : 0x00));
+}
+static vfmt::UnitFormat unpack_unit(uint8_t b, const vfmt::UnitFormat &dflt) {
+    if (b == 0xFF) return dflt;  // key absent (get_u8 default) -> keep compiled default
+    vfmt::UnitFormat u;
+    u.decimals = (uint8_t)(b & 0x0F);
+    if (u.decimals > 4) u.decimals = 4;
+    u.si_prefix = (b & 0x80) != 0;
+    return u;
+}
+
 static void persist_ui(const UiConfig &c, DomainMeta &meta) {
     storage::Namespace p(NS_UI, false);
     if (!p.ok()) {
@@ -66,6 +79,13 @@ static void persist_ui(const UiConfig &c, DomainMeta &meta) {
     p.put_u8("bright", c.brightness);
     p.put_u8("pos_fmt", (uint8_t)c.pos_format);
     p.put_string("default", c.default_screen);
+    p.put_u8("fmt_dist", pack_unit(c.format.distance));
+    p.put_u8("fmt_depth", pack_unit(c.format.depth));
+    p.put_u8("fmt_speed", pack_unit(c.format.speed));
+    p.put_u8("fmt_angle", pack_unit(c.format.angle));
+    p.put_u8("fmt_temp", pack_unit(c.format.temperature));
+    p.put_u8("fmt_volt", pack_unit(c.format.voltage));
+    p.put_u8("fmt_pct", pack_unit(c.format.percent));
     meta.persist_error = false;
     meta.last_error[0] = 0;
     s_jobs_completed++;
@@ -80,6 +100,13 @@ static void load_ui(UiConfig &c, DomainMeta &meta) {
             c.pos_format = (PosFormat)p.get_u8("pos_fmt", (uint8_t)PosFormat::DDM);
             std::string dft = p.get_string("default", "dashboard");
             strncpy(c.default_screen, dft.c_str(), sizeof(c.default_screen) - 1);
+            c.format.distance = unpack_unit(p.get_u8("fmt_dist", 0xFF), c.format.distance);
+            c.format.depth = unpack_unit(p.get_u8("fmt_depth", 0xFF), c.format.depth);
+            c.format.speed = unpack_unit(p.get_u8("fmt_speed", 0xFF), c.format.speed);
+            c.format.angle = unpack_unit(p.get_u8("fmt_angle", 0xFF), c.format.angle);
+            c.format.temperature = unpack_unit(p.get_u8("fmt_temp", 0xFF), c.format.temperature);
+            c.format.voltage = unpack_unit(p.get_u8("fmt_volt", 0xFF), c.format.voltage);
+            c.format.percent = unpack_unit(p.get_u8("fmt_pct", 0xFF), c.format.percent);
             meta.source = Source::Storage;
             meta.revision = p.get_u32("rev", 0);
             meta.schema = p.get_u16("schema", 1);
@@ -297,6 +324,15 @@ AlarmConfig alarms() {
     if (!s_mtx) return c;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     c = s_cfg.alarms;
+    xSemaphoreGive(s_mtx);
+    return c;
+}
+
+FormatConfig format() {
+    FormatConfig c;
+    if (!s_mtx) return c;
+    xSemaphoreTake(s_mtx, portMAX_DELAY);
+    c = s_cfg.ui.format;
     xSemaphoreGive(s_mtx);
     return c;
 }

@@ -53,6 +53,9 @@ void snapshot(RuntimeConfig &out);
 // Per-domain typed snapshots - avoid copying the whole struct.
 UiConfig ui();
 AlarmConfig alarms();
+// Display number-formatting (decimals + k/M scaling) per unit class. Lives in
+// the Ui domain; this is a convenience accessor used by the painters.
+FormatConfig format();
 SignalKConfig signalk();
 DomainMeta meta(Domain d);
 

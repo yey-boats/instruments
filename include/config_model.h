@@ -18,7 +18,24 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "value_format.h"
+
 namespace config {
+
+// Per-unit-class display formatting (decimals + optional k/M scaling). Rides
+// the Ui domain for persistence/sync. Defaults: distance/depth scale large
+// magnitudes (1234.5->"1.23k", 2841->"2.8k") so values fit the small tiles;
+// speed/angle/temp/volts/percent keep their legacy fixed-decimal form. The
+// painters (ui_layouts) and manager schema both consume this.
+struct FormatConfig {
+    vfmt::UnitFormat distance = {2, true};      // nm / m (XTE, DTW, log)
+    vfmt::UnitFormat depth = {1, true};         // m below transducer / keel
+    vfmt::UnitFormat speed = {1, false};        // kn (SOG/STW/AWS/TWS/VMG)
+    vfmt::UnitFormat angle = {0, false};        // deg (HDG/COG/BTW/CTS/AWA/TWA/rudder)
+    vfmt::UnitFormat temperature = {1, false};  // C
+    vfmt::UnitFormat voltage = {2, false};      // V
+    vfmt::UnitFormat percent = {0, false};      // % (SOC, tanks)
+};
 
 enum class Domain : uint8_t { Ui = 0, Alarms = 1, SignalK = 2, COUNT };
 
@@ -52,6 +69,7 @@ struct UiConfig {
     uint8_t brightness = 255;
     PosFormat pos_format = PosFormat::DDM;
     char default_screen[16] = "dashboard";
+    FormatConfig format;
 };
 
 struct AlarmConfig {

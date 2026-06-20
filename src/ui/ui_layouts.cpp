@@ -3,7 +3,9 @@
 #include "layout.h"
 #include "subscription_set.h"
 #include "ui_theme.h"
+#include "config_runtime.h"
 #include "ui_data.h"
+#include "value_format.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
 #include "ui_markers.h"
@@ -130,6 +132,11 @@ bool g_bench_store_mode = false;
 // Metric formatting. Returns the primary value text, and optionally
 // fills `secondary` with a short context string. NaN -> "--".
 
+// Display formatting (decimals + k/M scaling per unit class). Refreshed once
+// per update() from config; format_metric reads it. All painting runs on the
+// single LVGL task, so this file-static needs no lock.
+static config::FormatConfig s_fmt;
+
 static void format_metric(const MetricBinding &m, const sk::Data &d, char *primary, size_t pcap,
                           char *secondary, size_t scap) {
     secondary[0] = 0;
@@ -144,10 +151,7 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
 #endif
     switch (m.source) {
     case MetricSource::AWS_kn:
-        if (!isnan(d.aws))
-            snprintf(primary, pcap, "%.1f", mps_to_kn(d.aws));
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(mps_to_kn(d.aws), s_fmt.speed, primary, pcap);
         if (!isnan(d.awa)) {
             double deg = rad_to_deg_pos(d.awa);
             bool stbd = deg <= 180.0;
@@ -155,10 +159,7 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
         }
         break;
     case MetricSource::TWS_kn:
-        if (!isnan(d.tws))
-            snprintf(primary, pcap, "%.1f", mps_to_kn(d.tws));
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(mps_to_kn(d.tws), s_fmt.speed, primary, pcap);
         if (!isnan(d.twa)) {
             double deg = rad_to_deg_pos(d.twa);
             bool stbd = deg <= 180.0;
@@ -184,10 +185,7 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
         }
         break;
     case MetricSource::SOG_kn:
-        if (!isnan(d.sog))
-            snprintf(primary, pcap, "%.1f", mps_to_kn(d.sog));
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(mps_to_kn(d.sog), s_fmt.speed, primary, pcap);
         break;
     case MetricSource::COG_deg:
         if (!isnan(d.cogTrue))
@@ -202,28 +200,17 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
             snprintf(primary, pcap, "--");
         break;
     case MetricSource::Depth_m:
-        if (!isnan(d.depth))
-            snprintf(primary, pcap, "%.1f", d.depth);
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(d.depth, s_fmt.depth, primary, pcap);
         break;
     case MetricSource::DepthKeel_m:
-        if (!isnan(d.depthKeel))
-            snprintf(primary, pcap, "%.1f", d.depthKeel);
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(d.depthKeel, s_fmt.depth, primary, pcap);
         break;
     case MetricSource::WaterTemp_C:
-        if (!isnan(d.waterTemp))
-            snprintf(primary, pcap, "%.1f", k_to_c(d.waterTemp));
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(isnan(d.waterTemp) ? NAN : k_to_c(d.waterTemp), s_fmt.temperature,
+                            primary, pcap);
         break;
     case MetricSource::BatteryV:
-        if (!isnan(d.battVoltage))
-            snprintf(primary, pcap, "%.2f", d.battVoltage);
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(d.battVoltage, s_fmt.voltage, primary, pcap);
         if (!isnan(d.battSoc)) {
             snprintf(secondary, scap, "%.0f%%", d.battSoc * 100.0);
         }
@@ -235,19 +222,9 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
             snprintf(primary, pcap, "--");
         break;
     case MetricSource::DTW:
-        // Always display in nm regardless of magnitude so the static
-        // unit label "nm" in the MetricBinding is always correct.
-        if (!isnan(d.dtw)) {
-            double nm = d.dtw / 1852.0;
-            if (nm >= 10.0)
-                snprintf(primary, pcap, "%.1f", nm);
-            else if (nm >= 1.0)
-                snprintf(primary, pcap, "%.2f", nm);
-            else
-                snprintf(primary, pcap, "%.3f", nm);
-        } else {
-            snprintf(primary, pcap, "--");
-        }
+        // Display in nm (the static unit label is "nm"); k/M scaling per the
+        // distance format keeps large legs fitting the tile (1234.5 -> 1.23k).
+        vfmt::format_scaled(isnan(d.dtw) ? NAN : d.dtw / 1852.0, s_fmt.distance, primary, pcap);
         break;
     case MetricSource::BTW_deg:
         if (!isnan(d.btw))
@@ -266,16 +243,16 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
         // convention; the big hero font font_xl_64 has no '+' glyph, so a signed
         // "%+.0f" rendered a tofu box). +ve = right of track (steer port -> 'P'),
         // -ve = left of track (steer starboard -> 'S'). Unit label "m" stays.
-        if (!isnan(d.xte))
-            snprintf(primary, pcap, "%.0f%c", fabs(d.xte), d.xte >= 0 ? 'P' : 'S');
-        else
+        if (!isnan(d.xte)) {
+            char mag[20];
+            vfmt::format_scaled(fabs(d.xte), s_fmt.distance, mag, sizeof(mag));
+            snprintf(primary, pcap, "%s%c", mag, d.xte >= 0 ? 'P' : 'S');
+        } else {
             snprintf(primary, pcap, "--");
+        }
         break;
     case MetricSource::VMG_kn:
-        if (!isnan(d.vmg))
-            snprintf(primary, pcap, "%.1f", mps_to_kn(d.vmg));
-        else
-            snprintf(primary, pcap, "--");
+        vfmt::format_scaled(mps_to_kn(d.vmg), s_fmt.speed, primary, pcap);
         break;
     case MetricSource::Position:
         if (!isnan(d.lat) && !isnan(d.lon)) {
@@ -2441,6 +2418,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
 }
 
 void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+    s_fmt = config::format();  // snapshot display formatting for this refresh
     switch (spec.template_id) {
     case TemplateId::QuadGrid:
         update_quad_grid(root, spec, data);
