@@ -9,7 +9,7 @@
 // Steering screen delegated to the QuadGrid template. Matches the editor's
 // `steeringScreen()` preset:
 //   compass HDG (BTW marker) | numeric XTE
-//   numeric VMG               | numeric BTW
+//   numeric VMG               | numeric RUDDER
 // Replaces the 270-line hand-built rotating-ring implementation that read
 // as "too small / not a compass" on the device panel.
 
@@ -47,10 +47,10 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      0,
      {},
      ui::layouts::WidgetKind::Numeric},
-    {"btw",
-     "BTW",
-     "",
-     ui::layouts::MetricSource::BTW_deg,
+    {"rudder",
+     "RUDDER",
+     "deg",
+     ui::layouts::MetricSource::Rudder_deg,
      0x52736f /*grid*/,
      nullptr,
      0,

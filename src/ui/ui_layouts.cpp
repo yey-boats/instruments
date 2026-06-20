@@ -96,6 +96,8 @@ const char *source_to_path(MetricSource s) {
         return "navigation.courseRhumbline.crossTrackError";
     case MetricSource::VMG_kn:
         return "navigation.courseRhumbline.velocityMadeGood";
+    case MetricSource::Rudder_deg:
+        return "steering.rudderAngle";
     case MetricSource::Position:
         return "navigation.position";
     case MetricSource::APState:
@@ -254,6 +256,22 @@ static void format_metric(const MetricBinding &m, const sk::Data &d, char *prima
     case MetricSource::VMG_kn:
         vfmt::format_scaled(mps_to_kn(d.vmg), s_fmt.speed, primary, pcap);
         break;
+    case MetricSource::Rudder_deg:
+        // Rudder angle: magnitude in degrees + port/starboard helm suffix
+        // (+ve steering.rudderAngle = starboard). Centered "0" reads bare.
+        if (!isnan(d.rudder)) {
+            double deg = d.rudder * 180.0 / M_PI;
+            double mag = fabs(deg);
+            char num[16];
+            vfmt::format_scaled(mag, s_fmt.angle, num, sizeof(num));
+            if (mag < 0.5)
+                snprintf(primary, pcap, "%s", num);
+            else
+                snprintf(primary, pcap, "%s%c", num, deg > 0 ? 'S' : 'P');
+        } else {
+            snprintf(primary, pcap, "--");
+        }
+        break;
     case MetricSource::Position:
         if (!isnan(d.lat) && !isnan(d.lon)) {
             format_position(d.lat, d.lon, pos_format(), primary, pcap);
@@ -361,6 +379,8 @@ static double metric_scalar(const MetricBinding &m, const sk::Data &d) {
         return d.xte;
     case MetricSource::DTW:
         return isnan(d.dtw) ? NAN : d.dtw / 1852.0;  // nm
+    case MetricSource::Rudder_deg:
+        return isnan(d.rudder) ? NAN : d.rudder * 180.0 / M_PI;  // signed deg
     default:
         return NAN;
     }

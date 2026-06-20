@@ -61,7 +61,8 @@ enum class MetricSource : uint8_t {
     CTS_deg,  // course to steer, rad (navigation.courseRhumbline.bearingTrackTrue)
     XTE,      // signed cross-track error in m (P/S suffix)
     VMG_kn,
-    Position,  // formatted to current pos_format
+    Rudder_deg,  // rad_to_deg of d.rudder, signed with port/stbd helm suffix
+    Position,    // formatted to current pos_format
     APState,
 };
 
