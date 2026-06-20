@@ -19,10 +19,40 @@
 #include <WiFi.h>
 #include <esp_heap_caps.h>
 
+// NimBLE 1.4 (Arduino 2.x) vs NimBLE 2.x (Arduino 3.x) characteristic-callback
+// signatures differ: 2.x adds a trailing `NimBLEConnInfo&`. These macros keep
+// the GATT callback declarations identical across both libraries so the
+// behavior below is shared. (Same ESP_ARDUINO_VERSION_MAJOR>=3 split the
+// project uses elsewhere for Arduino-3.x API changes.)
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+#define BLE_ON_READ(c) void onRead(NimBLECharacteristic *c, NimBLEConnInfo &) override
+#define BLE_ON_WRITE(c) void onWrite(NimBLECharacteristic *c, NimBLEConnInfo &) override
+#else
+#define BLE_ON_READ(c) void onRead(NimBLECharacteristic *c) override
+#define BLE_ON_WRITE(c) void onWrite(NimBLECharacteristic *c) override
+#endif
+
 namespace bleconfig {
 
 static NimBLECharacteristic *s_conn = nullptr;
 static NimBLECharacteristic *s_config = nullptr;
+
+// Notify a characteristic only if a central has actually subscribed (CCCD
+// written). Emitting a notification for an unsubscribed characteristic is an
+// ATT protocol violation that strict centrals (CoreBluetooth) answer by
+// dropping the link.
+//   - NimBLE 1.4: query getSubscribedCount() and guard the notify().
+//   - NimBLE 2.x: getSubscribedCount() was removed; notify() already consults
+//     each peer's CCCD in the host (ble_gattc_notify_custom) and transmits only
+//     to subscribed peers, so an unguarded notify() is safe (it no-ops for
+//     unsubscribed peers rather than violating ATT).
+static inline void ble_notify_if_subscribed(NimBLECharacteristic *c) {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    c->notify();
+#else
+    if (c->getSubscribedCount() > 0) c->notify();
+#endif
+}
 
 // Control GATT (espdisp control protocol over BLE).
 static NimBLECharacteristic *s_ctrl_device = nullptr;
@@ -125,15 +155,15 @@ static void applyConnectionWrite(const std::string &data) {
 }
 
 class ConnCb : public NimBLECharacteristicCallbacks {
-    void onRead(NimBLECharacteristic *c) override {
+    BLE_ON_READ(c) {
         String j = connectionJson();
         c->setValue((const uint8_t *)j.c_str(), j.length());
     }
-    void onWrite(NimBLECharacteristic *c) override { applyConnectionWrite(c->getValue()); }
+    BLE_ON_WRITE(c) { applyConnectionWrite(std::string(c->getValue())); }
 };
 
 class ConfigCb : public NimBLECharacteristicCallbacks {
-    void onRead(NimBLECharacteristic *c) override {
+    BLE_ON_READ(c) {
         // BLE attribute values are capped at 512 bytes (NimBLE / BLE spec).
         // Layouts that exceed this can't be transferred in a single GATT read
         // here - phone apps should use the SignalK REST endpoint or chunked
@@ -159,8 +189,8 @@ class ConfigCb : public NimBLECharacteristicCallbacks {
         serializeJson(doc, out);
         c->setValue((const uint8_t *)out.c_str(), out.length());
     }
-    void onWrite(NimBLECharacteristic *c) override {
-        std::string data = c->getValue();
+    BLE_ON_WRITE(c) {
+        std::string data(c->getValue());
         net::logf("[bleconfig] configuration write: %u bytes", (unsigned)data.size());
         if (data.empty()) return;
         if (data.size() > 512) {
@@ -340,22 +370,22 @@ static String dispatchControl(const std::string &data) {
 }
 
 class CtrlDeviceCb : public NimBLECharacteristicCallbacks {
-    void onRead(NimBLECharacteristic *c) override {
+    BLE_ON_READ(c) {
         String j = controlDeviceJson();
         c->setValue((const uint8_t *)j.c_str(), j.length());
     }
 };
 
 class CtrlStateCb : public NimBLECharacteristicCallbacks {
-    void onRead(NimBLECharacteristic *c) override {
+    BLE_ON_READ(c) {
         String j = controlStateJson();
         c->setValue((const uint8_t *)j.c_str(), j.length());
     }
 };
 
 class CtrlControlCb : public NimBLECharacteristicCallbacks {
-    void onWrite(NimBLECharacteristic *c) override {
-        std::string data = c->getValue();
+    BLE_ON_WRITE(c) {
+        std::string data(c->getValue());
         if (data.empty()) return;
         if (data.size() > 512) {
             net::logf("[bleconfig] control write: rejected (size > 512)");
@@ -375,12 +405,12 @@ class CtrlControlCb : public NimBLECharacteristicCallbacks {
         // subscribers additionally get the notify.
         if (s_ctrl_resp) {
             s_ctrl_resp->setValue((const uint8_t *)ack.c_str(), ack.length());
-            if (s_ctrl_resp->getSubscribedCount() > 0) s_ctrl_resp->notify();
+            ble_notify_if_subscribed(s_ctrl_resp);
         }
         if (s_ctrl_state) {
             String st = controlStateJson();
             s_ctrl_state->setValue((const uint8_t *)st.c_str(), st.length());
-            if (s_ctrl_state->getSubscribedCount() > 0) s_ctrl_state->notify();
+            ble_notify_if_subscribed(s_ctrl_state);
         }
     }
 };

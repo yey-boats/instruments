@@ -306,6 +306,17 @@ static NimBLECharacteristic *bleRxChar = nullptr;
 static volatile bool bleConnected = false;
 
 class ServerCb : public NimBLEServerCallbacks {
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    // NimBLE 2.x: callbacks gained a NimBLEConnInfo& (and onDisconnect a reason).
+    void onConnect(NimBLEServer *, NimBLEConnInfo &) override {
+        bleConnected = true;
+        logf("[ble] connected");
+    }
+    void onDisconnect(NimBLEServer *s, NimBLEConnInfo &, int) override {
+        bleConnected = false;
+        logf("[ble] disconnected");
+    }
+#else
     void onConnect(NimBLEServer *) override {
         bleConnected = true;
         logf("[ble] connected");
@@ -314,47 +325,57 @@ class ServerCb : public NimBLEServerCallbacks {
         bleConnected = false;
         logf("[ble] disconnected");
     }
+#endif
 };
 
 class RxCb : public NimBLECharacteristicCallbacks {
+    // NimBLE 2.x (Arduino 3.x) adds a NimBLEConnInfo& parameter to onWrite.
+    // The dual signature is wrapped so clang-format doesn't mangle the body
+    // indentation around the preprocessor branch.
+    // clang-format off
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    void onWrite(NimBLECharacteristic *c, NimBLEConnInfo &) override {
+#else
     void onWrite(NimBLECharacteristic *c) override {
-        std::string v = c->getValue();
-        if (v.empty()) return;
-        String line(v.c_str());
-        line.trim();
-        if (line.length() == 0) return;
-        logf("[ble] rx: %s", line.c_str());
-        // BLE callbacks run on the NimBLE task and must stay short. Most
-        // commands touch LVGL or NVS; queue them for the UI task instead
-        // of executing in-place. Read-only / status commands (sk-status,
-        // sk-dump, ip, bench, screen, wifi-list, bright (read)) are fast
-        // enough to keep inline so the immediate BLE-stream response
-        // doesn't lag.
-        // `scan` removed from the inline allow-list: WiFi.scanNetworks
-        // blocks the NimBLE callback task. It now runs on the UI/net
-        // queue path (with async scan support already wired in the web
-        // UI), but a console-issued `scan` still routes through there
-        // cleanly via dispatchCommand.
-        bool inline_ok = (line == "ip" ||
-#if YEYBOATS_ENABLE_BENCH
-                          line == "bench" ||
 #endif
-                          line == "screen" || line == "sk-status" || line == "sk-dump" ||
-                          line == "temp" || line == "wifi-list" || line == "bright");
-        if (inline_ok) {
-            if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
-                !layout::handleSerialCommand(line)) {
-                if (s_extra) s_extra(line);
-            }
-            return;
+        // clang-format on
+        std::string v = c -> getValue();
+    if (v.empty()) return;
+    String line(v.c_str());
+    line.trim();
+    if (line.length() == 0) return;
+    logf("[ble] rx: %s", line.c_str());
+    // BLE callbacks run on the NimBLE task and must stay short. Most
+    // commands touch LVGL or NVS; queue them for the UI task instead
+    // of executing in-place. Read-only / status commands (sk-status,
+    // sk-dump, ip, bench, screen, wifi-list, bright (read)) are fast
+    // enough to keep inline so the immediate BLE-stream response
+    // doesn't lag.
+    // `scan` removed from the inline allow-list: WiFi.scanNetworks
+    // blocks the NimBLE callback task. It now runs on the UI/net
+    // queue path (with async scan support already wired in the web
+    // UI), but a console-issued `scan` still routes through there
+    // cleanly via dispatchCommand.
+    bool inline_ok = (line == "ip" ||
+#if YEYBOATS_ENABLE_BENCH
+                      line == "bench" ||
+#endif
+                      line == "screen" || line == "sk-status" || line == "sk-dump" ||
+                      line == "temp" || line == "wifi-list" || line == "bright");
+    if (inline_ok) {
+        if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
+            !layout::handleSerialCommand(line)) {
+            if (s_extra) s_extra(line);
         }
-        app::Command cmd;
-        cmd.type = app::CommandType::RunCommand;
-        strncpy(cmd.a, line.c_str(), sizeof(cmd.a) - 1);
-        if (!app::post(cmd, 50)) {
-            logf("[ble] queue full, dropping command");
-        }
+        return;
     }
+    app::Command cmd;
+    cmd.type = app::CommandType::RunCommand;
+    strncpy(cmd.a, line.c_str(), sizeof(cmd.a) - 1);
+    if (!app::post(cmd, 50)) {
+        logf("[ble] queue full, dropping command");
+    }
+}
 };
 
 static void ble_advertising_watchdog(void *) {
@@ -385,7 +406,12 @@ static void bleSetup() {
 
     NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
     adv->addServiceUUID(NUS_SERVICE);
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    // NimBLE 2.x renamed setScanResponse(bool) -> enableScanResponse(bool).
+    adv->enableScanResponse(true);
+#else
     adv->setScanResponse(true);
+#endif
     NimBLEDevice::startAdvertising();
     printf("[ble] advertising as %s\n", s_device_id.c_str());
     xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1, &s_ble_adv_task,
