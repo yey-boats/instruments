@@ -16,6 +16,9 @@ namespace midl {
 // Matches the square-480 manifest `maxDepth`. Enforced AS the solver descends
 // (a post-hoc depth check would already have overflowed the 8 KB task stack —
 // CLAUDE.md silent-reboot trap), so it is a hard recursion bound, not advice.
+// Use midl::MAX_LAYOUT_DEPTH as the solver recursion guard (stops descent);
+// use FirmwareLimits::max_depth for cross-layer comparisons (e.g. manifest
+// vs. POD checks). Both resolve to the same constexpr value.
 constexpr int MAX_LAYOUT_DEPTH = 3;
 
 // A resolved single-class projection the device accepts must fit all of these.
