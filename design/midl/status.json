@@ -9,38 +9,196 @@
         "ip": {
           "type": "text",
           "name": "IP",
-          "bindings": { "value": { "kind": "local", "id": "net.ip" } },
-          "style": { "title": "IP", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "net.ip"
+            }
+          },
+          "style": {
+            "title": "IP",
+            "size": 20
+          }
         },
         "sk": {
           "type": "text",
           "name": "SIGNALK",
-          "bindings": { "value": { "kind": "local", "id": "sk.state" } },
-          "style": { "title": "SIGNALK", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sk.state"
+            }
+          },
+          "style": {
+            "title": "SIGNALK",
+            "size": 20
+          }
         },
         "heap": {
           "type": "text",
           "name": "HEAP",
-          "bindings": { "value": { "kind": "local", "id": "sys.heap" } },
-          "style": { "title": "HEAP", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.heap"
+            }
+          },
+          "style": {
+            "title": "HEAP",
+            "size": 20
+          }
         },
         "uptime": {
           "type": "text",
           "name": "UPTIME",
-          "bindings": { "value": { "kind": "local", "id": "sys.uptime" } },
-          "style": { "title": "UPTIME", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.uptime"
+            }
+          },
+          "style": {
+            "title": "UPTIME",
+            "size": 20
+          }
+        },
+        "ssid": {
+          "type": "text",
+          "name": "SSID",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "net.ssid"
+            }
+          },
+          "style": {
+            "title": "SSID",
+            "size": 20
+          }
+        },
+        "rssi": {
+          "type": "text",
+          "name": "RSSI",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "net.rssi"
+            }
+          },
+          "style": {
+            "title": "RSSI",
+            "size": 20
+          }
+        },
+        "psram": {
+          "type": "text",
+          "name": "PSRAM",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.psram"
+            }
+          },
+          "style": {
+            "title": "PSRAM",
+            "size": 20
+          }
+        },
+        "build": {
+          "type": "text",
+          "name": "BUILD",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.build"
+            }
+          },
+          "style": {
+            "title": "BUILD",
+            "size": 20
+          }
         }
       },
       "layout": {
         "rows": 2,
         "cols": 2,
         "cells": [
-          { "element": "ip" },
-          { "element": "sk" },
-          { "element": "heap" },
-          { "element": "uptime" }
+          {
+            "element": "ip"
+          },
+          {
+            "element": "sk"
+          },
+          {
+            "element": "heap"
+          },
+          {
+            "element": "uptime"
+          }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "rows": 2,
+            "cols": 3,
+            "cells": [
+              {
+                "element": "ip"
+              },
+              {
+                "element": "sk"
+              },
+              {
+                "element": "heap"
+              },
+              {
+                "element": "uptime"
+              },
+              {
+                "element": "ssid"
+              },
+              {
+                "element": "psram"
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "rows": 2,
+            "cols": 4,
+            "cells": [
+              {
+                "element": "ip"
+              },
+              {
+                "element": "sk"
+              },
+              {
+                "element": "heap"
+              },
+              {
+                "element": "uptime"
+              },
+              {
+                "element": "ssid"
+              },
+              {
+                "element": "rssi"
+              },
+              {
+                "element": "psram"
+              },
+              {
+                "element": "build"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

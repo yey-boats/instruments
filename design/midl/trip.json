@@ -9,29 +9,146 @@
         "distance": {
           "type": "single-value",
           "name": "DISTANCE",
-          "bindings": { "value": { "kind": "local", "id": "trip.distance" } },
-          "format": { "unit": "nm", "decimals": 2 },
-          "style": { "title": "DISTANCE", "size": 48 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "trip.distance"
+            }
+          },
+          "format": {
+            "unit": "nm",
+            "decimals": 2
+          },
+          "style": {
+            "title": "DISTANCE",
+            "size": 48
+          }
         },
         "time": {
           "type": "single-value",
           "name": "TIME",
-          "bindings": { "value": { "kind": "local", "id": "trip.underway" } },
-          "format": { "unit": "h", "decimals": 1 },
-          "style": { "title": "UNDERWAY", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "trip.underway"
+            }
+          },
+          "format": {
+            "unit": "h",
+            "decimals": 1
+          },
+          "style": {
+            "title": "UNDERWAY",
+            "size": 20
+          }
         },
         "sognow": {
           "type": "single-value",
           "name": "SOG",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.speedOverGround" } },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "SOG", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 28
+          }
+        },
+        "avg": {
+          "type": "single-value",
+          "name": "AVG SOG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AVG SOG",
+            "size": 28
+          }
         }
       },
       "layout": {
         "preset": "hero-split",
-        "slots": ["distance", "time", "sognow"]
-      }
+        "slots": [
+          "distance",
+          "time",
+          "sognow"
+        ]
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "distance"
+              },
+              {
+                "rows": 3,
+                "cols": 1,
+                "cells": [
+                  {
+                    "element": "time"
+                  },
+                  {
+                    "element": "sognow"
+                  },
+                  {
+                    "element": "avg"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "distance"
+              },
+              {
+                "rows": 3,
+                "cols": 1,
+                "cells": [
+                  {
+                    "element": "time"
+                  },
+                  {
+                    "element": "sognow"
+                  },
+                  {
+                    "element": "avg"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

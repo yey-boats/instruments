@@ -9,51 +9,261 @@
         "compass": {
           "type": "compass",
           "name": "HDG",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.headingTrue" } },
-          "style": { "title": "HDG", "size": 48, "shape": "band" },
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
+          },
+          "style": {
+            "title": "HDG",
+            "size": 48,
+            "shape": "band"
+          },
           "markers": [
-            { "id": "HDG", "glyph": "triangle", "color": "fg", "dir": { "kind": "signalk", "path": "navigation.headingTrue" } },
-            { "id": "COG", "glyph": "chevron_out", "color": "accent", "dir": { "kind": "signalk", "path": "navigation.courseOverGroundTrue" } },
-            { "id": "CTS", "glyph": "diamond", "color": "good", "dir": { "kind": "signalk", "path": "navigation.courseRhumbline.bearingTrackTrue" } },
-            { "id": "APTGT", "glyph": "chevron_double", "color": "warn", "dir": { "kind": "signalk", "path": "steering.autopilot.target.headingTrue" } }
+            {
+              "id": "HDG",
+              "glyph": "triangle",
+              "color": "fg",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.headingTrue"
+              }
+            },
+            {
+              "id": "COG",
+              "glyph": "chevron_out",
+              "color": "accent",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseOverGroundTrue"
+              }
+            },
+            {
+              "id": "CTS",
+              "glyph": "diamond",
+              "color": "good",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseRhumbline.bearingTrackTrue"
+              }
+            },
+            {
+              "id": "APTGT",
+              "glyph": "chevron_double",
+              "color": "warn",
+              "dir": {
+                "kind": "signalk",
+                "path": "steering.autopilot.target.headingTrue"
+              }
+            }
           ]
         },
         "apstate": {
           "type": "autopilot",
           "name": "AP",
-          "bindings": { "value": { "kind": "signalk", "path": "steering.autopilot.state" } },
-          "style": { "title": "AUTOPILOT", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "steering.autopilot.state"
+            }
+          },
+          "style": {
+            "title": "AUTOPILOT",
+            "size": 20
+          }
         },
         "depth": {
           "type": "single-value",
           "name": "DEPTH",
-          "bindings": { "value": { "kind": "signalk", "path": "environment.depth.belowKeel" } },
-          "format": { "unit": "m", "decimals": 1 },
-          "style": { "title": "DEPTH", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.depth.belowKeel"
+            }
+          },
+          "format": {
+            "unit": "m",
+            "decimals": 1
+          },
+          "style": {
+            "title": "DEPTH",
+            "size": 28
+          }
         },
         "sog": {
           "type": "single-value",
           "name": "SPEED",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.speedOverGround" } },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "SPEED", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SPEED",
+            "size": 28
+          }
+        },
+        "aws": {
+          "type": "single-value",
+          "name": "AWS",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedApparent"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AWS",
+            "size": 28
+          }
+        },
+        "awa": {
+          "type": "single-value",
+          "name": "AWA",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.angleApparent"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "AWA",
+            "size": 28
+          }
+        },
+        "cog": {
+          "type": "single-value",
+          "name": "COG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseOverGroundTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "COG",
+            "size": 28
+          }
         }
       },
       "layout": {
         "flow": "col",
-        "weights": [3, 1],
+        "weights": [
+          3,
+          1
+        ],
         "children": [
-          { "element": "compass" },
+          {
+            "element": "compass"
+          },
           {
             "flow": "row",
             "children": [
-              { "element": "apstate" },
-              { "element": "depth" },
-              { "element": "sog" }
+              {
+                "element": "apstate"
+              },
+              {
+                "element": "depth"
+              },
+              {
+                "element": "sog"
+              }
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 2,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "apstate"
+                  },
+                  {
+                    "element": "depth"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "aws"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "apstate"
+                  },
+                  {
+                    "element": "depth"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "aws"
+                  },
+                  {
+                    "element": "awa"
+                  },
+                  {
+                    "element": "cog"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

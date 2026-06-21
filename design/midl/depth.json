@@ -9,29 +9,146 @@
         "depth": {
           "type": "single-value",
           "name": "DEPTH",
-          "bindings": { "value": { "kind": "signalk", "path": "environment.depth.belowKeel" } },
-          "format": { "unit": "m", "decimals": 1 },
-          "style": { "title": "DEPTH", "size": 48 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.depth.belowKeel"
+            }
+          },
+          "format": {
+            "unit": "m",
+            "decimals": 1
+          },
+          "style": {
+            "title": "DEPTH",
+            "size": 48
+          }
         },
         "watertemp": {
           "type": "single-value",
           "name": "WATER",
-          "bindings": { "value": { "kind": "signalk", "path": "environment.water.temperature" } },
-          "format": { "unit": "degC", "decimals": 1 },
-          "style": { "title": "WATER", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.water.temperature"
+            }
+          },
+          "format": {
+            "unit": "degC",
+            "decimals": 1
+          },
+          "style": {
+            "title": "WATER",
+            "size": 20
+          }
         },
         "depthtrend": {
           "type": "trend",
           "name": "DEPTH HISTORY",
-          "bindings": { "value": { "kind": "signalk", "path": "environment.depth.belowKeel" } },
-          "format": { "unit": "m", "decimals": 1 },
-          "style": { "title": "DEPTH HISTORY", "size": 14 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.depth.belowKeel"
+            }
+          },
+          "format": {
+            "unit": "m",
+            "decimals": 1
+          },
+          "style": {
+            "title": "DEPTH HISTORY",
+            "size": 14
+          }
+        },
+        "sog": {
+          "type": "single-value",
+          "name": "SOG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 28
+          }
         }
       },
       "layout": {
         "preset": "hero-split",
-        "slots": ["depth", "watertemp", "depthtrend"]
-      }
+        "slots": [
+          "depth",
+          "watertemp",
+          "depthtrend"
+        ]
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "depth"
+              },
+              {
+                "rows": 3,
+                "cols": 1,
+                "cells": [
+                  {
+                    "element": "watertemp"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "depthtrend"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "depth"
+              },
+              {
+                "rows": 3,
+                "cols": 1,
+                "cells": [
+                  {
+                    "element": "watertemp"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "depthtrend"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

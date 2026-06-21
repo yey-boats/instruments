@@ -1,0 +1,266 @@
+{
+  "midl": "1.0.0",
+  "screens": [
+    {
+      "id": "battery",
+      "title": "Battery",
+      "_note": "House-bank detail from the design gauge-soc + numeric-battv widgets: SOC gauge hero, bus voltage, charge current, solar input, and an SOC trend. SOC binds the capacity.stateOfCharge ratio; voltage/current are bus values.",
+      "elements": {
+        "soc": {
+          "type": "gauge",
+          "name": "SOC",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.capacity.stateOfCharge"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "SOC",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.2,
+                "color": "warn"
+              },
+              {
+                "lt": 0.5,
+                "color": "accent"
+              }
+            ]
+          }
+        },
+        "volt": {
+          "type": "single-value",
+          "name": "VOLTAGE",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.voltage"
+            }
+          },
+          "format": {
+            "unit": "V",
+            "decimals": 2
+          },
+          "style": {
+            "title": "VOLTAGE",
+            "size": 28
+          }
+        },
+        "amps": {
+          "type": "single-value",
+          "name": "CURRENT",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.current"
+            }
+          },
+          "format": {
+            "unit": "A",
+            "decimals": 1
+          },
+          "style": {
+            "title": "CURRENT",
+            "size": 28
+          }
+        },
+        "solar": {
+          "type": "single-value",
+          "name": "SOLAR",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.solar.0.panelPower"
+            }
+          },
+          "format": {
+            "unit": "W",
+            "decimals": 0
+          },
+          "style": {
+            "title": "SOLAR",
+            "size": 28
+          }
+        },
+        "socbar": {
+          "type": "bar",
+          "name": "SOC",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.capacity.stateOfCharge"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "SOC",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.2,
+                "color": "warn"
+              },
+              {
+                "lt": 0.5,
+                "color": "accent"
+              }
+            ]
+          }
+        },
+        "soctrend": {
+          "type": "trend",
+          "name": "SOC HISTORY",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.capacity.stateOfCharge"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "SOC HISTORY",
+            "size": 14,
+            "range": [
+              0,
+              1
+            ]
+          }
+        },
+        "soctrend2": {
+          "type": "trend",
+          "name": "SOC HISTORY",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.capacity.stateOfCharge"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "SOC HISTORY",
+            "size": 14,
+            "range": [
+              0,
+              1
+            ]
+          }
+        }
+      },
+      "layout": {
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "element": "soc"
+          },
+          {
+            "element": "volt"
+          },
+          {
+            "element": "amps"
+          },
+          {
+            "element": "solar"
+          }
+        ]
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "soc"
+              },
+              {
+                "rows": 2,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "volt"
+                  },
+                  {
+                    "element": "amps"
+                  },
+                  {
+                    "element": "solar"
+                  },
+                  {
+                    "element": "socbar"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "soc"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "volt"
+                  },
+                  {
+                    "element": "amps"
+                  },
+                  {
+                    "element": "solar"
+                  },
+                  {
+                    "element": "socbar"
+                  },
+                  {
+                    "element": "soctrend"
+                  },
+                  {
+                    "element": "soctrend2"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

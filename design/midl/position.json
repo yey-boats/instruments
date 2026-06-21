@@ -2,28 +2,39 @@
   "midl": "1.0.0",
   "screens": [
     {
-      "id": "dashboard",
-      "title": "Dashboard",
+      "id": "position",
+      "title": "Position",
+      "_note": "Built on the design text-position widget: navigation.position rendered as a two-line lat/lon text hero, flanked by COG/SOG/HDG and a heading compass. The renderer formats the SignalK position object {latitude,longitude} into deg+decimal-minutes per hemisphere.",
       "elements": {
-        "wind": {
-          "type": "windrose",
-          "name": "AWS",
+        "pos": {
+          "type": "text",
+          "name": "POSITION",
           "bindings": {
             "value": {
               "kind": "signalk",
-              "path": "environment.wind.speedApparent"
-            },
-            "dir": {
+              "path": "navigation.position"
+            }
+          },
+          "style": {
+            "title": "POSITION",
+            "size": 24
+          }
+        },
+        "cog": {
+          "type": "single-value",
+          "name": "COG",
+          "bindings": {
+            "value": {
               "kind": "signalk",
-              "path": "environment.wind.angleApparent"
+              "path": "navigation.courseOverGroundTrue"
             }
           },
           "format": {
-            "unit": "kn",
-            "decimals": 1
+            "unit": "deg",
+            "decimals": 0
           },
           "style": {
-            "title": "AWS",
+            "title": "COG",
             "size": 28
           }
         },
@@ -42,54 +53,8 @@
           },
           "style": {
             "title": "SOG",
-            "size": 48
+            "size": 28
           }
-        },
-        "depth": {
-          "type": "single-value",
-          "name": "DEPTH",
-          "bindings": {
-            "value": {
-              "kind": "signalk",
-              "path": "environment.depth.belowKeel"
-            }
-          },
-          "format": {
-            "unit": "m",
-            "decimals": 1
-          },
-          "style": {
-            "title": "DEPTH",
-            "size": 48
-          }
-        },
-        "batt": {
-          "type": "bar",
-          "name": "BATT",
-          "bindings": {
-            "value": {
-              "kind": "signalk",
-              "path": "electrical.batteries.house.stateOfCharge"
-            }
-          },
-          "format": {
-            "unit": "%",
-            "decimals": 0
-          },
-          "style": {
-            "title": "BATT",
-            "size": 20
-          },
-          "zones": [
-            {
-              "lt": 0.2,
-              "color": "warn"
-            },
-            {
-              "lt": 0.5,
-              "color": "accent"
-            }
-          ]
         },
         "hdg": {
           "type": "single-value",
@@ -109,39 +74,64 @@
             "size": 28
           }
         },
-        "tws": {
-          "type": "single-value",
-          "name": "TWS",
+        "compass": {
+          "type": "compass",
+          "name": "HDG",
           "bindings": {
             "value": {
               "kind": "signalk",
-              "path": "environment.wind.speedTrue"
+              "path": "navigation.headingTrue"
+            }
+          },
+          "style": {
+            "title": "HDG",
+            "size": 48
+          },
+          "markers": [
+            {
+              "id": "COG",
+              "glyph": "chevron_out",
+              "color": "accent",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseOverGroundTrue"
+              }
+            }
+          ]
+        },
+        "dtw": {
+          "type": "single-value",
+          "name": "DTW",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseRhumbline.nextPoint.distance"
             }
           },
           "format": {
-            "unit": "kn",
-            "decimals": 1
+            "unit": "nm",
+            "decimals": 2
           },
           "style": {
-            "title": "TWS",
+            "title": "DTW",
             "size": 28
           }
         },
-        "vmg": {
+        "dtw2": {
           "type": "single-value",
-          "name": "VMG",
+          "name": "DTW",
           "bindings": {
             "value": {
               "kind": "signalk",
-              "path": "navigation.courseRhumbline.velocityMadeGood"
+              "path": "navigation.courseRhumbline.nextPoint.distance"
             }
           },
           "format": {
-            "unit": "kn",
-            "decimals": 1
+            "unit": "nm",
+            "decimals": 2
           },
           "style": {
-            "title": "VMG",
+            "title": "DTW",
             "size": 28
           }
         }
@@ -151,16 +141,16 @@
         "cols": 2,
         "cells": [
           {
-            "element": "wind"
+            "element": "pos"
+          },
+          {
+            "element": "cog"
           },
           {
             "element": "sog"
           },
           {
-            "element": "depth"
-          },
-          {
-            "element": "batt"
+            "element": "hdg"
           }
         ]
       },
@@ -170,28 +160,28 @@
           "layout": {
             "flow": "row",
             "weights": [
-              3,
-              2
+              2,
+              3
             ],
             "children": [
               {
-                "element": "wind"
+                "element": "pos"
               },
               {
                 "rows": 2,
                 "cols": 2,
                 "cells": [
                   {
+                    "element": "compass"
+                  },
+                  {
+                    "element": "cog"
+                  },
+                  {
                     "element": "sog"
                   },
                   {
-                    "element": "depth"
-                  },
-                  {
                     "element": "hdg"
-                  },
-                  {
-                    "element": "batt"
                   }
                 ]
               }
@@ -208,29 +198,29 @@
             ],
             "children": [
               {
-                "element": "wind"
+                "element": "compass"
               },
               {
                 "rows": 3,
                 "cols": 2,
                 "cells": [
                   {
-                    "element": "sog"
+                    "element": "pos"
                   },
                   {
-                    "element": "depth"
+                    "element": "cog"
+                  },
+                  {
+                    "element": "sog"
                   },
                   {
                     "element": "hdg"
                   },
                   {
-                    "element": "tws"
+                    "element": "dtw"
                   },
                   {
-                    "element": "vmg"
-                  },
-                  {
-                    "element": "batt"
+                    "element": "dtw2"
                   }
                 ]
               }

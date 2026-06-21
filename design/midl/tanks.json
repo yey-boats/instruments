@@ -1,0 +1,242 @@
+{
+  "midl": "1.0.0",
+  "screens": [
+    {
+      "id": "tanks",
+      "title": "Tanks",
+      "_note": "Fluid levels from the design bar-fuel widget pattern: fuel + fresh water + black/grey waste as percent bars (ratio range 0..1). square-480 maxTiles=4 shows fuel/water/waste/SOC; landscape adds the bus voltage readout.",
+      "elements": {
+        "fuel": {
+          "type": "bar",
+          "name": "FUEL",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "tanks.fuel.0.currentLevel"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "FUEL",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.15,
+                "color": "warn"
+              },
+              {
+                "lt": 0.3,
+                "color": "accent"
+              }
+            ]
+          }
+        },
+        "water": {
+          "type": "bar",
+          "name": "WATER",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "tanks.freshWater.0.currentLevel"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "WATER",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.15,
+                "color": "warn"
+              }
+            ]
+          }
+        },
+        "waste": {
+          "type": "bar",
+          "name": "WASTE",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "tanks.wasteWater.0.currentLevel"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "WASTE",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.5,
+                "color": "good"
+              }
+            ]
+          }
+        },
+        "soc": {
+          "type": "gauge",
+          "name": "SOC",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.stateOfCharge"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "SOC",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.2,
+                "color": "warn"
+              }
+            ]
+          }
+        },
+        "volt": {
+          "type": "single-value",
+          "name": "BUS V",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.voltage"
+            }
+          },
+          "format": {
+            "unit": "V",
+            "decimals": 2
+          },
+          "style": {
+            "title": "BUS V",
+            "size": 28
+          }
+        },
+        "fueltrend": {
+          "type": "trend",
+          "name": "FUEL HISTORY",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "tanks.fuel.0.currentLevel"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "FUEL HISTORY",
+            "size": 14,
+            "range": [
+              0,
+              1
+            ]
+          }
+        }
+      },
+      "layout": {
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "element": "fuel"
+          },
+          {
+            "element": "water"
+          },
+          {
+            "element": "waste"
+          },
+          {
+            "element": "soc"
+          }
+        ]
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "rows": 2,
+            "cols": 3,
+            "cells": [
+              {
+                "element": "fuel"
+              },
+              {
+                "element": "water"
+              },
+              {
+                "element": "waste"
+              },
+              {
+                "element": "soc"
+              },
+              {
+                "element": "volt"
+              },
+              {
+                "element": "fueltrend"
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "rows": 2,
+            "cols": 3,
+            "cells": [
+              {
+                "element": "fuel"
+              },
+              {
+                "element": "water"
+              },
+              {
+                "element": "waste"
+              },
+              {
+                "element": "soc"
+              },
+              {
+                "element": "volt"
+              },
+              {
+                "element": "fueltrend"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
