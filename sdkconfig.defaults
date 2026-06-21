@@ -20,6 +20,17 @@ CONFIG_GDMA_CTRL_FUNC_IN_IRAM=y
 CONFIG_BT_ENABLED=y
 CONFIG_BT_BLUEDROID_ENABLED=n
 CONFIG_BT_NIMBLE_ENABLED=y
+# A.1 link fix: arduino-esp32's NetworkClientSecure/ssl_client.cpp wraps its ENTIRE
+# body (start_ssl_client, ssl_init, send_ssl_data, ...) in
+# `#if defined(MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED) ... #else #warning #endif`.
+# The stock precompiled Arduino sdkconfig enables PSK ciphersuites, so that macro
+# is defined and the bodies compile. Our hybrid regenerates sdkconfig from THIS
+# file, and without PSK the macro is undefined -> ssl_client.cpp.o is EMPTY ->
+# "undefined reference to start_ssl_client / ssl_init / ..." at link (HTTPClient
+# pulls NetworkClientSecure even though we use no TLS yet). Enabling PSK key
+# exchange restores the symbol bodies. See spec 21 §A.1.
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
 # Hybrid (arduino + espidf): make the Arduino core provide app_main() that
 # spins up the loopTask and calls setup()/loop(). Without it the link fails with
 # "undefined reference to app_main" (espidf expects an app_main we don't define;

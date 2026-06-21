@@ -50,3 +50,11 @@ __pycache__/
 
 # Brainstorm visual-companion scratch (not source)
 .superpowers/
+
+# PlatformIO arduino+espidf hybrid (esp32-4848s040-idf5) generated files.
+# PlatformIO regenerates the CMakeLists from platformio.ini each build; the IDF
+# component manager regenerates dependencies.lock + managed_components/. Not source.
+/CMakeLists.txt
+/src/CMakeLists.txt
+dependencies.lock
+managed_components/
