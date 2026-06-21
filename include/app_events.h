@@ -32,6 +32,7 @@ enum class CommandType : uint8_t {
     ShowOverlay,          // a = message text (spec 17 §8 overlay.show)
     ClearOverlay,         // (spec 17 §8 overlay.clear)
     Knob,                 // i = knob::Event value; b[0] = '1' if button held during detent
+    ConfigApplyMidl,      // blob = MIDL JSON bytes; a = screen_id (or "" -> "midl"); consumer frees
 };
 
 struct Command {

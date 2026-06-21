@@ -44,6 +44,7 @@
 #endif
 
 #include "storage.h"
+#include "midl_demo_doc.h"
 #include <math.h>
 #include <string.h>
 
@@ -1938,6 +1939,34 @@ static bool handleMainCommand(const String &line) {
     }
     if (line == "mob-off" || line == "mob-clear") {
         mob_clear();
+        return true;
+    }
+    if (line == "midl-render" || line.startsWith("midl-render ")) {
+        // Load the baked MIDL demo doc and render it as a live LVGL screen.
+        // Usage: midl-render [screenId]  (default screen id: "midl")
+        String sid = "";
+        if (line.length() > 12) {
+            sid = line.substring(12);
+            sid.trim();
+        }
+        const char *json = midl::demo::SQUARE_480_JSON;
+        size_t len = strlen(json);
+        void *blob = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!blob) {
+            net::logf("[midl-render] PSRAM alloc failed");
+            return true;
+        }
+        memcpy(blob, json, len + 1);  // include NUL so deserializeJson sees a C-string
+        app::Command cmd;
+        cmd.type = app::CommandType::ConfigApplyMidl;
+        cmd.blob = blob;
+        cmd.blob_len = len;
+        strncpy(cmd.a, sid.c_str(), sizeof(cmd.a) - 1);
+        cmd.a[sizeof(cmd.a) - 1] = '\0';
+        if (!app::post(cmd)) {
+            net::logf("[midl-render] ui queue full");
+            heap_caps_free(blob);
+        }
         return true;
     }
     if (line == "screen") {

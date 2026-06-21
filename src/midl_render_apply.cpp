@@ -121,6 +121,8 @@ bool apply_doc(JsonVariantConst doc, const char *screen_id) {
         for (JsonPairConst kv : screens_node.as<JsonObjectConst>()) {
             if (kv.value().is<JsonObjectConst>()) {
                 screen_obj = kv.value();
+                // kv.key().c_str() is owned by `doc` and is valid for the lifetime of
+                // this call; we copy it into s_arena.screen_id before doc could be freed.
                 screen_id = kv.key().c_str();
                 break;
             }
@@ -213,11 +215,13 @@ bool apply_doc(JsonVariantConst doc, const char *screen_id) {
     scr.collect_paths = midl_collect_paths;
 
     // Replace if this id is already registered; otherwise add it as a new screen.
+    // NOTE: replace_screen copies scr.collect_paths from the Screen struct, so no
+    // separate set_screen_collect_paths call is needed here — it would cause a
+    // spurious subscription re-diff on every hot-reload.
     if (!ui::replace_screen(s_arena.screen_id, scr)) {
         ui::register_screen(scr);
         net::logf("[midl-render] registered new screen '%s' (%zu tiles)", s_arena.screen_id, n);
     } else {
-        ui::set_screen_collect_paths(s_arena.screen_id, midl_collect_paths);
         net::logf("[midl-render] replaced screen '%s' (%zu tiles)", s_arena.screen_id, n);
     }
 
