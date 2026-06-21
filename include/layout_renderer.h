@@ -14,7 +14,7 @@
 // loaded layout keep their hardcoded MetricBinding tables.
 
 #include "layout.h"
-#include "ui_layouts.h"
+#include "ui_layouts_types.h"
 
 namespace ui::layout_render {
 
