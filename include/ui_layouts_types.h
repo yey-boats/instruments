@@ -111,4 +111,11 @@ struct ScreenVariantSpec {
     uint8_t variant_flags;  // template-specific; e.g. quad_grid: 0 = footer, 1 = no footer
 };
 
+// Pixel-space rectangle used by the freeform builder to place one tile
+// at the solver's output coordinates. Field order matches midl::Placement.rect
+// so the caller can memcpy / brace-init without a conversion helper.
+struct Rect {
+    int x, y, w, h;
+};
+
 }  // namespace ui::layouts

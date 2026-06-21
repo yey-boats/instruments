@@ -58,4 +58,12 @@ const char *source_to_path(MetricSource s);
 // host-testable; takes no LVGL or live state.
 void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out);
 
+// Freeform layout: one tile per (MetricBinding, Rect) pair, placed at the
+// caller's solved pixel rect. Reuses the per-tile painters from the QuadGrid
+// template. `spec.metrics` has `spec.metric_count` entries; `rects[i]` is the
+// pixel rect for metric i (x, y, w, h). Called directly by midl_render — NOT
+// routed through create() — so no TemplateId enum churn is needed.
+lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const Rect *rects);
+void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data);
+
 }  // namespace ui::layouts
