@@ -107,6 +107,36 @@ void test_preset_unknown_rejected() {
                           midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
 }
 
+void test_too_deep_rejected() {
+    // depth 4 > MAX_LAYOUT_DEPTH (3): row>col>row>leaf
+    JsonDocument doc;
+    deserializeJson(doc,
+                    R"({"flow":"row","children":[{"flow":"col","children":[
+        {"flow":"row","children":[{"element":"a"}]}]}]})");
+    PlacementSet out;
+    TEST_ASSERT_EQUAL_INT(midl::SOLVE_TOO_DEEP,
+                          midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
+}
+
+void test_too_many_tiles_rejected() {
+    // 5 leaves in a row > max_tiles_per_screen (4)
+    JsonDocument doc;
+    deserializeJson(doc,
+                    R"({"flow":"row","children":[
+        {"element":"a"},{"element":"b"},{"element":"c"},{"element":"d"},{"element":"e"}]})");
+    PlacementSet out;
+    TEST_ASSERT_EQUAL_INT(midl::SOLVE_TOO_MANY_TILES,
+                          midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
+}
+
+void test_malformed_node_rejected() {
+    JsonDocument doc;
+    deserializeJson(doc, R"({"frobnicate":true})");
+    PlacementSet out;
+    TEST_ASSERT_EQUAL_INT(midl::SOLVE_BAD_NODE,
+                          midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_leaf_fills_area);
@@ -117,5 +147,8 @@ int main(int, char **) {
     RUN_TEST(test_preset_full);
     RUN_TEST(test_preset_hero_split);
     RUN_TEST(test_preset_unknown_rejected);
+    RUN_TEST(test_too_deep_rejected);
+    RUN_TEST(test_too_many_tiles_rejected);
+    RUN_TEST(test_malformed_node_rejected);
     return UNITY_END();
 }
