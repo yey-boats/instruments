@@ -65,11 +65,29 @@ void test_col_split_nested() {
     TEST_ASSERT_EQUAL_INT(240, find(p, "c")->rect.x);
 }
 
+void test_grid_2x2_rowmajor() {
+    PlacementSet p = solve(
+        R"({"rows":2,"cols":2,"cells":[{"element":"a"},{"element":"b"},{"element":"c"},{"element":"d"}]})",
+        {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(4, p.count);
+    TEST_ASSERT_EQUAL_INT(0, find(p, "a")->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, find(p, "a")->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "b")->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, find(p, "b")->rect.y);
+    TEST_ASSERT_EQUAL_INT(0, find(p, "c")->rect.x);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "c")->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "d")->rect.x);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "d")->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "a")->rect.w);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "a")->rect.h);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_leaf_fills_area);
     RUN_TEST(test_row_split_equal);
     RUN_TEST(test_row_split_weighted_distributes_remainder);
     RUN_TEST(test_col_split_nested);
+    RUN_TEST(test_grid_2x2_rowmajor);
     return UNITY_END();
 }
