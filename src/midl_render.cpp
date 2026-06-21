@@ -40,6 +40,46 @@ static void copy32(char *dst, const char *src) {
     dst[31] = 0;
 }
 
+JsonVariantConst select_screen(JsonVariantConst doc, const char *screen_id, const char **out_id) {
+    if (out_id) *out_id = nullptr;
+
+    // MIDL `screens` is a JSON ARRAY (schema: screens.type == "array").
+    JsonArrayConst screens = doc["screens"].as<JsonArrayConst>();
+    if (screens.isNull() || screens.size() == 0) return JsonVariantConst();
+
+    // Match the requested id against each screen's "id".
+    if (screen_id && screen_id[0]) {
+        for (JsonVariantConst s : screens) {
+            if (s.is<JsonObjectConst>() && strcmp(s["id"] | "", screen_id) == 0) {
+                if (out_id) *out_id = s["id"] | (const char *)nullptr;
+                return s;
+            }
+        }
+    }
+
+    // Fallback: first object screen (id null/empty/not found).
+    for (JsonVariantConst s : screens) {
+        if (s.is<JsonObjectConst>()) {
+            if (out_id) *out_id = s["id"] | (const char *)nullptr;
+            return s;
+        }
+    }
+
+    return JsonVariantConst();
+}
+
+JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element_id) {
+    if (!element_id) return JsonVariantConst();
+    JsonObjectConst elements = elements_obj.as<JsonObjectConst>();
+    if (elements.isNull()) return JsonVariantConst();
+    // Explicit strcmp iteration — NOT operator[], which can miss `element_id`
+    // via ArduinoJson's pointer-identity fast path when it is a separate buffer.
+    for (JsonPairConst kv : elements) {
+        if (strcmp(kv.key().c_str(), element_id) == 0) return kv.value();
+    }
+    return JsonVariantConst();
+}
+
 bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out, char *id_buf,
                  char *label_buf, char *unit_buf) {
     if (!el.is<JsonObjectConst>()) return false;

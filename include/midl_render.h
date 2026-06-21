@@ -28,6 +28,31 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
                  char *id_buf, char *label_buf, char *unit_buf);
 
+// Pure (host-testable): select a screen object from a MIDL document.
+//
+// MIDL `screens` is a JSON ARRAY of screen objects, each with an "id" field
+// (per yb-midl-config.schema.json: screens.type == "array"). This walks
+// doc["screens"] and returns the object whose "id" matches `screen_id`. If
+// `screen_id` is null/empty/unmatched, returns the FIRST object screen.
+//
+// Writes the chosen screen's "id" field to *out_id (may be null). Returns a
+// null JsonVariantConst if `screens` is missing/empty or has no object screen.
+//
+// NOTE: the array form is load-bearing — an earlier `doc["screens"].is<
+// JsonObjectConst>()` check rejected the (correct) array shape and rendered
+// nothing. Keep the array handling.
+JsonVariantConst select_screen(JsonVariantConst doc, const char *screen_id, const char **out_id);
+
+// Pure (host-testable): find an element in a MIDL elements object by KEY.
+//
+// `elements_obj` is the screen's "elements" map ({ "<id>": {...}, ... }).
+// Returns the value whose KEY equals `element_id`, found by explicit strcmp
+// iteration over the object's pairs — NOT operator[], which can miss a key
+// when `element_id` is a separately-allocated buffer (ArduinoJson's
+// pointer-identity fast path; observed in the headless sim). Returns a null
+// JsonVariantConst if not found or if `elements_obj` is not an object.
+JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element_id);
+
 // Orchestration entry point (device-only; implemented in midl_render_apply.cpp
 // which is NOT in the native build_src_filter). Runs ON THE UI TASK — caller
 // guarantees this (e.g. inside app::pump()).
