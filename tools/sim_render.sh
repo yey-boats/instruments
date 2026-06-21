@@ -25,6 +25,20 @@ for r in "${RES[@]}"; do
   fi
 done
 
+# MIDL design-parity shot (env:sim-midl): renders the baked YB-MIDL demo doc
+# (include/midl_demo_doc.h: SQUARE_480_JSON) through the REAL device render path
+# — midl::solve_screen -> midl::render::map_element -> ui::layouts::create_freeform
+# — mirroring src/midl_render_apply.cpp's apply_doc() flow. One fixed 480x480 shot;
+# compare to preview-square-480.png. The env hardcodes 480x480, so no rebuild loop.
+echo "=== rendering midl 480x480 ==="
+PLATFORMIO_BUILD_FLAGS="-DSIM_LCD_W=480 -DSIM_LCD_H=480" pio run -e sim-midl >/dev/null
+".pio/build/sim-midl/program" "docs/sim-shots/midl-square-480.bmp"
+if command -v sips >/dev/null 2>&1; then
+  sips -s format png "docs/sim-shots/midl-square-480.bmp" \
+    --out "docs/sim-shots/midl-square-480.png" >/dev/null
+  rm -f "docs/sim-shots/midl-square-480.bmp"
+fi
+
 # Fullscreen wind dial (screen_wind.cpp) via env:sim-wind — gives the A / T wind
 # indices and the current arrow an eyeball-able render alongside the dashboard.
 for r in "${RES[@]}"; do
