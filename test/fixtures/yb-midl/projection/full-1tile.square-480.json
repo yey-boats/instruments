@@ -1,0 +1,19 @@
+{
+  "midl": "1.0.0",
+  "class": "square-480",
+  "settings": { "defaultScreen": "sog" },
+  "screens": [
+    {
+      "id": "sog",
+      "elements": {
+        "sog": {
+          "type": "single-value",
+          "name": "SOG",
+          "format": { "unit": "kn", "precision": 1 },
+          "bindings": { "value": { "kind": "signalk", "path": "navigation.speedOverGround" } }
+        }
+      },
+      "layout": { "element": "sog" }
+    }
+  ]
+}
