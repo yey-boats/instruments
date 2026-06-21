@@ -2501,12 +2501,15 @@ void setup() {
 #endif  // BOARD_ID_WAVESHARE_KNOB_1_8 (else: Sunton screen registration)
 #else   // YEYBOATS_MIDL_ONLY
     {
-        // MIDL-only boot: the device's UI is the baked MIDL dashboard.
+        // MIDL-only boot: the device's UI is the baked MIDL demo doc.
         // setup() runs on the LVGL/loop task, so building LVGL here is safe.
+        // apply_all() registers ALL screens in the doc (Dashboard/Navigation/
+        // Speed) so `screen <id|next|prev>` navigation works; it also shows the
+        // settings.defaultScreen ("dash"), so no explicit show_by_id is needed.
         JsonDocument midlDoc(&yeyboats::psram_json);  // pool in PSRAM, not internal heap
         if (deserializeJson(midlDoc, midl::demo::SQUARE_480_JSON) == DeserializationError::Ok) {
-            midl::render::apply_doc(midlDoc.as<JsonVariantConst>(), "midl");
-            ui::show_by_id("midl");
+            size_t n = midl::render::apply_all(midlDoc.as<JsonVariantConst>());
+            net::logf("[midl-only] apply_all registered %u screen(s)", (unsigned)n);
         } else {
             net::logf("[midl-only] baked doc parse failed");
         }

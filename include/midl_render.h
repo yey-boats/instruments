@@ -53,20 +53,30 @@ JsonVariantConst select_screen(JsonVariantConst doc, const char *screen_id, cons
 // JsonVariantConst if not found or if `elements_obj` is not an object.
 JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element_id);
 
-// Orchestration entry point (device-only; implemented in midl_render_apply.cpp
-// which is NOT in the native build_src_filter). Runs ON THE UI TASK — caller
-// guarantees this (e.g. inside app::pump()).
+// Orchestration entry points (device-only; implemented in midl_render_apply.cpp
+// which is NOT in the native build_src_filter). Both run ON THE UI TASK —
+// caller guarantees this (e.g. inside setup() or app::pump()).
+
+// apply_all: register EVERY screen in doc["screens"] (a JSON array), up to
+// ui::MAX_SCREENS. Each screen is solved, its elements mapped to MetricBindings
+// via the enum bridge, built into a freeform LVGL screen, and registered with
+// ui::register_screen / ui::replace_screen. Per-screen arenas live in a
+// PSRAM-allocated pool; per-slot refresh/collect-paths trampolines drive the 5 Hz
+// refresh and subscription manager. After building, the default screen is shown
+// (doc settings.defaultScreen / doc.defaultScreen if present, else the first
+// registered screen). Navigation between the registered screens then works via
+// the standard `screen <id|next|prev>` / ui::show_by_id path.
 //
-// Finds `screen_id` (or the first screen if null/missing) in doc["screens"],
-// solves its layout, maps each element to a MetricBinding via the enum bridge,
-// builds a freeform LVGL screen with create_freeform(), and registers it via
-// ui::replace_screen / ui::register_screen.
+// Returns the number of screens successfully built.
+size_t apply_all(JsonVariantConst doc);
+
+// apply_doc: single-screen convenience. Builds ALL screens in the doc via
+// apply_all (so navigation works regardless of entry point), then shows
+// `screen_id` (null/empty/unmatched -> apply_all's default screen governs which
+// is visible). Used by the `midl-render` console command and the
+// ConfigApplyMidl pump case.
 //
-// SINGLE-SCREEN LIMITATION (Slice 2): only one MIDL screen is live at a time.
-// The session arena is a single function-static block; a second apply_doc call
-// overwrites it. Multi-screen support is deferred to Slice 5 (cutover).
-//
-// Returns true if the screen was successfully built and registered.
+// Returns true if at least one screen was built and registered.
 bool apply_doc(JsonVariantConst doc, const char *screen_id);
 
 }  // namespace midl::render
