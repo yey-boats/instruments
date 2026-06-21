@@ -137,6 +137,40 @@ void test_malformed_node_rejected() {
                           midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
 }
 
+#include <stdio.h>
+#include <string>
+
+static std::string slurp2(const char *path) {
+    FILE *f = fopen(path, "rb");
+    TEST_ASSERT_NOT_NULL_MESSAGE(f, path);
+    std::string s;
+    char b[1024];
+    size_t n;
+    while ((n = fread(b, 1, sizeof(b), f)) > 0)
+        s.append(b, n);
+    fclose(f);
+    return s;
+}
+
+void test_steering_fixture_geometry() {
+    std::string j = slurp2("test/fixtures/yb-midl/projection/steering-4tile.square-480.json");
+    JsonDocument doc;
+    deserializeJson(doc, j);
+    JsonVariantConst layout = doc["screens"][0]["layout"];
+    PlacementSet p;
+    TEST_ASSERT_EQUAL_INT(midl::SOLVE_OK, midl::solve_screen(layout, {0, 0, 480, 480}, p));
+    TEST_ASSERT_EQUAL_size_t(4, p.count);
+    // row weights [3,2] over 480: compass = [0,288), right col = [288,480).
+    TEST_ASSERT_EQUAL_INT(0, find(p, "compass")->rect.x);
+    TEST_ASSERT_EQUAL_INT(288, find(p, "compass")->rect.w);
+    TEST_ASSERT_EQUAL_INT(288, find(p, "cts")->rect.x);
+    TEST_ASSERT_EQUAL_INT(192, find(p, "cts")->rect.w);
+    // right column split into 3 equal rows over 480: 160 each.
+    TEST_ASSERT_EQUAL_INT(0, find(p, "cts")->rect.y);
+    TEST_ASSERT_EQUAL_INT(160, find(p, "xte")->rect.y);
+    TEST_ASSERT_EQUAL_INT(320, find(p, "rudder")->rect.y);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_leaf_fills_area);
@@ -150,5 +184,6 @@ int main(int, char **) {
     RUN_TEST(test_too_deep_rejected);
     RUN_TEST(test_too_many_tiles_rejected);
     RUN_TEST(test_malformed_node_rejected);
+    RUN_TEST(test_steering_fixture_geometry);
     return UNITY_END();
 }
