@@ -1212,6 +1212,12 @@ void sha256_to_hex(const uint8_t *digest, char out[65]) {
 void ota_task(void *) {
     esp_task_wdt_delete(NULL);
     s_ota_in_flight = true;
+    // Quiesce the LVGL pump for the whole OTA: the sustained 2 MB Update.write
+    // erases/writes flash, and the UI task running flash-resident code +
+    // churning the PSRAM framebuffer in that window intermittently hangs the
+    // device (precompiled arduino-esp32 flash-cache hazard). Resumed only on
+    // failure below; the success path reboots.
+    app_pause_ui(true);
     String job_id = s_ota_job_id;
     String url = s_ota_url;
     // A manager-relative URL ("/firmware/download/<job>") means pull the binary
@@ -1348,6 +1354,7 @@ fail:
                  failure_detail ? failure_detail : "?", outcome_code);
     post_ota_progress(job_id, "failed", -1, failure_detail ? failure_detail : "unknown");
     s_ota_in_flight = false;
+    app_pause_ui(false);  // OTA aborted; bring the UI back
     s_ota_task = nullptr;
     vTaskDelete(NULL);
 }

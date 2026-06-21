@@ -72,3 +72,8 @@ uint32_t ui_high_water();
 uint32_t net_high_water();
 
 }  // namespace app
+
+// Pause/resume the LVGL pump (global, defined in main.cpp). Set true for the
+// duration of a firmware OTA so the UI task doesn't run flash-resident code /
+// churn PSRAM during the sustained Update.write (flash-cache hazard).
+void app_pause_ui(bool paused);

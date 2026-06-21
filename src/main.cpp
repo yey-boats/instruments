@@ -2594,8 +2594,22 @@ static void pollSerialCommands() {
 // threaded: ALL lv_* calls must stay on this task; the rest of the system
 // enqueues work via app::Command. Generous 16 KB stack - the SW rasterizer and
 // app::pump can go deep (see "never build a large struct on a task stack").
+// Set true around a firmware OTA: the LVGL pump (flash-resident code that
+// churns the PSRAM framebuffer) must go quiet during the sustained 2 MB
+// Update.write, or it intermittently hangs the device on this precompiled
+// arduino-esp32 build (flash-cache-disabled window vs. cached access — the
+// CLAUDE.md flash-cache hazard). The panel keeps showing the last frame.
+volatile bool g_ui_paused = false;
+void app_pause_ui(bool paused) {
+    g_ui_paused = paused;
+}
+
 static void lvgl_task(void *) {
     for (;;) {
+        if (g_ui_paused) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
         uint32_t t = micros();
         lv_timer_handler();
         uint32_t dt = micros() - t;
