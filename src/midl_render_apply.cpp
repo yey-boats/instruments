@@ -104,26 +104,33 @@ static void midl_collect_paths(sk::SubscriptionSet &out) {
 // ---------------------------------------------------------------------------
 bool apply_doc(JsonVariantConst doc, const char *screen_id) {
     // --- Step 1: locate the target screen in doc["screens"] ---
-    JsonVariantConst screens_node = doc["screens"];
+    // MIDL `screens` is a JSON ARRAY of screen objects, each with an "id"
+    // field (per yb-midl-config.schema.json: screens.type == "array").
+    JsonArrayConst screens_node = doc["screens"].as<JsonArrayConst>();
     JsonVariantConst screen_obj;
 
-    if (!screens_node.is<JsonObjectConst>()) {
-        net::logf("[midl-render] doc missing 'screens' object");
+    if (screens_node.isNull() || screens_node.size() == 0) {
+        net::logf("[midl-render] doc missing 'screens' array");
         return false;
     }
 
+    // Match the requested id against each screen's "id"; else take the first.
     if (screen_id && screen_id[0]) {
-        screen_obj = screens_node[screen_id];
+        for (JsonVariantConst s : screens_node) {
+            if (s.is<JsonObjectConst>() && strcmp(s["id"] | "", screen_id) == 0) {
+                screen_obj = s;
+                break;
+            }
+        }
     }
-
-    // Fallback: use the first screen when screen_id is null/missing/not found.
+    // Fallback: first screen when screen_id is null/missing/not found.
     if (!screen_obj.is<JsonObjectConst>()) {
-        for (JsonPairConst kv : screens_node.as<JsonObjectConst>()) {
-            if (kv.value().is<JsonObjectConst>()) {
-                screen_obj = kv.value();
-                // kv.key().c_str() is owned by `doc` and is valid for the lifetime of
-                // this call; we copy it into s_arena.screen_id before doc could be freed.
-                screen_id = kv.key().c_str();
+        for (JsonVariantConst s : screens_node) {
+            if (s.is<JsonObjectConst>()) {
+                screen_obj = s;
+                // s["id"] is owned by `doc` and valid for this call; it is copied
+                // into s_arena.screen_id below before `doc` could be freed.
+                screen_id = s["id"] | screen_id;
                 break;
             }
         }
@@ -153,14 +160,23 @@ bool apply_doc(JsonVariantConst doc, const char *screen_id) {
     // "layout::parse() must memset(&out,0,sizeof(out))" trap).
     memset(&s_arena, 0, sizeof(s_arena));
 
-    JsonVariantConst elements_node = screen_obj["elements"];
+    JsonObjectConst elements_node = screen_obj["elements"].as<JsonObjectConst>();
 
     size_t n = placements.count;
     if (n > MAX_TILES) n = MAX_TILES;
 
     for (size_t i = 0; i < n; ++i) {
         const midl::Placement &pl = placements.items[i];
-        JsonVariantConst el = elements_node[pl.element];
+        // Look up the element by explicit strcmp rather than elements_node[pl.element]:
+        // pl.element is the solver's own buffer, and ArduinoJson's operator[] can
+        // miss it via a pointer-identity fast path (observed in the headless sim).
+        JsonVariantConst el;
+        for (JsonPairConst kv : elements_node) {
+            if (strcmp(kv.key().c_str(), pl.element) == 0) {
+                el = kv.value();
+                break;
+            }
+        }
 
         bool ok = map_element(el, pl.element, s_arena.metrics[i], s_arena.ids[i], s_arena.labels[i],
                               s_arena.units[i]);
