@@ -82,6 +82,31 @@ void test_grid_2x2_rowmajor() {
     TEST_ASSERT_EQUAL_INT(240, find(p, "a")->rect.h);
 }
 
+void test_preset_full() {
+    PlacementSet p = solve(R"({"preset":"full","slots":["a"]})", {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(1, p.count);
+    TEST_ASSERT_EQUAL_INT(480, find(p, "a")->rect.w);
+}
+
+void test_preset_hero_split() {
+    // {1,{2,3}} = row[ leaf, col[leaf,leaf] ], equal weights.
+    PlacementSet p = solve(R"({"preset":"hero-split","slots":["hero","x","y"]})", {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(3, p.count);
+    TEST_ASSERT_EQUAL_INT(0, find(p, "hero")->rect.x);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "hero")->rect.w);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "x")->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, find(p, "x")->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, find(p, "y")->rect.y);
+}
+
+void test_preset_unknown_rejected() {
+    JsonDocument doc;
+    deserializeJson(doc, R"({"preset":"nope","slots":["a"]})");
+    PlacementSet out;
+    TEST_ASSERT_EQUAL_INT(midl::SOLVE_UNKNOWN_PRESET,
+                          midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_leaf_fills_area);
@@ -89,5 +114,8 @@ int main(int, char **) {
     RUN_TEST(test_row_split_weighted_distributes_remainder);
     RUN_TEST(test_col_split_nested);
     RUN_TEST(test_grid_2x2_rowmajor);
+    RUN_TEST(test_preset_full);
+    RUN_TEST(test_preset_hero_split);
+    RUN_TEST(test_preset_unknown_rejected);
     return UNITY_END();
 }
