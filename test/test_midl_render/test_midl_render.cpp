@@ -7,6 +7,10 @@ using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
 using ui::layouts::WidgetKind;
 
+// NOTE: mapOne returns a MetricBinding whose id/label/unit pointers refer to
+// function-static buffers (idb/lab/unit). Do NOT call mapOne twice and compare
+// both results — the second call overwrites those buffers, invalidating the first
+// MetricBinding's string pointers.
 static MetricBinding mapOne(const char *json, const char *id) {
     JsonDocument doc;
     deserializeJson(doc, json);
@@ -51,6 +55,22 @@ void test_map_compass_label_fallback_to_id() {
     TEST_ASSERT_EQUAL_STRING("hdg", m.label);  // no name -> label falls back to id
 }
 
+void test_accent_hex_string() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","style":{"color":"#1a2b3c"},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog_color");
+    TEST_ASSERT_EQUAL_HEX32(0x1A2B3Cu, m.accent);
+}
+
+void test_accent_integer() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","style":{"color":255},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog_intcolor");
+    TEST_ASSERT_EQUAL_HEX32(255u, m.accent);
+}
+
 void setUp() {
 }
 void tearDown() {
@@ -62,5 +82,7 @@ int main(int, char **) {
     RUN_TEST(test_map_single_value);
     RUN_TEST(test_map_unknown_path_is_none);
     RUN_TEST(test_map_compass_label_fallback_to_id);
+    RUN_TEST(test_accent_hex_string);
+    RUN_TEST(test_accent_integer);
     return UNITY_END();
 }

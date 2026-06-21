@@ -12,8 +12,7 @@
 #include <ArduinoJson.h>
 #include "ui_layouts_types.h"  // ui::layouts::MetricBinding, WidgetKind, MetricSource
 
-namespace midl {
-namespace render {
+namespace midl::render {
 
 // Map a MIDL element token ("single-value","text","gauge","bar","compass",
 // "windrose","trend","autopilot","button") to a device WidgetKind. Unknown
@@ -24,9 +23,9 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 // COPIED into caller-owned buffers `id_buf`/`label_buf`/`unit_buf` (each >=32),
 // and out.id/label/unit point at them -- so the caller controls lifetime (the
 // MetricBinding stores non-owning pointers). `value` binding path -> source via
-// path_to_source; style.color -> accent. Returns false if `el` is not an object.
+// path_to_source; style.color -> accent (accepts "#rrggbb" hex or integer).
+// Returns false if `el` is not an object.
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
                  char *id_buf, char *label_buf, char *unit_buf);
 
-}  // namespace render
-}  // namespace midl
+}  // namespace midl::render

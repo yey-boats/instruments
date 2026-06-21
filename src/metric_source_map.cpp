@@ -15,6 +15,9 @@ namespace ui::layout_render {
 using ui::layouts::MetricSource;
 using ui::layouts::WidgetKind;
 
+// NOTE: This map is SEPARATE from midl::render::token_to_kind (midl_render.cpp).
+// It handles legacy editor camelCase tokens ("numeric","windRose"); token_to_kind
+// handles MIDL lowercase tokens ("single-value","windrose"). Do not merge these two maps.
 WidgetKind widget_to_kind(const char *widget) {
     if (!widget || !widget[0]) return WidgetKind::Numeric;
     if (strcmp(widget, "compass") == 0) return WidgetKind::Compass;

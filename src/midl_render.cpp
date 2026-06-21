@@ -5,15 +5,19 @@
 #include "midl_render.h"
 #include "layout_renderer.h"  // ui::layout_render::path_to_source
 
+#include <stdlib.h>
 #include <string.h>
 
-namespace midl {
-namespace render {
+namespace midl::render {
 
 using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
 using ui::layouts::WidgetKind;
 
+// NOTE: This map is SEPARATE from ui::layout_render::widget_to_kind (metric_source_map.cpp).
+// It handles MIDL lowercase tokens ("single-value","windrose") emitted by the MIDL editor;
+// widget_to_kind handles the legacy editor camelCase tokens ("numeric","windRose").
+// Do not merge these two maps.
 WidgetKind token_to_kind(const char *t) {
     if (!t) return WidgetKind::Numeric;
     if (!strcmp(t, "compass")) return WidgetKind::Compass;
@@ -49,12 +53,22 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     out.unit = unit_buf;
     out.kind = token_to_kind(el["type"] | "");
     out.source = ui::layout_render::path_to_source(el["bindings"]["value"]["path"] | "");
-    // style.color may be "#rrggbb" or an int; default 0 (painter uses theme default).
+    // style.color may be "#rrggbb" hex string (MIDL editor) or an integer; default 0
+    // (painter uses theme default).
     out.accent = 0;
     JsonVariantConst col = el["style"]["color"];
-    if (col.is<unsigned>()) out.accent = col.as<unsigned>();
+    if (col.is<unsigned>()) {
+        out.accent = col.as<unsigned>();
+    } else if (col.is<const char *>()) {
+        const char *cs = col.as<const char *>();
+        // Accept only "#" followed by exactly 6 hex digits; reject malformed strings.
+        if (cs && cs[0] == '#' && strlen(cs) == 7) {
+            char *end = nullptr;
+            unsigned long v = strtoul(cs + 1, &end, 16);
+            if (end == cs + 7) out.accent = (uint32_t)v;
+        }
+    }
     return true;
 }
 
-}  // namespace render
-}  // namespace midl
+}  // namespace midl::render
