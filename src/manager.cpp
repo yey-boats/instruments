@@ -1230,6 +1230,11 @@ void ota_task(void *) {
     }
     http.setConnectTimeout(5000);
     http.setTimeout(15000);  // longer for big binaries
+    // GitHub release-asset URLs 302-redirect to objects.githubusercontent.com;
+    // a SignalK-manager catalog points the job at that public URL. Follow the
+    // redirect chain (and re-resolve to the signed asset host) instead of
+    // failing on the 302 ("GET non-200"). STRICT follows GET/HEAD only.
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
     {
         int code = http.GET();
         if (code != 200) {
