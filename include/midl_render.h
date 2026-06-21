@@ -28,4 +28,20 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
                  char *id_buf, char *label_buf, char *unit_buf);
 
+// Orchestration entry point (device-only; implemented in midl_render_apply.cpp
+// which is NOT in the native build_src_filter). Runs ON THE UI TASK — caller
+// guarantees this (e.g. inside app::pump()).
+//
+// Finds `screen_id` (or the first screen if null/missing) in doc["screens"],
+// solves its layout, maps each element to a MetricBinding via the enum bridge,
+// builds a freeform LVGL screen with create_freeform(), and registers it via
+// ui::replace_screen / ui::register_screen.
+//
+// SINGLE-SCREEN LIMITATION (Slice 2): only one MIDL screen is live at a time.
+// The session arena is a single function-static block; a second apply_doc call
+// overwrites it. Multi-screen support is deferred to Slice 5 (cutover).
+//
+// Returns true if the screen was successfully built and registered.
+bool apply_doc(JsonVariantConst doc, const char *screen_id);
+
 }  // namespace midl::render
