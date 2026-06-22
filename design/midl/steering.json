@@ -4,7 +4,7 @@
     {
       "id": "steering",
       "title": "Steering",
-      "_note": "screen_steering = compass (HDG/CTS) + XTE + VMG + RUDDER + course-trim buttons. square-480 maxTiles=4: modeled as the 2x2 compass/XTE/VMG/RUDDER. The +/- course-trim buttons are dropped from the tiling. VMG binds the firmware path navigation.courseRhumbline.velocityMadeGood (NOT performance.velocityMadeGood).",
+      "_note": "Faithful to Claude Design screen_steering: compass steering quad + course trim = HDG compass with a CTS marker + XTE + VMG + RUDDER (deg P/S) + a course row of [-10..+10] trim buttons. VMG binds the firmware path navigation.courseRhumbline.velocityMadeGood (NOT performance.velocityMadeGood). RUDDER uses port/stbd side; a centered rudder bar (bar with style.center) shows the deflection as a -1..+1 needle. square-480 maxTiles=4: compass + XTE + VMG + RUDDER (the +/- course-trim buttons dropped from the tiling). 800x480 (<=6) and 1024x600 (<=8) add HDG/BTW readouts, the rudder needle and the -10/+10 course-trim buttons (PUT to steering.autopilot.target.headingTrue).",
       "elements": {
         "compass": {
           "type": "compass",
@@ -79,11 +79,77 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "RUDDER",
             "size": 28
+          }
+        },
+        "rudderbar": {
+          "type": "bar",
+          "name": "RUDDER",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "steering.rudderAngle"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "RUDDER",
+            "size": 28,
+            "range": [
+              -0.6,
+              0.6
+            ],
+            "center": 0
+          }
+        },
+        "hdg": {
+          "type": "single-value",
+          "name": "HDG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "HDG",
+            "size": 28
+          }
+        },
+        "trimminus": {
+          "type": "button",
+          "name": "-10",
+          "style": {
+            "title": "-10",
+            "color": "warn"
+          },
+          "action": {
+            "kind": "command",
+            "target": "steering.autopilot.actions.adjustHeading.minus10"
+          }
+        },
+        "trimplus": {
+          "type": "button",
+          "name": "+10",
+          "style": {
+            "title": "+10",
+            "color": "good"
+          },
+          "action": {
+            "kind": "command",
+            "target": "steering.autopilot.actions.adjustHeading.plus10"
           }
         }
       },
@@ -104,7 +170,81 @@
             "element": "rudder"
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 2,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "xte"
+                  },
+                  {
+                    "element": "vmg"
+                  },
+                  {
+                    "element": "rudder"
+                  },
+                  {
+                    "element": "hdg"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "xte"
+                  },
+                  {
+                    "element": "vmg"
+                  },
+                  {
+                    "element": "rudder"
+                  },
+                  {
+                    "element": "rudderbar"
+                  },
+                  {
+                    "element": "trimminus"
+                  },
+                  {
+                    "element": "trimplus"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

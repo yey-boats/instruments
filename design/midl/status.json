@@ -4,43 +4,201 @@
     {
       "id": "status",
       "title": "Status",
-      "_note": "screen_status shows WIFI/SSID/IP/RSSI/BLE-id/SIGNALK/HEAP/PSRAM/UPTIME/BUILD - all device-local or const values with no SignalK path. square-480 maxTiles=4: modeled as 2x2 IP/SIGNALK/HEAP/UPTIME text tiles. All bindings are kind:local/const (valid per config schema). The square-480 capability manifest advertises sources:[signalk] only, so every tile here fails the capability (caps) layer by design - this screen is intrinsically local-only diagnostics. See validation report.",
+      "_note": "screen_status shows WIFI(SSID/IP/RSSI) / SIGNALK state / HEAP / PSRAM / UPTIME / BUILD - all device-local diagnostics (kind:local) with no SignalK path. square-480 maxTiles=4: 2x2 IP/SIGNALK/HEAP/UPTIME text tiles. landscape-800x480 surfaces 6 (adds SSID + RSSI), landscape-1024x600 surfaces all 8 system rows (adds PSRAM + BUILD). HEAP is the SRAM-pressure watch the design notes call out; PSRAM is the spare-capacity watch.",
       "elements": {
         "ip": {
           "type": "text",
           "name": "IP",
-          "bindings": { "value": { "kind": "local", "id": "net.ip" } },
-          "style": { "title": "IP", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "net.ip"
+            }
+          },
+          "style": {
+            "title": "IP",
+            "size": 20
+          }
+        },
+        "ssid": {
+          "type": "text",
+          "name": "SSID",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "net.ssid"
+            }
+          },
+          "style": {
+            "title": "SSID",
+            "size": 20
+          }
+        },
+        "rssi": {
+          "type": "text",
+          "name": "RSSI",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "net.rssi"
+            }
+          },
+          "style": {
+            "title": "RSSI",
+            "size": 20
+          }
         },
         "sk": {
           "type": "text",
           "name": "SIGNALK",
-          "bindings": { "value": { "kind": "local", "id": "sk.state" } },
-          "style": { "title": "SIGNALK", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sk.state"
+            }
+          },
+          "style": {
+            "title": "SIGNALK",
+            "size": 20
+          }
         },
         "heap": {
           "type": "text",
           "name": "HEAP",
-          "bindings": { "value": { "kind": "local", "id": "sys.heap" } },
-          "style": { "title": "HEAP", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.heap"
+            }
+          },
+          "style": {
+            "title": "HEAP",
+            "size": 20
+          }
+        },
+        "psram": {
+          "type": "text",
+          "name": "PSRAM",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.psram"
+            }
+          },
+          "style": {
+            "title": "PSRAM",
+            "size": 20
+          }
         },
         "uptime": {
           "type": "text",
           "name": "UPTIME",
-          "bindings": { "value": { "kind": "local", "id": "sys.uptime" } },
-          "style": { "title": "UPTIME", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.uptime"
+            }
+          },
+          "style": {
+            "title": "UPTIME",
+            "size": 20
+          }
+        },
+        "build": {
+          "type": "text",
+          "name": "BUILD",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "sys.build"
+            }
+          },
+          "style": {
+            "title": "BUILD",
+            "size": 20
+          }
         }
       },
       "layout": {
         "rows": 2,
         "cols": 2,
         "cells": [
-          { "element": "ip" },
-          { "element": "sk" },
-          { "element": "heap" },
-          { "element": "uptime" }
+          {
+            "element": "ip"
+          },
+          {
+            "element": "sk"
+          },
+          {
+            "element": "heap"
+          },
+          {
+            "element": "uptime"
+          }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "rows": 2,
+            "cols": 3,
+            "cells": [
+              {
+                "element": "ip"
+              },
+              {
+                "element": "ssid"
+              },
+              {
+                "element": "sk"
+              },
+              {
+                "element": "heap"
+              },
+              {
+                "element": "rssi"
+              },
+              {
+                "element": "uptime"
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "rows": 2,
+            "cols": 4,
+            "cells": [
+              {
+                "element": "ip"
+              },
+              {
+                "element": "ssid"
+              },
+              {
+                "element": "rssi"
+              },
+              {
+                "element": "sk"
+              },
+              {
+                "element": "heap"
+              },
+              {
+                "element": "psram"
+              },
+              {
+                "element": "uptime"
+              },
+              {
+                "element": "build"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

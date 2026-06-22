@@ -4,59 +4,255 @@
     {
       "id": "dashboard",
       "title": "Dashboard",
+      "_note": "screen_dashboard = at-a-glance 2x2 hero: WIND dial (AWS, kn, unit on dial) + SOG (kn) + DEPTH (m, k/M scaled) + BATT (% bar). DEPTH carries a shallow-water alarm via style.zones (lt thresholds -> warn/accent). BATT carries a low-state-of-charge alarm via style.zones. Landscape variants reclaim the under-used vertical space the design notes call out by surfacing HDG, then TWS + VMG.",
       "elements": {
         "wind": {
           "type": "windrose",
           "name": "AWS",
           "bindings": {
-            "value": { "kind": "signalk", "path": "environment.wind.speedApparent" },
-            "dir": { "kind": "signalk", "path": "environment.wind.angleApparent" }
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedApparent"
+            },
+            "dir": {
+              "kind": "signalk",
+              "path": "environment.wind.angleApparent"
+            }
           },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "AWS", "size": 28 }
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AWS",
+            "size": 28
+          }
         },
         "sog": {
           "type": "single-value",
           "name": "SOG",
           "bindings": {
-            "value": { "kind": "signalk", "path": "navigation.speedOverGround" }
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
           },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "SOG", "size": 48 }
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 48
+          }
         },
         "depth": {
           "type": "single-value",
           "name": "DEPTH",
           "bindings": {
-            "value": { "kind": "signalk", "path": "environment.depth.belowKeel" }
+            "value": {
+              "kind": "signalk",
+              "path": "environment.depth.belowKeel"
+            }
           },
-          "format": { "unit": "m", "decimals": 1 },
-          "style": { "title": "DEPTH", "size": 48 }
+          "format": {
+            "unit": "m",
+            "decimals": 1
+          },
+          "style": {
+            "title": "DEPTH",
+            "size": 48,
+            "zones": [
+              {
+                "lt": 1.5,
+                "color": "warn"
+              },
+              {
+                "lt": 3,
+                "color": "accent"
+              }
+            ]
+          }
         },
         "batt": {
           "type": "bar",
           "name": "BATT",
           "bindings": {
-            "value": { "kind": "signalk", "path": "electrical.batteries.house.stateOfCharge" }
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.stateOfCharge"
+            }
           },
-          "format": { "unit": "%", "decimals": 0 },
-          "style": { "title": "BATT", "size": 20 },
-          "zones": [
-            { "lt": 0.2, "color": "warn" },
-            { "lt": 0.5, "color": "accent" }
-          ]
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "BATT",
+            "size": 20,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.2,
+                "color": "warn"
+              },
+              {
+                "lt": 0.5,
+                "color": "accent"
+              }
+            ]
+          }
+        },
+        "hdg": {
+          "type": "single-value",
+          "name": "HDG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "HDG",
+            "size": 28
+          }
+        },
+        "tws": {
+          "type": "single-value",
+          "name": "TWS",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedTrue"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "TWS",
+            "size": 28
+          }
+        },
+        "vmg": {
+          "type": "single-value",
+          "name": "VMG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseRhumbline.velocityMadeGood"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "VMG",
+            "size": 28
+          }
         }
       },
       "layout": {
         "rows": 2,
         "cols": 2,
         "cells": [
-          { "element": "wind" },
-          { "element": "sog" },
-          { "element": "depth" },
-          { "element": "batt" }
+          {
+            "element": "wind"
+          },
+          {
+            "element": "sog"
+          },
+          {
+            "element": "depth"
+          },
+          {
+            "element": "batt"
+          }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "wind"
+              },
+              {
+                "rows": 2,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "depth"
+                  },
+                  {
+                    "element": "hdg"
+                  },
+                  {
+                    "element": "batt"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "wind"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "depth"
+                  },
+                  {
+                    "element": "hdg"
+                  },
+                  {
+                    "element": "tws"
+                  },
+                  {
+                    "element": "vmg"
+                  },
+                  {
+                    "element": "batt"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

@@ -4,8 +4,45 @@
     {
       "id": "route",
       "title": "Route",
-      "_note": "screen_route shows XTE + BTW + DTW + CTS + VMG (5 readouts). square-480 maxTiles=4: modeled as XTE/DTW/BTW/CTS. VMG (navigation.courseRhumbline.velocityMadeGood) is dropped from the tiling.",
+      "_note": "Faithful to Claude Design screen_route: active-route progress = a centered XTE deviation needle + DTW + BTW + CTS + VMG. The XTE needle is a bar with style.center (the renderer maps a centered bar's fraction to a -1..+1 deviation needle) over a symmetric range, with good/warn zones; the numeric XTE keeps its port/stbd side. square-480 maxTiles=4: XTE-needle + DTW + BTW + CTS (VMG dropped from the tiling). 800x480 (<=6) and 1024x600 (<=8) add VMG, SOG and the numeric XTE magnitude.",
       "elements": {
+        "xtebar": {
+          "type": "bar",
+          "name": "XTE",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseRhumbline.crossTrackError"
+            }
+          },
+          "format": {
+            "unit": "nm",
+            "decimals": 2
+          },
+          "style": {
+            "title": "XTE",
+            "size": 28,
+            "range": [
+              -0.2,
+              0.2
+            ],
+            "center": 0,
+            "zones": [
+              {
+                "lt": 0.35,
+                "color": "warn"
+              },
+              {
+                "lt": 0.65,
+                "color": "good"
+              },
+              {
+                "lt": 1.01,
+                "color": "warn"
+              }
+            ]
+          }
+        },
         "xte": {
           "type": "single-value",
           "name": "XTE",
@@ -78,6 +115,42 @@
             "title": "CTS",
             "size": 28
           }
+        },
+        "vmg": {
+          "type": "single-value",
+          "name": "VMG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseRhumbline.velocityMadeGood"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "VMG",
+            "size": 28
+          }
+        },
+        "sog": {
+          "type": "single-value",
+          "name": "SOG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 28
+          }
         }
       },
       "layout": {
@@ -85,7 +158,7 @@
         "cols": 2,
         "cells": [
           {
-            "element": "xte"
+            "element": "xtebar"
           },
           {
             "element": "dtw"
@@ -97,7 +170,84 @@
             "element": "cts"
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "col",
+            "weights": [
+              1,
+              2
+            ],
+            "children": [
+              {
+                "element": "xtebar"
+              },
+              {
+                "rows": 1,
+                "cols": 5,
+                "cells": [
+                  {
+                    "element": "xte"
+                  },
+                  {
+                    "element": "dtw"
+                  },
+                  {
+                    "element": "btw"
+                  },
+                  {
+                    "element": "cts"
+                  },
+                  {
+                    "element": "vmg"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "col",
+            "weights": [
+              1,
+              2
+            ],
+            "children": [
+              {
+                "element": "xtebar"
+              },
+              {
+                "rows": 2,
+                "cols": 3,
+                "cells": [
+                  {
+                    "element": "xte"
+                  },
+                  {
+                    "element": "dtw"
+                  },
+                  {
+                    "element": "btw"
+                  },
+                  {
+                    "element": "cts"
+                  },
+                  {
+                    "element": "vmg"
+                  },
+                  {
+                    "element": "sog"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

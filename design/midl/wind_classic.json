@@ -10,17 +10,54 @@
           "type": "windrose",
           "name": "AWS",
           "bindings": {
-            "value": { "kind": "signalk", "path": "environment.wind.speedApparent" },
-            "dir": { "kind": "signalk", "path": "environment.wind.angleApparent" }
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedApparent"
+            },
+            "dir": {
+              "kind": "signalk",
+              "path": "environment.wind.angleApparent"
+            }
           },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "AWS", "size": 48 },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AWS",
+            "size": 48,
+            "hull": true,
+            "sectors": [
+              {
+                "from": -30,
+                "to": 0,
+                "color": "port"
+              },
+              {
+                "from": 0,
+                "to": 30,
+                "color": "starboard"
+              }
+            ]
+          },
           "markers": [
+            {
+              "id": "AWA",
+              "glyph": "triangle",
+              "color": "warn",
+              "dir": {
+                "kind": "signalk",
+                "path": "environment.wind.angleApparent"
+              }
+            },
             {
               "id": "TWA",
               "glyph": "diamond",
               "color": "accent",
-              "dir": { "kind": "signalk", "path": "environment.wind.angleTrueWater" }
+              "dir": {
+                "kind": "signalk",
+                "path": "environment.wind.angleTrueWater"
+              }
             }
           ]
         },
@@ -28,45 +65,249 @@
           "type": "single-value",
           "name": "TWS",
           "bindings": {
-            "value": { "kind": "signalk", "path": "environment.wind.speedTrue" }
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedTrue"
+            }
           },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "TWS", "size": 28 }
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "TWS",
+            "size": 28
+          }
         },
         "hdg": {
           "type": "single-value",
           "name": "HDG",
           "bindings": {
-            "value": { "kind": "signalk", "path": "navigation.headingTrue" }
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
           },
-          "format": { "unit": "deg", "decimals": 0 },
-          "style": { "title": "HDG", "size": 28 }
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "HDG",
+            "size": 28
+          }
         },
         "sog": {
           "type": "single-value",
           "name": "SOG",
           "bindings": {
-            "value": { "kind": "signalk", "path": "navigation.speedOverGround" }
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
           },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "SOG", "size": 28 }
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 28
+          }
+        },
+        "awa": {
+          "type": "single-value",
+          "name": "AWA",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.angleApparent"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0,
+            "side": "port-stbd"
+          },
+          "style": {
+            "title": "AWA",
+            "size": 28
+          }
+        },
+        "twa": {
+          "type": "single-value",
+          "name": "TWA",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.angleTrueWater"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0,
+            "side": "port-stbd"
+          },
+          "style": {
+            "title": "TWA",
+            "size": 28
+          }
+        },
+        "cog": {
+          "type": "single-value",
+          "name": "COG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseOverGroundTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "COG",
+            "size": 28
+          }
+        },
+        "aws": {
+          "type": "single-value",
+          "name": "AWS",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedApparent"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AWS",
+            "size": 28
+          }
+        },
+        "stw": {
+          "type": "single-value",
+          "name": "STW",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedThroughWater"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "STW",
+            "size": 28
+          }
         }
       },
       "layout": {
-        "dir": "col",
-        "weights": [3, 1],
+        "flow": "col",
+        "weights": [
+          3,
+          1
+        ],
         "children": [
-          { "element": "rose" },
           {
-            "dir": "row",
+            "element": "rose"
+          },
+          {
+            "flow": "row",
             "children": [
-              { "element": "tws" },
-              { "element": "hdg" },
-              { "element": "sog" }
+              {
+                "element": "tws"
+              },
+              {
+                "element": "hdg"
+              },
+              {
+                "element": "sog"
+              }
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "rose"
+              },
+              {
+                "rows": 2,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "tws"
+                  },
+                  {
+                    "element": "hdg"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "awa"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "rose"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "tws"
+                  },
+                  {
+                    "element": "hdg"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "awa"
+                  },
+                  {
+                    "element": "twa"
+                  },
+                  {
+                    "element": "cog"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

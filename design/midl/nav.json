@@ -4,51 +4,239 @@
     {
       "id": "nav",
       "title": "Navigation",
-      "_note": "screen_nav shows position + COG + SOG + HDG + a compass (5 readouts). square-480 maxTiles=4: modeled as compass + SOG + COG + HDG. navigation.position is dropped from the tiling (it needs a wide lat/lon field that does not fit a square tile).",
+      "_note": "Faithful to Claude Design screen_nav: position + course overview = Position (DDM) + COG + SOG + HDG + a mini compass whose secondary marker is CTS (and COG). square-480 maxTiles=4: compass + SOG + COG + HDG (navigation.position needs a wide lat/lon field that does not fit a square tile, so it is surfaced only in the landscape variants). The text widget renders a navigation.position object as two DDM lat/lon lines. 800x480 (<=6) and 1024x600 (<=8) add the position block, STW and BTW beside the hero compass.",
       "elements": {
         "compass": {
           "type": "compass",
           "name": "HDG",
           "bindings": {
-            "value": { "kind": "signalk", "path": "navigation.headingTrue" }
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
           },
-          "style": { "title": "HDG", "size": 48 },
+          "style": {
+            "title": "HDG",
+            "size": 48
+          },
           "markers": [
-            { "id": "COG", "glyph": "chevron_out", "color": "accent", "dir": { "kind": "signalk", "path": "navigation.courseOverGroundTrue" } }
+            {
+              "id": "COG",
+              "glyph": "chevron_out",
+              "color": "accent",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseOverGroundTrue"
+              }
+            },
+            {
+              "id": "CTS",
+              "glyph": "diamond",
+              "color": "good",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseRhumbline.bearingTrackTrue"
+              }
+            }
           ]
         },
         "sog": {
           "type": "single-value",
           "name": "SOG",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.speedOverGround" } },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "SOG", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 28
+          }
         },
         "cog": {
           "type": "single-value",
           "name": "COG",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.courseOverGroundTrue" } },
-          "format": { "unit": "deg", "decimals": 0 },
-          "style": { "title": "COG", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseOverGroundTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "COG",
+            "size": 28
+          }
         },
         "hdg": {
           "type": "single-value",
           "name": "HDG",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.headingTrue" } },
-          "format": { "unit": "deg", "decimals": 0 },
-          "style": { "title": "HDG", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "HDG",
+            "size": 28
+          }
+        },
+        "pos": {
+          "type": "text",
+          "name": "POSITION",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.position"
+            }
+          },
+          "style": {
+            "title": "POSITION",
+            "size": 20
+          }
+        },
+        "stw": {
+          "type": "single-value",
+          "name": "STW",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedThroughWater"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "STW",
+            "size": 28
+          }
+        },
+        "btw": {
+          "type": "single-value",
+          "name": "BTW",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseRhumbline.nextPoint.bearingTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "BTW",
+            "size": 28
+          }
         }
       },
       "layout": {
         "rows": 2,
         "cols": 2,
         "cells": [
-          { "element": "compass" },
-          { "element": "sog" },
-          { "element": "cog" },
-          { "element": "hdg" }
+          {
+            "element": "compass"
+          },
+          {
+            "element": "sog"
+          },
+          {
+            "element": "cog"
+          },
+          {
+            "element": "hdg"
+          }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 2,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "pos"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "cog"
+                  },
+                  {
+                    "element": "hdg"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "pos"
+                  },
+                  {
+                    "element": "hdg"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "cog"
+                  },
+                  {
+                    "element": "stw"
+                  },
+                  {
+                    "element": "btw"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

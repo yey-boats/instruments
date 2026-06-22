@@ -1,0 +1,258 @@
+{
+  "midl": "1.0.0",
+  "screens": [
+    {
+      "id": "engine",
+      "title": "Engine",
+      "_note": "Engine gauges from the design numeric/gauge widgets: RPM (propulsion.main.revolutions, Hz), engine temperature (K->degC), oil pressure (Pa) and coolant/SOG context. Gauge range frames each metric; zones flag the danger band.",
+      "elements": {
+        "rpm": {
+          "type": "gauge",
+          "name": "RPM",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "propulsion.main.revolutions"
+            }
+          },
+          "format": {
+            "unit": "rpm",
+            "decimals": 0
+          },
+          "style": {
+            "title": "RPM",
+            "size": 28,
+            "range": [
+              0,
+              3600
+            ],
+            "zones": [
+              {
+                "lt": 0.83,
+                "color": "good"
+              },
+              {
+                "lt": 0.92,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "danger"
+              }
+            ]
+          }
+        },
+        "temp": {
+          "type": "gauge",
+          "name": "ENG TEMP",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "propulsion.main.temperature"
+            }
+          },
+          "format": {
+            "unit": "degC",
+            "decimals": 0
+          },
+          "style": {
+            "title": "ENG TEMP",
+            "size": 28,
+            "range": [
+              0,
+              120
+            ],
+            "zones": [
+              {
+                "lt": 0.83,
+                "color": "good"
+              },
+              {
+                "lt": 0.92,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "danger"
+              }
+            ]
+          }
+        },
+        "oil": {
+          "type": "gauge",
+          "name": "OIL PRESS",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "propulsion.main.oilPressure"
+            }
+          },
+          "format": {
+            "unit": "bar",
+            "decimals": 1
+          },
+          "style": {
+            "title": "OIL PRESS",
+            "size": 28,
+            "range": [
+              0,
+              6
+            ],
+            "zones": [
+              {
+                "lt": 0.25,
+                "color": "danger"
+              },
+              {
+                "lt": 0.4,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "good"
+              }
+            ]
+          }
+        },
+        "fuel": {
+          "type": "bar",
+          "name": "FUEL",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "tanks.fuel.0.currentLevel"
+            }
+          },
+          "format": {
+            "unit": "%",
+            "decimals": 0
+          },
+          "style": {
+            "title": "FUEL",
+            "size": 28,
+            "range": [
+              0,
+              1
+            ],
+            "zones": [
+              {
+                "lt": 0.15,
+                "color": "warn"
+              }
+            ]
+          }
+        },
+        "volt": {
+          "type": "single-value",
+          "name": "BUS V",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "electrical.batteries.house.voltage"
+            }
+          },
+          "format": {
+            "unit": "V",
+            "decimals": 2
+          },
+          "style": {
+            "title": "BUS V",
+            "size": 28
+          }
+        },
+        "sog": {
+          "type": "single-value",
+          "name": "SOG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 28
+          }
+        }
+      },
+      "layout": {
+        "rows": 2,
+        "cols": 2,
+        "cells": [
+          {
+            "element": "rpm"
+          },
+          {
+            "element": "temp"
+          },
+          {
+            "element": "oil"
+          },
+          {
+            "element": "fuel"
+          }
+        ]
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "rows": 2,
+            "cols": 3,
+            "cells": [
+              {
+                "element": "rpm"
+              },
+              {
+                "element": "temp"
+              },
+              {
+                "element": "oil"
+              },
+              {
+                "element": "fuel"
+              },
+              {
+                "element": "volt"
+              },
+              {
+                "element": "sog"
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "rows": 2,
+            "cols": 3,
+            "cells": [
+              {
+                "element": "rpm"
+              },
+              {
+                "element": "temp"
+              },
+              {
+                "element": "oil"
+              },
+              {
+                "element": "fuel"
+              },
+              {
+                "element": "volt"
+              },
+              {
+                "element": "sog"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

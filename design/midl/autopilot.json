@@ -4,56 +4,327 @@
     {
       "id": "autopilot",
       "title": "Autopilot",
-      "_note": "screen_autopilot = AP state widget + heading compass (HDG/COG/CTS/AP-target markers) + DEPTH/SPEED/AWS/AWA readouts and mode/engage buttons. square-480 maxTiles=4: modeled as compass + autopilot-state + DEPTH + SOG. AWS/AWA and the mode/engage buttons are dropped from the tiling. AP-target marker binds steering.autopilot.target.headingTrue (the path the firmware PUTs).",
+      "_note": "Faithful to Claude Design screen_autopilot: glass-cockpit AP HUD = rolling heading band (compass shape:band) with HDG/COG/CTS/AP-target marker ring + AP state pill + AP-target readout + XTE strip + DEPTH/SPEED/AWS/AWA tiles + ON/STBY/MODE buttons. AP-target marker and the engage/standby/mode actions bind steering.autopilot.* (the paths the firmware PUTs). square-480 maxTiles=4: the band + AP state + DEPTH + SPEED (the 4 most important). 800x480 (<=6) and 1024x600 (<=8) surface the rest of the design: AP target, XTE, AWS/AWA, COG and the ON/STBY/MODE action buttons beside the hero band.",
       "elements": {
         "compass": {
           "type": "compass",
           "name": "HDG",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.headingTrue" } },
-          "style": { "title": "HDG", "size": 48 },
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.headingTrue"
+            }
+          },
+          "style": {
+            "title": "HDG",
+            "size": 48,
+            "shape": "band"
+          },
           "markers": [
-            { "id": "HDG", "glyph": "triangle", "color": "fg", "dir": { "kind": "signalk", "path": "navigation.headingTrue" } },
-            { "id": "COG", "glyph": "chevron_out", "color": "accent", "dir": { "kind": "signalk", "path": "navigation.courseOverGroundTrue" } },
-            { "id": "CTS", "glyph": "diamond", "color": "good", "dir": { "kind": "signalk", "path": "navigation.courseRhumbline.bearingTrackTrue" } },
-            { "id": "APTGT", "glyph": "chevron_double", "color": "warn", "dir": { "kind": "signalk", "path": "steering.autopilot.target.headingTrue" } }
+            {
+              "id": "HDG",
+              "glyph": "triangle",
+              "color": "fg",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.headingTrue"
+              }
+            },
+            {
+              "id": "COG",
+              "glyph": "chevron_out",
+              "color": "accent",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseOverGroundTrue"
+              }
+            },
+            {
+              "id": "CTS",
+              "glyph": "diamond",
+              "color": "good",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseRhumbline.bearingTrackTrue"
+              }
+            },
+            {
+              "id": "APTGT",
+              "glyph": "chevron_double",
+              "color": "warn",
+              "dir": {
+                "kind": "signalk",
+                "path": "steering.autopilot.target.headingTrue"
+              }
+            }
           ]
         },
         "apstate": {
           "type": "autopilot",
           "name": "AP",
-          "bindings": { "value": { "kind": "signalk", "path": "steering.autopilot.state" } },
-          "style": { "title": "AUTOPILOT", "size": 20 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "steering.autopilot.state"
+            }
+          },
+          "style": {
+            "title": "AUTOPILOT",
+            "size": 20
+          }
+        },
+        "aptarget": {
+          "type": "single-value",
+          "name": "TARGET",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "steering.autopilot.target.headingTrue"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "AP TARGET",
+            "size": 28,
+            "color": "warn"
+          }
+        },
+        "xte": {
+          "type": "single-value",
+          "name": "XTE",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.courseRhumbline.crossTrackError"
+            }
+          },
+          "format": {
+            "unit": "nm",
+            "decimals": 2,
+            "side": "port-stbd"
+          },
+          "style": {
+            "title": "XTE",
+            "size": 28
+          }
         },
         "depth": {
           "type": "single-value",
           "name": "DEPTH",
-          "bindings": { "value": { "kind": "signalk", "path": "environment.depth.belowKeel" } },
-          "format": { "unit": "m", "decimals": 1 },
-          "style": { "title": "DEPTH", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.depth.belowKeel"
+            }
+          },
+          "format": {
+            "unit": "m",
+            "decimals": 1
+          },
+          "style": {
+            "title": "DEPTH",
+            "size": 28
+          }
         },
         "sog": {
           "type": "single-value",
           "name": "SPEED",
-          "bindings": { "value": { "kind": "signalk", "path": "navigation.speedOverGround" } },
-          "format": { "unit": "kn", "decimals": 1 },
-          "style": { "title": "SPEED", "size": 28 }
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SPEED",
+            "size": 28
+          }
+        },
+        "aws": {
+          "type": "single-value",
+          "name": "AWS",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedApparent"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AWS",
+            "size": 28
+          }
+        },
+        "awa": {
+          "type": "single-value",
+          "name": "AWA",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.angleApparent"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0,
+            "side": "port-stbd"
+          },
+          "style": {
+            "title": "AWA",
+            "size": 28
+          }
+        },
+        "engage": {
+          "type": "button",
+          "name": "ON",
+          "style": {
+            "title": "ON",
+            "color": "good"
+          },
+          "action": {
+            "kind": "put",
+            "target": "steering.autopilot.state",
+            "value": "auto"
+          }
+        },
+        "standby": {
+          "type": "button",
+          "name": "STBY",
+          "style": {
+            "title": "STBY",
+            "color": "warn"
+          },
+          "action": {
+            "kind": "put",
+            "target": "steering.autopilot.state",
+            "value": "standby"
+          }
+        },
+        "mode": {
+          "type": "button",
+          "name": "MODE",
+          "style": {
+            "title": "MODE"
+          },
+          "action": {
+            "kind": "command",
+            "target": "steering.autopilot.actions.advanceMode"
+          }
         }
       },
       "layout": {
-        "dir": "col",
-        "weights": [3, 1],
+        "flow": "col",
+        "weights": [
+          3,
+          1
+        ],
         "children": [
-          { "element": "compass" },
           {
-            "dir": "row",
+            "element": "compass"
+          },
+          {
+            "flow": "row",
             "children": [
-              { "element": "apstate" },
-              { "element": "depth" },
-              { "element": "sog" }
+              {
+                "element": "apstate"
+              },
+              {
+                "element": "depth"
+              },
+              {
+                "element": "sog"
+              }
             ]
           }
         ]
-      }
+      },
+      "variants": [
+        {
+          "class": "landscape-800x480",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              2
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 5,
+                "cols": 1,
+                "cells": [
+                  {
+                    "element": "apstate"
+                  },
+                  {
+                    "element": "aptarget"
+                  },
+                  {
+                    "element": "engage"
+                  },
+                  {
+                    "element": "standby"
+                  },
+                  {
+                    "element": "mode"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "class": "landscape-1024x600",
+          "layout": {
+            "flow": "row",
+            "weights": [
+              3,
+              3
+            ],
+            "children": [
+              {
+                "element": "compass"
+              },
+              {
+                "rows": 3,
+                "cols": 2,
+                "cells": [
+                  {
+                    "element": "apstate"
+                  },
+                  {
+                    "element": "xte"
+                  },
+                  {
+                    "element": "depth"
+                  },
+                  {
+                    "element": "sog"
+                  },
+                  {
+                    "element": "aws"
+                  },
+                  {
+                    "element": "awa"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
