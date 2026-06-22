@@ -56,6 +56,13 @@ struct QuadGridTile {
     // faint marker (the inner `markers` ring carries HDG + CTS). Additive
     // trailing field — preserves the gnu++11 aggregate-init order above.
     ui::MarkerRing markers_cog;
+    // Hero-scaled fullscreen numeric: when >0, the value label uses font_xl_64
+    // scaled via transform_scale to ~hero_h px tall, and the updater re-fits the
+    // scale on every value-width change (a 1-digit value scales bigger than a
+    // 3-digit one). 0 = normal tile (font-ladder fit, no transform). Additive
+    // trailing field; value-inits to 0 for every non-hero tile.
+    int hero_h;      // target hero height in px (0 = not a hero tile)
+    int hero_max_w;  // width budget for the scaled hero (px)
 };
 
 struct QuadGridState {
@@ -366,6 +373,27 @@ void set_zoom_target(const MetricBinding &m) {
     g_zoom_target = m;
 }
 
+// Optional fullscreen-zoom handler (set by the MIDL render layer). When set, a
+// fullscreen-self zoom tap routes here instead of show_by_id("zoom") — the MIDL
+// build has no "zoom" screen, so it supplies its own transient full-screen render.
+static ZoomFullscreenFn s_zoom_fullscreen_fn = nullptr;
+void set_zoom_fullscreen_handler(ZoomFullscreenFn fn) {
+    s_zoom_fullscreen_fn = fn;
+}
+
+// Route a fullscreen-self (auto-scale) zoom request: prefer the MIDL handler if
+// installed, else fall back to the built-in "zoom" screen. Shared by both the
+// legacy (zoom_target == NULL) and authored-auto paths in tile_zoom_action_cb.
+static void dispatch_fullscreen_self(const MetricBinding &m) {
+    if (m.source == MetricSource::None) return;
+    if (s_zoom_fullscreen_fn) {
+        s_zoom_fullscreen_fn(m);
+        return;
+    }
+    g_zoom_target = m;
+    ui::show_by_id("zoom");
+}
+
 // Slice 6: per-field zoom dispatch. Honors the authored tile's `zoomable` /
 // `zoom_target`: "auto"/"" scales the field in place on the dedicated zoom
 // screen (reusing g_zoom_target), a "<screenId>" target switches to that full
@@ -378,19 +406,17 @@ static void tile_zoom_action_cb(lv_event_t *e) {
     if (!m) return;
 
     // No explicit zoom config (built-in screen tile): preserve the legacy
-    // auto-zoom for any real metric.
+    // auto-zoom for any real metric. For a MIDL fullscreen-self tile the
+    // map_element default also lands here (zoom_target == NULL with zoomable
+    // true) and routes through the MIDL handler if installed.
     if (!m->zoom_target) {
-        if (m->source == MetricSource::None) return;
-        g_zoom_target = *m;
-        ui::show_by_id("zoom");
+        dispatch_fullscreen_self(*m);
         return;
     }
 
     switch (layout::zoom_action(m->zoomable, m->zoom_target)) {
     case layout::ZOOM_AUTO_SCALE:
-        if (m->source == MetricSource::None) return;
-        g_zoom_target = *m;
-        ui::show_by_id("zoom");
+        dispatch_fullscreen_self(*m);
         break;
     case layout::ZOOM_SHOW_SCREEN:
         // show_by_id validates the id and no-ops (returns false) on a dangling
@@ -581,6 +607,35 @@ static void fit_value_font(lv_obj_t *label, const char *txt, int max_w) {
     lv_obj_set_style_text_font(label, ladder[3], 0);
 }
 
+// Hero-scale a value label well beyond the 64px ceiling of the enabled fonts,
+// using lv_obj_set_style_transform_scale (256 == 1.0x) on font_xl_64. The target
+// rendered glyph height is `hero_h` px (the goal: ~60% of a 480px screen ≈ 288px,
+// so ~4.5x). The label MUST already use font_xl_64 with a center transform pivot
+// (set once in the painter). We measure the 1x string and clamp the scale two ways:
+//   * height: scale_h = hero_h * 256 / 64  (the requested hero height)
+//   * width:  the scaled text must fit hero_max_w, so scale_w = max_w * 256 / w1x
+// and take min(scale_h, scale_w). A 3-digit value ("359") at ~110px wide 1x would
+// want scale_h≈1152 (288px tall) but is width-clamped to ~480/110*256≈1116, i.e.
+// nearly the full hero height; a 1-digit value stays at the full scale_h. Called
+// from the painter (build) and the updater (re-fit on each value-width change).
+static void fit_hero_scale(lv_obj_t *label, const char *txt, int hero_h, int hero_max_w) {
+    if (!label || hero_h <= 0) return;
+    lv_point_t sz;
+    lv_text_get_size(&sz, (txt && txt[0]) ? txt : "0", &font_xl_64, 0, 0, LV_COORD_MAX,
+                     LV_TEXT_FLAG_NONE);
+    int w1x = sz.x > 0 ? sz.x : 1;
+    // font_xl_64 line height is ~64px; use the real metric so the target height is
+    // exact regardless of the font's internal ascent/descent.
+    int h1x = lv_font_get_line_height(&font_xl_64);
+    if (h1x <= 0) h1x = 64;
+    long scale_h = (long)hero_h * 256 / h1x;
+    long scale_w = hero_max_w > 0 ? (long)hero_max_w * 256 / w1x : scale_h;
+    long scale = scale_h < scale_w ? scale_h : scale_w;
+    if (scale < 256) scale = 256;    // never shrink below 1x (font already 64px)
+    if (scale > 4096) scale = 4096;  // sanity ceiling (~1024px) to bound the canvas
+    lv_obj_set_style_transform_scale(label, (int32_t)scale, 0);
+}
+
 // Text-tile variant of fit_value_font with a smaller Montserrat ladder. Picks
 // the largest font whose measured width (lv_text_get_size over the full,
 // possibly multi-line string) fits max_w. Fixes POS clipping on the narrow
@@ -611,6 +666,13 @@ static inline uint32_t value_color(const MetricBinding &m) {
 static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     bool has_extras = (m.extras_count > 0);
 
+    // Fullscreen-self zoom: the tile fills the whole 480x480 panel (w>=400 &&
+    // h>=400). Render the hero value MUCH larger than the 64px font ceiling by
+    // transform-scaling font_xl_64 (set up below; see fit_hero_scale). Target ≈60%
+    // of the tile height. Multi-row tiles never go hero (their extras need the
+    // vertical room).
+    bool fullscreen = (w >= 400 && h >= 400) && !has_extras;
+
     // Pick value font based on tile height. On 480x480 sunton the quad grid
     // gives ~200 px tiles -> the custom 64px font (hero). Single-field tiles
     // without a secondary/extras line get the big font; tighter tiles step
@@ -619,11 +681,14 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     if (h < 180 || has_extras) vfont = &lv_font_montserrat_48;
     if (h < 150) vfont = &lv_font_montserrat_38;
     if (h < 110) vfont = &lv_font_montserrat_28;
+    if (fullscreen) vfont = &font_xl_64;  // hero scale needs the scalable digit font
     // Unit font: only 14/20 enabled to keep LVGL glyph cache off
     // internal heap (16/18 sizes blew int_largest from 7668 -> 1908 bytes
-    // and starved the network task; see USB-flash diagnostic).
+    // and starved the network task; see USB-flash diagnostic). On a fullscreen
+    // hero the unit rides large-but-secondary (38px).
     const lv_font_t *ufont =
         (vfont == &lv_font_montserrat_28) ? &lv_font_montserrat_14 : &lv_font_montserrat_20;
+    if (fullscreen) ufont = &lv_font_montserrat_38;
 
     // Flex row container holds value + unit so they're true bottom-aligned
     // (baselines match for digit fonts since there are no descenders).
@@ -647,6 +712,20 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+    if (fullscreen) {
+        // Scale the hero number to ~60% of the tile height, width-clamped so a
+        // 3-digit value still fits. transform_scale grows about the label's own
+        // center (set the pivot first; the default top-left pivot would shove the
+        // scaled glyphs down-right and clip them). The actual scale is recomputed
+        // per value in update_freeform (fit_hero_scale) since a 1-digit value
+        // scales bigger than a 3-digit one. Apply an initial fit here so the first
+        // frame is already large.
+        t.hero_h = (int)(h * 0.6);
+        t.hero_max_w = w - 48;  // leave a small horizontal margin inside the screen
+        lv_obj_set_style_transform_pivot_x(t.value, lv_pct(50), 0);
+        lv_obj_set_style_transform_pivot_y(t.value, lv_pct(50), 0);
+        fit_hero_scale(t.value, "0", t.hero_h, t.hero_max_w);
+    }
 
     if (m.unit && m.unit[0]) {
         t.unit = lv_label_create(row);
@@ -4747,7 +4826,11 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
             }
             // Numeric, WindRose, Text — value/secondary text slots.
             if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri)) {
-                if (t.kind == WidgetKind::Numeric && m.extras_count == 0) {
+                if (t.kind == WidgetKind::Numeric && t.hero_h > 0) {
+                    // Fullscreen hero: re-fit the transform_scale to the new value
+                    // width (1-digit scales bigger than 3-digit; see fit_hero_scale).
+                    fit_hero_scale(t.value, pri, t.hero_h, t.hero_max_w);
+                } else if (t.kind == WidgetKind::Numeric && m.extras_count == 0) {
                     // Use the tile's own width (solver may pick a rect different
                     // from the fixed QG_TILE_W). -56 matches the QuadGrid margin.
                     fit_value_font(t.value, pri, st->tiles[i].tile_w - 56);

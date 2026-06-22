@@ -133,11 +133,15 @@ int main(int argc, char **argv) {
     static char ids[MAX_TILES][STR_CAP];
     static char labels[MAX_TILES][STR_CAP];
     static char units[MAX_TILES][STR_CAP];
+    static char actions[MAX_TILES][STR_CAP];
+    static char zooms[MAX_TILES][STR_CAP];
     static MetricBinding metrics[MAX_TILES];
     static Rect rects[MAX_TILES];
     memset(ids, 0, sizeof(ids));
     memset(labels, 0, sizeof(labels));
     memset(units, 0, sizeof(units));
+    memset(actions, 0, sizeof(actions));
+    memset(zooms, 0, sizeof(zooms));
     memset(metrics, 0, sizeof(metrics));
     memset(rects, 0, sizeof(rects));
 
@@ -159,8 +163,8 @@ int main(int argc, char **argv) {
         strncpy(key, pl.element, STR_CAP - 1);
         key[STR_CAP - 1] = 0;
         JsonVariantConst el = elements[(const char *)key];
-        bool ok =
-            midl::render::map_element(el, pl.element, metrics[i], ids[i], labels[i], units[i]);
+        bool ok = midl::render::map_element(el, pl.element, metrics[i], ids[i], labels[i], units[i],
+                                            actions[i], zooms[i]);
         if (!ok) {
             strncpy(ids[i], pl.element, STR_CAP - 1);
             ids[i][STR_CAP - 1] = 0;

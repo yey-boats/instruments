@@ -72,6 +72,7 @@ struct MidlScreenArena {
     char labels[MAX_TILES][STR_CAP];
     char units[MAX_TILES][STR_CAP];
     char actions[MAX_TILES][STR_CAP];  // button action target (nav/command)
+    char zooms[MAX_TILES][STR_CAP];    // per-element zoom screen id (string form)
 
     // The MetricBinding table passed to create_freeform / update_freeform.
     MetricBinding metrics[MAX_TILES];
@@ -211,7 +212,7 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
         JsonVariantConst el = find_element(elements_node, pl.element);
 
         bool ok = map_element(el, pl.element, arena.metrics[i], arena.ids[i], arena.labels[i],
-                              arena.units[i], arena.actions[i]);
+                              arena.units[i], arena.actions[i], arena.zooms[i]);
         if (!ok) {
             // Unknown element: leave as zero-init MetricBinding (None source -> "--").
             // Copy at least the id so the tile chrome shows something.
@@ -297,6 +298,136 @@ static size_t count_buildable_screens(JsonArrayConst screens) {
     return usable;
 }
 
+// ===========================================================================
+// Fullscreen tap-to-zoom (MIDL). Tapping any zoomable value/instrument tile on
+// a MIDL screen builds a transient single-element full-screen render of the SAME
+// element and shows it; tapping the zoom view returns to the screen it came from.
+//
+// The MIDL build has no static "zoom" screen (that one only exists in the legacy
+// non-MIDL build), so we install ui::layouts::set_zoom_fullscreen_handler() at
+// apply_all() time. The tile tap handler in ui_layouts.cpp routes a fullscreen-
+// self tap (zoom_target == nullptr / "auto") here.
+//
+// MEMORY TRAPS (CLAUDE.md): the zoom arena is PSRAM (heap_caps_calloc), the
+// MetricBinding's strings are DEEP-COPIED into it (the source screen's arena may
+// be rebuilt by a later apply_all), and all work runs on the UI/LVGL task (the
+// tap callback dispatches there). No large struct is built on the stack.
+// ===========================================================================
+
+static constexpr const char *ZOOM_SCREEN_ID = "__zoom__";
+
+// Dedicated PSRAM arena for the single zoomed element. Separate from s_arenas[]
+// so a zoom never clobbers a live screen's backing store. Lazily allocated.
+static MidlScreenArena *s_zoom_arena = nullptr;
+// Screen id to return to when the zoom view is dismissed (captured at zoom time).
+static char s_zoom_return_id[STR_CAP] = {0};
+
+static MidlScreenArena *zoom_arena() {
+    if (!s_zoom_arena) {
+        s_zoom_arena =
+            (MidlScreenArena *)heap_caps_calloc(1, sizeof(MidlScreenArena), MALLOC_CAP_SPIRAM);
+        if (!s_zoom_arena) net::logf("[midl-render] PSRAM alloc of zoom arena failed");
+    }
+    return s_zoom_arena;
+}
+
+// Refresh + collect trampolines for the zoom screen (it is registered as its own
+// screen; the freeform update path drives the single tile from sk::Data).
+static void zoom_refresh() {
+    if (!s_zoom_arena || !s_zoom_arena->live || !s_zoom_arena->root) return;
+    sk::Data d;
+    sk::copyData(d);
+    ui::layouts::update_freeform(s_zoom_arena->root, s_zoom_arena->spec, d);
+}
+static void zoom_collect(sk::SubscriptionSet &out) {
+    if (!s_zoom_arena || !s_zoom_arena->live) return;
+    ui::layouts::collect_paths(s_zoom_arena->spec, out);
+}
+
+// Tap on the zoom view -> return to the screen it was launched from. A swipe-down
+// also dismisses it: the touch-task swipe maps "down" -> ShowScreen("dashboard"),
+// which no-ops under MIDL, so the tap handler is the reliable return path. We
+// re-show the captured return id (falls back to screen 0 if it went stale).
+static void zoom_back_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (s_zoom_return_id[0] && ui::show_by_id(s_zoom_return_id)) return;
+    ui::show(0);
+}
+
+// Build (or rebuild) the zoom screen for one metric and show it. Runs on the UI
+// task (invoked from the tile tap callback). DEEP-COPIES the binding's strings
+// into the zoom arena so they outlive the source screen.
+static void zoom_to_fullscreen(const MetricBinding &m) {
+    MidlScreenArena *za = zoom_arena();
+    if (!za) return;
+
+    // Capture where to return BEFORE we switch screens.
+    const char *cur = ui::current_id();
+    strncpy(s_zoom_return_id, cur ? cur : "", STR_CAP - 1);
+    s_zoom_return_id[STR_CAP - 1] = 0;
+
+    // Wipe the arena in place (never `*za = MidlScreenArena{}` — stack-temp trap).
+    memset(za, 0, sizeof(*za));
+
+    // Deep-copy the metric + its strings into the zoom arena (slot 0).
+    MetricBinding &zm = za->metrics[0];
+    zm = m;  // copies scalar fields + (dangling) const char* — fixed up below
+    strncpy(za->ids[0], m.id ? m.id : "", STR_CAP - 1);
+    strncpy(za->labels[0], m.label ? m.label : "", STR_CAP - 1);
+    strncpy(za->units[0], m.unit ? m.unit : "", STR_CAP - 1);
+    zm.id = za->ids[0];
+    zm.label = za->labels[0];
+    zm.unit = za->units[0];
+    // The zoomed tile must NOT re-zoom (tap returns instead). zoomable=false with a
+    // non-null zoom_target makes create_freeform's interactivity check resolve to
+    // ZOOM_NONE, so it wires no tap on the tile — the root back handler owns taps.
+    zm.zoomable = false;
+    za->zooms[0][0] = 0;
+    zm.zoom_target = za->zooms[0];  // non-null empty -> zoom_action == ZOOM_NONE
+    // target_screen/command are non-owning pointers into the source arena; clear
+    // them so the zoom tile carries no stale nav/command action.
+    zm.target_screen = nullptr;
+    zm.command = nullptr;
+
+    // One full-screen rect: the fullscreen composites (windrose/autopilot/
+    // windsteer) and the hero-number numeric painter both key on w>=400 && h>=400.
+    za->rects[0] = {0, 0, 480, 480};
+
+    strncpy(za->screen_id, ZOOM_SCREEN_ID, STR_CAP - 1);
+    strncpy(za->screen_title, "Zoom", STR_CAP - 1);
+    za->spec.screen_id = za->screen_id;
+    za->spec.title = za->screen_title;
+    za->spec.template_id = TemplateId::QuadGrid;
+    za->spec.metrics = za->metrics;
+    za->spec.metric_count = 1;
+    za->spec.variant_flags = 0;
+
+    lv_obj_t *root = ui::layouts::create_freeform(nullptr, za->spec, za->rects);
+    if (!root) {
+        net::logf("[midl-render] zoom create_freeform failed");
+        return;
+    }
+    // Make the whole view a tap-to-return target. The single tile cleared its own
+    // CLICKABLE (zoomable=false above), so the tap lands on the root.
+    lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(root, zoom_back_cb, LV_EVENT_CLICKED, nullptr);
+    za->root = root;
+    za->live = true;
+
+    ui::Screen scr = {};
+    scr.id = za->screen_id;
+    scr.title = za->screen_title;
+    scr.root = root;
+    scr.refresh = zoom_refresh;
+    scr.hidden = true;  // not in the swipe rotation; reached only by a tile tap
+    scr.build_fn = nullptr;
+    scr.collect_paths = zoom_collect;
+
+    if (!ui::replace_screen(ZOOM_SCREEN_ID, scr)) ui::register_screen(scr);
+    ui::show_by_id(ZOOM_SCREEN_ID);
+    net::logf("[midl-render] zoom -> '%s' (return='%s')", zm.id, s_zoom_return_id);
+}
+
 // ---------------------------------------------------------------------------
 // apply_all: install EXACTLY the doc's screens, atomically replacing any
 // previous MIDL screen set. Runs ON THE UI TASK.
@@ -322,6 +453,19 @@ static size_t count_buildable_screens(JsonArrayConst screens) {
 // ---------------------------------------------------------------------------
 size_t apply_all(JsonVariantConst doc) {
     if (!arenas()) return 0;  // PSRAM alloc failed; logged in arenas()
+
+    // Install the fullscreen-zoom handler so a tap on any zoomable MIDL tile
+    // (zoom_target == nullptr) builds the transient full-screen view. Idempotent;
+    // the handler is a file-static here. reset_screens() below tears down any
+    // prior __zoom__ screen, and the next tap rebuilds it fresh.
+    ui::layouts::set_zoom_fullscreen_handler(zoom_to_fullscreen);
+    // The prior __zoom__ screen (if any) is about to be torn down by
+    // reset_screens(); drop the dangling arena root so a stale rebuild can't reuse
+    // it. The arena is re-memset on the next tap anyway.
+    if (s_zoom_arena) {
+        s_zoom_arena->live = false;
+        s_zoom_arena->root = nullptr;
+    }
 
     JsonArrayConst screens = doc["screens"].as<JsonArrayConst>();
     if (screens.isNull()) {

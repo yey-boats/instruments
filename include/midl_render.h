@@ -19,16 +19,24 @@ namespace midl::render {
 // tokens fall back to Numeric (matches the legacy renderer's policy).
 ui::layouts::WidgetKind token_to_kind(const char *type);
 
-// Pure: fill `out` from one MIDL element JSON. Strings (id,label,unit,action) are
-// COPIED into caller-owned buffers `id_buf`/`label_buf`/`unit_buf`/`action_buf`
-// (each >=32), and out.id/label/unit + out.target_screen/out.command point at them
-// -- so the caller controls lifetime (the MetricBinding stores non-owning
-// pointers). `value` binding path -> source via path_to_source; style.color ->
-// accent (accepts "#rrggbb" hex or integer). A MIDL `action` block maps by kind:
-// "nav" -> out.target_screen, "command" -> out.command (both copied into
-// action_buf; only one is set). Returns false if `el` is not an object.
+// Pure: fill `out` from one MIDL element JSON. Strings (id,label,unit,action,zoom)
+// are COPIED into caller-owned buffers `id_buf`/`label_buf`/`unit_buf`/
+// `action_buf`/`zoom_buf` (each >=32), and out.id/label/unit +
+// out.target_screen/out.command + out.zoom_target point at them -- so the caller
+// controls lifetime (the MetricBinding stores non-owning pointers). `value`
+// binding path -> source via path_to_source; style.color -> accent (accepts
+// "#rrggbb" hex or integer). A MIDL `action` block maps by kind: "nav" ->
+// out.target_screen, "command" -> out.command (both copied into action_buf; only
+// one is set).
+//
+// `zoom` field (tap-to-fullscreen): absent -> out.zoomable defaults to true for
+// any non-Button tile with a real source (out.zoom_target == nullptr, i.e.
+// fullscreen-self); boolean false -> out.zoomable = false; a string -> out.zoomable
+// = true with out.zoom_target = the copied screen id (switch to that screen).
+// `zoom_buf` may be null (zoom string then ignored). Returns false if `el` is not
+// an object.
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
-                 char *id_buf, char *label_buf, char *unit_buf, char *action_buf);
+                 char *id_buf, char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf);
 
 // Pure (host-testable): select a screen object from a MIDL document.
 //

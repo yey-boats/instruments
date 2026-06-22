@@ -2,6 +2,7 @@
 #include <ArduinoJson.h>
 #include <string.h>
 #include "midl_render.h"
+#include "layout.h"  // layout::zoom_action / ZOOM_NONE — the interactivity gate
 
 using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
@@ -14,9 +15,9 @@ using ui::layouts::WidgetKind;
 static MetricBinding mapOne(const char *json, const char *id) {
     JsonDocument doc;
     deserializeJson(doc, json);
-    static char idb[32], lab[32], unit[32], act[32];
+    static char idb[32], lab[32], unit[32], act[32], zoom[32];
     MetricBinding mb{};
-    midl::render::map_element(doc.as<JsonVariantConst>(), id, mb, idb, lab, unit, act);
+    midl::render::map_element(doc.as<JsonVariantConst>(), id, mb, idb, lab, unit, act, zoom);
     return mb;
 }
 
@@ -130,6 +131,67 @@ void test_action_unknown_kind_ignored() {
     TEST_ASSERT_NULL(m.target_screen);
 }
 
+// --- zoom field -----------------------------------------------------------
+
+void test_zoom_default_value_tile_is_zoomable_self() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","name":"SOG","format":{"unit":"kn"},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog");
+    TEST_ASSERT_TRUE(m.zoomable);
+    TEST_ASSERT_NULL(m.zoom_target);  // fullscreen-self
+}
+
+// Non-zoomable MIDL tiles must NOT leave zoom_target == nullptr: that falls into
+// create_freeform's legacy `source != None` interactivity fallback and would zoom
+// anyway. They get an EMPTY (non-null) zoom_target so zoom_action() == ZOOM_NONE.
+void test_zoom_button_not_zoomable_by_default() {
+    MetricBinding m = mapOne(R"({"type":"button","name":"TACK"})", "tk");
+    TEST_ASSERT_FALSE(m.zoomable);
+    TEST_ASSERT_NOT_NULL(m.zoom_target);
+    TEST_ASSERT_EQUAL_STRING("", m.zoom_target);
+    TEST_ASSERT_EQUAL(layout::ZOOM_NONE, layout::zoom_action(m.zoomable, m.zoom_target));
+}
+
+void test_zoom_sourceless_tile_not_zoomable() {
+    // No value binding -> source None -> not zoomable.
+    MetricBinding m = mapOne(R"({"type":"single-value","name":"X"})", "x");
+    TEST_ASSERT_FALSE(m.zoomable);
+    TEST_ASSERT_NOT_NULL(m.zoom_target);
+    TEST_ASSERT_EQUAL_STRING("", m.zoom_target);
+    TEST_ASSERT_EQUAL(layout::ZOOM_NONE, layout::zoom_action(m.zoomable, m.zoom_target));
+}
+
+void test_zoom_false_disables() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","name":"SOG","zoom":false,
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog");
+    TEST_ASSERT_FALSE(m.zoomable);
+    TEST_ASSERT_NOT_NULL(m.zoom_target);
+    TEST_ASSERT_EQUAL_STRING("", m.zoom_target);
+    TEST_ASSERT_EQUAL(layout::ZOOM_NONE, layout::zoom_action(m.zoomable, m.zoom_target));
+}
+
+void test_zoom_true_keeps_self() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","name":"SOG","zoom":true,
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog");
+    TEST_ASSERT_TRUE(m.zoomable);
+    TEST_ASSERT_NULL(m.zoom_target);
+}
+
+void test_zoom_string_sets_target_screen() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","name":"SOG","zoom":"speed_detail",
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog");
+    TEST_ASSERT_TRUE(m.zoomable);
+    TEST_ASSERT_NOT_NULL(m.zoom_target);
+    TEST_ASSERT_EQUAL_STRING("speed_detail", m.zoom_target);
+}
+
 void setUp() {
 }
 void tearDown() {
@@ -149,5 +211,11 @@ int main(int, char **) {
     RUN_TEST(test_action_command_sets_command);
     RUN_TEST(test_action_absent_leaves_both_null);
     RUN_TEST(test_action_unknown_kind_ignored);
+    RUN_TEST(test_zoom_default_value_tile_is_zoomable_self);
+    RUN_TEST(test_zoom_button_not_zoomable_by_default);
+    RUN_TEST(test_zoom_sourceless_tile_not_zoomable);
+    RUN_TEST(test_zoom_false_disables);
+    RUN_TEST(test_zoom_true_keeps_self);
+    RUN_TEST(test_zoom_string_sets_target_screen);
     return UNITY_END();
 }

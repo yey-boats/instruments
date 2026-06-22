@@ -45,6 +45,15 @@ void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data)
 // tap; also used by the sim harness and remote controllers).
 void set_zoom_target(const MetricBinding &m);
 
+// Fullscreen-zoom handler hook. When set (by the MIDL render layer), a tap on a
+// fullscreen-self zoomable tile (zoom_target == nullptr / "auto"/"") routes to
+// this handler instead of the built-in "zoom" screen — so the MIDL build, which
+// has no "zoom" screen registered, can build a transient single-element
+// full-screen render of the tapped metric. NULL (the default) keeps the legacy
+// behavior of showing the registered "zoom" screen. Runs on the UI/LVGL task.
+typedef void (*ZoomFullscreenFn)(const MetricBinding &m);
+void set_zoom_fullscreen_handler(ZoomFullscreenFn fn);
+
 // Reverse of layout_renderer's path_to_source(): the canonical SignalK path a
 // MetricSource consumes, or nullptr for non-path sources (None). Position and
 // APState ARE real paths a screen subscribes (navigation.position /

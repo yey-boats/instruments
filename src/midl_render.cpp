@@ -82,10 +82,11 @@ JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element
 }
 
 bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out, char *id_buf,
-                 char *label_buf, char *unit_buf, char *action_buf) {
+                 char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf) {
     if (!el.is<JsonObjectConst>()) return false;
     memset(&out, 0, sizeof(out));
     if (action_buf) action_buf[0] = 0;
+    if (zoom_buf) zoom_buf[0] = 0;
     copy32(id_buf, element_id);
     const char *name = el["name"] | element_id;
     copy32(label_buf, name);
@@ -128,6 +129,46 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
             if (end == cs + 7) out.accent = (uint32_t)v;
         }
     }
+    // Per-element `zoom` (tap-to-fullscreen). Three shapes:
+    //   absent      -> DEFAULT: every value/instrument tile is zoomable to its
+    //                  own full-screen render (zoom_target == nullptr means
+    //                  "fullscreen-self"); Buttons and source-less tiles are not.
+    //   boolean      -> false disables zoom; true keeps the fullscreen-self default.
+    //   string       -> a screen id to switch to instead of fullscreen-self;
+    //                   copied into zoom_buf so the MetricBinding keeps a
+    //                   non-owning ptr with caller-controlled lifetime (like
+    //                   id/label/unit/action).
+    // NOTE: zoom_target == nullptr is the "fullscreen-self / auto-scale" signal
+    // the tile tap handler keys on; a non-null "auto"/"" also auto-scales (see
+    // layout::zoom_action), and any other string switches to that screen.
+    //
+    // Interactivity gating: create_freeform() decides whether to wire a tile tap
+    // by `zoom_target ? (zoom_action(zoomable,zoom_target) != ZOOM_NONE) : (source
+    // != None)`. A LEGACY built-in tile has zoom_target == nullptr and relies on
+    // the `source != None` fallback to stay tappable. So a MIDL tile that must NOT
+    // zoom (explicit `zoom:false`, or a source-less/Button tile) cannot leave
+    // zoom_target == nullptr — that would fall into the legacy `source != None`
+    // branch and zoom anyway. We point its zoom_target at the EMPTY zoom_buf
+    // instead: zoom_action(zoomable=false, "") == ZOOM_NONE, so the tile is wired
+    // non-interactive. The fullscreen-self default/true case keeps nullptr.
+    JsonVariantConst zoom = el["zoom"];
+    bool self_zoomable = (out.kind != WidgetKind::Button && out.source != MetricSource::None);
+    out.zoomable = self_zoomable;
+    out.zoom_target = self_zoomable ? nullptr /* fullscreen-self */
+                                    : (zoom_buf ? zoom_buf : nullptr) /* "" -> ZOOM_NONE */;
+    if (zoom.is<bool>()) {
+        bool want = zoom.as<bool>() && self_zoomable;
+        out.zoomable = want;
+        out.zoom_target = want ? nullptr : (zoom_buf ? zoom_buf : nullptr);
+    } else if (zoom.is<const char *>()) {
+        const char *zs = zoom.as<const char *>();
+        if (zs && zs[0] && zoom_buf) {
+            copy32(zoom_buf, zs);
+            out.zoomable = true;
+            out.zoom_target = zoom_buf;  // switch to this screen on tap
+        }
+    }
+
     // action block (buttons / interactive elements). actionKinds == {nav, command}
     // per the MIDL manifest. "nav" -> target_screen (reuses the tile-nav path);
     // "command" -> command (routed through net::dispatchCommand on tap). The target
