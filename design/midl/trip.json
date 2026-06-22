@@ -4,7 +4,7 @@
     {
       "id": "trip",
       "title": "Trip",
-      "_note": "screen_trip is a locally-integrated odometer: DISTANCE, underway time, avg/max SOG, live SOG. Only live SOG is a SignalK path (navigation.speedOverGround). DISTANCE and underway time are device-local (kind:local) - the firmware persists them in NVS and has no SignalK path. The config schema permits source kind:local, but the square-480 capability manifest advertises sources:[signalk] only, so these two tiles fail the capability (caps) layer by design - see validation report. Modeled hero-split: hero=DISTANCE, column=[underway time, live SOG]; avg/max SOG dropped.",
+      "_note": "screen_trip is a locally-integrated odometer: hero DISTANCE (nm), TIME UNDERWAY, AVG SPEED, MAX SPEED, plus a live SOG NOW strip. DISTANCE, underway time, avg and max SOG are device-local (kind:local) - the firmware persists them in NVS and has no SignalK path. Only live SOG is a SignalK path (navigation.speedOverGround). square-480 hero-split has 3 slots: hero=DISTANCE, column=[underway time, live SOG]. Landscape variants reclaim space to surface AVG and MAX speed alongside underway time and live SOG.",
       "elements": {
         "distance": {
           "type": "single-value",
@@ -21,7 +21,7 @@
           },
           "style": {
             "title": "DISTANCE",
-            "size": 48
+            "size": 64
           }
         },
         "time": {
@@ -56,7 +56,7 @@
             "decimals": 1
           },
           "style": {
-            "title": "SOG",
+            "title": "SOG NOW",
             "size": 28
           }
         },
@@ -65,8 +65,8 @@
           "name": "AVG SOG",
           "bindings": {
             "value": {
-              "kind": "signalk",
-              "path": "navigation.speedOverGround"
+              "kind": "local",
+              "id": "trip.avgSpeed"
             }
           },
           "format": {
@@ -74,8 +74,26 @@
             "decimals": 1
           },
           "style": {
-            "title": "AVG SOG",
-            "size": 28
+            "title": "AVG SPEED",
+            "size": 20
+          }
+        },
+        "max": {
+          "type": "single-value",
+          "name": "MAX SOG",
+          "bindings": {
+            "value": {
+              "kind": "local",
+              "id": "trip.maxSpeed"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "MAX SPEED",
+            "size": 20
           }
         }
       },
@@ -101,17 +119,20 @@
                 "element": "distance"
               },
               {
-                "rows": 3,
+                "rows": 4,
                 "cols": 1,
                 "cells": [
                   {
                     "element": "time"
                   },
                   {
-                    "element": "sognow"
+                    "element": "avg"
                   },
                   {
-                    "element": "avg"
+                    "element": "max"
+                  },
+                  {
+                    "element": "sognow"
                   }
                 ]
               }
@@ -131,17 +152,20 @@
                 "element": "distance"
               },
               {
-                "rows": 3,
+                "rows": 4,
                 "cols": 1,
                 "cells": [
                   {
                     "element": "time"
                   },
                   {
-                    "element": "sognow"
+                    "element": "avg"
                   },
                   {
-                    "element": "avg"
+                    "element": "max"
+                  },
+                  {
+                    "element": "sognow"
                   }
                 ]
               }

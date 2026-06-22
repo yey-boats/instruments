@@ -25,6 +25,20 @@
             "range": [
               0,
               3600
+            ],
+            "zones": [
+              {
+                "lt": 0.83,
+                "color": "good"
+              },
+              {
+                "lt": 0.92,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "danger"
+              }
             ]
           }
         },
@@ -47,6 +61,20 @@
             "range": [
               0,
               120
+            ],
+            "zones": [
+              {
+                "lt": 0.83,
+                "color": "good"
+              },
+              {
+                "lt": 0.92,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "danger"
+              }
             ]
           }
         },
@@ -69,6 +97,20 @@
             "range": [
               0,
               6
+            ],
+            "zones": [
+              {
+                "lt": 0.25,
+                "color": "danger"
+              },
+              {
+                "lt": 0.4,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "good"
+              }
             ]
           }
         },

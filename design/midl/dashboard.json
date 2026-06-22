@@ -4,6 +4,7 @@
     {
       "id": "dashboard",
       "title": "Dashboard",
+      "_note": "screen_dashboard = at-a-glance 2x2 hero: WIND dial (AWS, kn, unit on dial) + SOG (kn) + DEPTH (m, k/M scaled) + BATT (% bar). DEPTH carries a shallow-water alarm via style.zones (lt thresholds -> warn/accent). BATT carries a low-state-of-charge alarm via style.zones. Landscape variants reclaim the under-used vertical space the design notes call out by surfacing HDG, then TWS + VMG.",
       "elements": {
         "wind": {
           "type": "windrose",
@@ -60,7 +61,17 @@
           },
           "style": {
             "title": "DEPTH",
-            "size": 48
+            "size": 48,
+            "zones": [
+              {
+                "lt": 1.5,
+                "color": "warn"
+              },
+              {
+                "lt": 3,
+                "color": "accent"
+              }
+            ]
           }
         },
         "batt": {
@@ -78,18 +89,22 @@
           },
           "style": {
             "title": "BATT",
-            "size": 20
-          },
-          "zones": [
-            {
-              "lt": 0.2,
-              "color": "warn"
+            "size": 20,
+            "range": {
+              "min": 0,
+              "max": 1
             },
-            {
-              "lt": 0.5,
-              "color": "accent"
-            }
-          ]
+            "zones": [
+              {
+                "lt": 0.2,
+                "color": "warn"
+              },
+              {
+                "lt": 0.5,
+                "color": "accent"
+              }
+            ]
+          }
         },
         "hdg": {
           "type": "single-value",

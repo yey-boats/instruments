@@ -4,7 +4,7 @@
     {
       "id": "depth",
       "title": "Depth",
-      "_note": "screen_depth = big DEPTH (below keel) + WATER TEMP + SOG + a depth-history sparkline (trend). The hero-split preset has exactly 3 slots (hero + a column of two). Modeled as hero=DEPTH, column=[WATER TEMP, depth trend]. SOG is dropped from the tiling to keep the signature depth-history trend.",
+      "_note": "screen_depth = big DEPTH hero (below keel, m, k/M scaled, font_xl 64) + WATER TEMP + SOG + TWA + a depth-history sparkline (trend). The DEPTH hero carries a shallow-water alarm via style.zones (lt thresholds -> warn/accent). square-480 hero-split has 3 slots: hero=DEPTH, column=[WATER TEMP, depth-history trend] (the signature sparkline). Landscape variants reclaim space to surface SOG and TWA alongside water temp and the trend.",
       "elements": {
         "depth": {
           "type": "single-value",
@@ -20,8 +20,18 @@
             "decimals": 1
           },
           "style": {
-            "title": "DEPTH",
-            "size": 48
+            "title": "BELOW KEEL",
+            "size": 64,
+            "zones": [
+              {
+                "lt": 1.5,
+                "color": "warn"
+              },
+              {
+                "lt": 3,
+                "color": "accent"
+              }
+            ]
           }
         },
         "watertemp": {
@@ -42,6 +52,42 @@
             "size": 20
           }
         },
+        "sog": {
+          "type": "single-value",
+          "name": "SOG",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedOverGround"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "SOG",
+            "size": 20
+          }
+        },
+        "twa": {
+          "type": "single-value",
+          "name": "TWA",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.angleTrueWater"
+            }
+          },
+          "format": {
+            "unit": "deg",
+            "decimals": 0
+          },
+          "style": {
+            "title": "TWA",
+            "size": 20
+          }
+        },
         "depthtrend": {
           "type": "trend",
           "name": "DEPTH HISTORY",
@@ -58,24 +104,6 @@
           "style": {
             "title": "DEPTH HISTORY",
             "size": 14
-          }
-        },
-        "sog": {
-          "type": "single-value",
-          "name": "SOG",
-          "bindings": {
-            "value": {
-              "kind": "signalk",
-              "path": "navigation.speedOverGround"
-            }
-          },
-          "format": {
-            "unit": "kn",
-            "decimals": 1
-          },
-          "style": {
-            "title": "SOG",
-            "size": 28
           }
         }
       },
@@ -101,7 +129,7 @@
                 "element": "depth"
               },
               {
-                "rows": 3,
+                "rows": 4,
                 "cols": 1,
                 "cells": [
                   {
@@ -109,6 +137,9 @@
                   },
                   {
                     "element": "sog"
+                  },
+                  {
+                    "element": "twa"
                   },
                   {
                     "element": "depthtrend"
@@ -131,7 +162,7 @@
                 "element": "depth"
               },
               {
-                "rows": 3,
+                "rows": 4,
                 "cols": 1,
                 "cells": [
                   {
@@ -139,6 +170,9 @@
                   },
                   {
                     "element": "sog"
+                  },
+                  {
+                    "element": "twa"
                   },
                   {
                     "element": "depthtrend"

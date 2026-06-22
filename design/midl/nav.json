@@ -4,7 +4,7 @@
     {
       "id": "nav",
       "title": "Navigation",
-      "_note": "screen_nav shows position + COG + SOG + HDG + a compass (5 readouts). square-480 maxTiles=4: modeled as compass + SOG + COG + HDG. navigation.position is dropped from the tiling (it needs a wide lat/lon field that does not fit a square tile).",
+      "_note": "Faithful to Claude Design screen_nav: position + course overview = Position (DDM) + COG + SOG + HDG + a mini compass whose secondary marker is CTS (and COG). square-480 maxTiles=4: compass + SOG + COG + HDG (navigation.position needs a wide lat/lon field that does not fit a square tile, so it is surfaced only in the landscape variants). The text widget renders a navigation.position object as two DDM lat/lon lines. 800x480 (<=6) and 1024x600 (<=8) add the position block, STW and BTW beside the hero compass.",
       "elements": {
         "compass": {
           "type": "compass",
@@ -27,6 +27,15 @@
               "dir": {
                 "kind": "signalk",
                 "path": "navigation.courseOverGroundTrue"
+              }
+            },
+            {
+              "id": "CTS",
+              "glyph": "diamond",
+              "color": "good",
+              "dir": {
+                "kind": "signalk",
+                "path": "navigation.courseRhumbline.bearingTrackTrue"
               }
             }
           ]
@@ -117,21 +126,21 @@
             "size": 28
           }
         },
-        "stw2": {
+        "btw": {
           "type": "single-value",
-          "name": "STW",
+          "name": "BTW",
           "bindings": {
             "value": {
               "kind": "signalk",
-              "path": "navigation.speedThroughWater"
+              "path": "navigation.courseRhumbline.nextPoint.bearingTrue"
             }
           },
           "format": {
-            "unit": "kn",
-            "decimals": 1
+            "unit": "deg",
+            "decimals": 0
           },
           "style": {
-            "title": "STW",
+            "title": "BTW",
             "size": 28
           }
         }
@@ -208,19 +217,19 @@
                     "element": "pos"
                   },
                   {
+                    "element": "hdg"
+                  },
+                  {
                     "element": "sog"
                   },
                   {
                     "element": "cog"
                   },
                   {
-                    "element": "hdg"
-                  },
-                  {
                     "element": "stw"
                   },
                   {
-                    "element": "stw2"
+                    "element": "btw"
                   }
                 ]
               }

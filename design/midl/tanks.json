@@ -34,6 +34,10 @@
               {
                 "lt": 0.3,
                 "color": "accent"
+              },
+              {
+                "lt": 1.01,
+                "color": "good"
               }
             ]
           }
@@ -62,6 +66,10 @@
               {
                 "lt": 0.15,
                 "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "good"
               }
             ]
           }
@@ -88,8 +96,16 @@
             ],
             "zones": [
               {
-                "lt": 0.5,
+                "lt": 0.6,
                 "color": "good"
+              },
+              {
+                "lt": 0.85,
+                "color": "warn"
+              },
+              {
+                "lt": 1.01,
+                "color": "danger"
               }
             ]
           }
@@ -118,6 +134,14 @@
               {
                 "lt": 0.2,
                 "color": "warn"
+              },
+              {
+                "lt": 0.5,
+                "color": "accent"
+              },
+              {
+                "lt": 1.01,
+                "color": "good"
               }
             ]
           }

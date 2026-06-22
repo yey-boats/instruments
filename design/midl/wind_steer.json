@@ -18,7 +18,24 @@
           "style": {
             "title": "HDG",
             "size": 48,
-            "shape": "band"
+            "shape": "band",
+            "sectors": [
+              {
+                "from": -45,
+                "to": -30,
+                "color": "port"
+              },
+              {
+                "from": 30,
+                "to": 45,
+                "color": "starboard"
+              },
+              {
+                "from": -5,
+                "to": 5,
+                "color": "good"
+              }
+            ]
           },
           "markers": [
             {
@@ -112,7 +129,8 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "AWA",
@@ -148,7 +166,8 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "TWA",

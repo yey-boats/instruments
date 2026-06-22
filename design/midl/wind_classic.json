@@ -42,6 +42,15 @@
           },
           "markers": [
             {
+              "id": "AWA",
+              "glyph": "triangle",
+              "color": "warn",
+              "dir": {
+                "kind": "signalk",
+                "path": "environment.wind.angleApparent"
+              }
+            },
+            {
               "id": "TWA",
               "glyph": "diamond",
               "color": "accent",
@@ -117,7 +126,8 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "AWA",
@@ -135,7 +145,8 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "TWA",
@@ -157,6 +168,42 @@
           },
           "style": {
             "title": "COG",
+            "size": 28
+          }
+        },
+        "aws": {
+          "type": "single-value",
+          "name": "AWS",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "environment.wind.speedApparent"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "AWS",
+            "size": 28
+          }
+        },
+        "stw": {
+          "type": "single-value",
+          "name": "STW",
+          "bindings": {
+            "value": {
+              "kind": "signalk",
+              "path": "navigation.speedThroughWater"
+            }
+          },
+          "format": {
+            "unit": "kn",
+            "decimals": 1
+          },
+          "style": {
+            "title": "STW",
             "size": 28
           }
         }

@@ -41,8 +41,17 @@
           },
           "markers": [
             {
-              "id": "TWA",
+              "id": "AWA",
               "glyph": "triangle",
+              "color": "warn",
+              "dir": {
+                "kind": "signalk",
+                "path": "environment.wind.angleApparent"
+              }
+            },
+            {
+              "id": "TWA",
+              "glyph": "diamond",
               "color": "accent",
               "dir": {
                 "kind": "signalk",
@@ -62,7 +71,8 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "AWA",
@@ -98,7 +108,8 @@
           },
           "format": {
             "unit": "deg",
-            "decimals": 0
+            "decimals": 0,
+            "side": "port-stbd"
           },
           "style": {
             "title": "TWA",
@@ -141,21 +152,21 @@
             "size": 28
           }
         },
-        "awa2": {
+        "drift": {
           "type": "single-value",
-          "name": "AWA",
+          "name": "DRIFT",
           "bindings": {
             "value": {
               "kind": "signalk",
-              "path": "environment.wind.angleApparent"
+              "path": "environment.current.drift"
             }
           },
           "format": {
-            "unit": "deg",
-            "decimals": 0
+            "unit": "kn",
+            "decimals": 1
           },
           "style": {
-            "title": "AWA",
+            "title": "DRIFT",
             "size": 28
           }
         }
@@ -252,7 +263,7 @@
                     "element": "sog"
                   },
                   {
-                    "element": "awa2"
+                    "element": "drift"
                   }
                 ]
               }
