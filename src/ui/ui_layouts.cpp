@@ -448,6 +448,21 @@ static double scalar_unit_fraction(MetricSource src, double v) {
     }
 }
 
+// Gauge/bar fill fraction (0..1) for one binding. When the binding carries an
+// explicit MIDL `format.range` (range_min != range_max), scale v into that
+// [min,max] window; otherwise fall back to the built-in per-source heuristic so
+// legacy tiles (range_min==range_max==0) keep their current behavior byte-for-byte.
+static double binding_unit_fraction(const MetricBinding &m, double v) {
+    if (m.range_min == m.range_max) return scalar_unit_fraction(m.source, v);
+    if (isnan(v)) return NAN;
+    double lo = m.range_min, hi = m.range_max;
+    if (hi == lo) return NAN;  // defensive; range_min!=range_max already checked
+    double f = (v - lo) / (hi - lo);
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
+    return f;
+}
+
 // --- Per-kind body painters --------------------------------------------
 // Every painter is called after the panel/border/accent-rail/caption
 // chrome is already in place. They populate the t.value / t.unit /
@@ -1039,7 +1054,9 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
         case WidgetKind::Gauge:
         case WidgetKind::Bar: {
             double scalar = metric_scalar(m, data);
-            double frac = scalar_unit_fraction(m.source, scalar);
+            // Honor an explicit MIDL format.range when present; legacy bindings
+            // (range_min==range_max) fall back to the built-in per-source heuristic.
+            double frac = binding_unit_fraction(m, scalar);
             int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
             if (t.aux && pct != t.last_aux_pct) {
                 if (t.kind == WidgetKind::Gauge)
@@ -1048,13 +1065,24 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                     lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
                 t.last_aux_pct = pct;
             }
-            // For bar/gauge the primary label is the percent; show pct
-            // string instead of raw value so the visual matches editor.
-            char buf[8];
-            if (isnan(frac))
+            // Center label. Legacy tiles (no explicit MIDL format.range) show the
+            // percent of the heuristic range, matching the editor preview. When the
+            // element carries an explicit format.range, show the actual scalar value
+            // (formatted to format.precision, or 0 dp by default) so a real gauge —
+            // e.g. rudder on [-35,35] — reads its true magnitude, not a percent.
+            char buf[24];
+            if (m.range_min != m.range_max) {
+                if (isnan(scalar))
+                    snprintf(buf, sizeof(buf), "--");
+                else {
+                    int dp = m.precision >= 0 ? m.precision : 0;
+                    snprintf(buf, sizeof(buf), "%.*f", dp, scalar);
+                }
+            } else if (isnan(frac)) {
                 snprintf(buf, sizeof(buf), "--");
-            else
+            } else {
                 snprintf(buf, sizeof(buf), "%d%%", pct);
+            }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
             break;
         }
@@ -2579,7 +2607,9 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
         case WidgetKind::Gauge:
         case WidgetKind::Bar: {
             double scalar = metric_scalar(m, data);
-            double frac = scalar_unit_fraction(m.source, scalar);
+            // Honor an explicit MIDL format.range when present; legacy bindings
+            // (range_min==range_max) fall back to the built-in per-source heuristic.
+            double frac = binding_unit_fraction(m, scalar);
             int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
             if (t.aux && pct != t.last_aux_pct) {
                 if (t.kind == WidgetKind::Gauge)

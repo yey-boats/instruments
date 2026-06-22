@@ -93,6 +93,24 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     out.unit = unit_buf;
     out.kind = token_to_kind(el["type"] | "");
     out.source = ui::layout_render::path_to_source(el["bindings"]["value"]["path"] | "");
+    // Optional per-element scaling/formatting from the MIDL `format` block.
+    // Defaults (set by the memset above): range_min==range_max==0 means "painter
+    // uses its built-in default range"; precision==-1 means "painter default".
+    out.range_min = 0;
+    out.range_max = 0;
+    out.precision = -1;
+    // format.range is a 2-element [min,max] array; only honor a well-formed pair.
+    JsonArrayConst rng = el["format"]["range"].as<JsonArrayConst>();
+    if (!rng.isNull() && rng.size() == 2) {
+        out.range_min = rng[0] | 0.0f;
+        out.range_max = rng[1] | 0.0f;
+    }
+    // format.precision is a decimal-places count; only honor non-negative ints.
+    JsonVariantConst prec = el["format"]["precision"];
+    if (prec.is<int>()) {
+        int p = prec.as<int>();
+        if (p >= 0 && p <= 127) out.precision = (int8_t)p;
+    }
     // style.color may be "#rrggbb" hex string (MIDL editor) or an integer; default 0
     // (painter uses theme default).
     out.accent = 0;

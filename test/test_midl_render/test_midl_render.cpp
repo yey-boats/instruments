@@ -71,6 +71,33 @@ void test_accent_integer() {
     TEST_ASSERT_EQUAL_HEX32(255u, m.accent);
 }
 
+// A gauge bound to the rudder with an explicit format.range + precision should
+// carry both through to the painter binding.
+void test_format_range_and_precision() {
+    MetricBinding m = mapOne(
+        R"({"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":1,"unit":"deg"},
+            "bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}})",
+        "rudder");
+    TEST_ASSERT_EQUAL(WidgetKind::Gauge, m.kind);
+    TEST_ASSERT_EQUAL(MetricSource::Rudder_deg, m.source);
+    TEST_ASSERT_EQUAL_FLOAT(-35.0f, m.range_min);
+    TEST_ASSERT_EQUAL_FLOAT(35.0f, m.range_max);
+    TEST_ASSERT_EQUAL_INT8(1, m.precision);
+    TEST_ASSERT_EQUAL_STRING("deg", m.unit);
+}
+
+// Absent format.range/precision must leave the additive fields at their defaults
+// (range_min==range_max==0, precision==-1) so legacy painter behavior is preserved.
+void test_format_absent_defaults() {
+    MetricBinding m = mapOne(
+        R"({"type":"gauge","format":{"unit":"kn"},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog_gauge");
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, m.range_min);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, m.range_max);
+    TEST_ASSERT_EQUAL_INT8(-1, m.precision);
+}
+
 void setUp() {
 }
 void tearDown() {
@@ -84,5 +111,7 @@ int main(int, char **) {
     RUN_TEST(test_map_compass_label_fallback_to_id);
     RUN_TEST(test_accent_hex_string);
     RUN_TEST(test_accent_integer);
+    RUN_TEST(test_format_range_and_precision);
+    RUN_TEST(test_format_absent_defaults);
     return UNITY_END();
 }

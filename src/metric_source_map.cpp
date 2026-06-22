@@ -53,6 +53,7 @@ MetricSource path_to_source(const char *p) {
     if (strcmp(p, "navigation.courseRhumbline.crossTrackError") == 0) return MetricSource::XTE;
     if (strcmp(p, "navigation.courseRhumbline.velocityMadeGood") == 0) return MetricSource::VMG_kn;
     if (strcmp(p, "navigation.courseRhumbline.bearingTrackTrue") == 0) return MetricSource::CTS_deg;
+    if (strcmp(p, "steering.rudderAngle") == 0) return MetricSource::Rudder_deg;
     if (strcmp(p, "steering.autopilot.state") == 0) return MetricSource::APState;
     return MetricSource::None;
 }

@@ -100,6 +100,18 @@ struct MetricBinding {
     // positional brace-init tables value-init them (zoomable=false, zoom=NULL).
     bool zoomable;
     const char *zoom_target;
+    // Optional per-element value scaling/formatting from the MIDL `format` block.
+    // ADDITIVE and trailing, with NO default member initializers — that would make
+    // MetricBinding a non-aggregate under gnu++11 (the Arduino-ESP32 default std for
+    // the base esp32-4848s040 env) and break every positional brace-init table that
+    // stops at `kind`. They value-init to 0 instead. range_min==range_max==0 means
+    // "painter uses its built-in default per-source range"; the painter only reads
+    // `precision` inside the range_min!=range_max branch, so its value-init-to-0 on
+    // legacy tables is never observed. The MIDL mapper sets precision=-1 explicitly
+    // when format.precision is absent (see midl_render.cpp map_element).
+    float range_min;   // gauge/bar lower bound (0 with range_max==0 -> default)
+    float range_max;   // gauge/bar upper bound
+    int8_t precision;  // value decimal places; -1 = painter default (set by mapper)
 };
 
 struct ScreenVariantSpec {
