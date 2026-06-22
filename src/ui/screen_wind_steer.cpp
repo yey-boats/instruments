@@ -342,14 +342,7 @@ static double norm360(double d) {
         d -= 360;
     return d;
 }
-static int16_t deg_to_lvgl(double deg) {
-    int16_t r = (int16_t)(lround(deg) * 10);
-    while (r < 0)
-        r += 3600;
-    while (r >= 3600)
-        r -= 3600;
-    return r;
-}
+using ui::deg_to_lvgl;  // shared (include/ui_dirty.h)
 // Place a sector spanning screen angles [t0,t1] (deg from top, +cw) in LVGL.
 static void set_sector(lv_obj_t *a, double t0, double t1) {
     int s = (int)norm360(270 + t0);

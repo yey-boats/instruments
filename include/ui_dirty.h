@@ -16,6 +16,7 @@
 //   hidden cache: -1 = unset, 0 = shown, 1 = hidden.
 
 #include <lvgl.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -31,6 +32,21 @@ inline bool set_text_if_changed(lv_obj_t *obj, char *cache, size_t cap, const ch
         return true;
     }
     return false;
+}
+
+// Convert whole-ish degrees to LVGL's transform_rotation units (0.1deg,
+// [0..3600)). Quantizes to whole degrees first: sub-degree sensor jitter
+// would otherwise re-invalidate large transformed bounding boxes (compass
+// bezel, marker rings) every 5 Hz tick for visually identical output and
+// stall the SW renderer. Shared by all rotating HUDs (wind/wind_classic/
+// wind_steer/autopilot) - previously copy-pasted in each.
+inline int16_t deg_to_lvgl(double deg) {
+    int16_t r = (int16_t)(lround(deg) * 10);
+    while (r < 0)
+        r += 3600;
+    while (r >= 3600)
+        r -= 3600;
+    return r;
 }
 
 inline void set_rot_if_changed(lv_obj_t *obj, int16_t *cache, int16_t value) {

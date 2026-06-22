@@ -348,14 +348,7 @@ static int16_t s_last_scale_rot = INT16_MIN;
 static int s_last_xte_x = INT16_MIN;
 static char s_last_xte_txt[16] = {(char)0xFF};
 
-static int16_t deg_to_lvgl(double deg) {
-    int16_t r = (int16_t)(lround(deg) * 10);
-    while (r < 0)
-        r += 3600;
-    while (r >= 3600)
-        r -= 3600;
-    return r;
-}
+using ui::deg_to_lvgl;  // shared (include/ui_dirty.h)
 
 void refresh() {
     sk::Data d_snap;
