@@ -332,11 +332,11 @@ static MidlScreenArena *zoom_arena() {
 }
 
 // Refresh + collect trampolines for the zoom screen (it is registered as its own
-// screen; the freeform update path drives the single tile from sk::Data).
+// screen; the freeform update path drives the single tile from the fused boat::View).
 static void zoom_refresh() {
     if (!s_zoom_arena || !s_zoom_arena->live || !s_zoom_arena->root) return;
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     ui::layouts::update_freeform(s_zoom_arena->root, s_zoom_arena->spec, d);
 }
 static void zoom_collect(sk::SubscriptionSet &out) {
