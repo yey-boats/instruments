@@ -376,6 +376,13 @@ size_t apply_all(JsonVariantConst doc) {
         doc["settings"]["defaultScreen"] | (doc["defaultScreen"] | (const char *)nullptr);
     if (def && def[0]) {
         ui::show_by_id(def);
+    } else {
+        // No explicit default: make sure a registered screen is actually shown.
+        // After reset_screens() LVGL is parked on the blank root; the first
+        // register_screen() auto-loads index 0, but force it here so a live-push
+        // apply can never leave the device stranded on the parking screen (the
+        // boot path has no parking root, so this is a no-op there).
+        ui::show(0);
     }
 
     net::logf("[midl-render] apply_all built %zu screen(s)", built);
