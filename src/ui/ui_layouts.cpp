@@ -129,6 +129,52 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
             const char *pe = source_to_path(m.extras[e].source);
             if (pe) out.add(pe);
         }
+        // Composite elements (windrose/wind-steer/autopilot/compass) read extra
+        // sk::Data fields DIRECTLY — not via a single MetricSource binding — so the
+        // per-screen subscription manager would otherwise starve them (wind angle,
+        // laylines, helm, course markers stay NaN while only the primary value
+        // updates). Request those paths here per kind. Some (current.*, beat/gybe,
+        // apTarget) have no MetricSource, so they are literal strings.
+        switch (m.kind) {
+        case WidgetKind::WindRose:
+            out.add("environment.wind.angleApparent");
+            out.add("environment.wind.angleTrueWater");
+            out.add("environment.wind.speedTrue");
+            out.add("navigation.headingTrue");
+            out.add("environment.current.setTrue");
+            out.add("environment.current.drift");
+            out.add("navigation.courseRhumbline.nextPoint.bearingTrue");
+            break;
+        case WidgetKind::WindSteer:
+            out.add("environment.wind.angleApparent");
+            out.add("environment.wind.angleTrueWater");
+            out.add("environment.wind.speedApparent");
+            out.add("environment.wind.speedTrue");
+            out.add("performance.beatAngle");
+            out.add("performance.gybeAngle");
+            out.add("navigation.headingTrue");
+            out.add("navigation.courseOverGroundTrue");
+            out.add("navigation.courseRhumbline.bearingTrackTrue");
+            break;
+        case WidgetKind::Autopilot:
+            out.add("navigation.headingTrue");
+            out.add("navigation.courseOverGroundTrue");
+            out.add("navigation.speedOverGround");
+            out.add("navigation.courseRhumbline.bearingTrackTrue");
+            out.add("steering.autopilot.target.headingTrue");
+            out.add("steering.rudderAngle");
+            out.add("environment.depth.belowKeel");
+            out.add("navigation.speedThroughWater");
+            out.add("environment.wind.speedApparent");
+            out.add("environment.wind.angleApparent");
+            break;
+        case WidgetKind::Compass:
+            out.add("navigation.courseOverGroundTrue");
+            out.add("navigation.courseRhumbline.bearingTrackTrue");
+            break;
+        default:
+            break;
+        }
     }
 }
 
