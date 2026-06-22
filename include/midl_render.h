@@ -19,14 +19,16 @@ namespace midl::render {
 // tokens fall back to Numeric (matches the legacy renderer's policy).
 ui::layouts::WidgetKind token_to_kind(const char *type);
 
-// Pure: fill `out` from one MIDL element JSON. Strings (id,label,unit) are
-// COPIED into caller-owned buffers `id_buf`/`label_buf`/`unit_buf` (each >=32),
-// and out.id/label/unit point at them -- so the caller controls lifetime (the
-// MetricBinding stores non-owning pointers). `value` binding path -> source via
-// path_to_source; style.color -> accent (accepts "#rrggbb" hex or integer).
-// Returns false if `el` is not an object.
+// Pure: fill `out` from one MIDL element JSON. Strings (id,label,unit,action) are
+// COPIED into caller-owned buffers `id_buf`/`label_buf`/`unit_buf`/`action_buf`
+// (each >=32), and out.id/label/unit + out.target_screen/out.command point at them
+// -- so the caller controls lifetime (the MetricBinding stores non-owning
+// pointers). `value` binding path -> source via path_to_source; style.color ->
+// accent (accepts "#rrggbb" hex or integer). A MIDL `action` block maps by kind:
+// "nav" -> out.target_screen, "command" -> out.command (both copied into
+// action_buf; only one is set). Returns false if `el` is not an object.
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
-                 char *id_buf, char *label_buf, char *unit_buf);
+                 char *id_buf, char *label_buf, char *unit_buf, char *action_buf);
 
 // Pure (host-testable): select a screen object from a MIDL document.
 //

@@ -71,6 +71,7 @@ struct MidlScreenArena {
     char ids[MAX_TILES][STR_CAP];
     char labels[MAX_TILES][STR_CAP];
     char units[MAX_TILES][STR_CAP];
+    char actions[MAX_TILES][STR_CAP];  // button action target (nav/command)
 
     // The MetricBinding table passed to create_freeform / update_freeform.
     MetricBinding metrics[MAX_TILES];
@@ -202,7 +203,7 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
         JsonVariantConst el = find_element(elements_node, pl.element);
 
         bool ok = map_element(el, pl.element, arena.metrics[i], arena.ids[i], arena.labels[i],
-                              arena.units[i]);
+                              arena.units[i], arena.actions[i]);
         if (!ok) {
             // Unknown element: leave as zero-init MetricBinding (None source -> "--").
             // Copy at least the id so the tile chrome shows something.

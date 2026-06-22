@@ -415,6 +415,31 @@ static void tile_clicked_cb(lv_event_t *e) {
     app::post(c, 0);
 }
 
+// Button element tap handler (MIDL `action`). user_data is the tile's
+// MetricBinding* (stable: it points into the screen's arena/spec). A command
+// action funnels its target through net::dispatchCommand on the UI task — the
+// same path screen_settings uses for `theme`/`demo`, so it is safe here (the
+// funnel posts SignalK PUTs onto the net worker itself; it does no blocking
+// I/O on this task). A nav action posts ShowScreen, mirroring tile_clicked_cb.
+static void button_action_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
+    if (!m) return;
+    if (m->command && m->command[0]) {
+        net::logf("[layout] button command='%s'", m->command);
+        net::dispatchCommand(m->command);
+        return;
+    }
+    if (m->target_screen && m->target_screen[0]) {
+        net::logf("[layout] button nav target=%s", m->target_screen);
+        app::Command c;
+        c.type = app::CommandType::ShowScreen;
+        strncpy(c.a, m->target_screen, sizeof(c.a) - 1);
+        c.t_post_us = micros();
+        app::post(c, 0);
+    }
+}
+
 // Map a scalar source value to a 0..1 fraction for gauge/bar widgets.
 // Heuristic per-source ranges; widgets that don't have an obvious range
 // (e.g., heading angles, positions) return NAN and render as empty.
@@ -934,6 +959,10 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int /*w*/
     lv_obj_set_style_pad_hor(btn, 18, 0);
     lv_obj_set_style_pad_ver(btn, 8, 0);
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    // Not itself clickable: the action handler lives on the tile root (build_tile),
+    // so the indev hit-test must walk past this bubble to the root. Without this,
+    // the bubble would swallow the tap and the action would never fire.
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, (m.label && m.label[0]) ? m.label : "TAP");
@@ -1056,7 +1085,17 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
         break;
     }
 
-    if (m.target_screen && m.target_screen[0]) {
+    // Button elements with an action (nav or command) make the WHOLE tile the
+    // tap target via button_action_cb. The inner bubble has CLICKABLE cleared in
+    // paint_button_body so the hit-test walks up to the tile root. Checked before
+    // the generic target_screen nav so a nav-button still routes through the
+    // button handler (identical effect, but keeps the binding-ptr user_data).
+    bool button_action = (m.kind == WidgetKind::Button) &&
+                         ((m.command && m.command[0]) || (m.target_screen && m.target_screen[0]));
+    if (button_action) {
+        lv_obj_add_flag(t.root, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(t.root, button_action_cb, LV_EVENT_CLICKED, (void *)&m);
+    } else if (m.target_screen && m.target_screen[0]) {
         lv_obj_add_event_cb(t.root, tile_clicked_cb, LV_EVENT_CLICKED, (void *)m.target_screen);
     } else {
         lv_obj_clear_flag(t.root, LV_OBJ_FLAG_CLICKABLE);
