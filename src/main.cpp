@@ -2630,12 +2630,14 @@ static void pollSerialCommands() {
         if (c == '\n' || c == '\r') {
             serial_line.trim();
             if (serial_line.length()) {
-                if (!net::handleSerialCommand(serial_line) &&
-                    !sk::handleSerialCommand(serial_line) &&
-                    !manager::handleSerialCommand(serial_line) &&
-                    !layout::handleSerialCommand(serial_line)) {
-                    handleMainCommand(serial_line);
-                }
+                // Single funnel: dispatchCommand tries every registered
+                // handler (net/sk/nmea-wifi/n2k/boat/board/manager/beeper/
+                // autopilot/layout) and finally s_extra == handleMainCommand.
+                // Routing USB serial through the same chain as BLE NUS keeps
+                // the command set identical across transports - previously
+                // this loop only tried net/sk/manager/layout, so e.g.
+                // `autopilot`/`boat`/`n2k` commands silently no-op'd on USB.
+                net::dispatchCommand(serial_line);
             }
             serial_line = "";
         } else if (serial_line.length() < 200) {

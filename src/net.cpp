@@ -363,10 +363,11 @@ class RxCb : public NimBLECharacteristicCallbacks {
                       line == "screen" || line == "sk-status" || line == "sk-dump" ||
                       line == "temp" || line == "wifi-list" || line == "bright");
     if (inline_ok) {
-        if (!handleSerialCommand(line) && !sk::handleSerialCommand(line) &&
-            !layout::handleSerialCommand(line)) {
-            if (s_extra) s_extra(line);
-        }
+        // Same funnel as the queued path below (dispatchCommand), just run
+        // in-place because these whitelisted commands are short/read-only and
+        // safe on the NimBLE callback task. Using the full chain keeps the
+        // handler set identical regardless of transport or fast-path.
+        dispatchCommand(line);
         return;
     }
     app::Command cmd;

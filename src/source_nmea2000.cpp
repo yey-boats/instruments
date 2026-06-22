@@ -7,6 +7,7 @@
 #include "boat_data.h"
 #include "net.h"
 #include "storage.h"
+#include "units.h"
 
 #ifdef ENABLE_NMEA2000
 #include "driver/twai.h"
@@ -169,7 +170,7 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
             double ws = ws_raw * 0.01;    // m/s
             double wa = wa_raw * 0.0001;  // rad
             // Wrap to signed.
-            if (wa > M_PI) wa -= 2 * M_PI;
+            wa = units::wrap_pi(wa);
             bool apparent = (ref == 2);
             boat::publish(apparent ? &Snapshot::aws_mps : &Snapshot::tws_mps, src, now, ws);
             boat::publish(apparent ? &Snapshot::awa_rad : &Snapshot::twa_rad, src, now, wa);
@@ -186,7 +187,7 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         uint16_t heading_raw = u16le(d + 4);
         if (heading_raw != 0xFFFF) {
             double hdg = heading_raw * 0.0001;
-            if (hdg > M_PI) hdg -= 2 * M_PI;
+            hdg = units::wrap_pi(hdg);
             boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
             ok = true;
         }
@@ -199,7 +200,7 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         uint16_t hdg_raw = u16le(d + 2);
         if (hdg_raw != 0xFFFF) {
             double hdg = hdg_raw * 0.0001;
-            if (hdg > M_PI) hdg -= 2 * M_PI;
+            hdg = units::wrap_pi(hdg);
             boat::publish(&Snapshot::autopilot_target_rad, src, now, hdg);
             ok = true;
         }
@@ -251,7 +252,7 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         uint16_t wa_raw = u16le(d + 2);
         if (wa_raw != 0xFFFF) {
             double wa = wa_raw * 0.0001;
-            if (wa > M_PI) wa -= 2 * M_PI;
+            wa = units::wrap_pi(wa);
             // No dedicated field; piggyback on twa_rad as
             // "target wind angle" hint when in wind mode.
             boat::publish(&Snapshot::twa_rad, src, now, wa);

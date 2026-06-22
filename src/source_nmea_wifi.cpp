@@ -10,6 +10,7 @@
 #include "boat_data.h"
 #include "net.h"
 #include "nmea0183.h"
+#include "units.h"
 
 namespace nmea_wifi {
 
@@ -59,49 +60,49 @@ void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
             boat::publish(&Snapshot::lon_deg, SourceKind::NmeaWifi, now, v);
             break;
         case FK::SogKn:
-            boat::publish(&Snapshot::sog_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            boat::publish(&Snapshot::sog_mps, SourceKind::NmeaWifi, now, units::kn_to_mps(v));
             break;
         case FK::StwKn:
-            boat::publish(&Snapshot::stw_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            boat::publish(&Snapshot::stw_mps, SourceKind::NmeaWifi, now, units::kn_to_mps(v));
             break;
         case FK::CogTrueDeg:
-            boat::publish(&Snapshot::cog_true_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            boat::publish(&Snapshot::cog_true_rad, SourceKind::NmeaWifi, now, units::deg_to_rad(v));
             break;
         case FK::HeadingTrueDeg:
             boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
-                          v * (M_PI / 180.0));
+                          units::deg_to_rad(v));
             break;
         case FK::HeadingMagDeg:
             // No mag field in Snapshot yet; treat as heading_true fallback when nothing better.
             boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
-                          v * (M_PI / 180.0));
+                          units::deg_to_rad(v));
             break;
         case FK::AwaDeg:
-            boat::publish(&Snapshot::awa_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            boat::publish(&Snapshot::awa_rad, SourceKind::NmeaWifi, now, units::deg_to_rad(v));
             break;
         case FK::AwsKn:
-            boat::publish(&Snapshot::aws_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            boat::publish(&Snapshot::aws_mps, SourceKind::NmeaWifi, now, units::kn_to_mps(v));
             break;
         case FK::TwaDeg:
-            boat::publish(&Snapshot::twa_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            boat::publish(&Snapshot::twa_rad, SourceKind::NmeaWifi, now, units::deg_to_rad(v));
             break;
         case FK::TwsKn:
-            boat::publish(&Snapshot::tws_mps, SourceKind::NmeaWifi, now, v * 0.514444);
+            boat::publish(&Snapshot::tws_mps, SourceKind::NmeaWifi, now, units::kn_to_mps(v));
             break;
         case FK::DepthM:
             boat::publish(&Snapshot::depth_m, SourceKind::NmeaWifi, now, v);
             break;
         case FK::WaterTempC:
-            boat::publish(&Snapshot::water_temp_k, SourceKind::NmeaWifi, now, v + 273.15);
+            boat::publish(&Snapshot::water_temp_k, SourceKind::NmeaWifi, now, units::c_to_k(v));
             break;
         case FK::XteNm:
-            boat::publish(&Snapshot::xte_m, SourceKind::NmeaWifi, now, v * 1852.0);
+            boat::publish(&Snapshot::xte_m, SourceKind::NmeaWifi, now, units::nm_to_m(v));
             break;
         case FK::BtwTrueDeg:
-            boat::publish(&Snapshot::btw_rad, SourceKind::NmeaWifi, now, v * (M_PI / 180.0));
+            boat::publish(&Snapshot::btw_rad, SourceKind::NmeaWifi, now, units::deg_to_rad(v));
             break;
         case FK::DtwNm:
-            boat::publish(&Snapshot::dtw_m, SourceKind::NmeaWifi, now, v * 1852.0);
+            boat::publish(&Snapshot::dtw_m, SourceKind::NmeaWifi, now, units::nm_to_m(v));
             break;
         default:
             break;

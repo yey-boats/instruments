@@ -6,6 +6,8 @@
 #include <math.h>
 #include <stddef.h>
 
+#include "units.h"
+
 namespace ui {
 
 // Position display format (matches the global g_pos_format in main.cpp).
@@ -35,22 +37,23 @@ void set_battery_alarm_v(double value);
 void overlay_show(const char *message);
 void overlay_clear();
 
-// Unit helpers
+// Unit helpers. The raw conversion factors live in units.h (single source
+// of truth); these thin wrappers add the display-specific normalisation.
 inline double rad_to_deg_pos(double rad) {
-    double d = rad * 180.0 / M_PI;
+    double d = units::rad_to_deg(rad);
     if (d < 0) d += 360;
     return d;
 }
 inline double mps_to_kn(double mps) {
-    return mps * 1.94384;
+    return units::mps_to_kn(mps);
 }
 inline double k_to_c(double k) {
-    return k - 273.15;
+    return units::k_to_c(k);
 }
 
 // Trim radians to [-180,180] degrees (relative wind angles).
 inline double rad_to_deg_pm(double rad) {
-    double d = rad * 180.0 / M_PI;
+    double d = units::rad_to_deg(rad);
     while (d > 180)
         d -= 360;
     while (d < -180)
