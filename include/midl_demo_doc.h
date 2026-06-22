@@ -43,12 +43,44 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
       "layout":{"flow":"col","weights":[3,1],"children":[
         {"rows":2,"cols":2,"cells":[{"element":"hdg"},{"element":"rud"},{"element":"xte"},{"element":"vmg"}]},
         {"flow":"row","children":[{"element":"n10"},{"element":"n1"},{"element":"p1"},{"element":"p10"}]}]}},
+    {"id":"wind","title":"Wind","elements":{
+      "wind":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}}},
+      "layout":{"element":"wind"}},
+    {"id":"wind_steer","title":"Wind Steer","elements":{
+      "wind":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+      "n10":{"type":"button","name":"-10","action":{"kind":"command","target":"autopilot heading -10"}},
+      "n1":{"type":"button","name":"-1","action":{"kind":"command","target":"autopilot heading -1"}},
+      "p1":{"type":"button","name":"+1","action":{"kind":"command","target":"autopilot heading 1"}},
+      "p10":{"type":"button","name":"+10","action":{"kind":"command","target":"autopilot heading 10"}}},
+      "layout":{"flow":"col","weights":[3,1],"children":[
+        {"element":"wind"},
+        {"flow":"row","children":[{"element":"n10"},{"element":"n1"},{"element":"p1"},{"element":"p10"}]}]}},
+    {"id":"autopilot","title":"Autopilot","elements":{
+      "ap":{"type":"autopilot","name":"PILOT","bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}},
+      "n10":{"type":"button","name":"-10","action":{"kind":"command","target":"autopilot heading -10"}},
+      "n1":{"type":"button","name":"-1","action":{"kind":"command","target":"autopilot heading -1"}},
+      "p1":{"type":"button","name":"+1","action":{"kind":"command","target":"autopilot heading 1"}},
+      "p10":{"type":"button","name":"+10","action":{"kind":"command","target":"autopilot heading 10"}}},
+      "layout":{"flow":"col","weights":[4,1],"children":[
+        {"element":"ap"},
+        {"flow":"row","children":[{"element":"n10"},{"element":"n1"},{"element":"p1"},{"element":"p10"}]}]}},
     {"id":"route","title":"Route","elements":{
-      "dtw":{"type":"single-value","name":"DTW","format":{"unit":"nm"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.nextPoint.distance"}}},
-      "btw":{"type":"single-value","name":"BTW","format":{"unit":"deg"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.nextPoint.bearingTrue"}}},
-      "xte":{"type":"single-value","name":"XTE","format":{"unit":"nm"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.crossTrackError"}}},
-      "vmg":{"type":"single-value","name":"VMG","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.velocityMadeGood"}}}},
-      "layout":{"rows":2,"cols":2,"cells":[{"element":"dtw"},{"element":"btw"},{"element":"xte"},{"element":"vmg"}]}}
+      "dtw":{"type":"single-value","name":"DTW","format":{"unit":"nm"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.nextPoint.distance"}}},
+      "btw":{"type":"single-value","name":"BTW","format":{"unit":"deg"},"style":{"color":"#39d98a"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.nextPoint.bearingTrue"}}},
+      "xte":{"type":"single-value","name":"XTE","format":{"unit":"nm"},"style":{"color":"#ffb84d"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.crossTrackError"}}},
+      "vmg":{"type":"single-value","name":"VMG","format":{"unit":"kn"},"style":{"color":"#52736f"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.velocityMadeGood"}}}},
+      "layout":{"rows":2,"cols":2,"cells":[{"element":"dtw"},{"element":"btw"},{"element":"xte"},{"element":"vmg"}]}},
+    {"id":"gallery","title":"Gallery","elements":{
+      "v":{"type":"single-value","name":"SOG","format":{"unit":"kn"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
+      "c":{"type":"compass","name":"HDG","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.courseRhumbline.bearingTrackTrue"}}},
+      "w":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+      "g":{"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":0,"unit":"deg"},"bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}},
+      "b":{"type":"bar","name":"BATT","format":{"range":[0,1]},"style":{"color":"#39d98a"},"bindings":{"value":{"kind":"signalk","path":"electrical.batteries.house.stateOfCharge"}}},
+      "t":{"type":"trend","name":"DEPTH","format":{"unit":"m"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"environment.depth.belowKeel"}}},
+      "a":{"type":"autopilot","name":"PILOT","bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}},
+      "x":{"type":"text","name":"POS","bindings":{"value":{"kind":"signalk","path":"navigation.position"}}},
+      "n":{"type":"button","name":"HOME","action":{"kind":"nav","target":"dash"}}},
+      "layout":{"rows":3,"cols":3,"cells":[{"element":"v"},{"element":"c"},{"element":"w"},{"element":"g"},{"element":"b"},{"element":"t"},{"element":"a"},{"element":"x"},{"element":"n"}]}}
   ]
 })midl";
 // clang-format on
