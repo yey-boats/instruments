@@ -250,7 +250,9 @@ void format_xte(double xte_m, char *out, size_t cap) {
     snprintf(out, cap, "%.2f nm %c", fabs(xte_m) / kMetersPerNm, side);
 }
 
-XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
+XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
+                                const char *left_label, const char *right_label, double full_scale,
+                                int tick_decimals, uint32_t needle_color) {
     XteStrip xs = {};
     lv_obj_t *root = lv_obj_create(parent);
     lv_obj_set_size(root, w, h);
@@ -260,11 +262,11 @@ XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
     xs.root = root;
 
     int cx = w / 2;
-    int half = w / 2 - 28;  // leave room for the -1.0 / 1.0 axis end labels
-    // The strip has three stacked rows: a top label row (PORT | readout | STBD),
-    // the axis baseline below it, and the -1.0..1.0 numeric ticks in a reserved
-    // gutter under the axis. PORT/STBD live ABOVE the axis so they never collide
-    // with the end ticks. base_y pushed down to make room for the top label row.
+    int half = w / 2 - 28;  // leave room for the end tick labels
+    // The strip has three stacked rows: a top label row (left | readout | right),
+    // the axis baseline below it, and the numeric ticks in a reserved gutter under
+    // the axis. The end captions live ABOVE the axis so they never collide with
+    // the end ticks. base_y pushed down to make room for the top label row.
     int label_row_y = 0;
     int base_y = 18;
     xs.center_x = cx;
@@ -278,10 +280,9 @@ XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
     no_chrome(line);
 
-    // Scale ticks + numeric labels at -1, -0.5, 0, 0.5, 1. Numeric labels sit in
-    // the gutter below the baseline; the top row above carries PORT/STBD.
-    static const float fr[] = {-1.0f, -0.5f, 0.0f, 0.5f, 1.0f};
-    static const char *lbl[] = {"-1.0", "-0.5", "0", "0.5", "1.0"};
+    // Scale ticks + numeric labels at -fs, -fs/2, 0, fs/2, fs. Numeric labels sit
+    // in the gutter below the baseline; the top row above carries the end captions.
+    const float fr[] = {-1.0f, -0.5f, 0.0f, 0.5f, 1.0f};
     for (int i = 0; i < 5; ++i) {
         int tx = cx + (int)(fr[i] * half);
         bool mid = (i == 2);
@@ -291,29 +292,34 @@ XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
         lv_obj_set_style_bg_color(t, lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
         no_chrome(t);
+        char tbuf[12];
+        if (mid)
+            snprintf(tbuf, sizeof(tbuf), "0");
+        else
+            snprintf(tbuf, sizeof(tbuf), "%.*f", tick_decimals, fr[i] * full_scale);
         lv_obj_t *nl = lv_label_create(root);
-        lv_label_set_text(nl, lbl[i]);
+        lv_label_set_text(nl, tbuf);
         lv_obj_set_style_text_font(nl, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(nl, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_set_pos(nl, tx - (int)strlen(lbl[i]) * 4, base_y + 5);
+        lv_obj_set_pos(nl, tx - (int)strlen(tbuf) * 4, base_y + 5);
     }
 
-    // PORT / STBD captions in the top label row, ABOVE the axis -- clear of the
-    // -1.0 / 1.0 end ticks (which now live in the gutter below the baseline).
+    // End captions in the top label row, ABOVE the axis -- clear of the end ticks
+    // (which now live in the gutter below the baseline).
     lv_obj_t *port = lv_label_create(root);
-    lv_label_set_text(port, "PORT");
+    lv_label_set_text(port, left_label);
     lv_obj_set_style_text_font(port, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(port, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_pos(port, 0, label_row_y);
     lv_obj_t *stbd = lv_label_create(root);
-    lv_label_set_text(stbd, "STBD");
+    lv_label_set_text(stbd, right_label);
     lv_obj_set_style_text_font(stbd, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(stbd, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(stbd, LV_ALIGN_TOP_RIGHT, 0, label_row_y);
 
-    // Numeric cross-track readout (nm + P/S side) centered in the top label row
-    // between PORT and STBD, so the operator can read the magnitude, not just
-    // which side the needle is on. Updated in the screen refresh via format_xte().
+    // Numeric readout centered in the top label row between the end captions, so
+    // the operator can read the magnitude, not just which side the needle is on.
+    // Caller fills it via set_text_if_changed in the refresh path.
     lv_obj_t *val = lv_label_create(root);
     lv_label_set_text(val, "--");
     lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
@@ -321,17 +327,22 @@ XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
     lv_obj_align(val, LV_ALIGN_TOP_MID, 0, label_row_y);
     xs.value = val;
 
-    // Red deviation needle, centered (zero) at build time.
+    // Deviation needle, centered (zero) at build time.
     lv_obj_t *needle = lv_obj_create(root);
     lv_obj_set_size(needle, 3, h - 6);
     lv_obj_set_pos(needle, cx - 1, 3);
-    lv_obj_set_style_bg_color(needle, lv_color_hex(theme.alarm), 0);
+    lv_obj_set_style_bg_color(needle, lv_color_hex(needle_color), 0);
     lv_obj_set_style_bg_opa(needle, LV_OPA_COVER, 0);
     no_chrome(needle);
     lv_obj_set_style_radius(needle, 1, 0);
     xs.needle = needle;
 
     return xs;
+}
+
+XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h) {
+    // Cross-track-error: PORT..STBD, ±1.0 nm full-scale (one decimal), red needle.
+    return build_centerzero_strip(parent, x, y, w, h, "PORT", "STBD", 1.0, 1, theme.alarm);
 }
 
 }  // namespace ui

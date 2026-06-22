@@ -45,13 +45,17 @@ struct QuadGridTile {
     // Painter sets only the slots it needs; updater uses them via `kind`.
     lv_obj_t *aux;           // primary aux widget (arc / bar / ring)
     lv_obj_t *aux2;          // secondary aux (gauge needle / autopilot pill)
-    ui::MarkerRing markers;  // compass steering markers (HDG/COG/CTS)
+    ui::MarkerRing markers;  // compass steering markers (HDG + CTS, inner ring)
     char last_value[24];
     char last_secondary[24];
     char last_extras[4][32];
     int last_aux_pct;  // last gauge/bar value (0..100); -1 = unset
     int idx;           // metric index into spec.metrics[]
     WidgetKind kind;
+    // COG on its OWN outer ring so an HDG≈COG overlap doesn't merge into one
+    // faint marker (the inner `markers` ring carries HDG + CTS). Additive
+    // trailing field — preserves the gnu++11 aggregate-init order above.
+    ui::MarkerRing markers_cog;
 };
 
 struct QuadGridState {
@@ -673,19 +677,27 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE);
     t.aux = ring;
 
-    // Steering marker set: HDG (solid triangle), COG (hollow triangle),
-    // CTS (solid diamond, alarm/red). Bearings filled live in update from
-    // metric_scalar(). Amber is reserved for the AP-target / TWD diamonds so
-    // CTS and target stay distinguishable on the AP HUD.
-    ui::MarkerSpec steer_markers[3] = {
-        {NAN, ui::Glyph::Triangle, true, theme.accent},
-        {NAN, ui::Glyph::Triangle, false, theme.good},
-        {NAN, ui::Glyph::Diamond, true, theme.alarm},
-    };
+    // Steering marker set, split across two concentric rings so an HDG≈COG
+    // overlap stays legible (they otherwise stack into one faint glyph):
+    //   inner ring (dia/2 - 6): HDG (solid accent triangle) + CTS (solid alarm
+    //                           diamond).
+    //   outer ring (dia/2):     COG alone (hollow good-green triangle), drawn
+    //                           AFTER the inner ring so its outline reads on top.
+    // Bearings filled live in update from metric_scalar(). Amber is reserved for
+    // the AP-target / TWD diamonds so CTS and target stay distinguishable.
     int mcx, mcy;
     dial_center(w, h, mcx, mcy);
-    t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2, steer_markers, 3,
+    ui::MarkerSpec inner_markers[2] = {
+        {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG
+        {NAN, ui::Glyph::Diamond, true, theme.alarm},    // CTS
+    };
+    t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - 6, inner_markers, 2,
                                       /*occlude_lower=*/false);
+    ui::MarkerSpec cog_markers[1] = {
+        {NAN, ui::Glyph::Triangle, false, theme.good},  // COG (hollow)
+    };
+    t.markers_cog = ui::build_marker_ring(t.root, mcx, mcy, dia / 2, cog_markers, 1,
+                                          /*occlude_lower=*/false);
 
     // N/E/S/W cardinals: padded in from the ring border so they don't
     // visually merge with the heading number (which is centered).
@@ -759,6 +771,50 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.warn), 0);
     lv_obj_align_to(t.secondary, ring, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
     lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
+
+    // Legend (bottom-left): tells the operator which glyph is which without
+    // memorizing color/shape. Three compact rows — cyan▲ HDG, green△ COG, red◆
+    // CTS — built from the same ui::draw_glyph the rings use (so the legend glyph
+    // matches the rim glyph exactly). A 16px glyph canvas scaled into a small box
+    // sits left of each montserrat_14 label in theme.fg_dim. Kept tight in the
+    // tile's lower-left corner so it doesn't crowd the dial. Only drawn when the
+    // tile is tall enough that the rows clear the ring.
+    if (h >= 150) {
+        struct LegendItem {
+            ui::Glyph glyph;
+            bool filled;
+            uint32_t color;
+            const char *txt;
+        };
+        static const LegendItem kLegend[3] = {
+            {ui::Glyph::Triangle, true, theme.accent, "HDG"},
+            {ui::Glyph::Triangle, false, theme.good, "COG"},
+            {ui::Glyph::Diamond, true, theme.alarm, "CTS"},
+        };
+        const int row_h = 16;
+        const int gx = 4;  // left inset within content box
+        int gy = h - 2 * (chrome::panel_border + chrome::panel_pad) - 3 * row_h - 2;
+        if (gy < 0) gy = 0;
+        for (int i = 0; i < 3; ++i) {
+            lv_obj_t *g =
+                ui::draw_glyph(t.root, kLegend[i].glyph, kLegend[i].filled, kLegend[i].color);
+            // draw_glyph returns a 28x28 canvas; scale 50% about its center so the
+            // visible glyph fills ~14px while the object box stays 28px. The box
+            // top-left is pinned at (gx-7, row-7) so the scaled-down content centers
+            // at (gx+7, row+1), i.e. a 14px swatch starting at the left inset.
+            lv_obj_set_style_transform_pivot_x(g, 14, 0);
+            lv_obj_set_style_transform_pivot_y(g, 14, 0);
+            lv_obj_set_style_transform_scale(g, 128, 0);  // 50% (256 = 100%)
+            lv_obj_set_pos(g, gx - 7, gy + i * row_h - 7);
+            lv_obj_clear_flag(g, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_t *l = lv_label_create(t.root);
+            lv_label_set_text(l, kLegend[i].txt);
+            lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_color(l, lv_color_hex(theme.fg_dim), 0);
+            lv_obj_set_pos(l, gx + 14, gy + i * row_h);
+            lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
 }
 
 // Gauge widget: LVGL arc spanning 270° with the value fill in accent
@@ -1588,11 +1644,18 @@ static void update(WindDialState *st, const sk::Data &d) {
 struct ApHudState {
     lv_obj_t *root;
     ui::Compass cp;
-    ui::XteStrip xte;
+    ui::XteStrip xte;  // repurposed as a RUDDER center-zero strip (PORT..STBD, ±35°)
     lv_obj_t *lbl_mode;
     lv_obj_t *lbl_hdg_value;
     lv_obj_t *lbl_cogsog;
     lv_obj_t *tile_depth, *tile_speed, *tile_aws, *tile_awa;
+
+    // Engage chip (top-left): Auto/STBY toggle wired DIRECTLY to a SignalK state
+    // PUT (NOT the permission-gated `autopilot mode` command path). lbl_engage is
+    // the chip's text label; s_last_engage is the mode to re-engage from STBY.
+    lv_obj_t *btn_engage, *lbl_engage;
+    char s_last_engage[8];
+    lv_obj_t *lbl_target;  // "TGT <ddd>°" caption near the HDG hero (hidden on NaN)
 
     // Dirty caches (mirror screen_autopilot.cpp's file-statics).
     char last_mode[16];
@@ -1604,11 +1667,50 @@ struct ApHudState {
     char last_aws[12];
     char last_awa[12];
     int16_t last_scale_rot;
-    int last_xte_x;
+    int last_xte_x;  // last rudder needle x
     char last_xte_txt[16];
+    char last_engage[8];
+    uint32_t last_engage_color;
+    char last_target[12];
 };
 
 namespace aphud {
+
+// PUT steering/autopilot/state DIRECTLY (mirrors screen_autopilot.cpp put_state),
+// NOT the `autopilot mode` command funnel: autopilot::set_mode is permission-gated
+// (allow_engage defaults OFF), so the command path is silently Forbidden on a stock
+// device. The legacy HUD engages by PUTting the state string verbatim; do the same.
+static void put_state(const char *state) {
+    app::Command cmd;
+    cmd.type = app::CommandType::SignalKPut;
+    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
+    snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
+    app::post_net(cmd, 50);
+    net::logf("[aphud] state -> %s queued", state);
+}
+
+// Engage chip handler. Runs on the UI task: read sk::Data (copyData), decide
+// engaged, then post the state PUT to the net worker (non-blocking). Toggling
+// from STBY re-engages the last steering mode (st->s_last_engage); toggling from
+// any engaged mode drops to standby.
+static void on_engage_short(lv_event_t *e) {
+    ApHudState *st = (ApHudState *)lv_event_get_user_data(e);
+    if (!st) return;
+    sk::Data d;
+    sk::copyData(d);
+    bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
+    put_state(engaged ? "standby" : st->s_last_engage);
+}
+
+// HOME chip handler: post ShowScreen "dashboard" (mirrors tile_clicked_cb).
+static void on_home(lv_event_t *e) {
+    (void)e;
+    app::Command c;
+    c.type = app::CommandType::ShowScreen;
+    strncpy(c.a, "dashboard", sizeof(c.a) - 1);
+    c.t_post_us = micros();
+    app::post(c, 0);
+}
 
 // Build the HUD into `parent` (the tile root) filling its w x h content area.
 // Returns a PSRAM ApHudState* (also attached to the HUD root's user_data).
@@ -1630,6 +1732,10 @@ static ApHudState *build(lv_obj_t *parent, int w, int h) {
     st->last_scale_rot = INT16_MIN;
     st->last_xte_x = INT16_MIN;
     st->last_xte_txt[0] = (char)0xFF;
+    st->last_engage[0] = (char)0xFF;
+    st->last_engage_color = 0xFFFFFFFF;
+    st->last_target[0] = (char)0xFF;
+    strcpy(st->s_last_engage, "auto");  // default mode to re-engage from STBY
 
     // HUD root: transparent, borderless, no-pad container filling the tile so its
     // local (0..w / 0..h) coordinates line up with the rect and update_* can find
@@ -1667,12 +1773,60 @@ static ApHudState *build(lv_obj_t *parent, int w, int h) {
     const bool show_tiles = (h >= 440);
     const int reserved_below = cogsog_h + xte_h + (show_tiles ? tile_band_h : 0);
 
-    // --- mode badge (top-mid) ---
-    st->lbl_mode = lv_label_create(r);
+    // --- mode badge (top-mid): a filled pill (theme.good) when engaged, hollow
+    // outline when standby. Built as a small rounded container with the mode label
+    // centered, so the engaged/standby state reads at a glance even from across
+    // the cockpit. The badge bg/border are recolored in update().
+    lv_obj_t *badge = lv_obj_create(r);
+    lv_obj_set_size(badge, 130, 32);
+    lv_obj_align(badge, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_set_style_radius(badge, 16, 0);
+    lv_obj_set_style_bg_opa(badge, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(badge, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(badge, 2, 0);
+    lv_obj_set_style_pad_all(badge, 0, 0);
+    lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
+    st->lbl_mode = lv_label_create(badge);
     lv_label_set_text(st->lbl_mode, "STANDBY");
     lv_obj_set_style_text_font(st->lbl_mode, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(st->lbl_mode, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->lbl_mode, LV_ALIGN_TOP_MID, 0, 8);
+    lv_obj_center(st->lbl_mode);
+
+    // --- engage chip (top-LEFT): Auto/STBY toggle. A composite tile can't carry
+    // MIDL button actions, so this is wired DIRECTLY (on_engage_short -> direct
+    // state PUT), exactly like the legacy screen_autopilot.cpp ON/STBY chip. ~110x40
+    // rounded button with a label; the label text/color are state-driven in update.
+    st->btn_engage = lv_button_create(r);
+    lv_obj_set_size(st->btn_engage, 110, 40);
+    lv_obj_align(st->btn_engage, LV_ALIGN_TOP_LEFT, 8, 8);
+    lv_obj_set_style_radius(st->btn_engage, ui::chrome::panel_radius, 0);
+    lv_obj_set_style_bg_color(st->btn_engage, lv_color_hex(theme.panel), 0);
+    lv_obj_set_style_border_color(st->btn_engage, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(st->btn_engage, ui::chrome::panel_border, 0);
+    lv_obj_set_style_pad_all(st->btn_engage, 0, 0);
+    st->lbl_engage = lv_label_create(st->btn_engage);
+    lv_label_set_text(st->lbl_engage, "ON");
+    lv_obj_set_style_text_font(st->lbl_engage, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(theme.fg), 0);
+    lv_obj_center(st->lbl_engage);
+    lv_obj_add_event_cb(st->btn_engage, on_engage_short, LV_EVENT_SHORT_CLICKED, st);
+
+    // --- HOME chip (top-RIGHT): balances the engage chip, posts ShowScreen. ---
+    lv_obj_t *btn_home = lv_button_create(r);
+    lv_obj_set_size(btn_home, 110, 40);
+    lv_obj_align(btn_home, LV_ALIGN_TOP_RIGHT, -8, 8);
+    lv_obj_set_style_radius(btn_home, ui::chrome::panel_radius, 0);
+    lv_obj_set_style_bg_color(btn_home, lv_color_hex(theme.panel), 0);
+    lv_obj_set_style_border_color(btn_home, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(btn_home, ui::chrome::panel_border, 0);
+    lv_obj_set_style_pad_all(btn_home, 0, 0);
+    lv_obj_t *lbl_home = lv_label_create(btn_home);
+    lv_label_set_text(lbl_home, "HOME");
+    lv_obj_set_style_text_font(lbl_home, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(lbl_home, lv_color_hex(theme.fg), 0);
+    lv_obj_center(lbl_home);
+    lv_obj_add_event_cb(btn_home, on_home, LV_EVENT_SHORT_CLICKED, st);
 
     // --- semicircular HEADING-UP compass (rotating scale by -heading) ---
     // Compass region height = h - badge - everything reserved below it. Then
@@ -1710,6 +1864,18 @@ static ApHudState *build(lv_obj_t *parent, int w, int h) {
     lv_obj_set_width(st->lbl_hdg_value, 240);
     lv_obj_set_pos(st->lbl_hdg_value, scx - 120, scy - st->cp.r / 2 + 2);
 
+    // "TGT <ddd>°" caption directly under the HDG hero, in the amber AP-target
+    // color so it reads as a pair with the amber target bug on the rim. Hidden
+    // until apTargetHdg is a real bearing (set/cleared in update()).
+    st->lbl_target = lv_label_create(r);
+    lv_label_set_text(st->lbl_target, "");
+    lv_obj_set_style_text_font(st->lbl_target, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(st->lbl_target, lv_color_hex(theme.warn), 0);
+    lv_obj_set_style_text_align(st->lbl_target, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(st->lbl_target, 160);
+    lv_obj_set_pos(st->lbl_target, scx - 80, scy - st->cp.r / 2 + 2 + 64);
+    lv_obj_add_flag(st->lbl_target, LV_OBJ_FLAG_HIDDEN);
+
     // COG/SOG sub-line: its OWN reserved strip directly under the compass
     // baseline (not floating over the dial face at scy), so it never overlaps the
     // XTE strip or the tile band below it.
@@ -1739,9 +1905,22 @@ static ApHudState *build(lv_obj_t *parent, int w, int h) {
     st->cp.markers = ui::build_marker_ring(r, scx, scy, st->cp.r - ui::kSemiMarkerInset, ap_markers,
                                            4, /*occlude_lower=*/true);
 
-    // --- XTE strip: its own band directly under the COG/SOG strip ---
+    // --- RUDDER strip: its own band directly under the COG/SOG strip ---
+    // Center-zero helm-position indicator (the relevant AP feedback), replacing
+    // the old XTE strip. PORT…STBD, ±35° full-scale, cyan (accent) needle — red is
+    // reserved for alarm/port cues. Caption added below as "RUDDER".
     int xte_y = compass_bottom + cogsog_h;
-    st->xte = ui::build_xte_strip(r, 16, xte_y, w - 32, xte_h);
+    st->xte = ui::build_centerzero_strip(r, 16, xte_y, w - 32, xte_h, "PORT", "STBD",
+                                         /*full_scale=*/35.0, /*tick_decimals=*/0, theme.accent);
+    lv_obj_t *rud_cap = lv_label_create(r);
+    lv_label_set_text(rud_cap, "RUDDER");
+    lv_obj_set_style_text_font(rud_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(rud_cap, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_set_style_text_align(rud_cap, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(rud_cap, w);
+    // Sits in the slack below the strip band (tiles, if any, are bottom-pinned far
+    // below). Centered under the helm bar.
+    lv_obj_set_pos(rud_cap, 0, xte_y + xte_h);
 
     // --- numeric tiles (square, pinned to the bottom) ---
     // Dropped entirely on a short leaf (show_tiles == false): the compass + HDG +
@@ -1767,7 +1946,9 @@ static void update(ApHudState *st, const sk::Data &d) {
 
     bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
 
-    // Mode badge: uppercased apState; theme.good when engaged else fg_dim.
+    // Mode badge: uppercased apState; filled pill (theme.good bg) when engaged,
+    // hollow outline (transparent bg, panel_edge border) when standby. The label
+    // text stays high-contrast either way.
     if (d.apState[0]) {
         char up[16];
         size_t i = 0;
@@ -1778,8 +1959,22 @@ static void update(ApHudState *st, const sk::Data &d) {
     } else {
         ui::set_text_if_changed(st->lbl_mode, st->last_mode, sizeof(st->last_mode), "OFFLINE");
     }
+    // The badge text color is cached on last_mode_color; recolor the pill
+    // container (parent of the label) only when that cache reports a flip, so the
+    // bg/border style writes track the same engaged transition without their own
+    // cache field.
+    uint32_t prev_mode_color = st->last_mode_color;
     ui::set_text_color_if_changed(st->lbl_mode, &st->last_mode_color,
-                                  engaged ? theme.good : theme.fg_dim);
+                                  engaged ? 0x05101c : theme.fg_dim);
+    if (st->last_mode_color != prev_mode_color) {
+        lv_obj_t *badge = lv_obj_get_parent(st->lbl_mode);
+        if (badge) {
+            lv_obj_set_style_bg_opa(badge, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+            lv_obj_set_style_bg_color(badge, lv_color_hex(theme.good), 0);
+            lv_obj_set_style_border_color(badge,
+                                          lv_color_hex(engaged ? theme.good : theme.panel_edge), 0);
+        }
+    }
 
     // Heading: big value + rotate the compass tick ring by -heading and
     // reposition the upright degree labels to match (north-up when no heading).
@@ -1816,6 +2011,37 @@ static void update(ApHudState *st, const sk::Data &d) {
     double ref = isnan(hdg_b) ? 0.0 : hdg_b;
     ui::marker_ring_update(st->cp.markers, live, 4, ref);
 
+    // Engage chip: "STBY" (drop to standby) when engaged, "ON" (engage) when
+    // standby. Filled green when engaged, hollow outline when standby — mirrors
+    // the badge's engaged cue so the chip and badge agree at a glance.
+    ui::set_text_if_changed(st->lbl_engage, st->last_engage, sizeof(st->last_engage),
+                            engaged ? "STBY" : "ON");
+    uint32_t want_engage_color = engaged ? theme.good : theme.panel_edge;
+    if (want_engage_color != st->last_engage_color) {
+        st->last_engage_color = want_engage_color;
+        lv_obj_set_style_bg_opa(st->btn_engage, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+        lv_obj_set_style_bg_color(st->btn_engage, lv_color_hex(theme.good), 0);
+        lv_obj_set_style_border_color(st->btn_engage, lv_color_hex(want_engage_color), 0);
+        lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(engaged ? 0x05101c : theme.fg), 0);
+    }
+
+    // TGT caption: "TGT <ddd>°" near the HDG hero in the amber target color, hidden
+    // when the AP has no target bearing (NaN).
+    if (st->lbl_target) {
+        if (isnan(tgt_b)) {
+            if (st->last_target[0] != (char)0xFF) {
+                st->last_target[0] = (char)0xFF;  // sentinel: forces re-show when target returns
+                lv_obj_add_flag(st->lbl_target, LV_OBJ_FLAG_HIDDEN);
+            }
+        } else {
+            char tbuf[12];
+            snprintf(tbuf, sizeof(tbuf), "TGT %03.0f\xC2\xB0", tgt_b);
+            if (ui::set_text_if_changed(st->lbl_target, st->last_target, sizeof(st->last_target),
+                                        tbuf))
+                lv_obj_clear_flag(st->lbl_target, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     // COG / SOG sub-line.
     char cogs[16], sogs[16];
     if (!isnan(d.cogTrue))
@@ -1829,12 +2055,15 @@ static void update(ApHudState *st, const sk::Data &d) {
     snprintf(buf, sizeof(buf), "COG %s  |  SOG %s", cogs, sogs);
     ui::set_text_if_changed(st->lbl_cogsog, st->last_cogsog, sizeof(st->last_cogsog), buf);
 
-    // XTE needle (cross-track error). Clamp to +/-1.0 nm full-scale.
-    if (!isnan(d.xte)) {
-        double nm = d.xte / 1852.0;
-        if (nm > 1.0) nm = 1.0;
-        if (nm < -1.0) nm = -1.0;
-        int nx = st->xte.center_x + (int)(nm * st->xte.half_px) - 1;
+    // RUDDER needle (helm position, the relevant AP feedback — replaces XTE).
+    // steering.rudderAngle is radians; +ve = starboard. Map ±35° full-scale to
+    // ±half_px deflection (clamped). Readout "<mag>° P/S" matches the rudder P/S
+    // convention in format_metric (P for port/negative, S for starboard/positive).
+    if (!isnan(d.rudder)) {
+        double deg = d.rudder * 180.0 / M_PI;  // + = starboard
+        if (deg > 35.0) deg = 35.0;
+        if (deg < -35.0) deg = -35.0;
+        int nx = st->xte.center_x + (int)(deg / 35.0 * st->xte.half_px) - 1;
         if (nx != st->last_xte_x) {
             st->last_xte_x = nx;
             lv_obj_set_x(st->xte.needle, nx);
@@ -1842,7 +2071,16 @@ static void update(ApHudState *st, const sk::Data &d) {
     }
     if (st->xte.value) {
         char xbuf[16];
-        ui::format_xte(d.xte, xbuf, sizeof(xbuf));
+        if (isnan(d.rudder)) {
+            snprintf(xbuf, sizeof(xbuf), "--");
+        } else {
+            double deg = d.rudder * 180.0 / M_PI;
+            double mag = fabs(deg);
+            if (mag < 0.5)
+                snprintf(xbuf, sizeof(xbuf), "0\xC2\xB0");
+            else
+                snprintf(xbuf, sizeof(xbuf), "%.0f\xC2\xB0 %c", mag, deg > 0 ? 'S' : 'P');
+        }
         ui::set_text_if_changed(st->xte.value, st->last_xte_txt, sizeof(st->last_xte_txt), xbuf);
     }
 
@@ -2348,21 +2586,25 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                 ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
                                         cts);
             }
-            // Markers: HDG/COG/CTS bearings at their true (north-up) bearings.
+            // Markers: HDG/CTS on the inner ring, COG alone on the outer ring, so
+            // an HDG≈COG overlap doesn't merge into one faint glyph. Drive COG
+            // after HDG/CTS so its hollow outline stays readable on top. All at
+            // their true (north-up) bearings (reference=0), matching the static
+            // N/E/S/W cardinals — this fixed-bezel tile is north-up, not heading-up.
             {
                 MetricBinding hdg = {}, cog = {}, cts = {};
                 hdg.source = MetricSource::HDG_deg;
                 cog.source = MetricSource::COG_deg;
                 cts.source = MetricSource::CTS_deg;
-                ui::MarkerSpec live[3] = {
+                ui::MarkerSpec inner[2] = {
                     {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
-                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
                     {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
                 };
-                // Fixed-bezel north-up tile: markers sit at their true bearings (HDG/COG/CTS),
-                // matching the static N/E/S/W cardinals. (The AP HUD, whose scale rotates, is
-                // heading-up; this round tile is not.)
-                ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
+                ui::marker_ring_update(t.markers, inner, 2, /*reference=*/0.0);
+                ui::MarkerSpec outer[1] = {
+                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
+                };
+                ui::marker_ring_update(t.markers_cog, outer, 1, /*reference=*/0.0);
             }
             break;
         case WidgetKind::Trend: {
@@ -3964,17 +4206,22 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
                 ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
                                         cts);
             }
+            // HDG/CTS inner ring + COG outer ring (mirrors update_quad_grid): the
+            // two-ring split keeps an HDG≈COG overlap from merging into one glyph.
             {
                 MetricBinding hdg = {}, cog = {}, cts = {};
                 hdg.source = MetricSource::HDG_deg;
                 cog.source = MetricSource::COG_deg;
                 cts.source = MetricSource::CTS_deg;
-                ui::MarkerSpec live[3] = {
+                ui::MarkerSpec inner[2] = {
                     {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
-                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
                     {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
                 };
-                ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
+                ui::marker_ring_update(t.markers, inner, 2, /*reference=*/0.0);
+                ui::MarkerSpec outer[1] = {
+                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
+                };
+                ui::marker_ring_update(t.markers_cog, outer, 1, /*reference=*/0.0);
             }
             break;
         case WidgetKind::Trend: {

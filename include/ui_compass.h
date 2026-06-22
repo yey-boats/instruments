@@ -48,15 +48,29 @@ void compass_layout_labels(const Compass &cp, double hdg_deg);
 lv_obj_t *numeric_tile(lv_obj_t *parent, int x, int y, int w, int h, const char *caption,
                        const char *unit, const lv_font_t *value_font, uint32_t value_color);
 
-// Horizontal cross-track-error strip (PORT .. STBD, -1 .. +1). Translate the
-// returned needle in refresh with lv_obj_set_x() within [cx - half, cx + half].
+// Horizontal center-zero deflection strip (left-label .. right-label, -1 .. +1).
+// Translate the returned needle in refresh with lv_obj_set_x() within
+// [cx - half, cx + half]. Used for cross-track-error (PORT..STBD) and rudder
+// angle (PORT..STBD, ±35°).
 struct XteStrip {
     lv_obj_t *root;
     lv_obj_t *needle;
-    lv_obj_t *value;  // numeric cross-track readout (meters, P/S suffix)
+    lv_obj_t *value;  // numeric readout (caller-formatted)
     int center_x;     // local x of the zero mark (within root)
-    int half_px;      // pixels per full-scale (1.0 nm) deflection
+    int half_px;      // pixels per full-scale deflection
 };
+
+// Generalized center-zero strip. `left_label`/`right_label` are the end captions
+// (e.g. "PORT"/"STBD"); `full_scale` is the value mapped to a full half-width
+// deflection (used only for the five numeric tick labels: -fs, -fs/2, 0, fs/2,
+// fs, with `tick_decimals` decimals); `needle_color` is the deviation bar color.
+XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
+                                const char *left_label, const char *right_label, double full_scale,
+                                int tick_decimals, uint32_t needle_color);
+
+// Cross-track-error strip (PORT .. STBD, -1.0 .. +1.0 nm), a thin wrapper over
+// build_centerzero_strip so existing callers (route screen / XTE tile) are
+// unchanged. Needle is the alarm color (red).
 XteStrip build_xte_strip(lv_obj_t *parent, int x, int y, int w, int h);
 
 // Format a cross-track-error magnitude (meters) for display with the firmware's
