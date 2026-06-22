@@ -44,6 +44,9 @@
 #endif
 
 #include "storage.h"
+#include "midl_demo_doc.h"
+#include "midl_render.h"
+#include "psram_json.h"
 #include <math.h>
 #include <string.h>
 
@@ -200,6 +203,7 @@ static uint16_t *g_direct_fb = nullptr;
 // zero-copy (no blit). esp_lcd handles PSRAM cache coherency internally.
 static esp_lcd_panel_handle_t g_db_panel = nullptr;
 static uint16_t *g_db_fb0 = nullptr;
+static uint16_t *g_db_fb1 = nullptr;
 
 // ST7701 register init over the existing 3-wire SPI bus (Arduino_SWSPI survives
 // on Arduino 3.x), then a 2-framebuffer RGB panel with the exact timings / pins
@@ -224,19 +228,22 @@ static bool display_db_init() {
     cfg.timings.flags.pclk_active_neg = 1;
     cfg.data_width = 16;
     cfg.bits_per_pixel = 16;
-    // Single framebuffer + LVGL PARTIAL mode: disp_flush_cb copies only the
-    // dirty rectangle into the fb (draw_bitmap of the area), like the Arduino_GFX
-    // blit that never flickered. num_fbs=2 + full-screen present is NOT a clean
-    // vsync swap on this driver - it copies the whole frame into the live fb, so
-    // it tears (full-screen flicker) and re-rendering the whole screen is slow.
-    cfg.num_fbs = 1;
-    // NOTE: bounce buffers (cfg.bounce_buffer_size_px) are the textbook fix for
-    // the RGB-DMA-vs-flash-write cache panic, BUT they need the refill ISR built
-    // IRAM-safe (CONFIG_LCD_RGB_ISR_IRAM_SAFE), which the Arduino framework's
-    // precompiled esp_lcd is NOT — so enabling them here makes the panic
-    // CONSTANT (the bounce ISR faults every flash access). Left off until the
-    // espidf-hybrid framework can rebuild esp_lcd IRAM-safe. See results.md.
-    cfg.sram_trans_align = 8;
+    // Two framebuffers + LVGL DIRECT mode (the two FBs ARE LVGL's draw buffers).
+    // LVGL renders dirty areas into the off-screen FB and keeps both FBs in sync;
+    // disp_flush_cb flips scan-out to the just-rendered FB on the frame's last
+    // area. rgb_panel_draw_bitmap detects the source == one of our FBs and does a
+    // ZERO-COPY swap (repoints the DMA links + writes the FB back from cache), so
+    // the scanout always shows a COMPLETE frame (no flicker) and there's no blit.
+    // The hybrid rebuilds esp_lcd from source IDF, so unlike the precompiled
+    // Arduino esp_lcd this honours the timings/flags below.
+    cfg.num_fbs = 2;
+    // bounce buffers (cfg.bounce_buffer_size_px) — the textbook fix for the
+    // RGB-DMA-vs-flash-write cache panic — are deliberately LEFT OFF in this
+    // batch. They need the refill ISR built IRAM-safe (CONFIG_LCD_RGB_ISR_IRAM_SAFE,
+    // now set in sdkconfig.defaults under the hybrid), but enabling them is a
+    // separate variable from the double-buffer flip; turning both on at once would
+    // make a panic/no-panic result ambiguous. Bounce buffers + OTA-while-rendering
+    // soak are a deliberate follow-up (spec 21 §H driver #1).
     cfg.psram_trans_align = 64;
     cfg.hsync_gpio_num = RGB_HSYNC;
     cfg.vsync_gpio_num = RGB_VSYNC;
@@ -252,9 +259,11 @@ static bool display_db_init() {
     if (esp_lcd_new_rgb_panel(&cfg, &g_db_panel) != ESP_OK) return false;
     if (esp_lcd_panel_reset(g_db_panel) != ESP_OK) return false;
     if (esp_lcd_panel_init(g_db_panel) != ESP_OK) return false;
-    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 1, (void **)&g_db_fb0) != ESP_OK)
+    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 2, (void **)&g_db_fb0,
+                                           (void **)&g_db_fb1) != ESP_OK)
         return false;
     memset(g_db_fb0, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
+    memset(g_db_fb1, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
     return true;
 }
 #endif  // RENDER_DOUBLE_BUFFER
@@ -269,10 +278,19 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
     uint32_t h = area->y2 - area->y1 + 1;
     uint32_t px = w * h;
 #ifdef RENDER_DOUBLE_BUFFER
-    // PARTIAL mode: px_map is just the dirty tile. Copy only that rectangle into
-    // the single framebuffer (driver handles PSRAM cache writeback). Small fast
-    // copies don't visibly tear - the no-flicker behaviour of the old blit.
-    esp_lcd_panel_draw_bitmap(g_db_panel, area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
+    // DIRECT mode, num_fbs=2: px_map is the BASE of the panel framebuffer LVGL
+    // rendered this frame into (buf_1/buf_2 == g_db_fb0/g_db_fb1; in DIRECT mode
+    // LVGL passes the buffer base, not the tile offset). LVGL renders every dirty
+    // area into the same FB, then flushes each area; only on the LAST area do we
+    // flip scan-out to that whole FB. rgb_panel_draw_bitmap sees the source ==
+    // one of our FBs -> zero-copy swap (repoints DMA links + one full-frame cache
+    // writeback). LVGL then renders the next frame into the OTHER FB (it alternates
+    // buf_act and keeps both FBs in sync), so we never draw into the FB being
+    // scanned out -> tear-free, no blit. (Flip only on is_last to avoid a
+    // full-frame cache msync per dirty tile.)
+    if (lv_display_flush_is_last(d)) {
+        esp_lcd_panel_draw_bitmap(g_db_panel, 0, 0, LCD_W, LCD_H, px_map);
+    }
 #else
     if (g_direct_fb) {
         // LVGL already rendered this area into the scanout framebuffer; just
@@ -1940,6 +1958,34 @@ static bool handleMainCommand(const String &line) {
         mob_clear();
         return true;
     }
+    if (line == "midl-render" || line.startsWith("midl-render ")) {
+        // Load the baked MIDL demo doc and render it as a live LVGL screen.
+        // Usage: midl-render [screenId]  (default screen id: "midl")
+        String sid = "";
+        if (line.length() > 12) {
+            sid = line.substring(12);
+            sid.trim();
+        }
+        const char *json = midl::demo::SQUARE_480_JSON;
+        size_t len = strlen(json);
+        void *blob = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!blob) {
+            net::logf("[midl-render] PSRAM alloc failed");
+            return true;
+        }
+        memcpy(blob, json, len + 1);  // include NUL so deserializeJson sees a C-string
+        app::Command cmd;
+        cmd.type = app::CommandType::ConfigApplyMidl;
+        cmd.blob = blob;
+        cmd.blob_len = len;
+        strncpy(cmd.a, sid.c_str(), sizeof(cmd.a) - 1);
+        cmd.a[sizeof(cmd.a) - 1] = '\0';
+        if (!app::post(cmd)) {
+            net::logf("[midl-render] ui queue full");
+            heap_caps_free(blob);
+        }
+        return true;
+    }
     if (line == "screen") {
         ui::log_state();
         return true;
@@ -2308,22 +2354,15 @@ void setup() {
     lv_display_set_flush_cb(disp, disp_flush_cb);
 
 #ifdef RENDER_DOUBLE_BUFFER
-    // PARTIAL mode over the esp_lcd single framebuffer (display_db_init). LVGL
-    // renders only dirty tiles into these small off-screen buffers; disp_flush_cb
-    // copies each tile into the fb via esp_lcd_panel_draw_bitmap(area). Tiles
-    // appear atomically -> no flicker, and only changed regions are touched ->
-    // fast. Buffers in PSRAM (LCD_W*40*2 ~= 37.5 KB each); internal SRAM is now
-    // freer (BLE disabled) but keep them in PSRAM for headroom.
-    {
-        size_t buf_px = LCD_W * 40;
-        uint16_t *buf_a =
-            (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-        uint16_t *buf_b =
-            (uint16_t *)heap_caps_malloc(buf_px * sizeof(uint16_t), MALLOC_CAP_SPIRAM);
-        lv_display_set_buffers(disp, buf_a, buf_b, buf_px * sizeof(uint16_t),
-                               LV_DISPLAY_RENDER_MODE_PARTIAL);
-        puts("[lvgl] esp_lcd PARTIAL (single fb, dirty-tile copy)");
-    }
+    // DOUBLE-BUFFER: hand LVGL the two PANEL framebuffers (from display_db_init)
+    // as its two draw buffers in DIRECT mode. LVGL renders dirty areas into the
+    // off-screen FB, keeps both FBs in sync itself, and disp_flush_cb flips
+    // scan-out on the frame's last area (zero-copy, no blit) -> tear-free + fast.
+    // No separate PSRAM draw buffer is allocated; the FBs already live in PSRAM
+    // (cfg.flags.fb_in_psram), ~460 KB each.
+    lv_display_set_buffers(disp, g_db_fb0, g_db_fb1, (uint32_t)LCD_W * LCD_H * sizeof(uint16_t),
+                           LV_DISPLAY_RENDER_MODE_DIRECT);
+    puts("[lvgl] esp_lcd DOUBLE-BUFFER num_fbs=2 DIRECT (vsync flip, no blit)");
 #else
     // Render path. DIRECT mode renders straight into the RGB panel's scanout
     // framebuffer (gfx->getFramebuffer()), so disp_flush_cb only writes back the
@@ -2417,6 +2456,7 @@ void setup() {
     // get allocated when the operator navigates to them, freeing boot heap
     // for SK websocket buffers and OTA. Once visited, the root is cached
     // for the session - no rebuild on subsequent visits.
+#ifndef YEYBOATS_MIDL_ONLY
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
     // Waveshare knob: dedicated round views only. The autopilot HUD is the
     // first/home view; the rotary menu (knob_ui) drives mode + view switching.
@@ -2467,6 +2507,22 @@ void setup() {
     ui::register_screen_lazy("demo_grid", "Demo Grid", ui::demo_grid::build, ui::demo_grid::refresh,
                              true);
 #endif  // BOARD_ID_WAVESHARE_KNOB_1_8 (else: Sunton screen registration)
+#else   // YEYBOATS_MIDL_ONLY
+    {
+        // MIDL-only boot: the device's UI is the baked MIDL demo doc.
+        // setup() runs on the LVGL/loop task, so building LVGL here is safe.
+        // apply_all() registers ALL screens in the doc (Dashboard/Navigation/
+        // Speed) so `screen <id|next|prev>` navigation works; it also shows the
+        // settings.defaultScreen ("dash"), so no explicit show_by_id is needed.
+        JsonDocument midlDoc(&yeyboats::psram_json);  // pool in PSRAM, not internal heap
+        if (deserializeJson(midlDoc, midl::demo::SQUARE_480_JSON) == DeserializationError::Ok) {
+            size_t n = midl::render::apply_all(midlDoc.as<JsonVariantConst>());
+            net::logf("[midl-only] apply_all registered %u screen(s)", (unsigned)n);
+        } else {
+            net::logf("[midl-only] baked doc parse failed");
+        }
+    }
+#endif  // YEYBOATS_MIDL_ONLY
 
     // Attach the gesture handler to EVERY screen root via a post-build
     // hook. LVGL routes LV_EVENT_GESTURE to the currently loaded screen

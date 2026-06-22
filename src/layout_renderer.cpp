@@ -1,4 +1,5 @@
 #include "layout_renderer.h"
+#include "ui_layouts.h"  // lv_obj_t* builders + full LVGL types
 
 #include "layout_loader.h"
 #include "subscription_set.h"
@@ -17,45 +18,6 @@ using ui::layouts::MetricSource;
 using ui::layouts::ScreenVariantSpec;
 using ui::layouts::TemplateId;
 using ui::layouts::WidgetKind;
-
-WidgetKind widget_to_kind(const char *widget) {
-    if (!widget || !widget[0]) return WidgetKind::Numeric;
-    if (strcmp(widget, "compass") == 0) return WidgetKind::Compass;
-    if (strcmp(widget, "gauge") == 0) return WidgetKind::Gauge;
-    if (strcmp(widget, "bar") == 0) return WidgetKind::Bar;
-    if (strcmp(widget, "windRose") == 0) return WidgetKind::WindRose;
-    if (strcmp(widget, "autopilot") == 0) return WidgetKind::Autopilot;
-    if (strcmp(widget, "text") == 0) return WidgetKind::Text;
-    if (strcmp(widget, "button") == 0) return WidgetKind::Button;
-    if (strcmp(widget, "trend") == 0) return WidgetKind::Trend;
-    return WidgetKind::Numeric;
-}
-
-MetricSource path_to_source(const char *p) {
-    if (!p || !p[0]) return MetricSource::None;
-    if (strcmp(p, "environment.wind.speedApparent") == 0) return MetricSource::AWS_kn;
-    if (strcmp(p, "environment.wind.angleApparent") == 0) return MetricSource::AWA_deg;
-    if (strcmp(p, "environment.wind.speedTrue") == 0) return MetricSource::TWS_kn;
-    if (strcmp(p, "environment.wind.angleTrueWater") == 0) return MetricSource::TWA_deg;
-    if (strcmp(p, "navigation.speedOverGround") == 0) return MetricSource::SOG_kn;
-    if (strcmp(p, "navigation.courseOverGroundTrue") == 0) return MetricSource::COG_deg;
-    if (strcmp(p, "navigation.headingTrue") == 0) return MetricSource::HDG_deg;
-    if (strcmp(p, "navigation.position") == 0) return MetricSource::Position;
-    if (strcmp(p, "environment.depth.belowTransducer") == 0) return MetricSource::Depth_m;
-    if (strcmp(p, "environment.depth.belowKeel") == 0) return MetricSource::DepthKeel_m;
-    if (strcmp(p, "environment.water.temperature") == 0) return MetricSource::WaterTemp_C;
-    if (strcmp(p, "electrical.batteries.house.voltage") == 0) return MetricSource::BatteryV;
-    if (strcmp(p, "electrical.batteries.house.stateOfCharge") == 0)
-        return MetricSource::BatterySOC_pct;
-    if (strcmp(p, "navigation.courseRhumbline.nextPoint.distance") == 0) return MetricSource::DTW;
-    if (strcmp(p, "navigation.courseRhumbline.nextPoint.bearingTrue") == 0)
-        return MetricSource::BTW_deg;
-    if (strcmp(p, "navigation.courseRhumbline.crossTrackError") == 0) return MetricSource::XTE;
-    if (strcmp(p, "navigation.courseRhumbline.velocityMadeGood") == 0) return MetricSource::VMG_kn;
-    if (strcmp(p, "navigation.courseRhumbline.bearingTrackTrue") == 0) return MetricSource::CTS_deg;
-    if (strcmp(p, "steering.autopilot.state") == 0) return MetricSource::APState;
-    return MetricSource::None;
-}
 
 // Native unit suffix for an editor-pushed tile that didn't carry one. The
 // device renders values in fixed SI-derived units (kn / m / nm / °C / ...),

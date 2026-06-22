@@ -33,6 +33,9 @@
 #include "proto_target.h"
 #include "proto/proto.h"
 #include "generated_midl_manifest.h"
+#include "midl_render.h"
+#include "midl_demo_doc.h"
+#include <freertos/semphr.h>
 
 // Gesture diagnostics live in main.cpp (top-level - not in any namespace).
 extern "C" {
@@ -166,6 +169,17 @@ static bool api_auth_required() {
 }
 
 static bool require_api_auth() {
+#ifdef YEYBOATS_LAB_OPEN_WEB
+    // ---- LAB-ONLY, TEMPORARY: web API auth bypass ------------------------
+    // Compiled in ONLY when the build explicitly defines YEYBOATS_LAB_OPEN_WEB
+    // (e.g. PLATFORMIO_BUILD_FLAGS="-D YEYBOATS_LAB_OPEN_WEB=1"). Production
+    // builds never define it, so this branch compiles out and normal Basic
+    // Auth applies. Used to capture headless /api/screenshot.png on a bench
+    // device whose web password is unknown. Re-secure by reflashing a normal
+    // build (the NVS web/{auth,user,pass} are left untouched).
+    // See docs/lab/temporary-web-auth-bypass.md. DO NOT SHIP.
+    return true;
+#else
     if (!api_auth_required()) return true;
     storage::Namespace p("web", true);
     String user = String(p.get_string("user", "espdisp").c_str());
@@ -174,6 +188,7 @@ static bool require_api_auth() {
     if (server.authenticate(user.c_str(), pass.c_str())) return true;
     server.requestAuthentication(BASIC_AUTH, "espdisp", "auth required");
     return false;
+#endif
 }
 
 // ---- /api/state --------------------------------------------------------
@@ -664,6 +679,209 @@ static void handle_midl_manifest() {
     server.send(200, "application/json", midl_manifest::JSON);
 }
 
+// ---- MIDL current-doc store --------------------------------------------
+// Holds the most-recently-applied MIDL document verbatim (and the one
+// before it) as PSRAM char* buffers, mirroring layout_loader.cpp's
+// s_last_json pattern. set_current rotates current -> previous so
+// /api/midl/reset?to=previous can roll back one step.
+//
+// IN-RAM ONLY for now: these buffers do NOT survive a reboot. Flash
+// persistence of the current MIDL doc is a later phase; on boot the
+// device renders the baked factory doc (midl::demo::SQUARE_480_JSON) until
+// a new doc is delivered. The mutex guards both buffers + lengths so the
+// web task (set/copy) and any future reader don't race.
+namespace midl_doc {
+
+static char *s_current = nullptr;
+static size_t s_current_len = 0;
+static char *s_previous = nullptr;
+static size_t s_previous_len = 0;
+static SemaphoreHandle_t s_mtx = nullptr;
+
+static inline SemaphoreHandle_t mtx() {
+    if (!s_mtx) s_mtx = xSemaphoreCreateMutex();
+    return s_mtx;
+}
+
+// Rotate current -> previous, then store a fresh PSRAM copy of [bytes,len)
+// as the new current. Returns false (and leaves the store unchanged
+// except for the rotation already performed) if the PSRAM alloc fails.
+static bool set_current(const char *bytes, size_t len) {
+    xSemaphoreTake(mtx(), portMAX_DELAY);
+    // Rotate: free the doc two-back, current becomes previous.
+    if (s_previous) {
+        heap_caps_free(s_previous);
+        s_previous = nullptr;
+        s_previous_len = 0;
+    }
+    s_previous = s_current;
+    s_previous_len = s_current_len;
+    s_current = (char *)heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM);
+    if (!s_current) {
+        s_current_len = 0;
+        xSemaphoreGive(s_mtx);
+        net::logf("[midl] doc store: PSRAM alloc failed (%u bytes)", (unsigned)len);
+        return false;
+    }
+    memcpy(s_current, bytes, len);
+    s_current[len] = 0;
+    s_current_len = len;
+    xSemaphoreGive(s_mtx);
+    return true;
+}
+
+// Copy the current doc into `out`. Returns false if no current doc.
+static bool copy_current(String &out) {
+    xSemaphoreTake(mtx(), portMAX_DELAY);
+    bool ok = s_current && s_current_len;
+    if (ok) out = String(s_current);
+    xSemaphoreGive(s_mtx);
+    return ok;
+}
+
+// Copy the previous doc into `out`. Returns false if no previous doc.
+static bool copy_previous(String &out) {
+    xSemaphoreTake(mtx(), portMAX_DELAY);
+    bool ok = s_previous && s_previous_len;
+    if (ok) out = String(s_previous);
+    xSemaphoreGive(s_mtx);
+    return ok;
+}
+
+}  // namespace midl_doc
+
+// ---- /api/midl/config (POST / GET) + /api/midl/reset (POST) ------------
+// Device-hosted MIDL delivery. The web handler runs on the WebServer task,
+// so it MUST NOT touch LVGL or call midl::render::apply_all directly. It
+// only parses + validates the doc (in PSRAM) and queues a ConfigApplyMidl
+// app::Command whose blob it hands to the UI task; the pump (app_events.cpp)
+// frees the blob after apply. Returning 200 means "accepted + queued +
+// stored", not "rendered" — apply is async on the UI task.
+
+// Queue a ConfigApplyMidl command carrying a PSRAM copy of [body,len).
+// On success ownership of the blob transfers to the queue (pump frees it).
+// Returns 0 on success, or an HTTP status to send on failure.
+static int queue_midl_apply(const char *body, size_t len) {
+    void *blob = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!blob) return 503;
+    memcpy(blob, body, len);
+    app::Command cmd;
+    cmd.type = app::CommandType::ConfigApplyMidl;
+    cmd.blob = blob;
+    cmd.blob_len = len;
+    if (!app::post(cmd, 50)) {
+        heap_caps_free(blob);
+        return 503;
+    }
+    return 0;
+}
+
+static void send_err(int code, const char *msg) {
+    JsonDocument doc(&yeyboats::psram_json);
+    doc["ok"] = false;
+    doc["error"] = msg;
+    send_json(code, doc);
+}
+
+static void handle_midl_config_post() {
+    if (!require_api_auth()) return;
+    if (!server.hasArg("plain")) {
+        send_err(400, "empty body");
+        return;
+    }
+    const String &body = server.arg("plain");
+    size_t len = body.length();
+    if (len == 0) {
+        send_err(400, "empty body");
+        return;
+    }
+    if (len > 48 * 1024) {
+        send_err(413, "midl doc too large (48 KB max)");
+        return;
+    }
+    // Parse into a PSRAM-backed document — never on the web-task stack.
+    JsonDocument doc(&yeyboats::psram_json);
+    DeserializationError perr = deserializeJson(doc, body.c_str(), len);
+    if (perr) {
+        String e = String("parse: ") + perr.c_str();
+        send_err(400, e.c_str());
+        return;
+    }
+    // Lightweight render-safety check (NOT a full schema gate): require a
+    // top-level "midl" version marker and at least one usable screen.
+    if (doc["midl"].isNull()) {
+        send_err(400, "no usable screen / missing 'screens' array");
+        return;
+    }
+    JsonVariantConst screen =
+        midl::render::select_screen(doc.as<JsonVariantConst>(), nullptr, nullptr);
+    if (screen.isNull()) {
+        send_err(400, "no usable screen / missing 'screens' array");
+        return;
+    }
+    // Queue the apply on the UI task (carries a PSRAM blob; pump frees it).
+    int qrc = queue_midl_apply(body.c_str(), len);
+    if (qrc != 0) {
+        send_err(qrc, qrc == 503 ? "ui queue full / blob alloc failed" : "queue failed");
+        return;
+    }
+    // Store the verbatim body as the new current doc (rotates previous).
+    midl_doc::set_current(body.c_str(), len);
+    JsonDocument out(&yeyboats::psram_json);
+    out["ok"] = true;
+    out["screens"] = (uint32_t)(doc["screens"].is<JsonArrayConst>() ? doc["screens"].size() : 0);
+    send_json(200, out);
+}
+
+static void handle_midl_config_get() {
+    if (!require_api_auth()) return;
+    String body;
+    if (!midl_doc::copy_current(body)) {
+        send_err(404, "no current doc");
+        return;
+    }
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Cache-Control", "no-store");
+    server.send(200, "application/json", body);
+}
+
+static void handle_midl_reset() {
+    if (!require_api_auth()) return;
+    String to = server.hasArg("to") ? server.arg("to") : String("default");
+    if (to == "previous") {
+        String prev;
+        if (!midl_doc::copy_previous(prev)) {
+            send_err(409, "no previous doc");
+            return;
+        }
+        int qrc = queue_midl_apply(prev.c_str(), prev.length());
+        if (qrc != 0) {
+            send_err(qrc, "ui queue full / blob alloc failed");
+            return;
+        }
+        // Re-applying previous makes it current again (swap current/previous).
+        midl_doc::set_current(prev.c_str(), prev.length());
+        JsonDocument out(&yeyboats::psram_json);
+        out["ok"] = true;
+        out["reset"] = "previous";
+        send_json(200, out);
+        return;
+    }
+    // Default (or any unrecognized "to"): the baked factory doc.
+    const char *def = midl::demo::SQUARE_480_JSON;
+    size_t len = strlen(def);
+    int qrc = queue_midl_apply(def, len);
+    if (qrc != 0) {
+        send_err(qrc, "ui queue full / blob alloc failed");
+        return;
+    }
+    midl_doc::set_current(def, len);
+    JsonDocument out(&yeyboats::psram_json);
+    out["ok"] = true;
+    out["reset"] = "default";
+    send_json(200, out);
+}
+
 // ---- /api/layout (GET / PUT) -------------------------------------------
 
 static void handle_layout_get() {
@@ -757,6 +975,8 @@ static void handle_security() {
     webWrite.add("/api/layout");
     webWrite.add("/api/wifi/connect");
     webWrite.add("/api/cmd");
+    webWrite.add("/api/midl/config");
+    webWrite.add("/api/midl/reset");
     web["touch_injection_over_http"] = false;
 
     JsonObject ble = doc["ble"].to<JsonObject>();
@@ -1656,6 +1876,9 @@ static void bind_routes() {
     server.on("/api/layout", HTTP_GET, handle_layout_get);
     server.on("/api/layout", HTTP_PUT, handle_layout_put);
     server.on("/api/midl/manifest", HTTP_GET, handle_midl_manifest);
+    server.on("/api/midl/config", HTTP_POST, handle_midl_config_post);
+    server.on("/api/midl/config", HTTP_GET, handle_midl_config_get);
+    server.on("/api/midl/reset", HTTP_POST, handle_midl_reset);
     server.on("/api/dashboard/config.json", HTTP_GET, handle_dashboard_config_get_json);
     server.on("/api/dashboard/config.json", HTTP_PUT, handle_dashboard_config_put);
     server.on("/api/dashboard/config.yaml", HTTP_GET, handle_dashboard_config_get_yaml);

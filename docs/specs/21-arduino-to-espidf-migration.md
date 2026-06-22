@@ -9,12 +9,15 @@
 > — the single fact the whole migration turns on.
 >
 > **Status (2026-06-21).** The hybrid env (`[env:esp32-4848s040-idf5]`)
-> exists in `platformio.ini`, `sdkconfig.defaults` is written, and the
-> build reaches the **LINK stage** on pioarduino. Two concrete blockers
-> remain on the critical path: a pioarduino **duplicate-library link bug**
-> (`ssl_client.cpp` symbols, §A.1) and the **`Arduino_RGB_Display` gap on
-> arduino-3.x** (§H). Everything below the line is the dependency-ordered
-> module work behind those two.
+> **links and builds a full `firmware.bin`**. The two blockers that were on
+> the critical path are both addressed: the `ssl_client` link error (§A.1)
+> was an empty-object problem fixed by enabling mbedTLS PSK in
+> `sdkconfig.defaults` (the "duplicate-library" theory was wrong — see
+> §A.1), and the **`Arduino_RGB_Display` gap on arduino-3.x** (§H) is
+> resolved by the esp_lcd RGB path (`display_db_init`), now running
+> `num_fbs=2` DIRECT double-buffer (bounce buffers deferred). **Not yet
+> hardware-validated** — needs a USB flash + screen walk + flicker check.
+> Everything below the line is the dependency-ordered module work.
 
 ## Why now — three production drivers
 
@@ -234,30 +237,57 @@ Two non-obvious pieces of the recipe, both load-bearing:
    `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y` here once the env links — it
    only takes effect under the source-rebuilding hybrid.
 
-### A.1 Remaining LINK blocker — `ssl_client` duplicate-library (critical path)
+### A.1 LINK blocker — `ssl_client` empty object (RESOLVED 2026-06-21)
 
-The hybrid build reaches the **LINK stage**, then fails on a
-**pioarduino duplicate-library resolution bug**: Arduino's
-`NetworkClientSecure.cpp` (pulled in by `manager.cpp`'s
-`WiFiClientSecure`) references symbols defined in `ssl_client.cpp`, but
-the separately-archived copy of the library the linker selects **does not
-resolve them**. This is the single thing standing between "links" and
-"boots".
+The hybrid build reached the **LINK stage** and failed with `undefined
+reference to start_ssl_client / ssl_init / send_ssl_data / ...` from
+`NetworkClientSecure.cpp.o` (pulled in transitively by `manager.cpp`'s
+`#include <HTTPClient.h>` — arduino-esp32 3.x's `HTTPClient` drags in
+`NetworkClientSecure` for `https` support even though we use no TLS).
 
-Candidate fixes, cheapest first:
+**The earlier "pioarduino duplicate-library / archive-order" diagnosis was
+wrong.** The real cause: arduino-esp32's
+`libraries/NetworkClientSecure/src/ssl_client.cpp` wraps its **entire
+body** (every `start_ssl_client`, `ssl_init`, `send_ssl_data`, … definition)
+in:
 
-- **Drop `WiFiClientSecure` from the IDF5 slice.** `manager.cpp` only
-  needs TLS once SK/manager move to `https`/`wss`; the migration replaces
-  `HTTPClient`/`WebSockets` with `esp_http_client`/`esp_websocket_client`
-  (§F, §K), which carry their **own** mbedTLS path and don't need
-  `NetworkClientSecure` at all. Sequencing F/K before the cutover makes
-  this blocker evaporate rather than be patched.
-- If TLS is needed before F/K land: force a single `ssl_client`/`mbedtls`
-  archive via `lib_ldf_mode`/`lib_archive` so the linker can't pick the
-  unresolved copy, or pin the pioarduino release that doesn't double-archive.
+```c
+#if !defined(MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED)
+  #warning "...Enable pre-shared-key ciphersuites..."
+#else
+  ...all function definitions...
+#endif
+```
 
-**Document this as the crux remaining work for §A.** Everything else in A
-is done or mechanical.
+The stock **precompiled** Arduino sdkconfig enables PSK ciphersuites, so
+that umbrella macro is defined and the bodies compile. Our hybrid
+**regenerates sdkconfig from `sdkconfig.defaults`**, and without PSK the
+macro is undefined → `ssl_client.cpp.o` compiles to an **empty object**
+(0 symbols, verified with `nm`) → the `NetworkClientSecure` references are
+unresolved at link. `lib_archive`/archive-order knobs do nothing because
+there is no symbol in *any* copy to resolve.
+
+**Fix (shipped):** enable PSK key exchange in `sdkconfig.defaults`:
+
+```ini
+CONFIG_MBEDTLS_PSK_MODES=y
+CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
+```
+
+`MBEDTLS_KEY_EXCHANGE_PSK` depends on `MBEDTLS_PSK_MODES` (mbedtls Kconfig);
+enabling the child defines the `MBEDTLS_KEY_EXCHANGE_SOME_PSK_ENABLED`
+umbrella that gates the file. After the change, `ssl_client.cpp.o` has its
+14 symbols and `-idf5` **links to a full `firmware.bin`**.
+
+**Gotcha that cost a rebuild:** IDF only applies `sdkconfig.defaults` when
+it *generates* `sdkconfig.<env>` the first time; once that file exists it is
+reused and `.defaults` edits are ignored. Delete the stale generated
+`sdkconfig.esp32-4848s040-idf5` (it is gitignored via `sdkconfig.*`) to
+force regeneration after editing `.defaults`.
+
+With A.1 resolved, the remaining critical-path item for §A is the §H
+display port (now also landed in first form — `num_fbs=2` double-buffer,
+see §H).
 
 ### A.2 BLE temporarily disabled in the spike slice
 

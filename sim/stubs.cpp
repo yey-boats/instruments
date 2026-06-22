@@ -11,6 +11,7 @@
 #include "app_events.h"
 #include "autopilot.h"
 #include "beeper.h"
+#include "config_runtime.h"
 #include "net.h"
 #include "signalk.h"
 #include "storage.h"
@@ -178,3 +179,13 @@ void format_position(double, double, PosFormat, char *buf, size_t cap) {
              "10.333'E");
 }
 }  // namespace ui
+
+namespace config {
+// ui_layouts.cpp reads config::format() for the unit/precision display config.
+// The sim has no NVS-backed runtime store, so return the default FormatConfig
+// (the real config_runtime::format() also returns a default-constructed value
+// before the store is initialised). This keeps the sim host-clean.
+FormatConfig format() {
+    return FormatConfig{};
+}
+}  // namespace config

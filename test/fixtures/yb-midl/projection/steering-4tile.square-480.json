@@ -1,0 +1,29 @@
+{
+  "midl": "1.0.0",
+  "class": "square-480",
+  "screens": [
+    {
+      "id": "steering",
+      "elements": {
+        "compass": { "type": "compass", "bindings": {
+          "value": { "kind": "signalk", "path": "navigation.headingTrue" },
+          "dir":   { "kind": "signalk", "path": "navigation.courseRhumbline.bearingTrackTrue" } },
+          "markers": [ { "glyph": "triangle" }, { "glyph": "diamond" } ] },
+        "cts": { "type": "single-value", "name": "CTS", "format": { "unit": "deg" },
+          "bindings": { "value": { "kind": "signalk", "path": "navigation.courseRhumbline.bearingTrackTrue" } } },
+        "xte": { "type": "single-value", "name": "XTE", "format": { "unit": "m" },
+          "bindings": { "value": { "kind": "signalk", "path": "navigation.courseRhumbline.crossTrackError" } } },
+        "rudder": { "type": "gauge", "name": "RUDDER", "format": { "range": [-35, 35] },
+          "bindings": { "value": { "kind": "signalk", "path": "steering.rudderAngle" } } }
+      },
+      "layout": {
+        "flow": "row",
+        "weights": [3, 2],
+        "children": [
+          { "element": "compass" },
+          { "flow": "col", "children": [ { "element": "cts" }, { "element": "xte" }, { "element": "rudder" } ] }
+        ]
+      }
+    }
+  ]
+}

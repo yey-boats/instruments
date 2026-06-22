@@ -104,6 +104,10 @@ static const Entry CATALOG[] = {
     {"layout", "layout-fetch", "Pull layout from SK REST and apply", true, true},
     {"layout", "layout-load <name>", "Load a built-in/saved layout", true, true},
 
+    // --- MIDL (dashboard language, Slice 2) ---
+    {"midl", "midl-render [screenId]",
+     "Render baked MIDL demo doc as a live screen (default id: midl)", true, true},
+
 #if YEYBOATS_ENABLE_INPUT_TEST
     // --- input injection (BLE/serial only) ---
     {"input-test", "touch <x> <y> <0|1>", "Write raw touch snapshot", false, true},

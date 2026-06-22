@@ -20,6 +20,8 @@
 #include "manager_config.h"
 #include "manager_screens.h"
 #include "knob_ui.h"
+#include "midl_render.h"
+#include "psram_json.h"
 
 namespace app {
 
@@ -241,7 +243,11 @@ void pump() {
             // hand it to manager_screens::apply() and free below.
             if (cmd.blob) {
                 const auto *plan_p = static_cast<const manager_config::RenderPlan *>(cmd.blob);
+#ifndef YEYBOATS_MIDL_ONLY
                 manager_screens::apply(*plan_p);
+#else
+                (void)plan_p;  // MIDL-only boot: ignore manager screens (blob freed below)
+#endif
             }
             break;
         }
@@ -264,6 +270,26 @@ void pump() {
             knob_ui::apply_event(cmd.i, cmd.b[0] == '1');
 #endif
             break;
+        case CommandType::ConfigApplyMidl: {
+            // Blob is a MIDL JSON document (UTF-8, not NUL-terminated).
+            // cmd.a carries the optional screen_id; default "midl".
+            // Runs on the LVGL task — LVGL mutations are safe here.
+            // The blob is freed by the post-switch heap_caps_free below.
+            if (cmd.blob && cmd.blob_len) {
+                const char *sid = (cmd.a[0] != '\0') ? cmd.a : "midl";
+                JsonDocument doc(&yeyboats::psram_json);
+                DeserializationError err =
+                    deserializeJson(doc, (const char *)cmd.blob, cmd.blob_len);
+                if (err) {
+                    net::logf("[app] ConfigApplyMidl: JSON parse error: %s", err.c_str());
+                } else {
+                    bool ok = midl::render::apply_doc(doc.as<JsonVariantConst>(), sid);
+                    net::logf("[app] ConfigApplyMidl %u bytes screen='%s' -> %s",
+                              (unsigned)cmd.blob_len, sid, ok ? "ok" : "fail");
+                }
+            }
+            break;
+        }
         case CommandType::SignalKPut:
         case CommandType::SaveWifi:
         case CommandType::Reboot:

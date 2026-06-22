@@ -448,6 +448,21 @@ static double scalar_unit_fraction(MetricSource src, double v) {
     }
 }
 
+// Gauge/bar fill fraction (0..1) for one binding. When the binding carries an
+// explicit MIDL `format.range` (range_min != range_max), scale v into that
+// [min,max] window; otherwise fall back to the built-in per-source heuristic so
+// legacy tiles (range_min==range_max==0) keep their current behavior byte-for-byte.
+static double binding_unit_fraction(const MetricBinding &m, double v) {
+    if (m.range_min == m.range_max) return scalar_unit_fraction(m.source, v);
+    if (isnan(v)) return NAN;
+    double lo = m.range_min, hi = m.range_max;
+    if (hi == lo) return NAN;  // defensive; range_min!=range_max already checked
+    double f = (v - lo) / (hi - lo);
+    if (f < 0) f = 0;
+    if (f > 1) f = 1;
+    return f;
+}
+
 // --- Per-kind body painters --------------------------------------------
 // Every painter is called after the panel/border/accent-rail/caption
 // chrome is already in place. They populate the t.value / t.unit /
@@ -1039,7 +1054,9 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
         case WidgetKind::Gauge:
         case WidgetKind::Bar: {
             double scalar = metric_scalar(m, data);
-            double frac = scalar_unit_fraction(m.source, scalar);
+            // Honor an explicit MIDL format.range when present; legacy bindings
+            // (range_min==range_max) fall back to the built-in per-source heuristic.
+            double frac = binding_unit_fraction(m, scalar);
             int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
             if (t.aux && pct != t.last_aux_pct) {
                 if (t.kind == WidgetKind::Gauge)
@@ -1048,13 +1065,24 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                     lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
                 t.last_aux_pct = pct;
             }
-            // For bar/gauge the primary label is the percent; show pct
-            // string instead of raw value so the visual matches editor.
-            char buf[8];
-            if (isnan(frac))
+            // Center label. Legacy tiles (no explicit MIDL format.range) show the
+            // percent of the heuristic range, matching the editor preview. When the
+            // element carries an explicit format.range, show the actual scalar value
+            // (formatted to format.precision, or 0 dp by default) so a real gauge —
+            // e.g. rudder on [-35,35] — reads its true magnitude, not a percent.
+            char buf[24];
+            if (m.range_min != m.range_max) {
+                if (isnan(scalar))
+                    snprintf(buf, sizeof(buf), "--");
+                else {
+                    int dp = m.precision >= 0 ? m.precision : 0;
+                    snprintf(buf, sizeof(buf), "%.*f", dp, scalar);
+                }
+            } else if (isnan(frac)) {
                 snprintf(buf, sizeof(buf), "--");
-            else
+            } else {
                 snprintf(buf, sizeof(buf), "%d%%", pct);
+            }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
             break;
         }
@@ -2483,6 +2511,208 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec, con
         if (lbl) lv_label_set_text(lbl, aud ? "ON" : "OFF");
         uint32_t bg = aud ? theme.good : theme.panel_edge;
         lv_obj_set_style_bg_color(st->audible_btn, lv_color_hex(bg), 0);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Freeform builder — one tile per solver-provided pixel rect.
+//
+// Reuses build_tile() and the per-tile update logic from the QuadGrid path so
+// all painters (numeric, compass, gauge, bar, wind_rose, text, button,
+// autopilot) are exercised without duplication. Called directly by
+// midl_render; NOT wired into create()/update() dispatch (no TemplateId
+// churn needed — and the tile_count is variable, not fixed at 4).
+//
+// Tile state is heap-allocated (MALLOC_CAP_INTERNAL) and attached via
+// lv_obj_set_user_data, matching the QuadGrid pattern.
+
+// Maximum freeform tiles per screen — mirrors the MIDL solver bound so a
+// PlacementSet can be mapped 1:1.
+static constexpr int FREEFORM_MAX_TILES = (int)layout::MAX_TILES_PER_SCREEN;  // 4
+
+// Per-tile state extends QuadGridTile with the tile's own pixel width so the
+// update path can correctly call fit_value_font() without relying on the
+// QuadGrid-specific QG_TILE_W constant.
+struct FreeformTile {
+    QuadGridTile tile;  // reuse the full per-tile widget + cache state
+    int tile_w;         // pixel width of this tile (from the solver rect)
+};
+
+struct FreeformState {
+    int count;
+    FreeformTile tiles[FREEFORM_MAX_TILES];
+};
+
+lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const Rect *rects) {
+    if (!spec.metrics || spec.metric_count < 1 || !rects) return nullptr;
+
+    lv_obj_t *root = lv_obj_create(parent);
+    lv_obj_set_size(root, LCD_W, LCD_H);
+    if (parent) lv_obj_set_pos(root, 0, 0);
+    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(root, 0, 0);
+    lv_obj_set_style_radius(root, 0, 0);
+    lv_obj_set_style_pad_all(root, 0, 0);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+    FreeformState *st =
+        (FreeformState *)heap_caps_calloc(1, sizeof(FreeformState), MALLOC_CAP_INTERNAL);
+    if (!st) {
+        net::logf("[layout] freeform alloc failed");
+        return root;  // empty but valid handle
+    }
+
+    int n = spec.metric_count;
+    if (n > FREEFORM_MAX_TILES) n = FREEFORM_MAX_TILES;
+    st->count = n;
+
+    for (int i = 0; i < n; ++i) {
+        const Rect &r = rects[i];
+        st->tiles[i].tile = build_tile(root, r.x, r.y, r.w, r.h, spec.metrics[i]);
+        st->tiles[i].tile.idx = i;
+        st->tiles[i].tile_w = r.w;
+
+        // Tap-to-zoom: mirror the QuadGrid interactive-tile logic.
+        const MetricBinding &mb = spec.metrics[i];
+        bool interactive =
+            mb.zoom_target ? (layout::zoom_action(mb.zoomable, mb.zoom_target) != layout::ZOOM_NONE)
+                           : (mb.source != MetricSource::None);
+        if (interactive) {
+            lv_obj_add_flag(st->tiles[i].tile.root, LV_OBJ_FLAG_CLICKABLE);
+            lv_obj_add_event_cb(st->tiles[i].tile.root, tile_zoom_action_cb, LV_EVENT_CLICKED,
+                                (void *)&spec.metrics[i]);
+        }
+    }
+
+    lv_obj_set_user_data(root, st);
+    return root;
+}
+
+void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+    if (!root) return;
+    auto *st = (FreeformState *)lv_obj_get_user_data(root);
+    if (!st) return;
+
+    for (int i = 0; i < st->count; ++i) {
+        QuadGridTile &t = st->tiles[i].tile;
+        if (t.idx < 0 || t.idx >= spec.metric_count) continue;
+        const MetricBinding &m = spec.metrics[t.idx];
+
+        char pri[40], sec[24];
+        format_metric(m, data, pri, sizeof(pri), sec, sizeof(sec));
+
+        // Per-kind aux updates — mirrors update_quad_grid exactly.
+        switch (t.kind) {
+        case WidgetKind::Gauge:
+        case WidgetKind::Bar: {
+            double scalar = metric_scalar(m, data);
+            // Honor an explicit MIDL format.range when present; legacy bindings
+            // (range_min==range_max) fall back to the built-in per-source heuristic.
+            double frac = binding_unit_fraction(m, scalar);
+            int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
+            if (t.aux && pct != t.last_aux_pct) {
+                if (t.kind == WidgetKind::Gauge)
+                    lv_arc_set_value(t.aux, pct);
+                else
+                    lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
+                t.last_aux_pct = pct;
+            }
+            char buf[8];
+            if (isnan(frac))
+                snprintf(buf, sizeof(buf), "--");
+            else
+                snprintf(buf, sizeof(buf), "%d%%", pct);
+            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
+            break;
+        }
+        case WidgetKind::Autopilot:
+            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+            if (t.secondary) {
+                char tgt[24];
+                snprintf(tgt, sizeof(tgt), "target %s", sec[0] ? sec : "---");
+                ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
+                                        tgt);
+            }
+            break;
+        case WidgetKind::Button:
+            // Static label; no update needed.
+            break;
+        case WidgetKind::Compass:
+            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+            if (t.secondary) {
+                char cts[24];
+                if (m.extras_count > 0 && m.extras[0].source != MetricSource::None) {
+                    MetricBinding eb = {};
+                    eb.source = m.extras[0].source;
+                    char ep[24], esec[24];
+                    format_metric(eb, data, ep, sizeof(ep), esec, sizeof(esec));
+                    snprintf(cts, sizeof(cts), "%s %s",
+                             m.extras[0].label && m.extras[0].label[0] ? m.extras[0].label : "CTS",
+                             ep);
+                } else {
+                    snprintf(cts, sizeof(cts), "%s", sec);
+                }
+                ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
+                                        cts);
+            }
+            {
+                MetricBinding hdg = {}, cog = {}, cts = {};
+                hdg.source = MetricSource::HDG_deg;
+                cog.source = MetricSource::COG_deg;
+                cts.source = MetricSource::CTS_deg;
+                ui::MarkerSpec live[3] = {
+                    {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
+                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
+                    {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
+                };
+                ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
+            }
+            break;
+        default:
+            // Numeric, WindRose, Text, Trend — value/secondary text slots.
+            if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri) &&
+                t.kind == WidgetKind::Numeric && m.extras_count == 0) {
+                // Use the tile's own width (solver may pick a rect different
+                // from the fixed QG_TILE_W). -56 matches the QuadGrid margin.
+                fit_value_font(t.value, pri, st->tiles[i].tile_w - 56);
+            }
+            if (t.value && m.source == MetricSource::VMG_kn) {
+                double vmg = mps_to_kn(data.vmg);
+                uint32_t col = isnan(vmg) ? theme.fg : (vmg < 0 ? theme.alarm : theme.good);
+                lv_obj_set_style_text_color(t.value, lv_color_hex(col), 0);
+            }
+            if (t.secondary) {
+                ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
+                                        sec);
+            }
+            if (t.kind == WidgetKind::WindRose) {
+                MetricBinding awa = {}, twa = {};
+                awa.source = MetricSource::AWA_deg;
+                twa.source = MetricSource::TWA_deg;
+                ui::MarkerSpec wind[2] = {
+                    {metric_scalar(awa, data), ui::Glyph::ChevronIn, true, theme.warn},
+                    {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
+                };
+                ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);
+            }
+            break;
+        }
+
+        // Multi-row extras (only meaningful for Numeric kind).
+        for (uint8_t e = 0; e < m.extras_count && e < 4; ++e) {
+            if (!t.extras[e]) continue;
+            MetricBinding eb = {};
+            eb.source = m.extras[e].source;
+            char ep[24], esec[24];
+            format_metric(eb, data, ep, sizeof(ep), esec, sizeof(esec));
+            char row[32];
+            if (m.extras[e].label && m.extras[e].label[0])
+                snprintf(row, sizeof(row), "%s %s", m.extras[e].label, ep);
+            else
+                snprintf(row, sizeof(row), "%s", ep);
+            ui::set_text_if_changed(t.extras[e], t.last_extras[e], sizeof(t.last_extras[e]), row);
+        }
     }
 }
 

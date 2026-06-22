@@ -38,6 +38,12 @@ void register_screen(const Screen &s) {
     if (s_count == 1 && s.root) {
         lv_screen_load(s.root);
         s_index = 0;
+        // [nav-diag] First-screen auto-load: confirm LVGL actually moved the
+        // active screen onto this root (and OFF any parking root left by a
+        // prior reset_screens). If active != s.root here, the subsequent
+        // show(N) path must not early-return on a stale guard.
+        net::logf("[ui] register auto-show '%s' root=%p active=%p s_index=0", s.id ? s.id : "?",
+                  (void *)s.root, (void *)lv_screen_active());
         notify_change(0);  // the boot screen drives the initial subscription set
     }
     if (s.root && s_post_build_cb) s_post_build_cb(s.root, s.id);
@@ -112,6 +118,52 @@ bool replace_screen(const char *id, const Screen &s) {
     return false;
 }
 
+// Tiny persistent blank screen used as a "parking" root during reset_screens()
+// so LVGL always has a live active screen while we delete the dynamic roots.
+// Built once on first reset, never deleted. lv_obj_create(NULL) -> parentless
+// fullscreen object, exactly like a registered screen root.
+static lv_obj_t *s_parking_root = nullptr;
+
+// True when the LVGL active screen is the blank parking root — i.e. we are
+// mid-reset / between screen sets and no registered screen is actually shown.
+// show() uses this so it can never early-return into a no-op while parked.
+static bool active_is_parking() {
+    return s_parking_root != nullptr && lv_screen_active() == s_parking_root;
+}
+
+void reset_screens() {
+    // Park on a persistent blank screen FIRST so the root we're about to delete
+    // is never the active screen (LVGL must always have one loaded).
+    if (!s_parking_root) {
+        s_parking_root = lv_obj_create(nullptr);
+    }
+    if (s_parking_root) {
+        lv_screen_load(s_parking_root);
+    }
+
+    // Free every eager-built root. Lazy screens (build_fn != NULL) that were
+    // never shown have root == NULL and need no free; lazy screens that WERE
+    // built cached their root and must be freed too. Guard against deleting the
+    // parking root (a registered screen could never alias it, but be defensive).
+    size_t deleted = 0;
+    for (size_t i = 0; i < s_count; ++i) {
+        lv_obj_t *root = s_screens[i].root;
+        if (root && root != s_parking_root) {
+            lv_obj_delete(root);
+            ++deleted;
+        }
+        s_screens[i] = Screen{};
+    }
+
+    s_count = 0;
+    s_index = 0;
+    // [nav-diag] Report how many roots were freed and the parking pointer LVGL
+    // is now parked on, so a post-push log shows the teardown completed and the
+    // active screen is the parking root before the rebuild auto-loads screen 0.
+    net::logf("[ui] screens reset: deleted %u root(s), parked=%p active=%p", (unsigned)deleted,
+              (void *)s_parking_root, (void *)lv_screen_active());
+}
+
 bool set_screen_hidden(const char *id, bool hidden) {
     if (!id) return false;
     for (size_t i = 0; i < s_count; ++i) {
@@ -127,14 +179,35 @@ void show(int index) {
     if (index < 0) index = 0;
     if (index >= (int)s_count) index = (int)s_count - 1;
     ensure_built((size_t)index);
-    if (!s_screens[index].root) {
+    lv_obj_t *target = s_screens[index].root;
+    lv_obj_t *active = lv_screen_active();
+    bool parked = active_is_parking();
+    // [nav-diag] One line per show() so the on-hardware repro is readable in
+    // /api/logs: requested index, target root, current active root (and whether
+    // it's the parking root), and the manager's s_index. After a live-push
+    // reset_screens this is the line that reveals whether show(1)/show(2)
+    // actually loads or hits an early-return.
+    net::logf("[ui] show(%d) id=%s target=%p active=%p parked=%d s_index=%d", index,
+              s_screens[index].id ? s_screens[index].id : "?", (void *)target, (void *)active,
+              parked ? 1 : 0, s_index);
+    if (!target) {
         net::logf("[ui] show: screen %s has no root (build failed?)", s_screens[index].id);
         return;
     }
-    if (lv_screen_active() == s_screens[index].root && index == s_index) return;
+    // Early-return ONLY when this is a genuine no-op: the requested root is the
+    // one LVGL already has loaded AND the manager index already matches. Crucially
+    // this is gated on NOT being parked — after reset_screens parks on the blank
+    // root, the active screen is the parking root, so we must always issue the
+    // load to move off it (an `active==target` check alone could otherwise be
+    // fooled by a stale pointer and strand the UI on the first/parking screen).
+    if (!parked && active == target && index == s_index) {
+        net::logf("[ui] show(%d): no-op (already active)", index);
+        return;
+    }
     s_index = index;
     lv_screen_load(s_screens[s_index].root);
-    net::logf("[ui] screen -> %d (%s)", s_index, s_screens[s_index].id);
+    net::logf("[ui] screen -> %d (%s) loaded active=%p", s_index, s_screens[s_index].id,
+              (void *)lv_screen_active());
     notify_change((size_t)s_index);  // re-diff the per-screen subscription set
 }
 

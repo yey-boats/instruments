@@ -74,6 +74,19 @@ void set_screen_change_cb(ScreenChangeCb cb);
 
 bool set_screen_hidden(const char *id, bool hidden);
 
+// Clear the entire registered screen set, freeing every eager-built LVGL root.
+//
+// Used by the MIDL renderer to atomically replace its screen set on each
+// apply_all (a fresh doc push / reset / second apply must REMOVE the previous
+// doc's screens, not leave them stranded with aliased refresh trampolines).
+//
+// LVGL invariant: there must ALWAYS be an active screen. We keep a tiny
+// persistent blank "parking" screen, lv_screen_load() it first, then delete
+// every dynamic root — so the live root is never the one being deleted.
+// Lazy screens (build_fn != NULL, root == NULL) have nothing to free.
+// Resets s_count / s_index to 0. Runs ON THE UI/LVGL task only.
+void reset_screens();
+
 // Show a specific screen by index. Out-of-range indices are clamped.
 void show(int index);
 
