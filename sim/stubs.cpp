@@ -18,9 +18,9 @@
 #include "ui_data.h"
 #include "ui_screens.h"
 
-namespace sk {
-void copyData(Data &out) {
-    out = Data{};
+namespace boat {
+void current_view(View &out) {
+    out = View{};
     out.lat = 41.38306;       // ~41 22.984 N (Barcelona)
     out.lon = 2.17222;        // ~002 10.333 E
     out.sog = 3.19;           // ~6.2 kn
@@ -47,7 +47,7 @@ void copyData(Data &out) {
     out.apTargetHdg = 1.117;  // ~64 deg
     out.xte = 278.0;          // m to the right of track (~0.15 nm)
 }
-}  // namespace sk
+}  // namespace boat
 
 namespace net {
 void logf(const char *, ...) {

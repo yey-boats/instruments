@@ -1,32 +1,31 @@
 #pragma once
 
-// SignalK -> boat::Snapshot bridge per docs/specs/12 Feature 1.
+// SignalK -> boat::Snapshot ingest + boat::Snapshot -> View projection
+// per docs/specs/12 Feature 1.
 //
-// Each time the SignalK WS task ingests a delta, it calls
-// bridge_signalk_into_boat(sk::data, millis()). The bridge publishes
-// every present (non-NaN) sk field into the global boat::Snapshot with
-// SourceKind::SignalK, honoring the configured priority.
+// Each time the SignalK WS task parses a delta into a transient boat::View,
+// it calls ingest_signalk(view, millis()), which publishes every present
+// (non-NaN) field into the global boat::Snapshot with SourceKind::SignalK,
+// honoring the configured priority. This is the sole SignalK ingest path
+// (there is no persistent sk::Data source-of-truth anymore).
 //
-// Pure declaration here; implementation in src/source_signalk.cpp keeps
-// the dependency on sk::Data and boat::Snapshot localized.
+// Pure declaration here; implementation in src/source_signalk.cpp.
 
 #include "boat_data.h"
-#include "signalk_parser.h"
 
 namespace boat {
 
-// Republish all fields from `sk` into the global Snapshot at time
-// `now_ms`. Returns the number of fields actually accepted (i.e.
-// SignalK was the winning source for them at this tick).
-int bridge_signalk_into_boat(const sk::Data &sk, uint32_t now_ms);
+// Republish all metric fields from `v` into the global Snapshot at time
+// `now_ms`. Returns the number of fields actually accepted (i.e. SignalK
+// was the winning source for them at this tick). Link-state fields on `v`
+// are ignored here.
+int ingest_signalk(const View &v, uint32_t now_ms);
 
-// Reverse projection: fill an sk::Data from the current boat::Snapshot
-// so legacy screens reading sk::data still see the fused value chosen
-// by the source-priority resolver. Stale fields collapse to NaN so
-// renderers can fall back to "no data" rendering.
-//
-// `connected` and `lastUpdateMs` come from the sk WS state and are not
-// overwritten here - callers preserve them.
-void compose_from_boat(sk::Data &out, uint32_t now_ms);
+// Projection: fill the metric fields of `out` from the current fused
+// boat::Snapshot so renderers see the value chosen by the source-priority
+// resolver. Stale fields collapse to NaN so renderers fall back to "no
+// data". The WS link-state fields (connected/lastUpdateMs/...) are NOT
+// touched here - the SignalK layer fills those (see boat::current_view).
+void compose(View &out, uint32_t now_ms);
 
 }  // namespace boat

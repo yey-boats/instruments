@@ -2,7 +2,7 @@
 
 // Spec 19 D4 - widget registry. Given a validated WidgetDef from
 // manager_config::parse(), construct the appropriate LVGL widget
-// tree under `parent` and refresh it on demand from sk::Data.
+// tree under `parent` and refresh it on demand from boat::View.
 //
 // MVP implements numeric, text, bar fully; gauge, compass, trend,
 // button, autopilot are stubbed (logs + placeholder label) so D5
@@ -41,6 +41,6 @@ Widget *create(lv_obj_t *parent, int16_t x, int16_t y, int16_t w, int16_t h,
 void destroy(Widget *w);
 
 // Re-read the widget's data path and update the LVGL tree.
-void update(Widget &w, const sk::Data &data);
+void update(Widget &w, const boat::View &data);
 
 }  // namespace widget_registry

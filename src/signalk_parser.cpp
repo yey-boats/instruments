@@ -30,7 +30,7 @@ static bool endsWith(const char *s, const char *suffix) {
     return sl >= suf && strcmp(s + sl - suf, suffix) == 0;
 }
 
-void applyValue(const char *path, JsonVariant val, Data &out) {
+void applyValue(const char *path, JsonVariant val, boat::View &out) {
     if (!path) return;
 
     if (strcmp(path, "navigation.position") == 0) {
@@ -110,10 +110,10 @@ void applyValue(const char *path, JsonVariant val, Data &out) {
     }
 }
 
-static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc,
+static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonDocument &doc,
                             PathStore *dyn);
 
-int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc,
+int applyDelta(const char *json, size_t len, boat::View &out, ArduinoJson::Allocator *alloc,
                PathStore *dyn) {
     // alloc==nullptr -> default (internal heap) allocator. The device
     // build passes &yeyboats::psram_json so 1+ Hz SK deltas don't churn
@@ -127,7 +127,7 @@ int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *
     return apply_delta_impl(json, len, out, doc, dyn);
 }
 
-static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocument &doc,
+static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonDocument &doc,
                             PathStore *dyn) {
     DeserializationError err = deserializeJson(doc, json, len);
     if (err) return -1;
@@ -145,7 +145,7 @@ static int apply_delta_impl(const char *json, size_t len, Data &out, JsonDocumen
 #endif
             applyValue(p, v["value"], out);
             // Mirror numeric deltas into the dynamic store so authored fields
-            // can render arbitrary paths by string (typed sk::Data still drives
+            // can render arbitrary paths by string (typed boat::View still drives
             // the built-in screens).
             if (dyn && isNumeric(v["value"])) dyn->set(p, v["value"].as<double>());
             ++count;

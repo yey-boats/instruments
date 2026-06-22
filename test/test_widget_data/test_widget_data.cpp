@@ -9,8 +9,8 @@ void setUp(void) {
 void tearDown(void) {
 }
 
-static sk::Data make_data() {
-    sk::Data d;
+static boat::View make_data() {
+    boat::View d;
     d.sog = 3.5;
     d.cogTrue = 1.57;
     d.headingTrue = 1.60;
@@ -25,7 +25,7 @@ static sk::Data make_data() {
 }
 
 static void test_local_alias_numeric() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     TEST_ASSERT_EQUAL_DOUBLE(3.5, widget_data::resolve_numeric("boat.sog", d));
     TEST_ASSERT_EQUAL_DOUBLE(12.3, widget_data::resolve_numeric("boat.depth", d));
     TEST_ASSERT_EQUAL_DOUBLE(12.7, widget_data::resolve_numeric("boat.batteryVoltage", d));
@@ -33,7 +33,7 @@ static void test_local_alias_numeric() {
 }
 
 static void test_raw_sk_path_numeric() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     TEST_ASSERT_EQUAL_DOUBLE(3.5, widget_data::resolve_numeric("navigation.speedOverGround", d));
     TEST_ASSERT_EQUAL_DOUBLE(1.60, widget_data::resolve_numeric("navigation.headingTrue", d));
     TEST_ASSERT_EQUAL_DOUBLE(5.2,
@@ -43,7 +43,7 @@ static void test_raw_sk_path_numeric() {
 }
 
 static void test_unknown_path_returns_nan() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     double v = widget_data::resolve_numeric("not.a.path", d);
     TEST_ASSERT_TRUE(std::isnan(v));
     TEST_ASSERT_TRUE(std::isnan(widget_data::resolve_numeric(nullptr, d)));
@@ -51,7 +51,7 @@ static void test_unknown_path_returns_nan() {
 }
 
 static void test_string_path_autopilot_state() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     char buf[24] = {0};
     TEST_ASSERT_TRUE(widget_data::resolve_string("boat.autopilotState", d, buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("auto", buf);
@@ -62,7 +62,7 @@ static void test_string_path_autopilot_state() {
 }
 
 static void test_string_path_unknown_returns_empty() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     char buf[16] = {'X', 0};
     TEST_ASSERT_FALSE(widget_data::resolve_string("boat.sog", d, buf, sizeof(buf)));
     TEST_ASSERT_EQUAL_STRING("", buf);
@@ -78,7 +78,7 @@ static void test_is_known() {
 }
 
 static void test_resolve_falls_back_to_store_for_unknown_path() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     sk::PathStore store;
     store.set("propulsion.0.revolutions", 27.5);
     // Unknown to the typed resolver -> uses the store.
@@ -87,7 +87,7 @@ static void test_resolve_falls_back_to_store_for_unknown_path() {
 }
 
 static void test_known_path_prefers_typed_field_over_store() {
-    sk::Data d = make_data();  // sog = 3.5
+    boat::View d = make_data();  // sog = 3.5
     sk::PathStore store;
     store.set("navigation.speedOverGround", 99.0);  // stale store value
     // Known typed field wins; store is only the fallback.
@@ -96,7 +96,7 @@ static void test_known_path_prefers_typed_field_over_store() {
 }
 
 static void test_unknown_path_without_store_is_nan() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     TEST_ASSERT_TRUE(std::isnan(widget_data::resolve_numeric("x.y.z", d, nullptr)));
 }
 
@@ -107,7 +107,7 @@ static void test_capture_dynamic_round_trip() {
 }
 
 static void test_capture_then_resolve_arbitrary_path() {
-    sk::Data d = make_data();
+    boat::View d = make_data();
     sk::PathStore store;
     // Simulate a WS delta for a path the typed parser does not know.
     widget_data::captureDynamic("electrical.solar.0.power", 142.0, store);

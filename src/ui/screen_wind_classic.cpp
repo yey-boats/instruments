@@ -511,7 +511,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // Tide/current drift speed at dial center (under markers, over boat). The
     // bare number used to read as an unlabeled "0.8" near the boat icon; a small
     // "DRIFT" caption + "kn" unit make it unambiguous (current set/drift speed,
-    // bound to sk::Data.currentDrift, paired with the blue set arrow).
+    // bound to boat::View.currentDrift, paired with the blue set arrow).
     lbl_drift_cap = lv_label_create(s_root);
     lv_label_set_text(lbl_drift_cap, "DRIFT");
     lv_obj_set_style_text_font(lbl_drift_cap, &lv_font_montserrat_14, 0);
@@ -610,9 +610,9 @@ using ui::set_text_if_changed;
 
 void refresh() {
     if (!s_refresh_enabled) return;
-    sk::Data d_snap;
-    sk::copyData(d_snap);
-    const sk::Data &d = d_snap;
+    boat::View d_snap;
+    boat::current_view(d_snap);
+    const boat::View &d = d_snap;
     char buf[64];
 
     // North-up: heading drives the boat group; wind markers, tide and waypoint

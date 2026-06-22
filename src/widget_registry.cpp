@@ -144,7 +144,7 @@ void destroy(Widget *w) {
     heap_caps_free(w);
 }
 
-void update(Widget &w, const sk::Data &data) {
+void update(Widget &w, const boat::View &data) {
     char buf[64];
     switch (w.type) {
     case manager_config::WidgetType::Numeric: {

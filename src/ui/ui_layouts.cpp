@@ -139,7 +139,7 @@ bool g_bench_store_mode = false;
 // single LVGL task, so this file-static needs no lock.
 static config::FormatConfig s_fmt;
 
-static void format_metric(const MetricBinding &m, const sk::Data &d, char *primary, size_t pcap,
+static void format_metric(const MetricBinding &m, const boat::View &d, char *primary, size_t pcap,
                           char *secondary, size_t scap) {
     secondary[0] = 0;
 #ifdef DBG_PERF_COUNTERS
@@ -347,7 +347,7 @@ static void tile_zoom_action_cb(lv_event_t *e) {
 
 // Numeric value for chart-able metrics, in display units. Returns NaN
 // for non-scalar bindings (Position, APState, etc).
-static double metric_scalar(const MetricBinding &m, const sk::Data &d) {
+static double metric_scalar(const MetricBinding &m, const boat::View &d) {
     switch (m.source) {
     case MetricSource::AWS_kn:
         return isnan(d.aws) ? NAN : mps_to_kn(d.aws);
@@ -1037,7 +1037,8 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
     return root;
 }
 
-static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
+                             const boat::View &data) {
     if (!root) return;
     auto *st = (QuadGridState *)lv_obj_get_user_data(root);
     if (!st) return;
@@ -1319,7 +1320,8 @@ static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spe
     return root;
 }
 
-static void update_hero_plus(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+static void update_hero_plus(lv_obj_t *root, const ScreenVariantSpec &spec,
+                             const boat::View &data) {
     (void)spec;
     if (!root) return;
     auto *st = (HeroPlusState *)lv_obj_get_user_data(root);
@@ -1415,7 +1417,7 @@ static lv_obj_t *create_status_list(lv_obj_t *parent, const ScreenVariantSpec &s
 }
 
 static void update_status_list(lv_obj_t *root, const ScreenVariantSpec &spec,
-                               const sk::Data &data) {
+                               const boat::View &data) {
     if (!root) return;
     auto *st = (StatusListState *)lv_obj_get_user_data(root);
     if (!st) return;
@@ -1515,7 +1517,7 @@ static lv_obj_t *create_round_instrument(lv_obj_t *parent, const ScreenVariantSp
 }
 
 static void update_round_instrument(lv_obj_t *root, const ScreenVariantSpec &spec,
-                                    const sk::Data &data) {
+                                    const boat::View &data) {
     (void)spec;
     if (!root) return;
     auto *st = (RoundInstrumentState *)lv_obj_get_user_data(root);
@@ -1640,7 +1642,8 @@ static lv_obj_t *create_split_pair(lv_obj_t *parent, const ScreenVariantSpec &sp
     return root;
 }
 
-static void update_split_pair(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+static void update_split_pair(lv_obj_t *root, const ScreenVariantSpec &spec,
+                              const boat::View &data) {
     if (!root) return;
     auto *st = (SplitPairState *)lv_obj_get_user_data(root);
     if (!st) return;
@@ -1758,7 +1761,7 @@ static lv_obj_t *create_trend_chart(lv_obj_t *parent, const ScreenVariantSpec &s
 }
 
 static void update_trend_chart(lv_obj_t *root, const ScreenVariantSpec &spec,
-                               const sk::Data &data) {
+                               const boat::View &data) {
     (void)spec;
     if (!root) return;
     auto *st = (TrendChartState *)lv_obj_get_user_data(root);
@@ -1852,7 +1855,7 @@ struct AlertFocusState {
     bool in_alarm = false;
 };
 
-static bool alarm_for(const MetricBinding &m, const sk::Data &d) {
+static bool alarm_for(const MetricBinding &m, const boat::View &d) {
     switch (m.source) {
     case MetricSource::Depth_m:
         return !isnan(d.depth) && d.depth > 0 && d.depth < ui::depth_alarm_m();
@@ -1928,7 +1931,7 @@ static lv_obj_t *create_alert_focus(lv_obj_t *parent, const ScreenVariantSpec &s
 }
 
 static void update_alert_focus(lv_obj_t *root, const ScreenVariantSpec &spec,
-                               const sk::Data &data) {
+                               const boat::View &data) {
     (void)spec;
     if (!root) return;
     auto *st = (AlertFocusState *)lv_obj_get_user_data(root);
@@ -2115,7 +2118,7 @@ static lv_obj_t *create_control_console(lv_obj_t *parent, const ScreenVariantSpe
 }
 
 static void update_control_console(lv_obj_t *root, const ScreenVariantSpec &spec,
-                                   const sk::Data &data) {
+                                   const boat::View &data) {
     (void)spec;
     (void)data;
     if (!root) return;
@@ -2158,7 +2161,7 @@ static void update_control_console(lv_obj_t *root, const ScreenVariantSpec &spec
 // ---------------------------------------------------------------------------
 // route_progress template - XTE bar + BTW + DTW summary.
 //
-// Reads from boat::Snapshot via sk::Data (which composes fused values).
+// Reads from boat::Snapshot via boat::View (which composes fused values).
 // Layout:
 //   top      : "TO WP" caption
 //   middle   : BTW (big, accent) | DTW (big)
@@ -2279,7 +2282,7 @@ static lv_obj_t *create_route_progress(lv_obj_t *parent, const ScreenVariantSpec
 }
 
 static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
-                                  const sk::Data &data) {
+                                  const boat::View &data) {
     (void)spec;
     if (!root) return;
     auto *st = (RouteProgressState *)lv_obj_get_user_data(root);
@@ -2470,7 +2473,8 @@ static lv_obj_t *create_setup_form(lv_obj_t *parent, const ScreenVariantSpec &sp
     return root;
 }
 
-static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
+                              const boat::View &data) {
     (void)spec;
     (void)data;
     if (!root) return;
@@ -2589,7 +2593,7 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
     return root;
 }
 
-void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data) {
     if (!root) return;
     auto *st = (FreeformState *)lv_obj_get_user_data(root);
     if (!st) return;
@@ -2747,7 +2751,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
     }
 }
 
-void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data) {
+void update(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data) {
     s_fmt = config::format();  // snapshot display formatting for this refresh
     switch (spec.template_id) {
     case TemplateId::QuadGrid:
@@ -2863,8 +2867,8 @@ void refresh() {
     lv_obj_set_style_text_color(s_value, lv_color_hex(m.accent ? m.accent : ui::theme.fg), 0);
     lv_label_set_text(s_cap, m.label ? m.label : "");
     lv_label_set_text(s_unit, m.unit ? m.unit : "");
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char pri[40], sec[64];
     ui::layouts::format_metric(m, d, pri, sizeof(pri), sec, sizeof(sec));
 

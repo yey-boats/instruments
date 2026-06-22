@@ -26,7 +26,7 @@ enum class TemplateId : uint8_t {
     COUNT
 };
 
-// Identifies which sk::Data field feeds a metric. The factory keeps
+// Identifies which boat::View field feeds a metric. The factory keeps
 // the lookup pure - a controller layer can later replace this with
 // arbitrary SignalK path strings.
 enum class MetricSource : uint8_t {

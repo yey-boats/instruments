@@ -127,9 +127,9 @@ static int s_last_fuel_bar = -1;
 static int s_last_water_bar = -1;
 
 void refresh() {
-    sk::Data d_snap;
-    sk::copyData(d_snap);
-    const sk::Data &d = d_snap;
+    boat::View d_snap;
+    boat::current_view(d_snap);
+    const boat::View &d = d_snap;
     char buf[64];
 
     if (!isnan(d.battVoltage)) {

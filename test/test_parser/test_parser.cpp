@@ -4,7 +4,7 @@
 #include <string>
 #include "signalk_parser.h"
 
-using sk::Data;
+using boat::View;
 
 void setUp(void) {
 }
@@ -23,7 +23,7 @@ static std::string singleValueDelta(const char *path, const char *valueJson) {
 }
 
 static void test_parses_speed_over_ground() {
-    Data d;
+    View d;
     auto j = singleValueDelta("navigation.speedOverGround", "3.5");
     int n = sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_EQUAL(1, n);
@@ -31,7 +31,7 @@ static void test_parses_speed_over_ground() {
 }
 
 static void test_parses_apparent_wind() {
-    Data d;
+    View d;
     auto j = singleValueDelta("environment.wind.angleApparent", "0.785");
     sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 0.785, d.awa);
@@ -42,7 +42,7 @@ static void test_parses_apparent_wind() {
 }
 
 static void test_parses_polar_angles() {
-    Data d;
+    View d;
     auto j = singleValueDelta("performance.beatAngle", "0.7330");  // ~42 deg
     sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 0.7330, d.beatAngle);
@@ -53,7 +53,7 @@ static void test_parses_polar_angles() {
 }
 
 static void test_parses_position_object() {
-    Data d;
+    View d;
     auto j = singleValueDelta("navigation.position", "{\"latitude\":41.3851,\"longitude\":2.1734}");
     int n = sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_EQUAL(1, n);
@@ -63,13 +63,13 @@ static void test_parses_position_object() {
 }
 
 static void test_parses_depth_variants() {
-    Data d;
+    View d;
     auto j1 = singleValueDelta("environment.depth.belowTransducer", "12.3");
     sk::applyDelta(j1.data(), j1.size(), d);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 12.3, d.depth);
     TEST_ASSERT_TRUE(std::isnan(d.depthKeel));  // belowKeel must not overwrite depth
 
-    Data d2;
+    View d2;
     auto j2 = singleValueDelta("environment.depth.belowKeel", "8.5");
     sk::applyDelta(j2.data(), j2.size(), d2);
     // belowKeel must populate depthKeel, not depth
@@ -77,7 +77,7 @@ static void test_parses_depth_variants() {
     TEST_ASSERT_TRUE(std::isnan(d2.depth));
 
     // Both fields independent when both paths arrive in the same delta
-    Data d3;
+    View d3;
     sk::applyDelta(j1.data(), j1.size(), d3);  // sets depth
     sk::applyDelta(j2.data(), j2.size(), d3);  // sets depthKeel
     TEST_ASSERT_FLOAT_WITHIN(0.001, 12.3, d3.depth);
@@ -85,7 +85,7 @@ static void test_parses_depth_variants() {
 }
 
 static void test_parses_battery_with_named_bank() {
-    Data d;
+    View d;
     auto j = singleValueDelta("electrical.batteries.house.voltage", "12.7");
     sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 12.7, d.battVoltage);
@@ -96,7 +96,7 @@ static void test_parses_battery_with_named_bank() {
 }
 
 static void test_parses_tanks() {
-    Data d;
+    View d;
     auto j = singleValueDelta("tanks.fuel.0.currentLevel", "0.65");
     sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_FLOAT_WITHIN(0.001, 0.65, d.tankFuel);
@@ -107,7 +107,7 @@ static void test_parses_tanks() {
 }
 
 static void test_unknown_path_is_ignored() {
-    Data d;
+    View d;
     auto j = singleValueDelta("some.random.unknown.path", "42");
     int n = sk::applyDelta(j.data(), j.size(), d);
     TEST_ASSERT_EQUAL(1, n);              // the value was seen
@@ -116,14 +116,14 @@ static void test_unknown_path_is_ignored() {
 }
 
 static void test_malformed_json_returns_error() {
-    Data d;
+    View d;
     const char *bad = "{not valid json";
     int n = sk::applyDelta(bad, strlen(bad), d);
     TEST_ASSERT_LESS_THAN(0, n);
 }
 
 static void test_keepalive_returns_zero() {
-    Data d;
+    View d;
     // SignalK hello/keepalive frames don't contain an "updates" array.
     const char *hello = "{\"name\":\"signalk-server\",\"version\":\"2.27.0\"}";
     int n = sk::applyDelta(hello, strlen(hello), d);
@@ -131,7 +131,7 @@ static void test_keepalive_returns_zero() {
 }
 
 static void test_multiple_values_in_one_delta() {
-    Data d;
+    View d;
     const char *j = "{\"context\":\"vessels.self\",\"updates\":[{"
                     "\"values\":["
                     "{\"path\":\"navigation.speedOverGround\",\"value\":4.0},"
@@ -146,7 +146,7 @@ static void test_multiple_values_in_one_delta() {
 }
 
 static void test_null_value_does_not_overwrite() {
-    Data d;
+    View d;
     d.sog = 5.0;  // pre-set
     auto j = singleValueDelta("navigation.speedOverGround", "null");
     sk::applyDelta(j.data(), j.size(), d);
@@ -154,7 +154,7 @@ static void test_null_value_does_not_overwrite() {
 }
 
 static void test_parses_route_fields() {
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"navigation.courseRhumbline.crossTrackError\",\"value\":-42.5},"
                     "{\"path\":\"navigation.courseRhumbline.bearingTrackTrue\",\"value\":1.234},"
@@ -172,7 +172,7 @@ static void test_parses_route_fields() {
 }
 
 static void test_parses_autopilot_state_and_target() {
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"steering.autopilot.target.headingTrue\",\"value\":1.234},"
                     "{\"path\":\"steering.autopilot.state\",\"value\":\"auto\"}"
@@ -184,7 +184,7 @@ static void test_parses_autopilot_state_and_target() {
 }
 
 static void test_parses_rudder_angle() {
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"steering.rudderAngle\",\"value\":-0.2618}"  // -15 deg
                     "]}]}";
@@ -196,7 +196,7 @@ static void test_parses_rudder_angle() {
 static void test_parses_vmg_performance_path() {
     // The live SignalK/sim publishes performance.velocityMadeGood (not the
     // courseRhumbline alias); both must populate vmg.
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"performance.velocityMadeGood\",\"value\":-1.83}"
                     "]}]}";
@@ -206,7 +206,7 @@ static void test_parses_vmg_performance_path() {
 }
 
 static void test_parses_current() {
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"environment.current.setTrue\",\"value\":2.0},"
                     "{\"path\":\"environment.current.drift\",\"value\":0.5}"
@@ -220,7 +220,7 @@ static void test_parses_current() {
 static void test_great_circle_aliases_route() {
     // courseGreatCircle paths should populate the same fields as
     // courseRhumbline so either route style works.
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"navigation.courseGreatCircle.crossTrackError\",\"value\":12.0}"
                     "]}]}";
@@ -229,13 +229,13 @@ static void test_great_circle_aliases_route() {
 }
 
 static void test_apstate_truncates_safely() {
-    Data d;
+    View d;
     const char *j = "{\"updates\":[{\"values\":["
                     "{\"path\":\"steering.autopilot.state\","
                     "\"value\":\"a-very-long-state-name-that-overflows\"}"
                     "]}]}";
     sk::applyDelta(j, strlen(j), d);
-    // sk::Data.apState is 16 bytes; expect a 15-char truncation + NUL.
+    // boat::View.apState is 16 bytes; expect a 15-char truncation + NUL.
     TEST_ASSERT_TRUE(strlen(d.apState) <= 15);
 }
 
@@ -266,7 +266,7 @@ static void test_status_live_with_fresh_data() {
     TEST_ASSERT_EQUAL_STRING("live", sk::classifyStatus(true, 50000, 1000, 50000, 51000, 10000));
 }
 
-// Data went stale (last delta > stallMs ago) and no other activity -> stalled.
+// View went stale (last delta > stallMs ago) and no other activity -> stalled.
 static void test_status_stalled_with_stale_data() {
     TEST_ASSERT_EQUAL_STRING("stalled", sk::classifyStatus(true, 1000, 500, 1000, 12000, 10000));
 }

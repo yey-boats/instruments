@@ -38,7 +38,7 @@
 #include "midl_solve.h"  // midl::solve_screen, PlacementSet, SolveStatus, SOLVE_OK
 #include "ui_layouts.h"  // ui::layouts::create_freeform, update_freeform, ScreenVariantSpec, Rect
 #include "ui_screens.h"  // ui::Screen, register_screen, replace_screen, MAX_SCREENS
-#include "signalk.h"     // sk::copyData, sk::Data
+#include "signalk.h"     // boat::current_view, boat::View
 #include "net.h"         // net::logf
 
 #include "esp_heap_caps.h"
@@ -126,8 +126,8 @@ template <size_t N> static void midl_refresh_n() {
     if (!s_arenas) return;
     MidlScreenArena &a = s_arenas[N];
     if (!a.live || !a.root) return;
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     ui::layouts::update_freeform(a.root, a.spec, d);
 }
 

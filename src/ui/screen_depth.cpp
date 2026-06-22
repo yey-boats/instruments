@@ -26,7 +26,7 @@
 // The s_spec + collect_paths below are retained purely so the per-screen
 // subscription manager still requests those four paths (the bindings are the
 // single source of truth for what this screen needs the server to send); the
-// hand-built build()/refresh() read sk::Data directly and do not call the
+// hand-built build()/refresh() read boat::View directly and do not call the
 // HeroPlus template renderer.
 
 namespace ui::depth {
@@ -225,8 +225,8 @@ static char s_last_twa[16] = {(char)0xFF};
 
 void refresh() {
     if (!s_root) return;
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char buf[32];
 
     // Hero: depth below keel (fixed decimals, no k/M scaling per design S1).

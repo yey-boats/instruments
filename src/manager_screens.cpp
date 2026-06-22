@@ -49,8 +49,8 @@ void refresh_cb() {
     if (!cur) return;
     for (uint8_t i = 0; i < s_screen_count; ++i) {
         if (strcmp(s_screens[i].id, cur) != 0) continue;
-        sk::Data d;
-        sk::copyData(d);
+        boat::View d;
+        boat::current_view(d);
         for (uint8_t w = 0; w < s_screens[i].widget_count; ++w) {
             if (s_screens[i].widgets[w]) {
                 widget_registry::update(*s_screens[i].widgets[w], d);

@@ -5,7 +5,7 @@
 // board-gated dedicated views compile and paint. The view is chosen by argv[1]
 // ("ap_hud" | "compass" | "wind" | "big"); argv[2] is the output path.
 //
-// Boat values come from the sk::copyData stub in sim/stubs.cpp. The panel is
+// Boat values come from the boat::current_view stub in sim/stubs.cpp. The panel is
 // physically round, so we mask the corners outside the inscribed circle to
 // black in the BMP writer — the same content area (usable_*) the firmware
 // keeps its labels inside. No SDL/display server required.

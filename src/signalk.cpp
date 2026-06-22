@@ -26,7 +26,12 @@
 
 namespace sk {
 
-Data data;
+// Last-parsed SignalK values + WS link-state. This is the SignalK parse
+// accumulator and the link-state holder (it was the global sk::data). It is
+// NO LONGER a cross-module source of truth: the fused, source-resolved state
+// lives in boat::Snapshot, and renderers read boat::current_view(). Only
+// signalk.cpp touches this, so it's file-static.
+static boat::View s_parsed;
 
 // PSRAM-allocated so the ~5 KB dynamic store never sits in scarce internal
 // SRAM (see CLAUDE.md "Memory traps": large structs belong in PSRAM, never on
@@ -72,7 +77,7 @@ BenchNet benchNetTake() {
 #endif  // DBG_PERF_COUNTERS
 
 // Mutex guards mutation of `data` from the WS event task vs reads from
-// UI/web. Reads should use sk::copyData(out) which takes a short
+// UI/web. Reads should use boat::current_view(out) which takes a short
 // critical section. Direct `sk::data` reads are still tolerated -
 // they're 64-bit doubles that the ESP32 can corrupt under contention,
 // but a torn read is just one stale frame.
@@ -143,7 +148,7 @@ static const char *const FULL_PATHS[] = {
     "navigation.courseRhumbline.velocityMadeGood",
     // VMG is commonly published under performance.* (the sim/most plugins do
     // not emit the courseRhumbline alias above). Subscribe both; the parser
-    // maps either onto sk::data.vmg.
+    // maps either onto sk::s_parsed.vmg.
     "performance.velocityMadeGood",
     // Rudder angle for the steering/wind-steer rudder gauge.
     "steering.rudderAngle",
@@ -308,7 +313,7 @@ static bool apply_subscription_diff() {
 // connected. Re-asserts the desired set after a (re)connect, and otherwise
 // applies adds (after a brief settle) and reductions (after a longer settle).
 static void pump_subscriptions() {
-    if (!data.connected) return;
+    if (!s_parsed.connected) return;
     if (!s_subs_dirty) return;
     uint32_t now = millis();
     if ((uint32_t)(now - s_subs_change_ms) < SUBS_ADD_DEBOUNCE_MS) return;  // settle adds
@@ -373,7 +378,8 @@ static void onText(uint8_t *payload, size_t len) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
 #ifdef DBG_PERF_COUNTERS
     uint32_t t0 = micros();
-    int n = applyDelta((const char *)payload, len, data, &yeyboats::psram_json, &dynamicStore());
+    int n =
+        applyDelta((const char *)payload, len, s_parsed, &yeyboats::psram_json, &dynamicStore());
     uint32_t dt = micros() - t0;
     g_bench_ws_frames++;
     g_bench_ws_bytes += (uint32_t)len;
@@ -381,37 +387,38 @@ static void onText(uint8_t *payload, size_t len) {
     g_bench_parse_us_total += dt;
     if (dt > g_bench_parse_us_peak) g_bench_parse_us_peak = dt;
 #else
-    int n = applyDelta((const char *)payload, len, data, &yeyboats::psram_json, &dynamicStore());
+    int n =
+        applyDelta((const char *)payload, len, s_parsed, &yeyboats::psram_json, &dynamicStore());
 #endif
     uint32_t now = millis();
     // Always tick the WS frame timestamp: any TEXT we receive proves
     // the link is alive even if applyDelta found no value-bearing path
     // (server hello, subscription ack, envelope-only delta).
-    data.wsLastFrameMs = now;
-    if (n > 0) data.lastUpdateMs = now;
-    Data snap = data;
+    s_parsed.wsLastFrameMs = now;
+    if (n > 0) s_parsed.lastUpdateMs = now;
+    boat::View snap = s_parsed;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
-    // Bridge into the source-neutral model. boat::publish() does its own
-    // locking; we hand it a snapshot so the SK mutex isn't held across
-    // the priority-resolution path.
-    if (n > 0) boat::bridge_signalk_into_boat(snap, now);
+    // Ingest into the source-neutral fused model. boat::publish() does its
+    // own locking; we hand it a snapshot so the SK mutex isn't held across
+    // the priority-resolution path. This is the sole SignalK ingest path.
+    if (n > 0) boat::ingest_signalk(snap, now);
 }
 
 static void set_connected(bool v) {
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    data.connected = v;
+    s_parsed.connected = v;
     if (v) {
         // Stamp the connect time and clear stale per-frame/data timestamps
         // from any prior session so the warmup window starts fresh and a
         // brief reconnect doesn't inherit multi-minute-old timestamps that
         // would instantly trip the "SIGNALK STALLED" alarm.
-        data.connectedSinceMs = millis();
-        data.lastUpdateMs = 0;
-        data.wsLastFrameMs = 0;
+        s_parsed.connectedSinceMs = millis();
+        s_parsed.lastUpdateMs = 0;
+        s_parsed.wsLastFrameMs = 0;
     } else {
-        data.connectedSinceMs = 0;
-        data.lastUpdateMs = 0;
-        data.wsLastFrameMs = 0;
+        s_parsed.connectedSinceMs = 0;
+        s_parsed.lastUpdateMs = 0;
+        s_parsed.wsLastFrameMs = 0;
     }
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 }
@@ -435,17 +442,17 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
     case WStype_BIN:
         // SignalK sometimes sends binary frames for keepalive; treat
         // them as link activity but don't try to parse.
-        data.wsLastFrameMs = millis();
+        s_parsed.wsLastFrameMs = millis();
         break;
     case WStype_PING:
         // The lib auto-replies with PONG; log at DEBUG so we can
         // verify pings are arriving without flooding INFO/WARN.
         net::logf_at(net::LOG_DEBUG, "[sk] WS ping (%u B)", (unsigned)len);
-        data.wsLastFrameMs = millis();
+        s_parsed.wsLastFrameMs = millis();
         break;
     case WStype_PONG:
         net::logf_at(net::LOG_DEBUG, "[sk] WS pong");
-        data.wsLastFrameMs = millis();
+        s_parsed.wsLastFrameMs = millis();
         break;
     case WStype_ERROR:
         net::logf("[sk] WS error: %.*s", (int)len, (const char *)payload);
@@ -456,15 +463,16 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
     }
 }
 
-void copyData(Data &out) {
-    // Compose the visible snapshot from boat::Snapshot so callers see
-    // the fused (priority-resolved, freshness-aware) value chosen across
-    // SignalK / NMEA-WiFi / NMEA2000. lastUpdateMs and connected stay
-    // sourced from the WS state.
-    boat::compose_from_boat(out, millis());
+// Implementation of boat::current_view (the boat:: wrapper is defined at the
+// end of this file, outside namespace sk). Composes the visible view from
+// boat::Snapshot so callers see the fused (priority-resolved, freshness-
+// aware) value chosen across SignalK / NMEA-WiFi / NMEA2000, then overlays
+// the live WS link-state (lastUpdateMs / connected).
+void fill_current_view(boat::View &out) {
+    boat::compose(out, millis());
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    out.lastUpdateMs = data.lastUpdateMs;
-    out.connected = data.connected;
+    out.lastUpdateMs = s_parsed.lastUpdateMs;
+    out.connected = s_parsed.connected;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 }
 
@@ -697,9 +705,9 @@ static bool recovery_restart_or_skip(uint32_t age_ms) {
 static void check_stall_autorecover(uint32_t now_ms) {
     net_health::Inputs in{};
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    in.last_update_ms = data.lastUpdateMs;
-    in.ws_frame_ms = data.wsLastFrameMs;
-    in.connected = data.connected;
+    in.last_update_ms = s_parsed.lastUpdateMs;
+    in.ws_frame_ms = s_parsed.wsLastFrameMs;
+    in.connected = s_parsed.connected;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
     in.now_ms = now_ms;
     in.last_seen_update_ms = s_last_seen_update_ms;
@@ -874,10 +882,10 @@ void pollStallTelemetry() {
     bool connected;
     uint32_t last_update, ws_last_frame, connected_since;
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    connected = data.connected;
-    last_update = data.lastUpdateMs;
-    ws_last_frame = data.wsLastFrameMs;
-    connected_since = data.connectedSinceMs;
+    connected = s_parsed.connected;
+    last_update = s_parsed.lastUpdateMs;
+    ws_last_frame = s_parsed.wsLastFrameMs;
+    connected_since = s_parsed.connectedSinceMs;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
 
     uint32_t iters_now = s_loop_iters;
@@ -1056,18 +1064,19 @@ bool handleSerialCommand(const String &line) {
         net::logf("mode=%s host=%s port=%u token_len=%u connected=%d "
                   "lastUpdateAgo=%lums",
                   s_auto_mode ? "auto" : "manual", s_host.c_str(), s_port,
-                  (unsigned)s_token.length(), data.connected,
-                  (unsigned long)(data.lastUpdateMs ? (millis() - data.lastUpdateMs) : 0));
+                  (unsigned)s_token.length(), s_parsed.connected,
+                  (unsigned long)(s_parsed.lastUpdateMs ? (millis() - s_parsed.lastUpdateMs) : 0));
         return true;
     }
     if (line == "sk-dump") {
-        net::logf("lat=%.5f lon=%.5f", data.lat, data.lon);
-        net::logf("sog=%.2f m/s (%.1f kn)  cog=%.3f rad  hdg=%.3f rad", data.sog,
-                  isnan(data.sog) ? 0.0 : data.sog * 1.94384, data.cogTrue, data.headingTrue);
-        net::logf("aws=%.2f m/s awa=%.3f rad  tws=%.2f twa=%.3f", data.aws, data.awa, data.tws,
-                  data.twa);
-        net::logf("depth=%.2fm  water=%.2fK  batt=%.2fV soc=%.2f", data.depth, data.waterTemp,
-                  data.battVoltage, data.battSoc);
+        net::logf("lat=%.5f lon=%.5f", s_parsed.lat, s_parsed.lon);
+        net::logf("sog=%.2f m/s (%.1f kn)  cog=%.3f rad  hdg=%.3f rad", s_parsed.sog,
+                  isnan(s_parsed.sog) ? 0.0 : s_parsed.sog * 1.94384, s_parsed.cogTrue,
+                  s_parsed.headingTrue);
+        net::logf("aws=%.2f m/s awa=%.3f rad  tws=%.2f twa=%.3f", s_parsed.aws, s_parsed.awa,
+                  s_parsed.tws, s_parsed.twa);
+        net::logf("depth=%.2fm  water=%.2fK  batt=%.2fV soc=%.2f", s_parsed.depth,
+                  s_parsed.waterTemp, s_parsed.battVoltage, s_parsed.battSoc);
         return true;
     }
     return false;
@@ -1109,12 +1118,23 @@ String connectionStatus() {
     uint32_t connectedSince;
     uint32_t wsLastFrame;
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
-    connected = data.connected;
-    lastUpdate = data.lastUpdateMs;
-    connectedSince = data.connectedSinceMs;
-    wsLastFrame = data.wsLastFrameMs;
+    connected = s_parsed.connected;
+    lastUpdate = s_parsed.lastUpdateMs;
+    connectedSince = s_parsed.connectedSinceMs;
+    wsLastFrame = s_parsed.wsLastFrameMs;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
     return classifyStatus(connected, lastUpdate, connectedSince, wsLastFrame, millis());
 }
 
 }  // namespace sk
+
+namespace boat {
+
+// Single render-side entry (declared in signalk.h). Defined here because it
+// needs both the fused Snapshot (boat::compose) and the SignalK WS link-state
+// that lives in signalk.cpp.
+void current_view(View &out) {
+    sk::fill_current_view(out);
+}
+
+}  // namespace boat

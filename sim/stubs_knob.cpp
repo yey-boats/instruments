@@ -17,9 +17,9 @@
 #include "net.h"
 #include "signalk.h"
 
-namespace sk {
-void copyData(Data &out) {
-    out = Data{};
+namespace boat {
+void current_view(View &out) {
+    out = View{};
     out.sog = 3.19;           // ~6.2 kn
     out.stw = 2.93;           // ~5.7 kn
     out.headingTrue = 0.977;  // ~56 deg
@@ -36,7 +36,7 @@ void copyData(Data &out) {
     out.apTargetHdg = 1.117;  // ~64 deg target (8 deg right of heading)
     strncpy(out.apState, "auto", sizeof(out.apState) - 1);
 }
-}  // namespace sk
+}  // namespace boat
 
 namespace board {
 Geometry geometry() {

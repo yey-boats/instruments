@@ -2,16 +2,15 @@
 
 // Top-level SignalK module: WebSocket client, NVS-persisted target,
 // console commands. Pulls in the pure parser (signalk_parser.h) which
-// owns the Data struct.
+// fills a boat::View; the live fused state lives in boat::Snapshot.
 
 #include <Arduino.h>
+#include "boat_data.h"
 #include "path_store.h"
 #include "signalk_parser.h"
 #include "subscription_set.h"
 
 namespace sk {
-
-extern Data data;
 
 // Per-screen subscription manager (Slice 3). The UI task computes the set of
 // SignalK paths the active screen needs and records it here; the SK task picks
@@ -68,11 +67,6 @@ String connectionStatus();
 // or a negative value on transport error.
 int putValue(const char *path, const char *valueJson);
 
-// Thread-safe snapshot copy of sk::data. Use this from any task that
-// isn't the SK parser task (UI, web, BLE). Cheap; copies under a short
-// critical section.
-void copyData(Data &out);
-
 // Diagnostics: how many iterations the SK task has completed (ever-
 // growing), and the longest single ws.loop() call since the last read
 // (reading clears the peak so each /api/state sample is a fresh window).
@@ -103,3 +97,14 @@ String targetHost();
 uint16_t targetPort();
 
 }  // namespace sk
+
+namespace boat {
+
+// Single render-side entry: fill `out` with the current fused view - metric
+// fields composed from the priority-resolved Snapshot (boat::compose) PLUS
+// the live SignalK WS link-state (connected / lastUpdateMs / ...). Thread-
+// safe; replaces the old sk::copyData. Call once per UI frame from any task
+// that isn't the SK parser task (UI, web, BLE).
+void current_view(View &out);
+
+}  // namespace boat

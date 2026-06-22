@@ -81,8 +81,8 @@ static LayoutScreenState s_states[layout::MAX_SCREENS];
 // user_data parameter. The slot index is baked into each function.
 template <int N> static void refresh_slot() {
     if (!s_states[N].root || !s_states[N].slot) return;
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     ui::layouts::update(s_states[N].root, s_states[N].slot->spec, d);
 }
 

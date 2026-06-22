@@ -190,9 +190,9 @@ static char s_last_max[16] = {(char)0xFF};
 static char s_last_sog[16] = {(char)0xFF};
 
 void refresh() {
-    sk::Data d_snap;
-    sk::copyData(d_snap);
-    const sk::Data &d = d_snap;
+    boat::View d_snap;
+    boat::current_view(d_snap);
+    const boat::View &d = d_snap;
     char buf[64];
 
     uint32_t now = millis();

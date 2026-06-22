@@ -1089,21 +1089,25 @@ static uint32_t g_demo_period_ms = 3000;
 static lv_obj_t *g_demo_badge = nullptr;
 
 static double mob_dist_m() {
-    if (!g_mob.active || isnan(sk::data.lat) || isnan(sk::data.lon)) return NAN;
+    boat::View v;
+    boat::current_view(v);
+    if (!g_mob.active || isnan(v.lat) || isnan(v.lon)) return NAN;
     const double R = 6371000.0;
-    double dlat = (g_mob.lat - sk::data.lat) * M_PI / 180.0;
-    double dlon = (g_mob.lon - sk::data.lon) * M_PI / 180.0;
-    double l1 = sk::data.lat * M_PI / 180.0;
+    double dlat = (g_mob.lat - v.lat) * M_PI / 180.0;
+    double dlon = (g_mob.lon - v.lon) * M_PI / 180.0;
+    double l1 = v.lat * M_PI / 180.0;
     double l2 = g_mob.lat * M_PI / 180.0;
     double a = sin(dlat / 2) * sin(dlat / 2) + cos(l1) * cos(l2) * sin(dlon / 2) * sin(dlon / 2);
     return R * 2 * atan2(sqrt(a), sqrt(1 - a));
 }
 
 static double mob_brg_deg() {
-    if (!g_mob.active || isnan(sk::data.lat) || isnan(sk::data.lon)) return NAN;
-    double phi1 = sk::data.lat * M_PI / 180.0;
+    boat::View v;
+    boat::current_view(v);
+    if (!g_mob.active || isnan(v.lat) || isnan(v.lon)) return NAN;
+    double phi1 = v.lat * M_PI / 180.0;
     double phi2 = g_mob.lat * M_PI / 180.0;
-    double dlon = (g_mob.lon - sk::data.lon) * M_PI / 180.0;
+    double dlon = (g_mob.lon - v.lon) * M_PI / 180.0;
     double y = sin(dlon) * cos(phi2);
     double x = cos(phi1) * sin(phi2) - sin(phi1) * cos(phi2) * cos(dlon);
     double b = atan2(y, x) * 180.0 / M_PI;
@@ -1113,13 +1117,15 @@ static double mob_brg_deg() {
 }
 
 static void mob_trigger() {
-    if (isnan(sk::data.lat) || isnan(sk::data.lon)) {
+    boat::View v;
+    boat::current_view(v);
+    if (isnan(v.lat) || isnan(v.lon)) {
         net::logf("[mob] no GPS fix - cannot mark");
         return;
     }
     g_mob.active = true;
-    g_mob.lat = sk::data.lat;
-    g_mob.lon = sk::data.lon;
+    g_mob.lat = v.lat;
+    g_mob.lon = v.lon;
     g_mob.trigger_ms = millis();
     net::logf("[mob] MARK at %+.5f %+.5f", g_mob.lat, g_mob.lon);
     if (mob_view) lv_obj_clear_flag(mob_view, LV_OBJ_FLAG_HIDDEN);
@@ -1298,16 +1304,21 @@ static void alarm_check() {
     // While a manager overlay is pinned, leave the banner alone so the
     // operator message isn't overwritten by data-driven alarms.
     if (g_overlay_pinned) return;
+    // Read the fused view so depth/battery alarms honour whichever source
+    // (SignalK / NMEA-WiFi / NMEA2000) currently owns the field, not just
+    // SignalK. (Previously these read the SignalK-only global sk::data.)
+    boat::View v;
+    boat::current_view(v);
     ActiveAlarm a[6];
     int n = 0;
-    if (!isnan(sk::data.depth) && sk::data.depth > 0 && sk::data.depth < ui::depth_alarm_m())
+    if (!isnan(v.depth) && v.depth > 0 && v.depth < ui::depth_alarm_m())
         a[n++] = {ALARM_DEPTH_SHALLOW, "SHALLOW WATER"};
     String sk_state = sk::connectionStatus();
     if (sk_state == "stalled")
         a[n++] = {ALARM_SK_STALLED, "SIGNALK STALLED"};
     else if (sk_state == "no-data")
         a[n++] = {ALARM_SK_NODATA, "SIGNALK NO DATA"};
-    if (!isnan(sk::data.battVoltage) && sk::data.battVoltage < ui::battery_alarm_v())
+    if (!isnan(v.battVoltage) && v.battVoltage < ui::battery_alarm_v())
         a[n++] = {ALARM_BATT_LOW, "BATTERY LOW"};
     alarm_set_list(a, n);
 }
@@ -2202,8 +2213,8 @@ static void ui_refresh(lv_timer_t *) {
     // active screen read it. Only sample when SK has produced at least
     // one delta and isn't currently in steady-disconnected state.
     {
-        sk::Data d_snap;
-        sk::copyData(d_snap);
+        boat::View d_snap;
+        boat::current_view(d_snap);
         if (d_snap.lastUpdateMs) {
             uint32_t age_ms = millis() - d_snap.lastUpdateMs;
             // 1 hour cap so a never-updated reading doesn't pin max.

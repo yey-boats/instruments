@@ -47,6 +47,11 @@ struct Snapshot {
     Field twa_rad;
     Field tws_mps;
 
+    // performance / polar targets (e.g. signalk-polar-performance). NaN when
+    // no polar source is present; consumers fall back to empirical estimates.
+    Field beat_angle_rad;  // optimal upwind TWA off bow (performance.beatAngle)
+    Field gybe_angle_rad;  // optimal downwind TWA off bow (performance.gybeAngle)
+
     // depth/sea
     Field depth_m;
     Field depth_keel_m;
@@ -141,5 +146,60 @@ bool should_accept(SourceKind incoming, SourceKind current, uint32_t current_upd
 
 // Const-ref helpers for the human-readable source name (for logs/CLI).
 const char *source_name(SourceKind s);
+
+// Flat, source-neutral render view. This is the per-frame snapshot the UI
+// reads (label(v.awa) etc.) - cheap flat doubles resolved once from the
+// fused Snapshot rather than every screen re-running freshness checks. It
+// replaced sk::Data: the SignalK parser fills one transiently (ingest), and
+// boat::current_view() composes one from the fused Snapshot (render). Field
+// names match the historical sk::Data so consumers read v.awa, v.headingTrue.
+struct View {
+    // navigation
+    double lat = NAN, lon = NAN;
+    double sog = NAN;          // speed over ground, m/s
+    double stw = NAN;          // speed through water, m/s
+    double cogTrue = NAN;      // course over ground (true), rad
+    double headingTrue = NAN;  // true heading, rad
+
+    // environment / wind
+    double awa = NAN;        // apparent wind angle, rad
+    double aws = NAN;        // apparent wind speed, m/s
+    double twa = NAN;        // true wind angle, rad
+    double tws = NAN;        // true wind speed, m/s
+    double depth = NAN;      // m below transducer
+    double depthKeel = NAN;  // m below keel
+    double waterTemp = NAN;  // K
+
+    // performance / polar targets (NaN when no polar source)
+    double beatAngle = NAN;  // optimal upwind TWA off bow, rad
+    double gybeAngle = NAN;  // optimal downwind TWA off bow, rad
+
+    // electrical & tanks
+    double battVoltage = NAN;  // V
+    double battSoc = NAN;      // 0..1
+    double tankFuel = NAN;     // 0..1
+    double tankWater = NAN;    // 0..1
+
+    // routing / steering
+    double xte = NAN;          // cross-track error, m (+ = right of track)
+    double cts = NAN;          // course to steer, rad
+    double btw = NAN;          // bearing to waypoint, rad
+    double dtw = NAN;          // distance to waypoint, m
+    double vmg = NAN;          // velocity made good, m/s
+    double apTargetHdg = NAN;  // autopilot target heading, rad
+    double rudder = NAN;       // rudder angle, rad (+ = starboard helm)
+    char apState[16] = {0};    // autopilot state string
+
+    // current / tide
+    double currentSetTrue = NAN;  // true direction current flows toward, rad
+    double currentDrift = NAN;    // current speed, m/s
+
+    // SignalK WS link-state (NOT boat metrics - filled by the WS layer, used
+    // by the stall classifier; carried here so the UI has one struct to read).
+    uint32_t lastUpdateMs = 0;
+    uint32_t connectedSinceMs = 0;
+    uint32_t wsLastFrameMs = 0;
+    bool connected = false;
+};
 
 }  // namespace boat

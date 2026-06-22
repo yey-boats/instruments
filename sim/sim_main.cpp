@@ -10,7 +10,7 @@
 #include <cstdlib>
 
 #include "board_pins.h"  // sim LCD_W/LCD_H from build defines
-#include "signalk.h"     // sk::Data, sk::copyData (stub)
+#include "signalk.h"     // boat::View, boat::current_view (stub)
 #include "ui_layouts.h"
 
 using namespace ui::layouts;
@@ -121,8 +121,8 @@ int main(int argc, char **argv) {
     }
     lv_screen_load(root);
 
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     for (int i = 0; i < 8; ++i) {
         update(root, spec, d);
         lv_tick_inc(20);

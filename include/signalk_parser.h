@@ -11,69 +11,14 @@
 #include <math.h>
 #endif
 
+#include "boat_data.h"
 #include "path_store.h"
 
 namespace sk {
 
-struct Data {
-    // navigation
-    double lat = NAN, lon = NAN;
-    double sog = NAN;          // speed over ground, m/s
-    double stw = NAN;          // speed through water, m/s
-    double cogTrue = NAN;      // course over ground (true), rad
-    double headingTrue = NAN;  // true heading, rad
-
-    // environment
-    double awa = NAN;        // apparent wind angle, rad
-    double aws = NAN;        // apparent wind speed, m/s
-    double twa = NAN;        // true wind angle, rad
-    double tws = NAN;        // true wind speed, m/s
-    double depth = NAN;      // m below transducer
-    double depthKeel = NAN;  // m below keel
-    double waterTemp = NAN;  // K
-
-    // performance / polar targets (published by a SignalK polar plugin such as
-    // signalk-polar-performance). NaN when no polar source is present, in which
-    // case consumers fall back to empirical estimates.
-    double beatAngle = NAN;  // optimal upwind TWA off bow, rad (performance.beatAngle)
-    double gybeAngle = NAN;  // optimal downwind TWA off bow, rad (performance.gybeAngle)
-
-    // electrical & tanks
-    double battVoltage = NAN;  // V
-    double battSoc = NAN;      // 0..1
-    double tankFuel = NAN;     // 0..1
-    double tankWater = NAN;    // 0..1
-
-    // routing / steering (when a route is active on the SignalK server)
-    double xte = NAN;          // cross-track error, m (signed: + = right of track)
-    double cts = NAN;          // course to steer, rad
-    double btw = NAN;          // bearing to waypoint, rad
-    double dtw = NAN;          // distance to waypoint, m
-    double vmg = NAN;          // velocity made good, m/s
-    double apTargetHdg = NAN;  // autopilot target heading, rad
-    double rudder = NAN;       // rudder angle, rad (+ = starboard helm, steering.rudderAngle)
-    char apState[16] = {0};    // autopilot state string ("auto", "wind", "standby", ...)
-
-    // current / tide
-    double currentSetTrue = NAN;  // true direction the current is flowing toward, rad
-    double currentDrift = NAN;    // current speed, m/s
-
-    uint32_t lastUpdateMs = 0;
-    // Wall-clock millis when the WS transitioned to connected. Reset to 0
-    // on disconnect. Used as the staleness reference until the first
-    // delta arrives so a freshly-connected (or freshly-reconnected) link
-    // doesn't immediately raise the "SIGNALK STALLED" alarm.
-    uint32_t connectedSinceMs = 0;
-    // Wall-clock millis on the last received WS TEXT frame, regardless of
-    // whether applyDelta matched any value-bearing path. This is the WS
-    // *link* freshness signal as opposed to *data* freshness: SK servers
-    // legitimately send hello, subscription acks, and envelope-only
-    // deltas (no `values`), which keep the pipe alive but wouldn't tick
-    // lastUpdateMs. Counting them here prevents the alarm from firing
-    // during normal idle gaps when the link is healthy.
-    uint32_t wsLastFrameMs = 0;
-    bool connected = false;
-};
+// The parser fills a boat::View (the source-neutral flat render struct,
+// defined in boat_data.h). It only touches the metric fields; the WS
+// link-state fields on View are owned by signalk.cpp.
 
 // Parse one SignalK delta message. Returns the number of `path/value`
 // pairs that matched a known field and were applied to `out`.
@@ -84,11 +29,11 @@ struct Data {
 // internal-heap allocator, which host tests rely on.
 // `dyn` (optional): mirror every numeric delta value into this dynamic store
 // so authored fields can render arbitrary paths by string. nullptr to skip.
-int applyDelta(const char *json, size_t len, Data &out, ArduinoJson::Allocator *alloc = nullptr,
-               PathStore *dyn = nullptr);
+int applyDelta(const char *json, size_t len, boat::View &out,
+               ArduinoJson::Allocator *alloc = nullptr, PathStore *dyn = nullptr);
 
 // Apply a single path/value pair. Public for unit testing.
-void applyValue(const char *path, JsonVariant val, Data &out);
+void applyValue(const char *path, JsonVariant val, boat::View &out);
 
 #ifdef DBG_PERF_COUNTERS
 // Benchmark: total path/value pairs seen by applyDelta since the last call

@@ -35,8 +35,8 @@ knob::Model s_model;
 knob::Inputs snapshot_inputs() {
     knob::Inputs in;
     static char state_buf[16];
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     strncpy(state_buf, d.apState[0] ? d.apState : "", sizeof(state_buf) - 1);
     state_buf[sizeof(state_buf) - 1] = 0;
     in.ap_state = state_buf;
@@ -186,8 +186,8 @@ static char s_last_delta[16] = {(char)0xFF};
 static uint32_t s_last_state_color = 0xFFFFFFFF;
 
 void refresh() {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char buf[32];
 
     int active = -1;
@@ -272,8 +272,8 @@ static char s_last_hdg[16] = {(char)0xFF};
 static char s_last_cog[16] = {(char)0xFF};
 
 void refresh() {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char buf[32];
 
     if (!isnan(d.headingTrue)) {
@@ -327,8 +327,8 @@ static char s_last_aws[16] = {(char)0xFF};
 static char s_last_awa[16] = {(char)0xFF};
 
 void refresh() {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char buf[32];
 
     if (!isnan(d.aws)) {
@@ -382,8 +382,8 @@ lv_obj_t *build(lv_obj_t *parent) {
 static char s_last_value[16] = {(char)0xFF};
 
 void refresh() {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char buf[16];
     if (!isnan(d.depth)) {
         snprintf(buf, sizeof(buf), "%.1f", d.depth);

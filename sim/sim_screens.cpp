@@ -2,7 +2,7 @@
 // steering, route, trip) and the full-screen "zoom" view headlessly via LVGL,
 // writing a 24-bit BMP. Lets every screen be eyeballed at every display class
 // without a panel. Screen id is argv[1], output path argv[2]. Values come from
-// the sk::copyData stub in sim/stubs.cpp.
+// the boat::current_view stub in sim/stubs.cpp.
 
 #include <lvgl.h>
 

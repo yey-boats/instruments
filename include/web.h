@@ -7,7 +7,7 @@
 //   GET  /api/state              { device, wifi, sk, screen, fps, mem }
 //   GET  /api/screens            [ {id, title, hidden, active}, ... ]
 //   POST /api/screen/<id>        switch screens (or 'next'/'prev')
-//   GET  /api/sk                 current sk::Data snapshot
+//   GET  /api/sk                 current boat::View snapshot
 //   GET  /api/layout             current layout JSON (verbatim)
 //   PUT  /api/layout             replace layout (text/plain or JSON body)
 //   POST /api/cmd                text/plain body -> net::dispatchCommand

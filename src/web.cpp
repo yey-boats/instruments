@@ -444,9 +444,9 @@ static void put_double(JsonObject o, const char *k, double v) {
 
 static void handle_sk_data() {
     if (!require_api_auth()) return;
-    sk::Data d_snap;
-    sk::copyData(d_snap);
-    const sk::Data &d = d_snap;
+    boat::View d_snap;
+    boat::current_view(d_snap);
+    const boat::View &d = d_snap;
     JsonDocument doc(&yeyboats::psram_json);
     JsonObject nav = doc["nav"].to<JsonObject>();
     put_double(nav, "lat", d.lat);

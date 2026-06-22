@@ -86,8 +86,8 @@ lv_obj_t *build(lv_obj_t *parent) {
 
 void refresh() {
     if (!s_root) return;
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     ui::layouts::update(s_root, s_spec, d);
 }
 

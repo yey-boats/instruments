@@ -46,8 +46,8 @@ static void put_state(const char *state) {
 }
 
 static void on_onstby_short(lv_event_t *) {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
     put_state(engaged ? "standby" : "wind");  // engage in WIND mode
 }
@@ -75,8 +75,8 @@ static void on_nudge(lv_event_t *e) {
 // TACK: mirror the boat across the wind onto the opposite tack. Reflecting the
 // true wind angle through 0 means turning by -2*TWA (TWA in [-180,180]).
 static void on_tack(lv_event_t *) {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     if (isnan(d.twa)) return;
     double twa_deg = d.twa * 180.0 / M_PI;
     while (twa_deg > 180.0)
@@ -89,8 +89,8 @@ static void on_tack(lv_event_t *) {
 // GYBE: mirror the boat across the stern (downwind), reflecting |TWA| through
 // 180. Turn the short way through dead-downwind onto the opposite tack.
 static void on_gybe(lv_event_t *) {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     if (isnan(d.twa)) return;
     double twa_deg = d.twa * 180.0 / M_PI;
     while (twa_deg > 180.0)
@@ -352,8 +352,8 @@ static void set_sector(lv_obj_t *a, double t0, double t1) {
 }
 
 void refresh() {
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     char buf[64];
 
     bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;

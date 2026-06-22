@@ -1,7 +1,7 @@
 #pragma once
 
 // Spec 19 §"Data Path Resolution" - maps a widget's `path` string to
-// a numeric or string value from sk::Data. Resolution order:
+// a numeric or string value from boat::View. Resolution order:
 //
 //   1. local normalized alias (boat.sog, boat.headingTrue, ...)
 //   2. known SignalK parser field (navigation.speedOverGround, ...)
@@ -28,7 +28,7 @@ namespace widget_data {
 //   boat.batteryVoltage       V
 //   boat.batterySoc           0..1
 //   boat.autopilotTarget      rad
-double resolve_numeric(const char *path, const sk::Data &d);
+double resolve_numeric(const char *path, const boat::View &d);
 
 // String value for paths that yield enumerated states. Currently
 // only `boat.autopilotState` / `steering.autopilot.state` produce
@@ -36,7 +36,7 @@ double resolve_numeric(const char *path, const sk::Data &d);
 // resolve_numeric).
 // `out` is null-terminated even when "missing"; returns true iff a
 // non-empty value was written.
-bool resolve_string(const char *path, const sk::Data &d, char *out, size_t cap);
+bool resolve_string(const char *path, const boat::View &d, char *out, size_t cap);
 
 // True iff the path is one of the recognised forms (either local
 // alias or known SK field). Useful for early-validation in the
@@ -46,7 +46,7 @@ bool is_known(const char *path);
 // Same as resolve_numeric(path, d) but, when the path is NOT a known typed
 // field, falls back to the dynamic store (raw SignalK value). This is the
 // "step 3" the original resolution order documented but did not implement.
-double resolve_numeric(const char *path, const sk::Data &d, const sk::PathStore *store);
+double resolve_numeric(const char *path, const boat::View &d, const sk::PathStore *store);
 
 // Upsert a numeric SignalK delta value into `store`. Used by the WS frame
 // handler so every incoming numeric path is renderable by string. Returns

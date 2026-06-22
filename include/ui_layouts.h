@@ -39,7 +39,7 @@ lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec);
 // Update displayed values from a snapshot. Idempotent and uses the
 // dirty-value caches in include/ui_dirty.h so the partial-render path
 // stays cold when nothing changed.
-void update(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data);
+void update(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data);
 
 // Drive the full-screen "zoom" view to a chosen metric (normally set by a tile
 // tap; also used by the sim harness and remote controllers).
@@ -64,6 +64,6 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out);
 // pixel rect for metric i (x, y, w, h). Called directly by midl_render — NOT
 // routed through create() — so no TemplateId enum churn is needed.
 lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const Rect *rects);
-void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Data &data);
+void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data);
 
 }  // namespace ui::layouts

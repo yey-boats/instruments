@@ -67,8 +67,8 @@ static void put_state(const char *state) {
 static void adjust_heading(int delta_deg) {
     double target = s_target_local;
     if (isnan(target)) {
-        sk::Data d_snap;
-        sk::copyData(d_snap);
+        boat::View d_snap;
+        boat::current_view(d_snap);
         target = d_snap.apTargetHdg;
         if (isnan(target)) target = d_snap.headingTrue;
     }
@@ -110,8 +110,8 @@ static void on_mode_pick(lv_event_t *e) {
 
 static void on_onstby_short(lv_event_t *e) {
     (void)e;
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
     put_state(engaged ? "standby" : s_last_engage);
 }
@@ -351,9 +351,9 @@ static char s_last_xte_txt[16] = {(char)0xFF};
 using ui::deg_to_lvgl;  // shared (include/ui_dirty.h)
 
 void refresh() {
-    sk::Data d_snap;
-    sk::copyData(d_snap);
-    const sk::Data &d = d_snap;
+    boat::View d_snap;
+    boat::current_view(d_snap);
+    const boat::View &d = d_snap;
     char buf[64];
 
     bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;

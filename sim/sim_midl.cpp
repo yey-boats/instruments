@@ -23,7 +23,7 @@
 #include "midl_demo_doc.h"
 #include "midl_render.h"
 #include "midl_solve.h"
-#include "signalk.h"  // sk::Data, sk::copyData (stub)
+#include "signalk.h"  // boat::View, boat::current_view (stub)
 #include "ui_layouts.h"
 
 using namespace ui::layouts;
@@ -183,8 +183,8 @@ int main(int argc, char **argv) {
     lv_screen_load(root);
 
     // --- Drive a few refresh cycles with a demo snapshot so tiles aren't blank ---
-    sk::Data d;
-    sk::copyData(d);
+    boat::View d;
+    boat::current_view(d);
     for (int i = 0; i < 8; ++i) {
         update_freeform(root, spec, d);
         lv_tick_inc(20);

@@ -14,7 +14,7 @@ inline int pub(Field Snapshot::*field, uint32_t now_ms, double v) {
 
 }  // namespace
 
-void compose_from_boat(sk::Data &out, uint32_t now_ms) {
+void compose(View &out, uint32_t now_ms) {
     Snapshot s;
     copy_snapshot(s);
     Timeouts t = get_timeouts();
@@ -31,6 +31,8 @@ void compose_from_boat(sk::Data &out, uint32_t now_ms) {
     out.aws = v(s.aws_mps);
     out.twa = v(s.twa_rad);
     out.tws = v(s.tws_mps);
+    out.beatAngle = v(s.beat_angle_rad);
+    out.gybeAngle = v(s.gybe_angle_rad);
     out.depth = v(s.depth_m);
     out.depthKeel = v(s.depth_keel_m);
     out.waterTemp = v(s.water_temp_k);
@@ -61,36 +63,38 @@ void compose_from_boat(sk::Data &out, uint32_t now_ms) {
     }
 }
 
-int bridge_signalk_into_boat(const sk::Data &sk, uint32_t now_ms) {
+int ingest_signalk(const View &v, uint32_t now_ms) {
     int n = 0;
-    n += pub(&Snapshot::lat_deg, now_ms, sk.lat);
-    n += pub(&Snapshot::lon_deg, now_ms, sk.lon);
-    n += pub(&Snapshot::sog_mps, now_ms, sk.sog);
-    n += pub(&Snapshot::stw_mps, now_ms, sk.stw);
-    n += pub(&Snapshot::cog_true_rad, now_ms, sk.cogTrue);
-    n += pub(&Snapshot::heading_true_rad, now_ms, sk.headingTrue);
-    n += pub(&Snapshot::awa_rad, now_ms, sk.awa);
-    n += pub(&Snapshot::aws_mps, now_ms, sk.aws);
-    n += pub(&Snapshot::twa_rad, now_ms, sk.twa);
-    n += pub(&Snapshot::tws_mps, now_ms, sk.tws);
-    n += pub(&Snapshot::depth_m, now_ms, sk.depth);
-    n += pub(&Snapshot::depth_keel_m, now_ms, sk.depthKeel);
-    n += pub(&Snapshot::water_temp_k, now_ms, sk.waterTemp);
-    n += pub(&Snapshot::battery_v, now_ms, sk.battVoltage);
-    n += pub(&Snapshot::battery_soc, now_ms, sk.battSoc);
-    n += pub(&Snapshot::tank_fuel, now_ms, sk.tankFuel);
-    n += pub(&Snapshot::tank_water, now_ms, sk.tankWater);
-    n += pub(&Snapshot::xte_m, now_ms, sk.xte);
-    n += pub(&Snapshot::cts_rad, now_ms, sk.cts);
-    n += pub(&Snapshot::btw_rad, now_ms, sk.btw);
-    n += pub(&Snapshot::dtw_m, now_ms, sk.dtw);
-    n += pub(&Snapshot::vmg_mps, now_ms, sk.vmg);
-    n += pub(&Snapshot::rudder_angle_rad, now_ms, sk.rudder);
-    n += pub(&Snapshot::autopilot_target_rad, now_ms, sk.apTargetHdg);
-    n += pub(&Snapshot::current_set_rad, now_ms, sk.currentSetTrue);
-    n += pub(&Snapshot::current_drift_mps, now_ms, sk.currentDrift);
-    if (sk.apState[0] != 0) {
-        if (publish_autopilot_state(SourceKind::SignalK, now_ms, sk.apState)) {
+    n += pub(&Snapshot::lat_deg, now_ms, v.lat);
+    n += pub(&Snapshot::lon_deg, now_ms, v.lon);
+    n += pub(&Snapshot::sog_mps, now_ms, v.sog);
+    n += pub(&Snapshot::stw_mps, now_ms, v.stw);
+    n += pub(&Snapshot::cog_true_rad, now_ms, v.cogTrue);
+    n += pub(&Snapshot::heading_true_rad, now_ms, v.headingTrue);
+    n += pub(&Snapshot::awa_rad, now_ms, v.awa);
+    n += pub(&Snapshot::aws_mps, now_ms, v.aws);
+    n += pub(&Snapshot::twa_rad, now_ms, v.twa);
+    n += pub(&Snapshot::tws_mps, now_ms, v.tws);
+    n += pub(&Snapshot::beat_angle_rad, now_ms, v.beatAngle);
+    n += pub(&Snapshot::gybe_angle_rad, now_ms, v.gybeAngle);
+    n += pub(&Snapshot::depth_m, now_ms, v.depth);
+    n += pub(&Snapshot::depth_keel_m, now_ms, v.depthKeel);
+    n += pub(&Snapshot::water_temp_k, now_ms, v.waterTemp);
+    n += pub(&Snapshot::battery_v, now_ms, v.battVoltage);
+    n += pub(&Snapshot::battery_soc, now_ms, v.battSoc);
+    n += pub(&Snapshot::tank_fuel, now_ms, v.tankFuel);
+    n += pub(&Snapshot::tank_water, now_ms, v.tankWater);
+    n += pub(&Snapshot::xte_m, now_ms, v.xte);
+    n += pub(&Snapshot::cts_rad, now_ms, v.cts);
+    n += pub(&Snapshot::btw_rad, now_ms, v.btw);
+    n += pub(&Snapshot::dtw_m, now_ms, v.dtw);
+    n += pub(&Snapshot::vmg_mps, now_ms, v.vmg);
+    n += pub(&Snapshot::rudder_angle_rad, now_ms, v.rudder);
+    n += pub(&Snapshot::autopilot_target_rad, now_ms, v.apTargetHdg);
+    n += pub(&Snapshot::current_set_rad, now_ms, v.currentSetTrue);
+    n += pub(&Snapshot::current_drift_mps, now_ms, v.currentDrift);
+    if (v.apState[0] != 0) {
+        if (publish_autopilot_state(SourceKind::SignalK, now_ms, v.apState)) {
             n++;
         }
     }

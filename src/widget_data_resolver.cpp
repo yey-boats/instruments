@@ -8,69 +8,69 @@ namespace widget_data {
 namespace {
 
 // Table-driven mapping. Each entry: alias OR SK path -> offset into
-// sk::Data (relative to a Data * base). offsetof() doesn't work
+// boat::View (relative to a Data * base). offsetof() doesn't work
 // cleanly with C-style strings, so we use a small dispatch table.
 
 struct NumEntry {
     const char *path;
-    double (*read)(const sk::Data &);
+    double (*read)(const boat::View &);
 };
 
-double r_sog(const sk::Data &d) {
+double r_sog(const boat::View &d) {
     return d.sog;
 }
-double r_stw(const sk::Data &d) {
+double r_stw(const boat::View &d) {
     return d.stw;
 }
-double r_cog(const sk::Data &d) {
+double r_cog(const boat::View &d) {
     return d.cogTrue;
 }
-double r_hdg(const sk::Data &d) {
+double r_hdg(const boat::View &d) {
     return d.headingTrue;
 }
-double r_aws(const sk::Data &d) {
+double r_aws(const boat::View &d) {
     return d.aws;
 }
-double r_awa(const sk::Data &d) {
+double r_awa(const boat::View &d) {
     return d.awa;
 }
-double r_tws(const sk::Data &d) {
+double r_tws(const boat::View &d) {
     return d.tws;
 }
-double r_twa(const sk::Data &d) {
+double r_twa(const boat::View &d) {
     return d.twa;
 }
-double r_depth(const sk::Data &d) {
+double r_depth(const boat::View &d) {
     return d.depth;
 }
-double r_waterTemp(const sk::Data &d) {
+double r_waterTemp(const boat::View &d) {
     return d.waterTemp;
 }
-double r_battV(const sk::Data &d) {
+double r_battV(const boat::View &d) {
     return d.battVoltage;
 }
-double r_battSoc(const sk::Data &d) {
+double r_battSoc(const boat::View &d) {
     return d.battSoc;
 }
-double r_xte(const sk::Data &d) {
+double r_xte(const boat::View &d) {
     return d.xte;
 }
-double r_btw(const sk::Data &d) {
+double r_btw(const boat::View &d) {
     return d.btw;
 }
-double r_dtw(const sk::Data &d) {
+double r_dtw(const boat::View &d) {
     return d.dtw;
 }
-double r_vmg(const sk::Data &d) {
+double r_vmg(const boat::View &d) {
     return d.vmg;
 }
-double r_apTarget(const sk::Data &d) {
+double r_apTarget(const boat::View &d) {
     return d.apTargetHdg;
 }
-double r_lat(const sk::Data &d) {
+double r_lat(const boat::View &d) {
     return d.lat;
 }
-double r_lon(const sk::Data &d) {
+double r_lon(const boat::View &d) {
     return d.lon;
 }
 
@@ -119,7 +119,7 @@ constexpr size_t NUM_TABLE_COUNT = sizeof(NUM_TABLE) / sizeof(NUM_TABLE[0]);
 
 }  // namespace
 
-double resolve_numeric(const char *path, const sk::Data &d) {
+double resolve_numeric(const char *path, const boat::View &d) {
     if (!path || !*path) return NAN;
     for (size_t i = 0; i < NUM_TABLE_COUNT; ++i) {
         if (strcmp(NUM_TABLE[i].path, path) == 0) {
@@ -129,7 +129,7 @@ double resolve_numeric(const char *path, const sk::Data &d) {
     return NAN;
 }
 
-double resolve_numeric(const char *path, const sk::Data &d, const sk::PathStore *store) {
+double resolve_numeric(const char *path, const boat::View &d, const sk::PathStore *store) {
     double v = resolve_numeric(path, d);                     // typed alias/known-field
     if (!isnan(v)) return v;                                 // typed field wins
     if (store && store->has(path)) return store->get(path);  // step 3: dynamic store
@@ -140,7 +140,7 @@ bool captureDynamic(const char *path, double value, sk::PathStore &store) {
     return store.set(path, value);
 }
 
-bool resolve_string(const char *path, const sk::Data &d, char *out, size_t cap) {
+bool resolve_string(const char *path, const boat::View &d, char *out, size_t cap) {
     if (!out || cap == 0) return false;
     out[0] = 0;
     if (!path) return false;

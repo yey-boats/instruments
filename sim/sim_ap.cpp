@@ -1,7 +1,7 @@
 // Host harness that renders the REAL autopilot HUD (src/ui/screen_autopilot.cpp)
 // headlessly via LVGL and writes a 24-bit BMP, so the semicircular compass,
 // target bug, XTE strip, and numeric tiles can be eyeballed without a panel.
-// AP / heading / wind values come from the sk::copyData stub in sim/stubs.cpp.
+// AP / heading / wind values come from the boat::current_view stub in sim/stubs.cpp.
 // No SDL/display server required.
 
 #include <lvgl.h>
@@ -12,7 +12,7 @@
 
 #include "board_pins.h"  // sim LCD_W/LCD_H from build defines
 #include "screens.h"     // ui::autopilot::build / refresh
-#include "signalk.h"     // sk::Data, sk::copyData (stub)
+#include "signalk.h"     // boat::View, boat::current_view (stub)
 
 static void flush_cb(lv_display_t *d, const lv_area_t *, uint8_t *) {
     lv_display_flush_ready(d);
