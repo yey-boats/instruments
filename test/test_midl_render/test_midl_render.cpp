@@ -23,6 +23,7 @@ static MetricBinding mapOne(const char *json, const char *id) {
 void test_token_to_kind() {
     TEST_ASSERT_EQUAL(WidgetKind::Numeric, midl::render::token_to_kind("single-value"));
     TEST_ASSERT_EQUAL(WidgetKind::WindRose, midl::render::token_to_kind("windrose"));
+    TEST_ASSERT_EQUAL(WidgetKind::WindSteer, midl::render::token_to_kind("windsteer"));
     TEST_ASSERT_EQUAL(WidgetKind::Compass, midl::render::token_to_kind("compass"));
     TEST_ASSERT_EQUAL(WidgetKind::Gauge, midl::render::token_to_kind("gauge"));
     TEST_ASSERT_EQUAL(WidgetKind::Numeric, midl::render::token_to_kind("frobnicate"));

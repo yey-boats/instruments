@@ -47,7 +47,7 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
       "wind":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}}},
       "layout":{"element":"wind"}},
     {"id":"wind_steer","title":"Wind Steer","elements":{
-      "wind":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+      "wind":{"type":"windsteer","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
       "n10":{"type":"button","name":"-10","action":{"kind":"command","target":"autopilot heading -10"}},
       "n1":{"type":"button","name":"-1","action":{"kind":"command","target":"autopilot heading -1"}},
       "p1":{"type":"button","name":"+1","action":{"kind":"command","target":"autopilot heading 1"}},

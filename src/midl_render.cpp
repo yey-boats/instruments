@@ -22,6 +22,7 @@ WidgetKind token_to_kind(const char *t) {
     if (!t) return WidgetKind::Numeric;
     if (!strcmp(t, "compass")) return WidgetKind::Compass;
     if (!strcmp(t, "windrose")) return WidgetKind::WindRose;
+    if (!strcmp(t, "windsteer")) return WidgetKind::WindSteer;
     if (!strcmp(t, "gauge")) return WidgetKind::Gauge;
     if (!strcmp(t, "bar")) return WidgetKind::Bar;
     if (!strcmp(t, "autopilot")) return WidgetKind::Autopilot;

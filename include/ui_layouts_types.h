@@ -76,6 +76,9 @@ enum class WidgetKind : uint8_t {
     Text,         // monospace value text (position, AP state strings)
     Button,       // rounded accent bubble label
     Trend,        // sparkline chart
+    // APPEND-ONLY (0-based enum values are load-bearing for persisted configs and
+    // the gnu++11 aggregate value-init of MetricBinding.kind). New kinds go last.
+    WindSteer,  // semicircular heading-up steering dial with no-go + target laylines
 };
 
 struct MetricBinding {

@@ -24,6 +24,7 @@ WidgetKind widget_to_kind(const char *widget) {
     if (strcmp(widget, "gauge") == 0) return WidgetKind::Gauge;
     if (strcmp(widget, "bar") == 0) return WidgetKind::Bar;
     if (strcmp(widget, "windRose") == 0) return WidgetKind::WindRose;
+    if (strcmp(widget, "windSteer") == 0) return WidgetKind::WindSteer;
     if (strcmp(widget, "autopilot") == 0) return WidgetKind::Autopilot;
     if (strcmp(widget, "text") == 0) return WidgetKind::Text;
     if (strcmp(widget, "button") == 0) return WidgetKind::Button;
