@@ -531,6 +531,25 @@ static void fit_value_font(lv_obj_t *label, const char *txt, int max_w) {
     lv_obj_set_style_text_font(label, ladder[3], 0);
 }
 
+// Text-tile variant of fit_value_font with a smaller Montserrat ladder. Picks
+// the largest font whose measured width (lv_text_get_size over the full,
+// possibly multi-line string) fits max_w. Fixes POS clipping on the narrow
+// (160 px) freeform/quad text tiles where the lat/lon line was wider than the
+// 28 px font. Called only on text change.
+static void fit_text_font(lv_obj_t *label, const char *txt, int max_w) {
+    static const lv_font_t *const ladder[] = {&lv_font_montserrat_28, &lv_font_montserrat_20,
+                                              &lv_font_montserrat_14};
+    for (int i = 0; i < 3; ++i) {
+        lv_point_t sz;
+        lv_text_get_size(&sz, txt, ladder[i], 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w) {
+            lv_obj_set_style_text_font(label, ladder[i], 0);
+            return;
+        }
+    }
+    lv_obj_set_style_text_font(label, ladder[2], 0);
+}
+
 // Hero-value color: honor the element's authored style.color (MetricBinding.accent,
 // 0xRRGGBB) when set, else the theme accent. Restores the per-tile semantic colors
 // the glass-cockpit design intends (warn XTE, good depth, etc.); MIDL docs set it
@@ -1962,16 +1981,25 @@ static void paint_text_body(QuadGridTile &t, const MetricBinding &m, int /*w*/, 
 }
 
 // Button widget: rounded accent bubble. Mirrors editor .wpreview .btn-bubble.
-static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int /*w*/, int /*h*/) {
+static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    // Fill MOST of the tile so the bubble is a large finger target (styled like
+    // the autopilot nudge pills, scaled up). Leave a margin so the tile's panel
+    // chrome edge still shows. Height shrinks a bit more on short tiles.
+    int btn_w = w - 24;
+    int btn_h = (h < 150) ? (h - 40) : (h - 56);
+    if (btn_w < 32) btn_w = 32;
+    if (btn_h < 24) btn_h = 24;
+
     lv_obj_t *btn = lv_obj_create(t.root);
-    lv_obj_set_size(btn, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_size(btn, btn_w, btn_h);
     lv_obj_align(btn, LV_ALIGN_CENTER, 0, 6);
-    lv_obj_set_style_bg_color(btn, lv_color_hex(theme.accent), 0);
+    lv_obj_set_style_bg_color(btn, lv_color_hex(value_color(m)), 0);  // style.color or accent
     lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(btn, 0, 0);
-    lv_obj_set_style_radius(btn, 16, 0);
-    lv_obj_set_style_pad_hor(btn, 18, 0);
-    lv_obj_set_style_pad_ver(btn, 8, 0);
+    lv_obj_set_style_radius(btn, 14, 0);
+    lv_obj_set_style_pad_all(btn, 0, 0);
+    // Pressed feedback (the tile root receives the click; this is purely visual).
+    lv_obj_set_style_bg_opa(btn, LV_OPA_80, LV_STATE_PRESSED);
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
     // Not itself clickable: the action handler lives on the tile root (build_tile),
     // so the indev hit-test must walk past this bubble to the root. Without this,
@@ -1980,8 +2008,14 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int /*w*/
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, (m.label && m.label[0]) ? m.label : "TAP");
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(0x001218), 0);
+    // Scale the label by bubble height. Must be a Montserrat font — font_xl_64
+    // is digits-only and would drop letters from labels like "HOME".
+    const lv_font_t *lfont = &lv_font_montserrat_20;
+    if (btn_h >= 60) lfont = &lv_font_montserrat_28;
+    if (btn_h < 36) lfont = &lv_font_montserrat_14;
+    lv_obj_set_style_text_font(label, lfont, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(0x001218), 0);  // dark ink
+    lv_obj_center(label);
     t.aux = btn;
 }
 
@@ -2257,7 +2291,15 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                     snprintf(buf, sizeof(buf), "--");
                 else {
                     int dp = m.precision >= 0 ? m.precision : 0;
-                    snprintf(buf, sizeof(buf), "%.*f", dp, scalar);
+                    // Append the unit when authored. No separator before a
+                    // glued unit ("%", "°"=UTF-8 0xC2 lead byte); a thin space
+                    // before word units ("kn"/"V"/"m"). Keeps BATT reading "77%"
+                    // and rudder "12°", not a bare "77"/"12".
+                    snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
+                             (m.unit && m.unit[0])
+                                 ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : "\xE2\x80\x89")
+                                 : "",
+                             (m.unit && m.unit[0]) ? m.unit : "");
                 }
             } else if (isnan(frac)) {
                 snprintf(buf, sizeof(buf), "--");
@@ -2353,11 +2395,16 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
             }
             // Numeric, WindRose, Text fallback - all use
             // the value/secondary text slots populated by format_metric.
-            if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri) &&
-                t.kind == WidgetKind::Numeric && m.extras_count == 0) {
-                // Shrink the hero value to fit the tile (scaled k/M strings + a
-                // P/S suffix can be wider than the big font allows).
-                fit_value_font(t.value, pri, QG_TILE_W - 56);
+            if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri)) {
+                if (t.kind == WidgetKind::Numeric && m.extras_count == 0) {
+                    // Shrink the hero value to fit the tile (scaled k/M strings + a
+                    // P/S suffix can be wider than the big font allows).
+                    fit_value_font(t.value, pri, QG_TILE_W - 56);
+                } else if (t.kind == WidgetKind::Text) {
+                    // Text tiles (e.g. POS lat/lon) overflow the 28 px font on a
+                    // 160 px tile; pick the largest Montserrat that fits.
+                    fit_text_font(t.value, pri, QG_TILE_W - 24);
+                }
             }
             // VMG sign tint: red when negative (opening from the mark / losing
             // ground), green when making good toward it. Neutral on NaN so a
@@ -3863,7 +3910,14 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
                     snprintf(buf, sizeof(buf), "--");
                 else {
                     int dp = m.precision >= 0 ? m.precision : 0;
-                    snprintf(buf, sizeof(buf), "%.*f", dp, scalar);
+                    // Append the unit when authored — mirrors update_quad_grid.
+                    // No separator before a glued unit ("%", "°"=UTF-8 0xC2 lead
+                    // byte); a thin space before word units ("kn"/"V"/"m").
+                    snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
+                             (m.unit && m.unit[0])
+                                 ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : "\xE2\x80\x89")
+                                 : "",
+                             (m.unit && m.unit[0]) ? m.unit : "");
                 }
             } else if (isnan(frac)) {
                 snprintf(buf, sizeof(buf), "--");
@@ -3952,11 +4006,16 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
                 break;
             }
             // Numeric, WindRose, Text — value/secondary text slots.
-            if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri) &&
-                t.kind == WidgetKind::Numeric && m.extras_count == 0) {
-                // Use the tile's own width (solver may pick a rect different
-                // from the fixed QG_TILE_W). -56 matches the QuadGrid margin.
-                fit_value_font(t.value, pri, st->tiles[i].tile_w - 56);
+            if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri)) {
+                if (t.kind == WidgetKind::Numeric && m.extras_count == 0) {
+                    // Use the tile's own width (solver may pick a rect different
+                    // from the fixed QG_TILE_W). -56 matches the QuadGrid margin.
+                    fit_value_font(t.value, pri, st->tiles[i].tile_w - 56);
+                } else if (t.kind == WidgetKind::Text) {
+                    // Text tiles overflow on narrow (160 px) freeform tiles; pick
+                    // the largest Montserrat that fits the tile's real width.
+                    fit_text_font(t.value, pri, st->tiles[i].tile_w - 24);
+                }
             }
             if (t.value && m.source == MetricSource::VMG_kn) {
                 double vmg = mps_to_kn(data.vmg);

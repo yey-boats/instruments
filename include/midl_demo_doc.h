@@ -14,10 +14,10 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
   "settings":{"defaultScreen":"dash"},
   "screens":[
     {"id":"dash","title":"Dashboard","elements":{
-      "wind":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+      "wind":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
       "sog":{"type":"single-value","name":"SOG","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
       "depth":{"type":"single-value","name":"DEPTH","format":{"unit":"m"},"bindings":{"value":{"kind":"signalk","path":"environment.depth.belowKeel"}}},
-      "batt":{"type":"bar","name":"BATT","format":{"range":[0,1]},"bindings":{"value":{"kind":"signalk","path":"electrical.batteries.house.stateOfCharge"}}}},
+      "batt":{"type":"bar","name":"BATT","format":{"range":[0,1],"unit":"%"},"bindings":{"value":{"kind":"signalk","path":"electrical.batteries.house.stateOfCharge"}}}},
       "layout":{"rows":2,"cols":2,"cells":[{"element":"wind"},{"element":"sog"},{"element":"depth"},{"element":"batt"}]}},
     {"id":"nav","title":"Navigation","elements":{
       "hdg":{"type":"compass","name":"HDG","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.courseRhumbline.bearingTrackTrue"}}},
@@ -44,10 +44,10 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
         {"rows":2,"cols":2,"cells":[{"element":"hdg"},{"element":"rud"},{"element":"xte"},{"element":"vmg"}]},
         {"flow":"row","children":[{"element":"n10"},{"element":"n1"},{"element":"p1"},{"element":"p10"}]}]}},
     {"id":"wind","title":"Wind","elements":{
-      "wind":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}}},
+      "wind":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}}},
       "layout":{"element":"wind"}},
     {"id":"wind_steer","title":"Wind Steer","elements":{
-      "wind":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+      "wind":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
       "n10":{"type":"button","name":"-10","action":{"kind":"command","target":"autopilot heading -10"}},
       "n1":{"type":"button","name":"-1","action":{"kind":"command","target":"autopilot heading -1"}},
       "p1":{"type":"button","name":"+1","action":{"kind":"command","target":"autopilot heading 1"}},
@@ -73,9 +73,9 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
     {"id":"gallery","title":"Gallery","elements":{
       "v":{"type":"single-value","name":"SOG","format":{"unit":"kn"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
       "c":{"type":"compass","name":"HDG","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.courseRhumbline.bearingTrackTrue"}}},
-      "w":{"type":"windrose","name":"WIND","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+      "w":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
       "g":{"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":0,"unit":"deg"},"bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}},
-      "b":{"type":"bar","name":"BATT","format":{"range":[0,1]},"style":{"color":"#39d98a"},"bindings":{"value":{"kind":"signalk","path":"electrical.batteries.house.stateOfCharge"}}},
+      "b":{"type":"bar","name":"BATT","format":{"range":[0,1],"unit":"%"},"style":{"color":"#39d98a"},"bindings":{"value":{"kind":"signalk","path":"electrical.batteries.house.stateOfCharge"}}},
       "t":{"type":"trend","name":"DEPTH","format":{"unit":"m"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"environment.depth.belowKeel"}}},
       "a":{"type":"autopilot","name":"PILOT","bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}},
       "x":{"type":"text","name":"POS","bindings":{"value":{"kind":"signalk","path":"navigation.position"}}},
