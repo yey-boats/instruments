@@ -90,10 +90,10 @@
           "style": {
             "title": "BATT",
             "size": 20,
-            "range": {
-              "min": 0,
-              "max": 1
-            },
+            "range": [
+              0,
+              1
+            ],
             "zones": [
               {
                 "lt": 0.2,
