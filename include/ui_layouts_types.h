@@ -112,6 +112,12 @@ struct MetricBinding {
     float range_min;   // gauge/bar lower bound (0 with range_max==0 -> default)
     float range_max;   // gauge/bar upper bound
     int8_t precision;  // value decimal places; -1 = painter default (set by mapper)
+    // Button command target (MIDL action.kind == "command"). ADDITIVE trailing
+    // field, no default member initializer (keeps MetricBinding an aggregate under
+    // gnu++11 — see the range_* note above). NULL on every legacy/non-button tile.
+    // nav-kind actions reuse `target_screen`; command-kind populates this and the
+    // button_action_cb routes it through net::dispatchCommand.
+    const char *command;
 };
 
 struct ScreenVariantSpec {

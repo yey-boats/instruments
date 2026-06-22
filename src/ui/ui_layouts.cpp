@@ -1,6 +1,7 @@
 #include "ui_layouts.h"
 
 #include "layout.h"
+#include "midl_limits.h"  // midl::FirmwareLimits (spec-derived tile bound), budget caps
 #include "subscription_set.h"
 #include "ui_theme.h"
 #include "config_runtime.h"
@@ -415,6 +416,31 @@ static void tile_clicked_cb(lv_event_t *e) {
     app::post(c, 0);
 }
 
+// Button element tap handler (MIDL `action`). user_data is the tile's
+// MetricBinding* (stable: it points into the screen's arena/spec). A command
+// action funnels its target through net::dispatchCommand on the UI task — the
+// same path screen_settings uses for `theme`/`demo`, so it is safe here (the
+// funnel posts SignalK PUTs onto the net worker itself; it does no blocking
+// I/O on this task). A nav action posts ShowScreen, mirroring tile_clicked_cb.
+static void button_action_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
+    if (!m) return;
+    if (m->command && m->command[0]) {
+        net::logf("[layout] button command='%s'", m->command);
+        net::dispatchCommand(m->command);
+        return;
+    }
+    if (m->target_screen && m->target_screen[0]) {
+        net::logf("[layout] button nav target=%s", m->target_screen);
+        app::Command c;
+        c.type = app::CommandType::ShowScreen;
+        strncpy(c.a, m->target_screen, sizeof(c.a) - 1);
+        c.t_post_us = micros();
+        app::post(c, 0);
+    }
+}
+
 // Map a scalar source value to a 0..1 fraction for gauge/bar widgets.
 // Heuristic per-source ranges; widgets that don't have an obvious range
 // (e.g., heading angles, positions) return NAN and render as empty.
@@ -686,14 +712,23 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
 
 // Gauge widget: LVGL arc spanning 270° with the value fill in accent
 // and a center percent label. Mirrors editor .wpreview .gauge.
-static void paint_gauge_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
+//
+// Tick scale: a ranged element (MIDL format.range, i.e. range_min != range_max)
+// drives the surrounding lv_scale with the binding's real [min,max] and turns on
+// numeric labels, so e.g. a rudder gauge on [-35,35] shows -35 … 0 … 35 around
+// the arc. The arc *fill* keeps its 0..100 internal range (the update path feeds
+// it a percent via binding_unit_fraction), so only the decorative tick ring
+// follows the real scale. Legacy/default tiles (range_min==range_max) keep the
+// label-less 0–100 tick ring byte-for-byte.
+static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    const bool ranged = (m.range_min != m.range_max);
     int dia = (w < h ? w : h) - 56;
     if (dia < 88) dia = 88;
     lv_obj_t *arc = lv_arc_create(t.root);
     lv_obj_set_size(arc, dia, dia);
     lv_obj_align(arc, LV_ALIGN_CENTER, 0, 4);
     lv_arc_set_bg_angles(arc, 135, 45);  // 270 degree sweep, bottom open
-    lv_arc_set_range(arc, 0, 100);
+    lv_arc_set_range(arc, 0, 100);       // fill is percent-driven; see header note
     lv_arc_set_value(arc, 0);
     lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
     lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
@@ -705,7 +740,10 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding & /*m*/, int w
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
     t.aux = arc;
 
-    // Tick marks at 0/25/50/75/100% (LVGL 9 lv_scale).
+    // Tick ring (LVGL 9 lv_scale). Default tiles: 5 unlabeled ticks over 0–100,
+    // matching the editor preview. Ranged tiles: span the binding's real
+    // [range_min,range_max] and show numeric labels at the 5 major ticks (rounded
+    // to whole units) so the operator reads the true scale endpoints.
     lv_obj_t *scale = lv_scale_create(t.root);
     lv_obj_set_size(scale, dia, dia);
     lv_obj_align(scale, LV_ALIGN_CENTER, 0, 4);
@@ -714,7 +752,20 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding & /*m*/, int w
     lv_scale_set_rotation(scale, 135);
     lv_scale_set_total_tick_count(scale, 5);
     lv_scale_set_major_tick_every(scale, 1);
-    lv_scale_set_range(scale, 0, 100);
+    if (ranged) {
+        // lv_scale range is integer; round the binding's float window to the
+        // nearest whole unit. lo<hi is guaranteed by ranged && the painter only
+        // labels endpoints, so an inverted/degenerate pair just shows lo..lo.
+        int lo = (int)lroundf(m.range_min);
+        int hi = (int)lroundf(m.range_max);
+        if (hi <= lo) hi = lo + 1;  // defensive: keep a valid increasing range
+        lv_scale_set_range(scale, lo, hi);
+        lv_scale_set_label_show(scale, true);
+        lv_obj_set_style_text_font(scale, &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_set_style_text_color(scale, lv_color_hex(theme.fg_dim), LV_PART_MAIN);
+    } else {
+        lv_scale_set_range(scale, 0, 100);
+    }
     lv_obj_set_style_length(scale, 6, LV_PART_INDICATOR);
     lv_obj_set_style_line_color(scale, lv_color_hex(theme.fg_dim), LV_PART_INDICATOR);
     lv_obj_set_style_line_width(scale, 1, LV_PART_INDICATOR);
@@ -772,6 +823,58 @@ static void paint_bar_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, 
     lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
     t.aux = bar;
+}
+
+// Trend widget: current reading (hero number) above a rolling sparkline. The
+// sparkline is a tile-sized lv_chart LINE series with no axes/markers — distinct
+// from the fullscreen TrendChartState used as a standalone screen template.
+//
+// History is the chart's own point ring: update pushes one normalized sample
+// (0..100 via binding_unit_fraction, the same scale as the gauge/bar fill) with
+// lv_chart_set_next_value, so no separate per-tile sample buffer is needed. A
+// ranged element (format.range) normalizes against its [min,max]; legacy tiles
+// use the per-source heuristic. Samples are pushed on value-change only, matching
+// the fullscreen trend (a steady reading holds the line rather than scrolling it).
+static void paint_trend_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    // Current reading: hero number, upper third of the tile.
+    const lv_font_t *vfont = &lv_font_montserrat_28;
+    if (h >= 160) vfont = &lv_font_montserrat_38;
+    if (w < 140) vfont = &lv_font_montserrat_20;
+    t.value = lv_label_create(t.root);
+    lv_label_set_text(t.value, "--");
+    lv_obj_set_style_text_font(t.value, vfont, 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.accent), 0);
+    lv_obj_align(t.value, LV_ALIGN_TOP_MID, 0, 26);
+    lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+
+    // Sparkline fills the lower half of the tile.
+    int chart_w = w - 24;
+    int chart_h = h / 2 - 12;
+    if (chart_h < 36) chart_h = 36;
+    lv_obj_t *chart = lv_chart_create(t.root);
+    lv_obj_set_size(chart, chart_w, chart_h);
+    lv_obj_align(chart, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
+    lv_chart_set_point_count(chart, 30);
+    lv_chart_set_div_line_count(chart, 0, 0);
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_chart_set_update_mode(chart, LV_CHART_UPDATE_MODE_SHIFT);
+    lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(chart, 0, 0);
+    lv_obj_set_style_pad_all(chart, 0, 0);
+    lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
+    // Hide the per-point dot markers: a clean line is the sparkline idiom.
+    lv_obj_set_style_width(chart, 0, LV_PART_INDICATOR);
+    lv_obj_set_style_height(chart, 0, LV_PART_INDICATOR);
+    lv_obj_clear_flag(chart, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
+    uint32_t accent = m.accent ? m.accent : theme.accent;
+    lv_chart_series_t *s =
+        lv_chart_add_series(chart, lv_color_hex(accent), LV_CHART_AXIS_PRIMARY_Y);
+    // Start empty so the line grows in from the right instead of sitting at 0.
+    lv_chart_set_all_values(chart, s, LV_CHART_POINT_NONE);
+    t.aux = chart;
+    t.last_aux_pct = -1;  // unset; first real sample always pushes
 }
 
 // Wind rose: dashed warn ring with center AWS value. Mirrors editor
@@ -857,6 +960,10 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int /*w*/
     lv_obj_set_style_pad_hor(btn, 18, 0);
     lv_obj_set_style_pad_ver(btn, 8, 0);
     lv_obj_clear_flag(btn, LV_OBJ_FLAG_SCROLLABLE);
+    // Not itself clickable: the action handler lives on the tile root (build_tile),
+    // so the indev hit-test must walk past this bubble to the root. Without this,
+    // the bubble would swallow the tap and the action would never fire.
+    lv_obj_clear_flag(btn, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *label = lv_label_create(btn);
     lv_label_set_text(label, (m.label && m.label[0]) ? m.label : "TAP");
@@ -970,14 +1077,26 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
     case WidgetKind::Autopilot:
         paint_autopilot_body(t, m, w, h);
         break;
-    case WidgetKind::Trend:  // sparkline not yet implemented; fall back
+    case WidgetKind::Trend:
+        paint_trend_body(t, m, w, h);
+        break;
     case WidgetKind::Numeric:
     default:
         paint_numeric_body(t, m, w, h);
         break;
     }
 
-    if (m.target_screen && m.target_screen[0]) {
+    // Button elements with an action (nav or command) make the WHOLE tile the
+    // tap target via button_action_cb. The inner bubble has CLICKABLE cleared in
+    // paint_button_body so the hit-test walks up to the tile root. Checked before
+    // the generic target_screen nav so a nav-button still routes through the
+    // button handler (identical effect, but keeps the binding-ptr user_data).
+    bool button_action = (m.kind == WidgetKind::Button) &&
+                         ((m.command && m.command[0]) || (m.target_screen && m.target_screen[0]));
+    if (button_action) {
+        lv_obj_add_flag(t.root, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_event_cb(t.root, button_action_cb, LV_EVENT_CLICKED, (void *)&m);
+    } else if (m.target_screen && m.target_screen[0]) {
         lv_obj_add_event_cb(t.root, tile_clicked_cb, LV_EVENT_CLICKED, (void *)m.target_screen);
     } else {
         lv_obj_clear_flag(t.root, LV_OBJ_FLAG_CLICKABLE);
@@ -1135,8 +1254,28 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec, cons
                 ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
             }
             break;
+        case WidgetKind::Trend: {
+            // Hero number is the live reading; sparkline gets one normalized
+            // sample (0..100, same scale as the gauge/bar fill) on value-change.
+            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+            if (t.aux) {
+                double frac = binding_unit_fraction(m, metric_scalar(m, data));
+                if (!isnan(frac)) {
+                    int v = (int)(frac * 100.0 + 0.5);
+                    if (v != t.last_aux_pct) {
+                        lv_chart_series_t *s = lv_chart_get_series_next(t.aux, NULL);
+                        if (s) {
+                            lv_chart_set_next_value(t.aux, s, v);
+                            lv_chart_refresh(t.aux);
+                        }
+                        t.last_aux_pct = v;
+                    }
+                }
+            }
+            break;
+        }
         default:
-            // Numeric, WindRose, Text, Trend fallback - all use
+            // Numeric, WindRose, Text fallback - all use
             // the value/secondary text slots populated by format_metric.
             if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri) &&
                 t.kind == WidgetKind::Numeric && m.extras_count == 0) {
@@ -2527,8 +2666,10 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec, con
 // lv_obj_set_user_data, matching the QuadGrid pattern.
 
 // Maximum freeform tiles per screen — mirrors the MIDL solver bound so a
-// PlacementSet can be mapped 1:1.
-static constexpr int FREEFORM_MAX_TILES = (int)layout::MAX_TILES_PER_SCREEN;  // 4
+// PlacementSet can be mapped 1:1. Spec-derived (decoupled from the legacy
+// layout::MAX_TILES_PER_SCREEN, which stays 4 to protect the layout::Config
+// size guard); see include/midl_limits.h.
+static constexpr int FREEFORM_MAX_TILES = (int)midl::FirmwareLimits::max_tiles_per_screen;
 
 // Per-tile state extends QuadGridTile with the tile's own pixel width so the
 // update path can correctly call fit_value_font() without relying on the
@@ -2543,6 +2684,13 @@ struct FreeformState {
     FreeformTile tiles[FREEFORM_MAX_TILES];
 };
 
+// Compile-time footprint guard (Part B): a per-screen FreeformState holds
+// tiles[max_tiles_per_screen], so it grows with the spec-derived tile count.
+// Keep it under the budget so a bumped maxTiles fails the BUILD, not the device.
+static_assert(
+    sizeof(FreeformState) <= midl::MIDL_FREEFORM_STATE_BUDGET,
+    "FreeformState exceeds MIDL_FREEFORM_STATE_BUDGET; raise the budget or lower maxTiles");
+
 lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const Rect *rects) {
     if (!spec.metrics || spec.metric_count < 1 || !rects) return nullptr;
 
@@ -2556,8 +2704,12 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
     lv_obj_set_style_pad_all(root, 0, 0);
     lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
+    // PSRAM, not internal SRAM: at the spec-derived tile count (9) this struct is
+    // ~3 KB, and up to ui::MAX_SCREENS are built eagerly — keeping them in scarce
+    // internal SRAM would starve NimBLE/LVGL (the documented starvation trap, in
+    // reverse). It is read at the 5 Hz UI refresh, so PSRAM latency is irrelevant.
     FreeformState *st =
-        (FreeformState *)heap_caps_calloc(1, sizeof(FreeformState), MALLOC_CAP_INTERNAL);
+        (FreeformState *)heap_caps_calloc(1, sizeof(FreeformState), MALLOC_CAP_SPIRAM);
     if (!st) {
         net::logf("[layout] freeform alloc failed");
         return root;  // empty but valid handle
@@ -2618,11 +2770,24 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
                     lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
                 t.last_aux_pct = pct;
             }
-            char buf[8];
-            if (isnan(frac))
+            // Center label. Mirrors update_quad_grid: a ranged element (explicit
+            // MIDL format.range) shows the actual scalar to format.precision so a
+            // real gauge — e.g. rudder on [-35,35] — reads its true magnitude;
+            // legacy/default-range tiles keep the "%d%%" percent of the heuristic
+            // range, matching the editor preview.
+            char buf[24];
+            if (m.range_min != m.range_max) {
+                if (isnan(scalar))
+                    snprintf(buf, sizeof(buf), "--");
+                else {
+                    int dp = m.precision >= 0 ? m.precision : 0;
+                    snprintf(buf, sizeof(buf), "%.*f", dp, scalar);
+                }
+            } else if (isnan(frac)) {
                 snprintf(buf, sizeof(buf), "--");
-            else
+            } else {
                 snprintf(buf, sizeof(buf), "%d%%", pct);
+            }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
             break;
         }
@@ -2669,8 +2834,28 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const sk::Da
                 ui::marker_ring_update(t.markers, live, 3, /*reference=*/0.0);
             }
             break;
+        case WidgetKind::Trend: {
+            // Mirrors update_quad_grid: hero number is the live reading; the
+            // sparkline gets one normalized 0..100 sample on value-change.
+            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+            if (t.aux) {
+                double frac = binding_unit_fraction(m, metric_scalar(m, data));
+                if (!isnan(frac)) {
+                    int v = (int)(frac * 100.0 + 0.5);
+                    if (v != t.last_aux_pct) {
+                        lv_chart_series_t *s = lv_chart_get_series_next(t.aux, NULL);
+                        if (s) {
+                            lv_chart_set_next_value(t.aux, s, v);
+                            lv_chart_refresh(t.aux);
+                        }
+                        t.last_aux_pct = v;
+                    }
+                }
+            }
+            break;
+        }
         default:
-            // Numeric, WindRose, Text, Trend — value/secondary text slots.
+            // Numeric, WindRose, Text — value/secondary text slots.
             if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri) &&
                 t.kind == WidgetKind::Numeric && m.extras_count == 0) {
                 // Use the tile's own width (solver may pick a rect different

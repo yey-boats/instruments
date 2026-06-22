@@ -71,6 +71,7 @@ struct MidlScreenArena {
     char ids[MAX_TILES][STR_CAP];
     char labels[MAX_TILES][STR_CAP];
     char units[MAX_TILES][STR_CAP];
+    char actions[MAX_TILES][STR_CAP];  // button action target (nav/command)
 
     // The MetricBinding table passed to create_freeform / update_freeform.
     MetricBinding metrics[MAX_TILES];
@@ -92,6 +93,14 @@ struct MidlScreenArena {
     // true once this arena holds a live built screen.
     bool live;
 };
+
+// Compile-time footprint guard (Part B): the whole arena pool is
+// ui::MAX_SCREENS * sizeof(MidlScreenArena), PSRAM-allocated. Each arena grows
+// with the spec-derived tile count, so hold the pool under the budget — a bumped
+// maxTiles that would overrun fails the BUILD, not the device.
+static_assert(
+    ui::MAX_SCREENS * sizeof(MidlScreenArena) <= midl::MIDL_ARENA_PSRAM_BUDGET,
+    "MIDL arena pool exceeds MIDL_ARENA_PSRAM_BUDGET; raise the budget or lower maxTiles");
 
 // ---------------------------------------------------------------------------
 // Per-screen arena pool. PSRAM-allocated array of ui::MAX_SCREENS (16) arenas.
@@ -202,7 +211,7 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
         JsonVariantConst el = find_element(elements_node, pl.element);
 
         bool ok = map_element(el, pl.element, arena.metrics[i], arena.ids[i], arena.labels[i],
-                              arena.units[i]);
+                              arena.units[i], arena.actions[i]);
         if (!ok) {
             // Unknown element: leave as zero-init MetricBinding (None source -> "--").
             // Copy at least the id so the tile chrome shows something.

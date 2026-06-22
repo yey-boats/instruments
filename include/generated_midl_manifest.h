@@ -12,7 +12,7 @@ inline constexpr const char *JSON = R"midljson({
       "id": "square-480",
       "width": 480,
       "height": 480,
-      "maxTiles": 4,
+      "maxTiles": 9,
       "maxDepth": 3,
       "presets": ["full", "hero-split"],
       "elements": ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button"]

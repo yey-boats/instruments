@@ -16,7 +16,7 @@ namespace sk {
 
 class PathStore {
   public:
-    static constexpr int CAP = 64;       // >= maxViews(8) * maxTiles(4) * 2 named paths
+    static constexpr int CAP = 160;      // >= maxViews(8) * maxTiles(9) * 2 named paths (=144)
     static constexpr int PATH_LEN = 80;  // longest SignalK path we accept
 
     void clear();

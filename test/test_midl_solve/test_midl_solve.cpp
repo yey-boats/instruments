@@ -156,14 +156,63 @@ void test_too_deep_rejected() {
 }
 
 void test_too_many_tiles_rejected() {
-    // 5 leaves in a row > max_tiles_per_screen (4)
+    // 10 leaves in a row > max_tiles_per_screen (spec-derived; square-480 = 9).
     JsonDocument doc;
     deserializeJson(doc,
                     R"({"flow":"row","children":[
-        {"element":"a"},{"element":"b"},{"element":"c"},{"element":"d"},{"element":"e"}]})");
+        {"element":"a"},{"element":"b"},{"element":"c"},{"element":"d"},{"element":"e"},
+        {"element":"f"},{"element":"g"},{"element":"h"},{"element":"i"},{"element":"j"}]})");
     PlacementSet out;
     TEST_ASSERT_EQUAL_INT(midl::SOLVE_TOO_MANY_TILES,
                           midl::solve_screen(doc.as<JsonVariantConst>(), {0, 0, 480, 480}, out));
+}
+
+void test_grid_3x3_rowmajor() {
+    // 9-tile square-480 grid: 160 px cells, row-major.
+    PlacementSet p = solve(
+        R"({"rows":3,"cols":3,"cells":[
+            {"element":"a"},{"element":"b"},{"element":"c"},
+            {"element":"d"},{"element":"e"},{"element":"f"},
+            {"element":"g"},{"element":"h"},{"element":"i"}]})",
+        {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(9, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    const midl::Placement *e = find(p, "e");  // center
+    TEST_ASSERT_NOT_NULL(e);
+    const midl::Placement *i = find(p, "i");  // bottom-right
+    TEST_ASSERT_NOT_NULL(i);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.y);
+    TEST_ASSERT_EQUAL_INT(160, a->rect.w);
+    TEST_ASSERT_EQUAL_INT(160, a->rect.h);
+    TEST_ASSERT_EQUAL_INT(160, e->rect.x);
+    TEST_ASSERT_EQUAL_INT(160, e->rect.y);
+    TEST_ASSERT_EQUAL_INT(320, i->rect.x);
+    TEST_ASSERT_EQUAL_INT(320, i->rect.y);
+}
+
+void test_grid_over_button_row_8tiles() {
+    // Steering shape: col-split [grid 2x2 (weight 3), row of 4 buttons (weight 1)].
+    // 8 leaves <= 9, depth 3 <= 3. Validates the >4-tile split layout.
+    PlacementSet p = solve(
+        R"({"flow":"col","weights":[3,1],"children":[
+            {"rows":2,"cols":2,"cells":[
+                {"element":"hdg"},{"element":"rud"},{"element":"xte"},{"element":"vmg"}]},
+            {"flow":"row","children":[
+                {"element":"n10"},{"element":"n1"},{"element":"p1"},{"element":"p10"}]}]})",
+        {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(8, p.count);
+    const midl::Placement *hdg = find(p, "hdg");
+    TEST_ASSERT_NOT_NULL(hdg);
+    const midl::Placement *n10 = find(p, "n10");
+    TEST_ASSERT_NOT_NULL(n10);
+    // Top region = 3/4 of 480 = 360; grid cell = 180 tall. Button row = bottom 120.
+    TEST_ASSERT_EQUAL_INT(0, hdg->rect.y);
+    TEST_ASSERT_EQUAL_INT(180, hdg->rect.h);
+    TEST_ASSERT_EQUAL_INT(360, n10->rect.y);
+    TEST_ASSERT_EQUAL_INT(120, n10->rect.h);
+    TEST_ASSERT_EQUAL_INT(120, n10->rect.w);  // 480 / 4 buttons
 }
 
 void test_malformed_node_rejected() {
@@ -230,6 +279,8 @@ int main(int, char **) {
     RUN_TEST(test_row_split_weighted_distributes_remainder);
     RUN_TEST(test_col_split_nested);
     RUN_TEST(test_grid_2x2_rowmajor);
+    RUN_TEST(test_grid_3x3_rowmajor);
+    RUN_TEST(test_grid_over_button_row_8tiles);
     RUN_TEST(test_preset_full);
     RUN_TEST(test_preset_hero_split);
     RUN_TEST(test_preset_unknown_rejected);
