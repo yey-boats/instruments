@@ -259,8 +259,8 @@ static bool display_db_init() {
     if (esp_lcd_new_rgb_panel(&cfg, &g_db_panel) != ESP_OK) return false;
     if (esp_lcd_panel_reset(g_db_panel) != ESP_OK) return false;
     if (esp_lcd_panel_init(g_db_panel) != ESP_OK) return false;
-    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 2, (void **)&g_db_fb0,
-                                           (void **)&g_db_fb1) != ESP_OK)
+    if (esp_lcd_rgb_panel_get_frame_buffer(g_db_panel, 2, (void **)&g_db_fb0, (void **)&g_db_fb1) !=
+        ESP_OK)
         return false;
     memset(g_db_fb0, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
     memset(g_db_fb1, 0, (size_t)LCD_W * LCD_H * sizeof(uint16_t));
@@ -823,6 +823,16 @@ static void touch_task(void *) {
     }
 }
 
+// Set true while the current contact has moved beyond the swipe threshold from
+// its down point — i.e. it is a drag/swipe, not a tap. The MIDL click handlers
+// (button/zoom/tile) read this on LV_EVENT_CLICKED and ignore the click when it
+// was a drag: LVGL fires CLICKED on release even for long drags because the MIDL
+// tiles are non-scrollable (nothing for LVGL to scroll, so scroll_limit can't
+// cancel the click). This makes taps act and swipes scroll/navigate instead of
+// "constantly clicking." Reset on each new press-down; held through the release
+// so the CLICKED that fires in the same lv_timer_handler cycle sees it.
+volatile bool g_pointer_dragging = false;
+
 static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
     if (!touch_present) {
         data->state = LV_INDEV_STATE_RELEASED;
@@ -833,12 +843,27 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data) {
         snap = g_touch;
         xSemaphoreGive(g_touch_mtx);
     }
+    static int16_t s_down_x = -1, s_down_y = -1;
+    static bool s_was_pressed = false;
     if (snap.pressed && snap.x >= 0 && snap.y >= 0) {
+        if (!s_was_pressed) {
+            // New contact: record the down point, clear the drag latch.
+            s_down_x = snap.x;
+            s_down_y = snap.y;
+            g_pointer_dragging = false;
+        } else if (!g_pointer_dragging) {
+            if (abs(snap.x - s_down_x) >= SWIPE_MIN_PX || abs(snap.y - s_down_y) >= SWIPE_MIN_PX)
+                g_pointer_dragging = true;
+        }
         data->point.x = snap.x;
         data->point.y = snap.y;
         data->state = LV_INDEV_STATE_PRESSED;
+        s_was_pressed = true;
     } else {
+        // Released: keep g_pointer_dragging so the CLICKED fired this cycle can
+        // see it; it is cleared on the next press-down above.
         data->state = LV_INDEV_STATE_RELEASED;
+        s_was_pressed = false;
     }
 }
 

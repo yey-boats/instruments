@@ -45,6 +45,10 @@
 
 #include <string.h>
 
+// Global (main.cpp): true while the current touch contact is a drag/swipe, not a
+// tap. At global scope so zoom_back_cb references ::g_pointer_dragging.
+extern volatile bool g_pointer_dragging;
+
 namespace midl::render {
 
 using ui::layouts::MetricBinding;
@@ -352,8 +356,12 @@ static void zoom_return() {
 }
 
 // Tap on the zoom view -> return to the screen it was launched from.
+// Tap on the zoom view returns. A drag/swipe is handled by the swipe-dismiss path
+// (dismiss_zoom via the ShowScreen handler), so ignore the click when dragging.
+// g_pointer_dragging is the global from main.cpp (declared at file scope above).
 static void zoom_back_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (g_pointer_dragging) return;
     zoom_return();
 }
 

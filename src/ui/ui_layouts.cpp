@@ -26,6 +26,11 @@
 #include <stdio.h>
 #include <string.h>
 
+// Global (main.cpp): true while the current touch contact has dragged past the
+// swipe threshold — a drag/swipe, not a tap. Declared at global scope so the
+// click handlers below reference ::g_pointer_dragging, not a namespaced symbol.
+extern volatile bool g_pointer_dragging;
+
 namespace ui::layouts {
 
 // ---------------------------------------------------------------------------
@@ -413,7 +418,12 @@ static void dispatch_fullscreen_self(const MetricBinding &m) {
 // the original always-auto-scale behavior so built-in dashboards are unchanged.
 // Runs on the LVGL/UI task (LV_EVENT_CLICKED dispatch); g_zoom_target is the
 // shared function-static scratch, so no large MetricBinding goes on this stack.
+// g_pointer_dragging (global, set by main.cpp touch read-cb): LVGL fires CLICKED on
+// release even for long drags (MIDL tiles are non-scrollable, so scroll_limit can't
+// cancel it), so every tap/zoom/button handler ignores the click when it was a drag
+// — taps act, swipes scroll/navigate.
 static void tile_zoom_action_cb(lv_event_t *e) {
+    if (g_pointer_dragging) return;  // drag/swipe, not a tap
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
     if (!m) return;
 
@@ -505,6 +515,7 @@ static constexpr int QG_GAP = 4;
 
 static void tile_clicked_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (g_pointer_dragging) return;  // drag/swipe, not a tap
     auto *target = (const char *)lv_event_get_user_data(e);
     net::logf("[layout] tile CLICKED target=%s", target ? target : "(null)");
     if (!target || !*target) return;
@@ -523,6 +534,7 @@ static void tile_clicked_cb(lv_event_t *e) {
 // I/O on this task). A nav action posts ShowScreen, mirroring tile_clicked_cb.
 static void button_action_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    if (g_pointer_dragging) return;  // drag/swipe, not a tap
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
     if (!m) return;
     if (m->command && m->command[0]) {
