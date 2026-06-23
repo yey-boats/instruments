@@ -6,6 +6,7 @@
 #include "ui_theme.h"
 #include "config_runtime.h"
 #include "ui_data.h"
+#include "metric_value.h"  // ui::layouts::metric_value / metric_unit_fraction (shared resolver)
 #include "value_format.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
@@ -452,52 +453,11 @@ static void tile_zoom_action_cb(lv_event_t *e) {
 }
 
 // Numeric value for chart-able metrics, in display units. Returns NaN
-// for non-scalar bindings (Position, APState, etc).
+// for non-scalar bindings (Position, APState, etc). Thin wrapper over the
+// shared resolver (metric_value.h) — the single source of truth shared with
+// the MIDL renderer and the manager-pushed widget_registry.
 static double metric_scalar(const MetricBinding &m, const boat::View &d) {
-    switch (m.source) {
-    case MetricSource::AWS_kn:
-        return isnan(d.aws) ? NAN : mps_to_kn(d.aws);
-    case MetricSource::TWS_kn:
-        return isnan(d.tws) ? NAN : mps_to_kn(d.tws);
-    case MetricSource::SOG_kn:
-        return isnan(d.sog) ? NAN : mps_to_kn(d.sog);
-    case MetricSource::STW_kn:
-        return isnan(d.stw) ? NAN : mps_to_kn(d.stw);
-    case MetricSource::Depth_m:
-        return d.depth;
-    case MetricSource::DepthKeel_m:
-        return d.depthKeel;
-    case MetricSource::WaterTemp_C:
-        return isnan(d.waterTemp) ? NAN : k_to_c(d.waterTemp);
-    case MetricSource::BatteryV:
-        return d.battVoltage;
-    case MetricSource::BatterySOC_pct:
-        return isnan(d.battSoc) ? NAN : d.battSoc * 100.0;
-    case MetricSource::VMG_kn:
-        return isnan(d.vmg) ? NAN : mps_to_kn(d.vmg);
-    case MetricSource::VMGwind_kn:
-        return isnan(d.vmgWind) ? NAN : mps_to_kn(d.vmgWind);
-    case MetricSource::COG_deg:
-        return isnan(d.cogTrue) ? NAN : rad_to_deg_pos(d.cogTrue);
-    case MetricSource::HDG_deg:
-        return isnan(d.headingTrue) ? NAN : rad_to_deg_pos(d.headingTrue);
-    case MetricSource::AWA_deg:
-        return isnan(d.awa) ? NAN : rad_to_deg_pos(d.awa);
-    case MetricSource::TWA_deg:
-        return isnan(d.twa) ? NAN : rad_to_deg_pos(d.twa);
-    case MetricSource::BTW_deg:
-        return isnan(d.btw) ? NAN : rad_to_deg_pos(d.btw);
-    case MetricSource::CTS_deg:
-        return isnan(d.cts) ? NAN : rad_to_deg_pos(d.cts);
-    case MetricSource::XTE:
-        return d.xte;
-    case MetricSource::DTW:
-        return isnan(d.dtw) ? NAN : d.dtw / 1852.0;  // nm
-    case MetricSource::Rudder_deg:
-        return isnan(d.rudder) ? NAN : d.rudder * 180.0 / M_PI;  // signed deg
-    default:
-        return NAN;
-    }
+    return metric_value(m.source, d);
 }
 
 // ---------------------------------------------------------------------------
@@ -552,48 +512,13 @@ static void button_action_cb(lv_event_t *e) {
     }
 }
 
-// Map a scalar source value to a 0..1 fraction for gauge/bar widgets.
-// Heuristic per-source ranges; widgets that don't have an obvious range
-// (e.g., heading angles, positions) return NAN and render as empty.
-static double scalar_unit_fraction(MetricSource src, double v) {
-    if (isnan(v)) return NAN;
-    auto clamp01 = [](double x) {
-        if (x < 0) return 0.0;
-        if (x > 1) return 1.0;
-        return x;
-    };
-    switch (src) {
-    case MetricSource::BatterySOC_pct:
-        return clamp01(v / 100.0);
-    case MetricSource::BatteryV:
-        return clamp01((v - 11.0) / (14.4 - 11.0));
-    case MetricSource::Depth_m:
-    case MetricSource::DepthKeel_m:
-        return clamp01(v / 30.0);
-    case MetricSource::AWS_kn:
-        return clamp01(v / 40.0);
-    case MetricSource::TWS_kn:
-        return clamp01(v / 40.0);
-    case MetricSource::SOG_kn:
-        return clamp01(v / 15.0);
-    case MetricSource::STW_kn:
-        return clamp01(v / 15.0);
-    case MetricSource::VMG_kn:
-    case MetricSource::VMGwind_kn:
-        return clamp01(v / 15.0);
-    case MetricSource::WaterTemp_C:
-        return clamp01((v - 5.0) / (30.0 - 5.0));
-    default:
-        return NAN;
-    }
-}
-
 // Gauge/bar fill fraction (0..1) for one binding. When the binding carries an
 // explicit MIDL `format.range` (range_min != range_max), scale v into that
-// [min,max] window; otherwise fall back to the built-in per-source heuristic so
-// legacy tiles (range_min==range_max==0) keep their current behavior byte-for-byte.
+// [min,max] window; otherwise fall back to the built-in per-source heuristic
+// (metric_unit_fraction, shared via metric_value.h) so legacy tiles
+// (range_min==range_max==0) keep their current behavior byte-for-byte.
 static double binding_unit_fraction(const MetricBinding &m, double v) {
-    if (m.range_min == m.range_max) return scalar_unit_fraction(m.source, v);
+    if (m.range_min == m.range_max) return metric_unit_fraction(m.source, v);
     if (isnan(v)) return NAN;
     double lo = m.range_min, hi = m.range_max;
     if (hi == lo) return NAN;  // defensive; range_min!=range_max already checked
