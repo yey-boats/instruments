@@ -20,6 +20,7 @@ License identifiers use [SPDX](https://spdx.org/licenses/) where one is declared
 | TAMC_GT911 (touch) | `TAMCTec/gt911-arduino` | **Apache-2.0** | https://github.com/TAMCTec/gt911-arduino |
 | GFX Library for Arduino | `moononournation/GFX Library for Arduino@~1.4.7` | **license not explicitly stated** — see note | https://github.com/moononournation/Arduino_GFX |
 | arduinoWebSockets | `links2004/WebSockets@^2.4.1` | **LGPL-2.1** | https://github.com/Links2004/arduinoWebSockets |
+| JetBrains Mono (embedded glyphs, `src/fonts/font_xl_64.c`) | `v2.304` | **OFL-1.1** | https://github.com/JetBrains/JetBrainsMono |
 
 ### Platform / framework (linked, supplied by the toolchain)
 
@@ -36,6 +37,8 @@ License identifiers use [SPDX](https://spdx.org/licenses/) where one is declared
 | `@yey-boats/midl` runtime: `ajv` | **MIT** | https://github.com/ajv-validator/ajv | MIDL TS validator (slated for removal — see MIDL repo) |
 | `@yey-boats/midl` runtime: `yaml` | **ISC** | https://github.com/eemeli/yaml | MIDL YAML↔JSON authoring (non-core) |
 | MIDL TS toolchain: `typescript` (Apache-2.0), `tsup` (MIT), `vitest` (MIT), `@types/node` (MIT) | as noted | — | MIDL build/test only |
+| `lv_font_conv` | **MIT** | https://github.com/lvgl/lv_font_conv | regenerating `src/fonts/*.c` (see `tools/fonts/gen_fonts.sh`) |
+| JetBrains Mono TTF (`tools/fonts/JetBrainsMono-Regular.ttf`) | **OFL-1.1** | https://github.com/JetBrains/JetBrainsMono | source for the embedded 64 px hero font |
 
 > Alternate board environments in `platformio.ini` (e.g. the Waveshare knob
 > variant) additionally pull `CST816S`, `ESP32Encoder`, and `OneButton`. Confirm
@@ -86,6 +89,10 @@ intended license with upstream, or migrate the display path onto `esp_lcd`
   License v2.1.
 - GFX Library for Arduino — © Moon On Our Nation (moononournation); license not
   explicitly stated (see note above).
+- JetBrains Mono — Copyright © 2020 The JetBrains Mono Project Authors. SIL Open
+  Font License, Version 1.1. Full text: [`tools/fonts/JetBrainsMono-OFL.txt`](tools/fonts/JetBrainsMono-OFL.txt).
+  Used to generate the embedded hero font (`src/fonts/font_xl_64.c`). The OFL
+  permits embedding the font in this product; the font itself is not sold.
 - Arduino core for ESP32 — Copyright © Espressif Systems and contributors. LGPL-2.1.
 - ESP-IDF — Copyright © Espressif Systems. Apache License 2.0.
 
