@@ -166,6 +166,19 @@ void pump() {
         case CommandType::ShowScreen: {
             const char *id = cmd.a;
             if (!id || !*id) break;
+            // Change B (cause 2): a swipe on the transient MIDL fullscreen-zoom
+            // screen must RETURN to the launching screen, not navigate to a
+            // sibling. The zoom is a hidden registered screen, so the swipe
+            // detector's next()/prev() would skip past it and up=settings /
+            // down=dashboard would navigate away. Intercept the swipe-nav verbs
+            // (next/prev/settings/dashboard) here: if the zoom view is current,
+            // dismiss_zoom() returns to the captured return id and we stop. A
+            // direct id nav is left alone. Runs on the UI task (this pump), so
+            // dismiss_zoom()'s ui::show is safe. Tap-to-return is unaffected
+            // (it fires zoom_back_cb on LV_EVENT_CLICKED, not a ShowScreen).
+            bool swipe_nav = (strcmp(id, "next") == 0 || strcmp(id, "prev") == 0 ||
+                              strcmp(id, "settings") == 0 || strcmp(id, "dashboard") == 0);
+            if (swipe_nav && midl::render::dismiss_zoom()) break;
             // Track the screen the user was on before opening settings so
             // a "close settings" swipe-down (which posts "dashboard")
             // returns to that screen instead of always Dashboard.

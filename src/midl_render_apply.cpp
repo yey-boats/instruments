@@ -344,14 +344,33 @@ static void zoom_collect(sk::SubscriptionSet &out) {
     ui::layouts::collect_paths(s_zoom_arena->spec, out);
 }
 
-// Tap on the zoom view -> return to the screen it was launched from. A swipe-down
-// also dismisses it: the touch-task swipe maps "down" -> ShowScreen("dashboard"),
-// which no-ops under MIDL, so the tap handler is the reliable return path. We
-// re-show the captured return id (falls back to screen 0 if it went stale).
-static void zoom_back_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+// Return from the zoom view to the screen it was launched from: re-show the
+// captured return id, falling back to screen 0 if it went stale.
+static void zoom_return() {
     if (s_zoom_return_id[0] && ui::show_by_id(s_zoom_return_id)) return;
     ui::show(0);
+}
+
+// Tap on the zoom view -> return to the screen it was launched from.
+static void zoom_back_cb(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    zoom_return();
+}
+
+// Dismiss the zoom screen on a swipe/gesture (Change B / cause 2). The zoom is a
+// hidden registered screen, so the touch-task swipe detector's next()/prev()
+// would skip PAST it to a sibling (feels like "scroll wrong"), and its
+// up=settings / down=dashboard maps would navigate AWAY instead of returning.
+// The swipe detector calls this first: if the zoom view is the current screen we
+// own the gesture and return to the launching screen; otherwise we report false
+// and the detector handles the swipe normally. Runs on the UI task (the detector
+// posts here from the touch task only after confirming current_id == __zoom__,
+// and ui::show is the same UI-task path the rest of nav uses).
+bool dismiss_zoom() {
+    const char *cur = ui::current_id();
+    if (!cur || strcmp(cur, ZOOM_SCREEN_ID) != 0) return false;
+    zoom_return();
+    return true;
 }
 
 // Build (or rebuild) the zoom screen for one metric and show it. Runs on the UI
@@ -411,6 +430,18 @@ static void zoom_to_fullscreen(const MetricBinding &m) {
     // CLICKABLE (zoomable=false above), so the tap lands on the root.
     lv_obj_add_flag(root, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(root, zoom_back_cb, LV_EVENT_CLICKED, nullptr);
+    // Scroll hardening (Change B / cause 1): the transform-scaled hero glyph
+    // (paint_numeric_body -> fit_hero_scale) can otherwise be counted into the
+    // parent's scrollable content under LVGL v9, making the zoom screen
+    // scroll/jitter even though SCROLLABLE was cleared in create_freeform. Force
+    // NO scrolling on the zoom root (and disable chaining/elastic/momentum so a
+    // swipe never starts a scroll on it). The single tile root + flex row + hero
+    // label are hardened the same way in build_tile/paint_numeric_body.
+    lv_obj_set_scroll_dir(root, LV_DIR_NONE);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLL_CHAIN);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLL_ELASTIC);
+    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLL_MOMENTUM);
     za->root = root;
     za->live = true;
 

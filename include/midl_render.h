@@ -89,4 +89,14 @@ size_t apply_all(JsonVariantConst doc);
 // Returns true if at least one screen was built and registered.
 bool apply_doc(JsonVariantConst doc, const char *screen_id);
 
+// Dismiss the transient MIDL fullscreen-zoom screen (__zoom__) if it is the
+// currently-shown screen, returning to the screen it was launched from (the
+// captured return id, falling back to screen 0). Returns true if a zoom was
+// active and dismissed, false otherwise (caller then handles the gesture
+// normally). Used by the touch-task swipe detector so ANY swipe on the zoom
+// view returns rather than navigating to a sibling screen (the zoom is a
+// hidden registered screen, so next()/prev() would otherwise skip past it).
+// Device-only (implemented in midl_render_apply.cpp); runs on the UI task.
+bool dismiss_zoom();
+
 }  // namespace midl::render

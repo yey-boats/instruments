@@ -33,7 +33,7 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
       "layout":{"rows":2,"cols":2,"cells":[{"element":"sog"},{"element":"stw"},{"element":"depth"},{"element":"aws"}]}},
     {"id":"steering","title":"Steering","elements":{
       "hdg":{"type":"compass","name":"HDG","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.courseRhumbline.bearingTrackTrue"}}},
-      "rud":{"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":0,"unit":"deg"},"bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}},
+      "rud":{"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":0,"unit":"°"},"bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}},
       "xte":{"type":"single-value","name":"XTE","format":{"unit":"nm"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.crossTrackError"}}},
       "vmg":{"type":"single-value","name":"VMG","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"navigation.courseRhumbline.velocityMadeGood"}}},
       "n10":{"type":"button","name":"-10","action":{"kind":"command","target":"autopilot heading -10"}},
@@ -76,7 +76,7 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
       "v":{"type":"single-value","name":"SOG","format":{"unit":"kn"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
       "c":{"type":"compass","name":"HDG","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.courseRhumbline.bearingTrackTrue"}}},
       "w":{"type":"windrose","name":"WIND","format":{"unit":"kn"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
-      "g":{"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":0,"unit":"deg"},"bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}},
+      "g":{"type":"gauge","name":"RUDDER","format":{"range":[-35,35],"precision":0,"unit":"°"},"bindings":{"value":{"kind":"signalk","path":"steering.rudderAngle"}}},
       "b":{"type":"bar","name":"BATT","format":{"range":[0,1],"unit":"%"},"style":{"color":"#39d98a"},"bindings":{"value":{"kind":"signalk","path":"electrical.batteries.house.stateOfCharge"}}},
       "t":{"type":"trend","name":"DEPTH","format":{"unit":"m"},"style":{"color":"#57c7d8"},"bindings":{"value":{"kind":"signalk","path":"environment.depth.belowKeel"}}},
       "a":{"type":"autopilot","name":"PILOT","bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}},

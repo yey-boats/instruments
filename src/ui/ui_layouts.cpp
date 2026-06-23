@@ -721,6 +721,15 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_align(row, LV_ALIGN_CENTER, 0, has_extras ? -28 : -8);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    // Fullscreen-zoom scroll hardening (Change B): a transform-scaled hero can be
+    // pulled into a parent's scrollable extent under LVGL v9; belt-and-braces clear
+    // scroll on the row so the zoom view can never start scrolling/jittering.
+    if (fullscreen) {
+        lv_obj_set_scroll_dir(row, LV_DIR_NONE);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLL_CHAIN);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLL_ELASTIC);
+        lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+    }
 
     t.value = lv_label_create(row);
     lv_label_set_text(t.value, "--");
@@ -728,6 +737,17 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
     if (fullscreen) {
+        // Tile root: the zoom tile fills the whole panel; make sure its chrome can
+        // never scroll the scaled hero into view (cause-1 hardening).
+        lv_obj_set_scroll_dir(t.root, LV_DIR_NONE);
+        lv_obj_clear_flag(t.root, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(t.root, LV_OBJ_FLAG_SCROLL_CHAIN);
+        lv_obj_clear_flag(t.root, LV_OBJ_FLAG_SCROLL_ELASTIC);
+        lv_obj_clear_flag(t.root, LV_OBJ_FLAG_SCROLL_MOMENTUM);
+        // Hero label: never scrollable, never a scroll source.
+        lv_obj_set_scroll_dir(t.value, LV_DIR_NONE);
+        lv_obj_clear_flag(t.value, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(t.value, LV_OBJ_FLAG_SCROLL_CHAIN);
         // Scale the hero number to ~60% of the tile height, width-clamped so a
         // 3-digit value still fits. transform_scale grows about the label's own
         // center (set the pivot first; the default top-left pivot would shove the
@@ -2279,6 +2299,7 @@ static void update(ApHudState *st, const boat::View &d) {
 struct WindSteerState {
     lv_obj_t *root;
     ui::Compass cp;
+    lv_obj_t *lbl_mode;  // center mode badge (STANDBY/AUTO pill) — mirrors aphud
     lv_obj_t *lbl_hdg_value;
     lv_obj_t *lbl_sub;  // "TWA <mag>°S/P | TWD <ddd>°"
     // Layline sector arcs on the compass band.
@@ -2294,6 +2315,8 @@ struct WindSteerState {
     char s_last_engage[8];
 
     // Dirty caches.
+    char last_mode[16];
+    uint32_t last_mode_color;
     char last_hdg[16];
     char last_sub[40];
     char last_sog[12];
@@ -2404,6 +2427,8 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h) {
         return nullptr;
     }
     // Sentinel-init the dirty caches (calloc gives 0; force "unset").
+    st->last_mode[0] = (char)0xFF;
+    st->last_mode_color = 0xFFFFFFFF;
     st->last_hdg[0] = (char)0xFF;
     st->last_sub[0] = (char)0xFF;
     st->last_sog[0] = (char)0xFF;
@@ -2495,6 +2520,26 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h) {
     lv_obj_set_style_text_color(lbl_home, lv_color_hex(theme.fg), 0);
     lv_obj_center(lbl_home);
     lv_obj_add_event_cb(btn_home, on_home, LV_EVENT_SHORT_CLICKED, st);
+
+    // --- mode badge (top-MID): identical to aphud::build so the two screens read
+    // as the same instrument — a filled pill (theme.good) when engaged, hollow
+    // outline when standby, with the uppercased autopilot mode centered. The
+    // bg/border are recolored in update(); sits between the engage + HOME chips. ---
+    lv_obj_t *badge = lv_obj_create(r);
+    lv_obj_set_size(badge, 130, 32);
+    lv_obj_align(badge, LV_ALIGN_TOP_MID, 0, 6);
+    lv_obj_set_style_radius(badge, 16, 0);
+    lv_obj_set_style_bg_opa(badge, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_color(badge, lv_color_hex(theme.panel_edge), 0);
+    lv_obj_set_style_border_width(badge, 2, 0);
+    lv_obj_set_style_pad_all(badge, 0, 0);
+    lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
+    st->lbl_mode = lv_label_create(badge);
+    lv_label_set_text(st->lbl_mode, "STANDBY");
+    lv_obj_set_style_text_font(st->lbl_mode, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_color(st->lbl_mode, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_center(st->lbl_mode);
 
     // --- semicircular HEADING-UP compass (rotating scale by -heading) ---
     // Compass region height = h - top - reserved below; derive dial width that
@@ -2621,6 +2666,36 @@ static void update(WindSteerState *st, const boat::View &d) {
     if (!st) return;
     char buf[64];
 
+    bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
+
+    // Mode badge: uppercased apState; filled pill (theme.good bg) when engaged,
+    // hollow outline (transparent bg, panel_edge border) when standby. Identical to
+    // aphud::update so the two heading-up screens agree at a glance.
+    if (st->lbl_mode) {
+        if (d.apState[0]) {
+            char up[16];
+            size_t i = 0;
+            for (; d.apState[i] && i < sizeof(up) - 1; ++i)
+                up[i] = toupper((unsigned char)d.apState[i]);
+            up[i] = 0;
+            ui::set_text_if_changed(st->lbl_mode, st->last_mode, sizeof(st->last_mode), up);
+        } else {
+            ui::set_text_if_changed(st->lbl_mode, st->last_mode, sizeof(st->last_mode), "OFFLINE");
+        }
+        uint32_t prev_mode_color = st->last_mode_color;
+        ui::set_text_color_if_changed(st->lbl_mode, &st->last_mode_color,
+                                      engaged ? 0x05101c : theme.fg_dim);
+        if (st->last_mode_color != prev_mode_color) {
+            lv_obj_t *badge = lv_obj_get_parent(st->lbl_mode);
+            if (badge) {
+                lv_obj_set_style_bg_opa(badge, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+                lv_obj_set_style_bg_color(badge, lv_color_hex(theme.good), 0);
+                lv_obj_set_style_border_color(
+                    badge, lv_color_hex(engaged ? theme.good : theme.panel_edge), 0);
+            }
+        }
+    }
+
     // Heading: big value + rotate the compass tick ring by -heading and reposition
     // the upright degree labels (north-up when no heading). Same as aphud::update.
     double hdg = isnan(d.headingTrue) ? NAN : rad_to_deg_pos(d.headingTrue);
@@ -2729,7 +2804,6 @@ static void update(WindSteerState *st, const boat::View &d) {
     // Engage chip: "STBY" (drop to standby) when engaged, "ON" (engage) when
     // standby. Filled green when engaged, hollow outline when standby — mirrors
     // aphud::update's chip exactly.
-    bool engaged = d.apState[0] && strcmp(d.apState, "standby") != 0;
     ui::set_text_if_changed(st->lbl_engage, st->last_engage, sizeof(st->last_engage),
                             engaged ? "STBY" : "ON");
     uint32_t want_engage_color = engaged ? theme.good : theme.panel_edge;
