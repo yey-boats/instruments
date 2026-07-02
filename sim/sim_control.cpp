@@ -137,6 +137,14 @@ int main(int argc, char **argv) {
     g_round = (strcmp(shape, "round") == 0);
     g_w = g_round ? 360 : 480;
     g_h = g_round ? 360 : 480;
+    // Optional rect-only resolution override (argv[4]/argv[5]): the round
+    // panel is a fixed physical 360x360, but the rect overlay is shared
+    // across every square/landscape touch panel, so let callers (e.g.
+    // tools/render_all_resolutions.sh) sweep 480x480/800x480/1024x600.
+    if (!g_round && argc > 5) {
+        g_w = atoi(argv[4]);
+        g_h = atoi(argv[5]);
+    }
     if (count < 0) count = 0;
     if (count > proto::kMaxSessions) count = proto::kMaxSessions;
 
