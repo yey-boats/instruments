@@ -58,6 +58,13 @@ String ipString();
 String ssidString();
 int rssi();
 
+// The setup AP's current WPA2 password (NVS override via `ap-pass <pass>`,
+// else the MAC-suffixed default `yeyboats-<MAC4>` that start_ap_mode()
+// computes). Empty string means the AP is open (`ap-pass open`). Only
+// meaningful once the device has entered AP mode (compute_ap_credentials()
+// has run); used by the WiFi setup screen to render the join QR/label.
+String apPassword();
+
 // True for "placeholder" device IDs the firmware has used historically:
 // empty string, OTA_HOSTNAME (the secrets.h default), the literal
 // "espdisp-device" (the original legacy fallback), or the bare e-fuse
@@ -80,9 +87,17 @@ WifiState wifiState();
 const char *wifiStateName();
 
 // Persist WiFi credentials (NVS) and reboot. Pass empty `pass` for open
-// networks. SSIDs with spaces are fine - this is the path callers should
-// use when they already have the ssid/pass split (e.g. JSON over BLE / web).
+// networks. SSIDs with spaces are fine. Prefer joinWifi() (no reboot);
+// this remains as the `wifi-reboot` escape hatch and for callers that
+// depend on the reboot (harness first-boot seeding).
 void saveWifi(const String &ssid, const String &pass);
+
+// Persist WiFi credentials (NVS) and join live WITHOUT a reboot (NET-2).
+// Spawns a one-shot join task (association blocks up to 10 s per network),
+// so it is safe to call from any task including the LVGL task. On success
+// the STA comes up in place (mDNS/OTA/web keep running); on failure it
+// falls back to the other saved networks, then the setup AP.
+void joinWifi(const String &ssid, const String &pass);
 
 // Persist a manager-pushed OTA password to NVS (same key as the `ota-pass`
 // console command) and apply it immediately. Empty string clears to the

@@ -12,19 +12,29 @@ static const Entry CATALOG[] = {
     {"net", "ip", "Print current IP and WiFi state", true, true},
     {"net", "scan", "Async WiFi scan", true, true},
     {"net", "wifi-list", "List saved WiFi networks", true, true},
-    {"net", "wifi <ssid> <pass>", "Save WiFi creds and reboot", false, true},
+    {"net", "wifi <ssid> <pass>", "Save WiFi creds and join live (no reboot)", false, true},
+    {"net", "wifi-reboot <ssid> <pass>", "Save WiFi creds and reboot to apply", false, true},
     {"net", "wifi-forget <ssid>", "Drop a saved network", true, true},
     {"net", "wifi-reconnect", "Disconnect + re-associate without reboot (lwIP recovery)", true,
      true},
+    {"net", "ap-pass <pass>|open|clear", "Override the setup-AP WPA2 password (NVS)", true, true},
     {"net", "id <name>|auto", "Set device id or restore hardware-derived id; reboots", true, true},
     {"net", "reboot", "Reboot the device", true, true},
+#ifdef YEYBOATS_BLE_HID_HOST
+    // --- BLE HID remote host ---
+    {"net", "hid-pair", "Scan ~15 s for a BLE HID remote (0x1812) and bond", true, true},
+    {"net", "hid-forget", "Forget the bonded HID remote + its bond", true, true},
+    {"net", "hid-status", "Print BLE HID host state (peer, link, keys)", true, true},
+#endif
 
     // --- screen / UI ---
     {"ui", "screen", "Print current screen id", true, true},
     {"ui", "screen <id|next|prev>", "Navigate to a screen", true, true},
     {"ui", "bright", "Read backlight (0..255)", true, true},
     {"ui", "bright <0-255>", "Set backlight", true, true},
-    {"ui", "theme <day|night|auto>", "Set theme", true, true},
+    {"ui", "theme", "Print the active theme", true, true},
+    {"ui", "theme <day|night|high-contrast|red-night|classic>",
+     "Set theme (live, no reboot; persisted)", true, true},
 #if YEYBOATS_ENABLE_DEMO
     {"ui", "demo on|off", "Toggle synthetic demo data", true, true},
 #endif

@@ -31,6 +31,7 @@ static lv_obj_t *lbl_scan_status = nullptr;
 
 static lv_obj_t *qr_code = nullptr;
 static lv_obj_t *lbl_ap_url = nullptr;
+static lv_obj_t *lbl_ap_pass = nullptr;
 
 static lv_obj_t *lbl_selected_ssid = nullptr;
 static lv_obj_t *ta_pass = nullptr;
@@ -175,7 +176,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(prov_title, LV_ALIGN_TOP_MID, 0, 0);
 
     lv_obj_t *prov_sub = lv_label_create(provision_view);
-    lv_label_set_text(prov_sub, "1. scan QR or join \"espdisp-setup\"\n"
+    lv_label_set_text(prov_sub, "1. scan QR or join the network below\n"
                                 "2. open http://192.168.4.1/\n"
                                 "3. pick a network in the WIFI panel");
     lv_obj_set_style_text_font(prov_sub, &lv_font_montserrat_14, 0);
@@ -183,25 +184,58 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_align(prov_sub, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(prov_sub, LV_ALIGN_TOP_MID, 0, 28);
 
-    // QR encodes the WiFi-join URI; phones scan -> auto-join the open AP.
+    // Live setup-AP identity as of the last start_ap_mode() call (net.cpp).
+    // The screen is built lazily on the LVGL task and only shown once the
+    // device has already fallen into AP mode (post_show_wifi_screen() runs
+    // after start_ap_mode()), so these are real credentials, not defaults.
+    // ap_pass is empty when the operator opted the AP into open mode via
+    // `ap-pass open`.
+    String ap_ssid = net::ssidString();
+    if (ap_ssid.length() == 0) ap_ssid = "yey-d-setup";
+    String ap_pass = net::apPassword();
+    bool ap_open = ap_pass.length() == 0;
+
+    // QR encodes the WiFi-join URI; phones scan -> auto-join the setup AP.
     // Pixel buffer (~115 kB at 240x240x2bpp) comes from PSRAM via the
     // custom LVGL allocators in src/lvgl_alloc.cpp.
     qr_code = lv_qrcode_create(provision_view);
     lv_qrcode_set_size(qr_code, 220);
     lv_qrcode_set_dark_color(qr_code, lv_color_hex(0x0a1a2b));
     lv_qrcode_set_light_color(qr_code, lv_color_hex(0xffffff));
-    const char *wifi_uri = "WIFI:T:nopass;S:espdisp-setup;;";
+    char wifi_uri[192];
+    if (ap_open) {
+        snprintf(wifi_uri, sizeof(wifi_uri), "WIFI:T:nopass;S:%s;;", ap_ssid.c_str());
+    } else {
+        snprintf(wifi_uri, sizeof(wifi_uri), "WIFI:T:WPA;S:%s;P:%s;;", ap_ssid.c_str(),
+                 ap_pass.c_str());
+    }
     lv_qrcode_update(qr_code, wifi_uri, strlen(wifi_uri));
-    lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, 8);
+    lv_obj_align(qr_code, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_border_width(qr_code, 6, 0);
     lv_obj_set_style_border_color(qr_code, lv_color_hex(0xffffff), 0);
     lv_obj_set_style_radius(qr_code, 6, 0);
 
     lbl_ap_url = lv_label_create(provision_view);
-    lv_label_set_text(lbl_ap_url, "espdisp-setup  ->  http://192.168.4.1/");
+    char url_line[96];
+    snprintf(url_line, sizeof(url_line), "%s  ->  http://192.168.4.1/", ap_ssid.c_str());
+    lv_label_set_text(lbl_ap_url, url_line);
     lv_obj_set_style_text_font(lbl_ap_url, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_ap_url, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_ap_url, LV_ALIGN_BOTTOM_MID, 0, -8);
+
+    // Visible password (or "open network") under the SSID/URL line -- a
+    // phone that can't scan the QR still needs this to join manually.
+    lbl_ap_pass = lv_label_create(provision_view);
+    if (ap_open) {
+        lv_label_set_text(lbl_ap_pass, "open network (no password)");
+    } else {
+        char pass_line[96];
+        snprintf(pass_line, sizeof(pass_line), "password: %s", ap_pass.c_str());
+        lv_label_set_text(lbl_ap_pass, pass_line);
+    }
+    lv_obj_set_style_text_font(lbl_ap_pass, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(lbl_ap_pass, lv_color_hex(theme.fg), 0);
+    lv_obj_align(lbl_ap_pass, LV_ALIGN_BOTTOM_MID, 0, -26);
 
     // ---- LIST VIEW ----
     list_view = lv_obj_create(s_root);
@@ -303,10 +337,12 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, -4);
     lv_keyboard_set_textarea(kb, ta_pass);
 
-    // "scan on-screen instead" button on the provision view
+    // "scan on-screen instead" button on the provision view. Pushed up from
+    // -36 to -54 to clear the password label added below the QR (stacked at
+    // offsets -8/-26 from the bottom edge).
     lv_obj_t *btn_list = lv_button_create(provision_view);
     lv_obj_set_size(btn_list, 200, 36);
-    lv_obj_align(btn_list, LV_ALIGN_BOTTOM_MID, 0, -36);
+    lv_obj_align(btn_list, LV_ALIGN_BOTTOM_MID, 0, -54);
     lv_obj_set_style_bg_color(btn_list, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_radius(btn_list, 8, 0);
     lv_obj_add_event_cb(

@@ -32,10 +32,15 @@
 #define BLE_ON_WRITE(c) void onWrite(NimBLECharacteristic *c) override
 #endif
 
+#include "wifi_scan_json.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 namespace bleconfig {
 
 static NimBLECharacteristic *s_conn = nullptr;
 static NimBLECharacteristic *s_config = nullptr;
+static NimBLECharacteristic *s_wifiscan = nullptr;
 
 // Notify a characteristic only if a central has actually subscribed (CCCD
 // written). Emitting a notification for an unsubscribed characteristic is an
@@ -104,12 +109,14 @@ static void applyConnectionWrite(const std::string &data) {
         const char *ssid = wifi["ssid"];
         if (ssid && *ssid) {
             const char *pass = wifi["password"] | "";
+            // NET-2: route through the console `wifi` command on the net
+            // worker -> net::joinWifi (persist + live join, no reboot). The
+            // ssid is quoted so names with spaces survive the line parser.
             app::Command cmd;
-            cmd.type = app::CommandType::SaveWifi;
-            strncpy(cmd.a, ssid, sizeof(cmd.a) - 1);
-            strncpy(cmd.b, pass, sizeof(cmd.b) - 1);
+            cmd.type = app::CommandType::RunCommand;
+            snprintf(cmd.a, sizeof(cmd.a), "wifi \"%s\" %s", ssid, pass);
             app::post_net(cmd, 50);
-            net::logf("[bleconfig] wifi save queued");
+            net::logf("[bleconfig] wifi join queued (no reboot)");
             return;
         }
         if (wifi["forget"] | false) {
@@ -160,6 +167,63 @@ class ConnCb : public NimBLECharacteristicCallbacks {
         c->setValue((const uint8_t *)j.c_str(), j.length());
     }
     BLE_ON_WRITE(c) { applyConnectionWrite(std::string(c->getValue())); }
+};
+
+// ---- WIFISCAN characteristic (BLE-3) ----------------------------------------
+// A write of "scan" wakes the worker task below; the GATT callback itself
+// never touches the WiFi driver. The worker kicks WiFi.scanNetworks(async),
+// polls completion OUTSIDE any GATT callback, then publishes the JSON result
+// (sorted strongest-first, truncated to the 512-byte attribute cap) on the
+// characteristic value + a notify for subscribed centrals.
+
+static TaskHandle_t s_wifiscan_task = nullptr;
+
+static void wifi_scan_worker(void *) {
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (WiFi.scanComplete() != WIFI_SCAN_RUNNING) {
+            WiFi.scanNetworks(true /* async */, true /* show hidden */);
+        }
+        int n = WIFI_SCAN_RUNNING;
+        uint32_t t0 = millis();
+        while ((n = WiFi.scanComplete()) == WIFI_SCAN_RUNNING && millis() - t0 < 15000) {
+            vTaskDelay(pdMS_TO_TICKS(250));
+        }
+        // Scratch buffers off this 4 KB task stack (large-local memory trap).
+        // The worker is the only writer, so function-statics are race-free.
+        static wifi_scan_json::Ap aps[wifi_scan_json::MAX_APS];
+        memset(aps, 0, sizeof(aps));
+        size_t cnt = 0;
+        for (int i = 0; n > 0 && i < n && cnt < wifi_scan_json::MAX_APS; ++i) {
+            String ssid = WiFi.SSID(i);
+            if (ssid.length() == 0) continue;  // hidden networks: nothing to show
+            strlcpy(aps[cnt].ssid, ssid.c_str(), sizeof(aps[cnt].ssid));
+            aps[cnt].rssi = (int16_t)WiFi.RSSI(i);
+            aps[cnt].sec = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+            ++cnt;
+        }
+        if (n >= 0) WiFi.scanDelete();
+        static char json[512];
+        size_t len = wifi_scan_json::to_json(aps, cnt, json, sizeof(json));
+        if (s_wifiscan) {
+            s_wifiscan->setValue((const uint8_t *)json, len);
+            ble_notify_if_subscribed(s_wifiscan);
+        }
+        net::logf("[bleconfig] wifi scan -> %d networks, %u bytes", n < 0 ? 0 : n, (unsigned)len);
+    }
+}
+
+class WifiScanCb : public NimBLECharacteristicCallbacks {
+    BLE_ON_WRITE(c) {
+        std::string v(c->getValue());
+        if (v != "scan") {
+            net::logf("[bleconfig] wifiscan write ignored (expected \"scan\")");
+            return;
+        }
+        static const char kRunning[] = "{\"running\":true}";
+        c->setValue((const uint8_t *)kRunning, sizeof(kRunning) - 1);
+        if (s_wifiscan_task) xTaskNotifyGive(s_wifiscan_task);
+    }
 };
 
 class ConfigCb : public NimBLECharacteristicCallbacks {
@@ -474,6 +538,20 @@ void setup() {
         String body;
         if (layout::copy_last_json(body) && body.length())
             s_config->setValue((const uint8_t *)body.c_str(), body.length());
+    }
+
+    // WIFISCAN (BLE-3): write "scan" -> async WiFi scan; result readable +
+    // notified as a JSON array. The scan itself runs on wifi_scan_worker.
+    s_wifiscan = svc->createCharacteristic(
+        WIFISCAN_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+    s_wifiscan->setCallbacks(new WifiScanCb());
+    {
+        static const char kEmpty[] = "[]";
+        s_wifiscan->setValue((const uint8_t *)kEmpty, sizeof(kEmpty) - 1);
+    }
+    if (!s_wifiscan_task) {
+        xTaskCreatePinnedToCore(wifi_scan_worker, "ble-scan", 4096, nullptr, 1, &s_wifiscan_task,
+                                0);
     }
 
     svc->start();

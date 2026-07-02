@@ -6,6 +6,8 @@
 //   CONNECTION    - JSON snapshot of network + SignalK state and config
 //   CONFIGURATION - the layout JSON document (same schema as SignalK
 //                   resource at configuration.boat-mfd.layouts)
+//   WIFISCAN      - write "scan" to trigger an async WiFi scan; read/notify
+//                   a JSON array of {ssid,rssi,sec} (strongest first, <=512 B)
 //
 //   Control GATT service (espdisp control protocol, BLE fallback transport):
 //   DEVICE  - read   serialized proto::DeviceRecord (views capped to fit 512 B)
@@ -24,10 +26,15 @@
 namespace bleconfig {
 
 // clang-format off
-// Configuration service (CONNECTION + CONFIGURATION).
-constexpr const char *SERVICE_UUID = "a3f7e000-7a6b-4f47-b3a5-c4d2e5f6a000";
-constexpr const char *CONN_UUID    = "a3f7e001-7a6b-4f47-b3a5-c4d2e5f6a000";
-constexpr const char *CONFIG_UUID  = "a3f7e003-7a6b-4f47-b3a5-c4d2e5f6a000";
+// Configuration service (CONNECTION + CONFIGURATION + WIFISCAN).
+constexpr const char *SERVICE_UUID   = "a3f7e000-7a6b-4f47-b3a5-c4d2e5f6a000";
+constexpr const char *CONN_UUID      = "a3f7e001-7a6b-4f47-b3a5-c4d2e5f6a000";
+constexpr const char *CONFIG_UUID    = "a3f7e003-7a6b-4f47-b3a5-c4d2e5f6a000";
+// WIFISCAN (BLE-3): write the ASCII token "scan" to kick an async WiFi scan;
+// read/notify returns a JSON array of {ssid,rssi,sec} sorted strongest-first
+// and truncated to the 512-byte attribute cap. While a scan runs the value
+// reads {"running":true}.
+constexpr const char *WIFISCAN_UUID  = "a3f7e004-7a6b-4f47-b3a5-c4d2e5f6a000";
 
 // Control service (espdisp control protocol over BLE).
 constexpr const char *CTRL_SERVICE_UUID = "a3f7e100-7a6b-4f47-b3a5-c4d2e5f6a000";

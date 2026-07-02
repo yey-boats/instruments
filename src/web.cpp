@@ -982,7 +982,10 @@ static void handle_security() {
 
     JsonObject ble = doc["ble"].to<JsonObject>();
     ble["pairing_required"] = false;
-    ble["auth"] = "none-in-current-firmware";
+    ble["auth"] = "none-on-open-characteristics";
+    // setSecurityAuth(bond, !mitm, sc) is configured in bleSetup for peers
+    // that request pairing (the HID remote link); config/NUS stay open.
+    ble["security_auth"] = "bonding + secure-connections (no MITM)";
     ble["intended_range"] = "local physical proximity";
     ble["configuration_characteristic"] = "boat-mfd CONFIGURATION";
     ble["max_single_write_bytes"] = 512;
@@ -1061,19 +1064,20 @@ static void handle_wifi_connect() {
         server.send(400, "text/plain", "ssid required");
         return;
     }
-    // Queue for the net worker (it'll save to NVS and reboot). Avoids
-    // blocking the HTTP handler in the reboot delay path.
+    // Queue for the net worker; it routes through net::joinWifi (NET-2:
+    // persist + live STA join, no reboot). Keeps the HTTP handler from
+    // blocking on the up-to-10 s association.
     app::Command cmd;
-    cmd.type = app::CommandType::SaveWifi;
-    strncpy(cmd.a, ssid, sizeof(cmd.a) - 1);
-    strncpy(cmd.b, pass, sizeof(cmd.b) - 1);
+    cmd.type = app::CommandType::RunCommand;
+    snprintf(cmd.a, sizeof(cmd.a), "wifi \"%s\" %s", ssid, pass);
     if (!app::post_net(cmd, 50)) {
         server.send(503, "text/plain", "net queue full");
         return;
     }
     JsonDocument out(&yeyboats::psram_json);
     out["queued"] = true;
-    out["rebooting"] = true;
+    out["rebooting"] = false;
+    out["joining"] = true;  // device switches networks live; re-poll /api/state
     out["ssid"] = ssid;
     send_json(202, out);
 }
@@ -1440,6 +1444,9 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
     <div class=k style="margin-top:8px">THEME</div>
     <button data-cmd="theme day">day</button>
     <button data-cmd="theme night">night</button>
+    <button data-cmd="theme high-contrast">high-contrast</button>
+    <button data-cmd="theme red-night">red-night</button>
+    <button data-cmd="theme classic">classic</button>
     <div class=k style="margin-top:8px">BRIGHTNESS</div>
     <input type=range id=brightSlider min=20 max=255 value=200 style="width:100%">
   </div>
@@ -1622,7 +1629,7 @@ async function wifiConnect(){
   const ssid = document.getElementById('wifiSsid').value;
   const password = document.getElementById('wifiPass').value;
   if (!ssid) { document.getElementById('wifiStatus').textContent = 'enter ssid'; return; }
-  document.getElementById('wifiStatus').textContent = 'saving + rebooting...';
+  document.getElementById('wifiStatus').textContent = 'saving + joining (no reboot)...';
   await fetch('/api/wifi/connect', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ssid, password})});
 }
 async function wifiForget(){

@@ -23,6 +23,7 @@
 #include "signalk.h"
 #include "layout_loader.h"
 #include "ble_config.h"
+#include "ble_hid_host.h"
 #include "wifi_store.h"
 #include "app_events.h"
 #include "source_nmea_wifi.h"
@@ -394,6 +395,13 @@ static void ble_advertising_watchdog(void *) {
 static void bleSetup() {
     NimBLEDevice::init(s_device_id.c_str());
     NimBLEDevice::setMTU(247);
+    // Security defaults for links that DO pair (the HID remote): bonding on,
+    // no MITM (no keyboard/display for passkeys), LE Secure Connections.
+    // This does not force pairing on anyone — the config/NUS characteristics
+    // keep their open (unauthenticated) permissions, so the phone
+    // provisioning flow still works unpaired; security engages only when the
+    // peer requests it (e.g. an HID remote requiring an encrypted link).
+    NimBLEDevice::setSecurityAuth(true /* bond */, false /* mitm */, true /* sc */);
     NimBLEServer *server = NimBLEDevice::createServer();
     server->setCallbacks(new ServerCb());
     NimBLEService *svc = server->createService(NUS_SERVICE);
@@ -417,6 +425,11 @@ static void bleSetup() {
     printf("[ble] advertising as %s\n", s_device_id.c_str());
     xTaskCreatePinnedToCore(ble_advertising_watchdog, "ble-adv", 3072, nullptr, 1, &s_ble_adv_task,
                             0);
+    // BLE HID remote host (central). No-op stub unless the board env defines
+    // YEYBOATS_BLE_HID_HOST. Central + peripheral coexistence is proven on
+    // the knob (proto_ble.cpp); CONFIG_BT_NIMBLE_MAX_CONNECTIONS=3 leaves
+    // room for one phone/peer link + the HID link + one spare.
+    ble_hid::setup();
 }
 #else   // YEYBOATS_DISABLE_BLE
 // No-op BLE setup when NimBLE is compiled out. Serial + UDP logging continue
@@ -545,6 +558,37 @@ static bool try_join(const char *ssid, const char *pass) {
     return WiFi.status() == WL_CONNECTED;
 }
 
+// Setup-AP credentials (NET-1: the provisioning AP is WPA2, not open).
+// SSID carries the last-4 of the AP MAC so the matching default password is
+// discoverable from the network list alone: SSID "yey-d-setup-A1B2" ->
+// password "yeyboats-A1B2". Overridable via NVS: `ap-pass <pass>` (>= 8
+// chars), `ap-pass open` reverts to an open AP, `ap-pass clear` restores the
+// MAC-derived default.
+static char s_ap_ssid[33] = {0};
+static char s_ap_pass[65] = {0};
+
+static void compute_ap_credentials() {
+    uint8_t mac[6] = {0};
+    if (esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP) != ESP_OK) {
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    }
+    char suffix[5];
+    snprintf(suffix, sizeof(suffix), "%02X%02X", mac[4], mac[5]);
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "yey-d-setup-%s", suffix);
+    storage::Namespace prefs("net", true);
+    std::string ovr = prefs.get_string("ap_pass", "");
+    if (ovr == "open") {
+        s_ap_pass[0] = 0;  // explicit operator opt-out: open AP
+    } else if (ovr.size() >= 8) {
+        strlcpy(s_ap_pass, ovr.c_str(), sizeof(s_ap_pass));
+    } else {
+        if (!ovr.empty()) {
+            logf_at(LOG_WARN, "[wifi] stored ap_pass shorter than 8 chars - using default");
+        }
+        snprintf(s_ap_pass, sizeof(s_ap_pass), "yeyboats-%s", suffix);
+    }
+}
+
 static void start_ap_mode() {
     puts("[wifi] starting AP mode (full reset)");
     // Fully tear down any lingering STA state. Without this, after one or
@@ -565,7 +609,10 @@ static void start_ap_mode() {
         puts("[wifi] softAPConfig FAILED");
     }
     // channel 1, not hidden, max 4 clients, beacon interval default.
-    bool ok = WiFi.softAP("yey-d-setup", nullptr, 1, 0, 4);
+    // WPA2 with the MAC-suffixed default password unless the operator
+    // opted out via `ap-pass open` (NET-1).
+    compute_ap_credentials();
+    bool ok = WiFi.softAP(s_ap_ssid, s_ap_pass[0] ? s_ap_pass : nullptr, 1, 0, 4);
     delay(500);  // allow the DHCP server task to spin up
     if (!ok) {
         puts("[wifi] softAP FAILED");
@@ -573,8 +620,18 @@ static void start_ap_mode() {
     broadcastAddr = WiFi.softAPIP();
     broadcastAddr[3] = 255;
     ap_mode = true;
-    printf("[wifi] AP ip=%s  mac=%s  ssid='yey-d-setup' (open)\n",
-           WiFi.softAPIP().toString().c_str(), WiFi.softAPmacAddress().c_str());
+    printf("[wifi] AP ip=%s  mac=%s  ssid='%s' (%s)\n", WiFi.softAPIP().toString().c_str(),
+           WiFi.softAPmacAddress().c_str(), s_ap_ssid, s_ap_pass[0] ? "wpa2" : "open");
+    // The on-device WiFi setup screen doesn't render AP credentials yet
+    // (follow-up); surface them on serial + BLE log so a provisioning
+    // operator can find them. WARN so the line reaches the lab logger.
+    if (s_ap_pass[0]) {
+        logf_at(LOG_WARN, "[wifi] setup AP '%s' password '%s' (override: ap-pass <pass|open>)",
+                s_ap_ssid, s_ap_pass);
+    } else {
+        logf_at(LOG_WARN, "[wifi] setup AP '%s' is OPEN (ap-pass clear to restore default)",
+                s_ap_ssid);
+    }
     printf("[wifi] connected stations: %d\n", WiFi.softAPgetStationNum());
 }
 
@@ -728,6 +785,108 @@ static void start_discovery_announcements() {
     logf("[discovery] announce loop started");
 }
 
+// Shared STA bring-up: called after a successful association, both from the
+// boot-time wifi_manager_task and from the live (no-reboot) join path. Sets
+// the broadcast address, brings up mDNS/OTA exactly once, and flips state.
+static void wifi_link_up(const char *reason) {
+    IPAddress ip = WiFi.localIP();
+    IPAddress mask = WiFi.subnetMask();
+    broadcastAddr = ip;
+    for (uint8_t i = 0; i < 4; ++i) {
+        broadcastAddr[i] = ip[i] | ~mask[i];
+    }
+    printf("[wifi] up (%s): ip=%s  ssid='%s'  rssi=%d\n", reason, ip.toString().c_str(),
+           WiFi.SSID().c_str(), WiFi.RSSI());
+    if (!s_mdns_started) {
+        if (MDNS.begin(s_device_id.c_str())) {
+            s_mdns_started = true;
+            s_mdns_services_registered = false;
+            MDNS.addService("arduino", "tcp", 3232);
+            refresh_mdns_device_txt(reason);
+            printf("[mdns] host %s.local (espdisp + arduino)\n", s_device_id.c_str());
+        }
+    } else {
+        // Responder already runs (e.g. live rejoin after a network change);
+        // just refresh the TXT records with the new state.
+        s_mdns_refresh_due = true;
+    }
+    if (!ota_started) otaSetup();
+    s_wifi_state = WifiState::StaUp;
+    start_discovery_announcements();
+}
+
+// ---- live WiFi join (NET-2: apply new creds without a reboot) --------------
+// try_join blocks up to 10 s per network, so the join always runs on its own
+// one-shot task — callers may be the LVGL task (setup screen), the net
+// worker (BLE/web), or the Arduino loop (serial console).
+
+struct JoinReq {
+    char ssid[65];
+    char pass[65];
+};
+static volatile bool s_join_busy = false;
+
+static void wifi_join_task(void *arg) {
+    JoinReq *req = static_cast<JoinReq *>(arg);
+    bool was_ap = ap_mode;
+    if (was_ap) {
+        logf("[wifi] leaving setup AP to join '%s'", req->ssid);
+        WiFi.softAPdisconnect(true);
+        ap_mode = false;
+    }
+    s_wifi_state = WifiState::Connecting;
+    bool joined = try_join(req->ssid, req->pass);
+    if (!joined) {
+        // New creds failed; try to restore connectivity from the other saved
+        // networks (skipping the one that just failed) before falling back.
+        for (size_t i = 0; i < wifi_store::count() && !joined; ++i) {
+            const auto &n = wifi_store::at(i);
+            if (strcmp(n.ssid, req->ssid) == 0) continue;
+            joined = try_join(n.ssid, n.pass);
+        }
+    }
+    if (joined) {
+        wifi_link_up("join");
+        logf("[wifi] joined '%s' without reboot (use wifi-reboot if anything misbehaves)",
+             WiFi.SSID().c_str());
+    } else {
+        logf_at(LOG_WARN, "[wifi] live join '%s' failed - falling back to setup AP", req->ssid);
+        start_ap_mode();
+        s_wifi_state = WifiState::ApSetup;
+        post_show_wifi_screen();
+    }
+    heap_caps_free(req);
+    s_join_busy = false;
+    vTaskDelete(NULL);
+}
+
+void joinWifi(const String &ssid, const String &pass) {
+    // Persist first: even if the live join fails, the creds are saved for
+    // the next boot (same NVS store the boot manager walks).
+    wifi_store::put(ssid.c_str(), pass.c_str());
+    if (s_join_busy || s_wifi_state == WifiState::Connecting) {
+        logf("[wifi] join already in progress; '%s' saved and will be tried on next boot",
+             ssid.c_str());
+        return;
+    }
+    JoinReq *req = static_cast<JoinReq *>(
+        heap_caps_calloc(1, sizeof(JoinReq), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (!req) {
+        logf("[wifi] join alloc failed; creds saved - use wifi-reboot to apply");
+        return;
+    }
+    strlcpy(req->ssid, ssid.c_str(), sizeof(req->ssid));
+    strlcpy(req->pass, pass.c_str(), sizeof(req->pass));
+    s_join_busy = true;
+    logf("[wifi] saved ssid='%s' (pass len %u, total %u nets) - joining live", ssid.c_str(),
+         (unsigned)pass.length(), (unsigned)wifi_store::count());
+    if (xTaskCreatePinnedToCore(wifi_join_task, "wifi-join", 6144, req, 1, nullptr, 0) != pdPASS) {
+        s_join_busy = false;
+        heap_caps_free(req);
+        logf("[wifi] join task create failed; creds saved - use wifi-reboot to apply");
+    }
+}
+
 static void wifi_manager_task(void *) {
     s_wifi_state = WifiState::Connecting;
     wifi_store::load();
@@ -755,14 +914,7 @@ static void wifi_manager_task(void *) {
     }
 
     if (joined) {
-        IPAddress ip = WiFi.localIP();
-        IPAddress mask = WiFi.subnetMask();
-        broadcastAddr = ip;
-        for (uint8_t i = 0; i < 4; ++i) {
-            broadcastAddr[i] = ip[i] | ~mask[i];
-        }
-        printf("[wifi] up: ip=%s  ssid='%s'  rssi=%d\n", ip.toString().c_str(), WiFi.SSID().c_str(),
-               WiFi.RSSI());
+        wifi_link_up("boot");
 #ifdef YEYBOATS_DEBUG_UDP_LOG
         // Replay any log lines that were written before WiFi came up
         // (most importantly the `[boot] reset_reason=...` line that
@@ -784,16 +936,6 @@ static void wifi_manager_task(void *) {
         }
         if (ringLocked) xSemaphoreGive(s_log_mtx);
 #endif
-        if (MDNS.begin(s_device_id.c_str())) {
-            s_mdns_started = true;
-            s_mdns_services_registered = false;
-            MDNS.addService("arduino", "tcp", 3232);
-            refresh_mdns_device_txt("boot");
-            printf("[mdns] host %s.local (espdisp + arduino)\n", s_device_id.c_str());
-        }
-        otaSetup();
-        s_wifi_state = WifiState::StaUp;
-        start_discovery_announcements();
     } else {
         puts("[wifi] all saved networks failed, fallback to AP");
         start_ap_mode();
@@ -896,6 +1038,7 @@ void setup() {
 
 bool dispatchCommand(const String &line) {
     if (handleSerialCommand(line)) return true;
+    if (ble_hid::handleSerialCommand(line)) return true;
     if (sk::handleSerialCommand(line)) return true;
     if (nmea_wifi::handleSerialCommand(line)) return true;
     if (nmea2000::handleSerialCommand(line)) return true;
@@ -951,8 +1094,15 @@ int rssi() {
 
 String ssidString() {
     // In STA the joined network; in AP mode the soft-AP name. Empty when down.
-    if (ap_mode) return String("yey-d-setup");
+    if (ap_mode) return String(s_ap_ssid[0] ? s_ap_ssid : "yey-d-setup");
     return wifiUp() ? WiFi.SSID() : String();
+}
+
+String apPassword() {
+    // Reuse the value compute_ap_credentials() (called from start_ap_mode())
+    // already resolved from NVS/MAC-default - do not re-derive it here.
+    // Empty means the operator opted the setup AP into open mode.
+    return String(s_ap_pass);
 }
 
 void setExtraCommandHandler(ExtraCommandHandler h) {
@@ -1186,13 +1336,17 @@ bool handleSerialCommand(const String &line) {
         logf("[log] tag=%s", s_udp_log_tag[0] ? s_udp_log_tag : "(none)");
         return true;
     }
-    if (line.startsWith("wifi ")) {
+    if (line.startsWith("wifi ") || line.startsWith("wifi-reboot ")) {
         // Accept either:
         //   wifi <ssid>                          (open, no spaces in ssid)
         //   wifi <ssid> <pass>                   (no spaces in ssid)
         //   wifi "<ssid with spaces>" [pass]     (any ssid)
+        // `wifi` saves + joins live (no reboot); `wifi-reboot` is the escape
+        // hatch that saves + reboots (pre-NET-2 behavior) for state that a
+        // live rejoin doesn't clear.
+        bool reboot_variant = line.startsWith("wifi-reboot ");
         String ssid, pass;
-        const char *p = line.c_str() + 5;
+        const char *p = line.c_str() + (reboot_variant ? 12 : 5);
         while (*p == ' ')
             p++;
         if (*p == '"') {
@@ -1222,7 +1376,36 @@ bool handleSerialCommand(const String &line) {
             logf("usage: wifi <ssid> [pass]  or  wifi \"<ssid>\" [pass]");
             return true;
         }
-        saveWifi(ssid, pass);
+        if (reboot_variant)
+            saveWifi(ssid, pass);  // persists + reboots
+        else
+            joinWifi(ssid, pass);  // persists + joins live
+        return true;
+    }
+    if (line.startsWith("ap-pass")) {
+        // Override / inspect the setup-AP WPA2 password (NET-1).
+        String rest = line.length() > 7 ? line.substring(7) : String("");
+        rest.trim();
+        storage::Namespace prefs("net", false);
+        if (rest.length() == 0) {
+            std::string cur = prefs.get_string("ap_pass", "");
+            logf("[wifi] ap-pass: %s (usage: ap-pass <pass>|open|clear)",
+                 cur == "open" ? "OPEN (opt-out)"
+                 : cur.empty() ? "default (yeyboats-<mac4>)"
+                               : "custom override set");
+            return true;
+        }
+        if (rest == "clear") {
+            prefs.remove("ap_pass");
+            logf("[wifi] ap-pass cleared - MAC-derived default on next AP start");
+            return true;
+        }
+        if (rest != "open" && rest.length() < 8) {
+            logf("[wifi] ap-pass: WPA2 needs >= 8 chars (or 'open'/'clear')");
+            return true;
+        }
+        prefs.put_string("ap_pass", rest.c_str());
+        logf("[wifi] ap-pass %s - applies on next AP start", rest == "open" ? "OPEN" : "set");
         return true;
     }
     if (line == "wifi-forget") {
