@@ -166,6 +166,24 @@ jobs:
       - name: Check generated files are up to date
         run: git diff --exit-code include/proto/records_generated.h proto/js/types.d.ts
 
+  midl-manifest-freshness:
+    name: MIDL manifest freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Regenerate embedded MIDL capabilities manifest
+        run: python3 tools/embed_manifest.py square-480
+
+      - name: Check embedded manifest matches the pinned midl schema
+        run: git diff --exit-code include/generated_midl_manifest.h include/generated_midl_limits.h
+
   sim-build:
     name: Host render sim builds
     runs-on: ubuntu-latest
