@@ -215,6 +215,160 @@ void test_grid_over_button_row_8tiles() {
     TEST_ASSERT_EQUAL_INT(120, n10->rect.w);  // 480 / 4 buttons
 }
 
+// --- grid colSpan/rowSpan + spacer cells (ts/src/solve.ts occupancy parity) ---
+
+void test_grid_colspan_occupancy() {
+    // 3x3, first cell spans 2 columns: a covers slots 0+1, b lands in slot 2,
+    // c..h fill rows 1-2 row-major. Exact TS occupancy-walk expectations.
+    PlacementSet p = solve(
+        R"({"rows":3,"cols":3,"cells":[
+            {"element":"a","colSpan":2},{"element":"b"},
+            {"element":"c"},{"element":"d"},{"element":"e"},
+            {"element":"f"},{"element":"g"},{"element":"h"}]})",
+        {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(8, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    const midl::Placement *b = find(p, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    const midl::Placement *c = find(p, "c");
+    TEST_ASSERT_NOT_NULL(c);
+    const midl::Placement *h = find(p, "h");
+    TEST_ASSERT_NOT_NULL(h);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.y);
+    TEST_ASSERT_EQUAL_INT(320, a->rect.w);  // 2 of 3 columns
+    TEST_ASSERT_EQUAL_INT(160, a->rect.h);
+    TEST_ASSERT_EQUAL_INT(320, b->rect.x);  // slot 2, after the span
+    TEST_ASSERT_EQUAL_INT(0, b->rect.y);
+    TEST_ASSERT_EQUAL_INT(160, b->rect.w);
+    TEST_ASSERT_EQUAL_INT(0, c->rect.x);  // wraps to row 1 col 0
+    TEST_ASSERT_EQUAL_INT(160, c->rect.y);
+    TEST_ASSERT_EQUAL_INT(320, h->rect.x);  // last slot: row 2 col 2
+    TEST_ASSERT_EQUAL_INT(320, h->rect.y);
+}
+
+void test_grid_rowspan_occupancy() {
+    // 2x2, first cell spans 2 rows: a covers slots 0+2 (left column), b slot 1,
+    // c skips the occupied slot 2 and lands in slot 3.
+    PlacementSet p = solve(
+        R"({"rows":2,"cols":2,"cells":[
+            {"element":"a","rowSpan":2},{"element":"b"},{"element":"c"}]})",
+        {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(3, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    const midl::Placement *b = find(p, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    const midl::Placement *c = find(p, "c");
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, a->rect.w);
+    TEST_ASSERT_EQUAL_INT(480, a->rect.h);  // full height
+    TEST_ASSERT_EQUAL_INT(240, b->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, b->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, c->rect.x);  // slot 3 (slot 2 occupied by a)
+    TEST_ASSERT_EQUAL_INT(240, c->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, c->rect.h);
+}
+
+void test_grid_col_and_rowspan() {
+    // 3x3 hero cell spanning 2x2: a covers slots 0,1,3,4; b slot 2; c slot 5;
+    // d slot 6 (row 2 col 0).
+    PlacementSet p = solve(
+        R"({"rows":3,"cols":3,"cells":[
+            {"element":"a","colSpan":2,"rowSpan":2},{"element":"b"},
+            {"element":"c"},{"element":"d"}]})",
+        {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(4, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    const midl::Placement *b = find(p, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    const midl::Placement *c = find(p, "c");
+    TEST_ASSERT_NOT_NULL(c);
+    const midl::Placement *d = find(p, "d");
+    TEST_ASSERT_NOT_NULL(d);
+    TEST_ASSERT_EQUAL_INT(320, a->rect.w);
+    TEST_ASSERT_EQUAL_INT(320, a->rect.h);
+    TEST_ASSERT_EQUAL_INT(320, b->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, b->rect.y);
+    TEST_ASSERT_EQUAL_INT(320, c->rect.x);  // slot 5: row 1 col 2
+    TEST_ASSERT_EQUAL_INT(160, c->rect.y);
+    TEST_ASSERT_EQUAL_INT(0, d->rect.x);  // slot 6: row 2 col 0
+    TEST_ASSERT_EQUAL_INT(320, d->rect.y);
+}
+
+void test_grid_spacer_cells() {
+    // Spacer cells ({} — no element/preset/children/cells) occupy their slot
+    // but emit nothing: a top-left, b bottom-right, 2 placements only.
+    PlacementSet p = solve(R"({"rows":2,"cols":2,"cells":[{"element":"a"},{},{},{"element":"b"}]})",
+                           {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(2, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    const midl::Placement *b = find(p, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.x);
+    TEST_ASSERT_EQUAL_INT(0, a->rect.y);
+    TEST_ASSERT_EQUAL_INT(240, b->rect.x);
+    TEST_ASSERT_EQUAL_INT(240, b->rect.y);
+}
+
+void test_grid_spacer_with_span() {
+    // A spanned spacer pushes the next element past the occupied slots.
+    PlacementSet p =
+        solve(R"({"rows":1,"cols":3,"cells":[{"colSpan":2},{"element":"a"}]})", {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(1, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    TEST_ASSERT_EQUAL_INT(320, a->rect.x);
+    TEST_ASSERT_EQUAL_INT(160, a->rect.w);
+    TEST_ASSERT_EQUAL_INT(480, a->rect.h);
+}
+
+void test_grid_span_clamped_to_grid() {
+    // colSpan beyond the remaining columns clamps (TS: min(span, cols - c)).
+    PlacementSet p =
+        solve(R"({"rows":1,"cols":2,"cells":[{"element":"a"},{"element":"b","colSpan":5}]})",
+              {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(2, p.count);
+    const midl::Placement *b = find(p, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_EQUAL_INT(240, b->rect.x);
+    TEST_ASSERT_EQUAL_INT(240, b->rect.w);  // clamped to the last column
+}
+
+void test_grid_partial_cells_allowed() {
+    // Fewer cells than rows*cols is valid with occupancy tracking (the strict
+    // full-grid check predates spans); trailing slots simply stay empty.
+    PlacementSet p =
+        solve(R"({"rows":2,"cols":2,"cells":[{"element":"a"},{"element":"b"},{"element":"c"}]})",
+              {0, 0, 480, 480});
+    TEST_ASSERT_EQUAL_size_t(3, p.count);
+    const midl::Placement *c = find(p, "c");
+    TEST_ASSERT_NOT_NULL(c);
+    TEST_ASSERT_EQUAL_INT(0, c->rect.x);
+    TEST_ASSERT_EQUAL_INT(240, c->rect.y);
+}
+
+void test_grid_span_remainder_distribution() {
+    // 481 px over 3 cols: boundaries floor(481*{1,2,3}/3) = 160, 320, 481. A
+    // 2-col span ends exactly at boundary(2), so a+b tile 481 px with no gap.
+    PlacementSet p =
+        solve(R"({"rows":1,"cols":3,"cells":[{"element":"a","colSpan":2},{"element":"b"}]})",
+              {0, 0, 481, 480});
+    TEST_ASSERT_EQUAL_size_t(2, p.count);
+    const midl::Placement *a = find(p, "a");
+    TEST_ASSERT_NOT_NULL(a);
+    const midl::Placement *b = find(p, "b");
+    TEST_ASSERT_NOT_NULL(b);
+    TEST_ASSERT_EQUAL_INT(320, a->rect.w);
+    TEST_ASSERT_EQUAL_INT(320, b->rect.x);
+    TEST_ASSERT_EQUAL_INT(161, b->rect.w);  // remainder lands on the last column
+}
+
 void test_malformed_node_rejected() {
     JsonDocument doc;
     deserializeJson(doc, R"({"frobnicate":true})");
@@ -281,6 +435,14 @@ int main(int, char **) {
     RUN_TEST(test_grid_2x2_rowmajor);
     RUN_TEST(test_grid_3x3_rowmajor);
     RUN_TEST(test_grid_over_button_row_8tiles);
+    RUN_TEST(test_grid_colspan_occupancy);
+    RUN_TEST(test_grid_rowspan_occupancy);
+    RUN_TEST(test_grid_col_and_rowspan);
+    RUN_TEST(test_grid_spacer_cells);
+    RUN_TEST(test_grid_spacer_with_span);
+    RUN_TEST(test_grid_span_clamped_to_grid);
+    RUN_TEST(test_grid_partial_cells_allowed);
+    RUN_TEST(test_grid_span_remainder_distribution);
     RUN_TEST(test_preset_full);
     RUN_TEST(test_preset_hero_split);
     RUN_TEST(test_preset_unknown_rejected);

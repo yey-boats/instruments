@@ -54,8 +54,30 @@ constexpr uint32_t pill_text = 0xffffff;
 
 extern Palette theme;
 
-void use_night();  // dark blue, default
-void use_day();    // light / sunlight-readable
+// Canonical firmware theme set. day / night / high-contrast mirror the MIDL
+// catalog palettes (midl/web/src/theme.ts). red-night and classic are
+// firmware-extra skins: selectable via console/web/config but NOT advertised
+// in the generated MIDL manifest (that list comes from the upstream midl
+// catalog; adding them there is a follow-up in the midl repo).
+void use_night();          // dark blue "glass cockpit", default
+void use_day();            // light / sunlight-readable
+void use_high_contrast();  // pure black + saturated primaries (max legibility)
+void use_red_night();      // night-vision red/amber on near-black
+void use_classic();        // warm cream/charcoal analog look, brass accent
+
+// Name-based selection ("night" | "day" | "high-contrast" | "red-night" |
+// "classic"). Flips the global palette; painters pick it up on their next
+// (re)build — the live rebuild is driven by app_events' SetTheme handler.
+// Returns false (palette untouched) for unknown names. Call on the UI task.
+bool use_theme(const char *name);
+
+// True if `name` is one of the selectable palettes. Pure check, no side
+// effects — safe to call from any task (serial/BLE command validation).
+bool theme_known(const char *name);
+
+// Canonical name of the palette currently loaded in ui::theme ("night" until
+// something else is selected).
+const char *theme_id();
 
 inline lv_color_t c(uint32_t hex) {
     return lv_color_hex(hex);

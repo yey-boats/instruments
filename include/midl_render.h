@@ -29,6 +29,15 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 // out.target_screen, "command" -> out.command (both copied into action_buf; only
 // one is set).
 //
+// Dynamic-path fallback (audit item 8): when path_to_source() misses,
+// `path_buf`/`dir_buf` (each >= FirmwareLimits::path_len, may be null) receive
+// the RAW SignalK path and out.path/out.dir_path point at them, so the widget
+// resolves through the dynamic PathStore instead of dropping to None + "--".
+// Also mapped: bindings.dir -> out.dir_source/dir_path (dial pointer),
+// format.decimals (alias of precision, decimals wins), format.side -> out.side,
+// style.size role (S/M/L/XL/Fill) -> out.size_role (1..5), style.center ->
+// out.center_bar, style.zones -> out.zones/zone_count (theme tokens + #rrggbb).
+//
 // `zoom` field (tap-to-fullscreen): absent -> out.zoomable defaults to true for
 // any non-Button tile with a real source (out.zoom_target == nullptr, i.e.
 // fullscreen-self); boolean false -> out.zoomable = false; a string -> out.zoomable
@@ -36,7 +45,8 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 // `zoom_buf` may be null (zoom string then ignored). Returns false if `el` is not
 // an object.
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
-                 char *id_buf, char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf);
+                 char *id_buf, char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf,
+                 char *path_buf = nullptr, char *dir_buf = nullptr);
 
 // Pure (host-testable): select a screen object from a MIDL document.
 //

@@ -69,6 +69,9 @@ struct QuadGridTile {
     // trailing field; value-inits to 0 for every non-hero tile.
     int hero_h;      // target hero height in px (0 = not a hero tile)
     int hero_max_w;  // width budget for the scaled hero (px)
+    // Last applied style.zones colour on the gauge/bar fill + hero text
+    // (0 = never styled). Additive trailing field (aggregate-init order).
+    uint32_t last_zone_rgb;
 };
 
 struct QuadGridState {
@@ -126,6 +129,38 @@ const char *source_to_path(MetricSource s) {
         return "navigation.position";
     case MetricSource::APState:
         return "steering.autopilot.state";
+    case MetricSource::OutsideTemp_C:
+        return "environment.outside.temperature";
+    case MetricSource::OutsidePressure_hPa:
+        return "environment.outside.pressure";
+    case MetricSource::Humidity_pct:
+        return "environment.outside.relativeHumidity";
+    case MetricSource::Roll_deg:
+    case MetricSource::Pitch_deg:
+        // roll/pitch ride the single attitude object delta.
+        return "navigation.attitude";
+    case MetricSource::ROT_degmin:
+        return "navigation.rateOfTurn";
+    case MetricSource::TripLog_nm:
+        return "navigation.trip.log";
+    case MetricSource::Log_nm:
+        return "navigation.log";
+    case MetricSource::BattCurrent_A:
+        return "electrical.batteries.house.current";
+    case MetricSource::BattTemp_C:
+        return "electrical.batteries.house.temperature";
+    case MetricSource::EngineRpm:
+        return "propulsion.main.revolutions";
+    case MetricSource::EngineCoolant_C:
+        return "propulsion.main.temperature";
+    case MetricSource::EngineOilP_bar:
+        return "propulsion.main.oilPressure";
+    case MetricSource::EngineFuelRate_lph:
+        return "propulsion.main.fuel.rate";
+    case MetricSource::HDGm_deg:
+        return "navigation.headingMagnetic";
+    case MetricSource::Variation_deg:
+        return "navigation.magneticVariation";
     case MetricSource::None:
     default:
         return nullptr;
@@ -138,6 +173,12 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
         const MetricBinding &m = spec.metrics[i];
         const char *p = source_to_path(m.source);
         if (p) out.add(p);
+        // Dynamic-path binding: subscribe the RAW path so the PathStore is fed.
+        if (!p && m.path && m.path[0]) out.add(m.path);
+        // `bindings.dir` second source (dial pointer).
+        const char *dp = source_to_path(m.dir_source);
+        if (dp) out.add(dp);
+        if (!dp && m.dir_path && m.dir_path[0]) out.add(m.dir_path);
         uint8_t ne = m.extras_count;
         if (ne > 4) ne = 4;  // bound to the fixed extras[] array
         for (uint8_t e = 0; e < ne; ++e) {
@@ -215,6 +256,66 @@ bool g_bench_store_mode = false;
 // per update() from config; format_metric reads it. All painting runs on the
 // single LVGL task, so this file-static needs no lock.
 static config::FormatConfig s_fmt;
+
+// ---------------------------------------------------------------------------
+// Dynamic-path resolution (audit item 8). A MetricBinding whose enum bridge
+// missed carries the RAW SignalK path (m.path); it resolves through this
+// injected function (device: PathStore-backed, installed by
+// midl_render_apply.cpp) so any numeric path renders instead of "--". Kept as
+// an injection point so the host/sim builds of this TU never link the store.
+static DynamicResolveFn s_dynamic_resolver = nullptr;
+void set_dynamic_resolver(DynamicResolveFn fn) {
+    s_dynamic_resolver = fn;
+}
+
+// Display-unit value for a dynamic binding: raw SI from the resolver, then the
+// format.unit conversion (convert_si_display). NaN when unresolved/uninstalled.
+static double dynamic_display_value(const MetricBinding &m, const boat::View &d) {
+    if (!m.path || !m.path[0] || !s_dynamic_resolver) return NAN;
+    return convert_si_display(s_dynamic_resolver(m.path, d), m.unit);
+}
+
+// Dial-pointer bearing for a `bindings.dir` source, in display degrees.
+// Enum sources come through metric_value (already degrees for the *_deg
+// family); a dynamic path is assumed to carry a SignalK angle in radians.
+static bool binding_has_dir(const MetricBinding &m) {
+    return m.dir_source != MetricSource::None || (m.dir_path && m.dir_path[0]);
+}
+static double binding_dir_deg(const MetricBinding &m, const boat::View &d) {
+    if (m.dir_source != MetricSource::None) return metric_value(m.dir_source, d);
+    if (m.dir_path && m.dir_path[0] && s_dynamic_resolver) {
+        double raw = s_dynamic_resolver(m.dir_path, d);
+        if (isnan(raw)) return NAN;
+        double deg = raw * (180.0 / M_PI);
+        if (deg < 0) deg += 360.0;
+        return deg;
+    }
+    return NAN;
+}
+
+// Resolve a MetricZone's authored colour against the LIVE theme palette (so
+// day/night flips keep working); Default falls back to the caller's colour.
+static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
+    switch (z.color) {
+    case ZoneColor::Literal:
+        return z.rgb;
+    case ZoneColor::Accent:
+        return theme.accent;
+    case ZoneColor::Warn:
+        return theme.warn;
+    case ZoneColor::Alarm:
+        return theme.alarm;
+    case ZoneColor::Good:
+        return theme.good;
+    case ZoneColor::Port:
+        return theme.port;
+    case ZoneColor::Starboard:
+        return theme.starboard;
+    case ZoneColor::Default:
+    default:
+        return fallback;
+    }
+}
 
 static void format_metric(const MetricBinding &m, const boat::View &d, char *primary, size_t pcap,
                           char *secondary, size_t scap) {
@@ -359,6 +460,107 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
             snprintf(primary, pcap, "--");
         }
         break;
+    case MetricSource::OutsideTemp_C:
+        vfmt::format_scaled(isnan(d.outsideTemp) ? NAN : k_to_c(d.outsideTemp), s_fmt.temperature,
+                            primary, pcap);
+        break;
+    case MetricSource::OutsidePressure_hPa:
+        // Barometric convention: whole hectopascals, no decimals ("1013").
+        if (!isnan(d.outsidePressure))
+            snprintf(primary, pcap, "%.0f", units::pa_to_hpa(d.outsidePressure));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::Humidity_pct:
+        if (!isnan(d.humidity))
+            snprintf(primary, pcap, "%.0f%%", d.humidity * 100.0);
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::Roll_deg:
+        // Heel: magnitude + P/S suffix (+ve roll = starboard heel), mirroring
+        // the rudder convention. Upright (<0.5 deg) reads bare.
+        if (!isnan(d.roll)) {
+            double deg = units::rad_to_deg(d.roll);
+            double mag = fabs(deg);
+            if (mag < 0.5)
+                snprintf(primary, pcap, "0");
+            else
+                snprintf(primary, pcap, "%.0f%c", mag, deg > 0 ? 'S' : 'P');
+        } else {
+            snprintf(primary, pcap, "--");
+        }
+        break;
+    case MetricSource::Pitch_deg:
+        // Signed degrees, +ve = bow up ('-' glyph exists in every ladder font).
+        if (!isnan(d.pitch))
+            snprintf(primary, pcap, "%.1f", units::rad_to_deg(d.pitch));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::ROT_degmin:
+        if (!isnan(d.rateOfTurn))
+            snprintf(primary, pcap, "%.0f", units::radps_to_degmin(d.rateOfTurn));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::TripLog_nm:
+        vfmt::format_scaled(isnan(d.tripLog) ? NAN : units::m_to_nm(d.tripLog), s_fmt.distance,
+                            primary, pcap);
+        break;
+    case MetricSource::Log_nm:
+        vfmt::format_scaled(isnan(d.totalLog) ? NAN : units::m_to_nm(d.totalLog), s_fmt.distance,
+                            primary, pcap);
+        break;
+    case MetricSource::BattCurrent_A:
+        // Signed amps: +ve charge into the bank, -ve discharge.
+        if (!isnan(d.battCurrent))
+            snprintf(primary, pcap, "%.1f", d.battCurrent);
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::BattTemp_C:
+        vfmt::format_scaled(isnan(d.battTemp) ? NAN : k_to_c(d.battTemp), s_fmt.temperature,
+                            primary, pcap);
+        break;
+    case MetricSource::EngineRpm:
+        if (!isnan(d.engineRevs))
+            snprintf(primary, pcap, "%.0f", units::hz_to_rpm(d.engineRevs));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::EngineCoolant_C:
+        vfmt::format_scaled(isnan(d.engineCoolantTemp) ? NAN : k_to_c(d.engineCoolantTemp),
+                            s_fmt.temperature, primary, pcap);
+        break;
+    case MetricSource::EngineOilP_bar:
+        // Matches the MIDL library engine screen: format.unit "bar", 1 dp.
+        if (!isnan(d.engineOilPressure))
+            snprintf(primary, pcap, "%.1f", units::pa_to_bar(d.engineOilPressure));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::EngineFuelRate_lph:
+        if (!isnan(d.engineFuelRate))
+            snprintf(primary, pcap, "%.1f", units::m3s_to_lph(d.engineFuelRate));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::HDGm_deg:
+        if (!isnan(d.headingMag))
+            snprintf(primary, pcap, "%03.0f", rad_to_deg_pos(d.headingMag));
+        else
+            snprintf(primary, pcap, "--");
+        break;
+    case MetricSource::Variation_deg:
+        // Magnitude + E/W suffix (+E convention; true = magnetic + variation).
+        if (!isnan(d.variation)) {
+            double deg = units::rad_to_deg(d.variation);
+            snprintf(primary, pcap, "%.0f%c", fabs(deg), deg >= 0 ? 'E' : 'W');
+        } else {
+            snprintf(primary, pcap, "--");
+        }
+        break;
     case MetricSource::Position:
         if (!isnan(d.lat) && !isnan(d.lon)) {
             format_position(d.lat, d.lon, pos_format(), primary, pcap);
@@ -374,8 +576,38 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
         break;
     case MetricSource::None:
     default:
-        snprintf(primary, pcap, "--");
+        // Dynamic-path binding: any numeric SignalK path served by the
+        // PathStore, converted to format.unit (else raw SI). Decimals follow
+        // format.decimals/precision; default 1 dp.
+        if (m.path && m.path[0]) {
+            double v = dynamic_display_value(m, d);
+            if (isnan(v))
+                snprintf(primary, pcap, "--");
+            else
+                snprintf(primary, pcap, "%.*f", m.precision >= 0 ? m.precision : 1, v);
+        } else {
+            snprintf(primary, pcap, "--");
+        }
         break;
+    }
+
+    // format.side (audit item 5): magnitude + P/S suffix per the web renderer
+    // (model.ts / dial.ts: positive -> 'S', negative -> 'P'; angles wrapped to
+    // [-180,180] first). Applied to dynamic-path bindings (unit-classified) and
+    // to the degree enum sources; other enum sources keep their legacy text
+    // (XTE/Rudder/AWA already carry their own side conventions).
+    if (m.side) {
+        bool dynamic = (m.source == MetricSource::None && m.path && m.path[0]);
+        bool enum_angle = m.source == MetricSource::AWA_deg || m.source == MetricSource::TWA_deg ||
+                          m.source == MetricSource::COG_deg || m.source == MetricSource::HDG_deg ||
+                          m.source == MetricSource::BTW_deg || m.source == MetricSource::CTS_deg;
+        if (dynamic || enum_angle) {
+            double v = enum_angle ? metric_value(m.source, d) : dynamic_display_value(m, d);
+            if (!isnan(v)) {
+                bool angle = enum_angle || unit_is_angle(m.unit);
+                format_side_value(v, angle, m.precision, primary, pcap);
+            }
+        }
     }
 }
 
@@ -403,7 +635,7 @@ void set_zoom_fullscreen_handler(ZoomFullscreenFn fn) {
 // installed, else fall back to the built-in "zoom" screen. Shared by both the
 // legacy (zoom_target == NULL) and authored-auto paths in tile_zoom_action_cb.
 static void dispatch_fullscreen_self(const MetricBinding &m) {
-    if (m.source == MetricSource::None) return;
+    if (m.source == MetricSource::None && !(m.path && m.path[0])) return;
     if (s_zoom_fullscreen_fn) {
         s_zoom_fullscreen_fn(m);
         return;
@@ -455,9 +687,12 @@ static void tile_zoom_action_cb(lv_event_t *e) {
 // Numeric value for chart-able metrics, in display units. Returns NaN
 // for non-scalar bindings (Position, APState, etc). Thin wrapper over the
 // shared resolver (metric_value.h) — the single source of truth shared with
-// the MIDL renderer and the manager-pushed widget_registry.
+// the MIDL renderer and the manager-pushed widget_registry. A dynamic-path
+// binding (source None, raw path retained) resolves through the injected
+// PathStore resolver + format.unit conversion instead.
 static double metric_scalar(const MetricBinding &m, const boat::View &d) {
-    return metric_value(m.source, d);
+    if (m.source != MetricSource::None) return metric_value(m.source, d);
+    return dynamic_display_value(m, d);
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +733,24 @@ static void button_action_cb(lv_event_t *e) {
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
     if (!m) return;
     if (m->command && m->command[0]) {
+        // MIDL dialect split: a dotted, space-free target is a SignalK PATH
+        // (e.g. the Race screen's "steering.autopilot.tack"), not a console
+        // command — issue a SignalK PUT through the net-worker queue (the
+        // same mechanism autopilot.cpp/knob_menu use; sk::putValue accepts
+        // dotted paths). The space guard keeps console commands that carry
+        // dotted ARGUMENTS ("sk 192.168.1.5") on the dispatch funnel, and
+        // action.kind "put" is mapped onto this slot by map_element.
+        if (strchr(m->command, '.') && !strchr(m->command, ' ')) {
+            net::logf("[layout] button PUT path='%s'", m->command);
+            app::Command c;
+            c.type = app::CommandType::SignalKPut;
+            strncpy(c.a, m->command, sizeof(c.a) - 1);
+            // No authored value payload in the MIDL action block; `true` is
+            // the SignalK action-trigger convention (tack/gybe/silence).
+            strncpy(c.b, "true", sizeof(c.b) - 1);
+            app::post_net(c, 100);
+            return;
+        }
         net::logf("[layout] button command='%s'", m->command);
         net::dispatchCommand(m->command);
         return;
@@ -633,6 +886,15 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     if (h < 180 || has_extras) vfont = &lv_font_montserrat_48;
     if (h < 150) vfont = &lv_font_montserrat_38;
     if (h < 110) vfont = &lv_font_montserrat_28;
+    // style.size role (audit item 6): S/M/L/XL/Fill map onto the enabled font
+    // ladder {14,20,28,48,64}, overriding the height-based auto pick. The
+    // fullscreen-zoom hero keeps its transform-scale path regardless.
+    if (m.size_role >= 1 && m.size_role <= 5) {
+        static const lv_font_t *const kRoleFonts[5] = {
+            &lv_font_montserrat_14, &lv_font_montserrat_20, &lv_font_montserrat_28,
+            &lv_font_montserrat_48, &font_xl_64};
+        vfont = kRoleFonts[m.size_role - 1];
+    }
     if (fullscreen) vfont = &font_xl_64;  // hero scale needs the scalable digit font
     // Unit font: only 14/20 enabled to keep LVGL glyph cache off
     // internal heap (16/18 sizes blew int_largest from 7668 -> 1908 bytes
@@ -793,9 +1055,14 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // the AP-target / TWD diamonds so CTS and target stay distinguishable.
     int mcx, mcy;
     dial_center(w, h, mcx, mcy);
+    // Diamond slot: the built-in CTS marker (alarm), or — when the element
+    // authors a `bindings.dir` — the dir pointer in warn (web dial.ts renders
+    // dirDeg as the dashed warn pointer). Glyph colours are fixed at build
+    // (build_marker_ring contract); update feeds the matching value.
+    uint32_t diamond_color = binding_has_dir(m) ? theme.warn : theme.alarm;
     ui::MarkerSpec inner_markers[2] = {
         {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG
-        {NAN, ui::Glyph::Diamond, true, theme.alarm},    // CTS
+        {NAN, ui::Glyph::Diamond, true, diamond_color},  // CTS or bindings.dir
     };
     t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - 6, inner_markers, 2,
                                       /*occlude_lower=*/false);
@@ -987,6 +1254,40 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_obj_clear_flag(scale, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(scale, LV_OBJ_FLAG_SCROLLABLE);
 
+    // style.zones (audit item 4): static threshold bands ringing the gauge just
+    // outside the fill arc, each band spanning [prev lt, lt) of the authored
+    // range mapped onto the 270° sweep. Painted once at build; the LIVE fill +
+    // hero text colour additionally track the active zone in update (web
+    // parity: gaugeSvg fill uses zoneColor). Bands need a range to map display
+    // units to angles, so they only render on a ranged element.
+    if (ranged && m.zone_count > 0 && m.range_max > m.range_min) {
+        const float lo = m.range_min, span = m.range_max - m.range_min;
+        float prev = lo;
+        for (uint8_t zi = 0; zi < m.zone_count && zi < MAX_METRIC_ZONES; ++zi) {
+            float zlo = prev < lo ? lo : prev;
+            float zhi = m.zones[zi].lt > m.range_max ? m.range_max : m.zones[zi].lt;
+            prev = m.zones[zi].lt;
+            if (zhi <= zlo) continue;
+            int a0 = (135 + (int)lroundf((zlo - lo) / span * 270.0f)) % 360;
+            int a1 = (135 + (int)lroundf((zhi - lo) / span * 270.0f)) % 360;
+            lv_obj_t *band = lv_arc_create(t.root);
+            lv_obj_remove_style(band, NULL, LV_PART_KNOB);
+            lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
+            int bd = dia + 14;  // just outside the 10px fill arc, inside the tile
+            lv_obj_set_size(band, bd, bd);
+            lv_obj_align(band, LV_ALIGN_CENTER, 0, 4);
+            lv_arc_set_bg_angles(band, a0, a1);
+            lv_arc_set_angles(band, a0, a1);
+            uint32_t zc = zone_rgb(m.zones[zi], theme.accent);
+            lv_obj_set_style_arc_color(band, lv_color_hex(zc), LV_PART_MAIN);
+            lv_obj_set_style_arc_color(band, lv_color_hex(zc), LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(band, 4, LV_PART_MAIN);
+            lv_obj_set_style_arc_width(band, 4, LV_PART_INDICATOR);
+            lv_obj_set_style_arc_opa(band, LV_OPA_80, LV_PART_MAIN);
+            lv_obj_set_style_arc_opa(band, LV_OPA_80, LV_PART_INDICATOR);
+        }
+    }
+
     // Percent label is the gauge's hero number, sized to dominate the
     // arc's open bottom. NO second caption beneath - the chrome already
     // carries the metric label in the tile's top-left (removed the
@@ -1070,6 +1371,126 @@ static void paint_bar_body(QuadGridTile &t, const MetricBinding &m, int w, int h
     lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
     lv_obj_clear_flag(bar, LV_OBJ_FLAG_CLICKABLE);
     t.aux = bar;
+
+    // style.center (audit item 7): centre-zero deviation bar (XTE-style needle
+    // from the middle — web tiles.ts barSvg center branch; geometry borrowed
+    // from ui_compass build_centerzero_strip). The lv_bar stays as the static
+    // track (fill parked at 0); a dim centre tick marks zero and the needle
+    // (t.aux2) is repositioned in update from dev = (fraction - 0.5) * 2.
+    if (m.center_bar) {
+        lv_obj_t *mid = lv_obj_create(bar);
+        lv_obj_set_size(mid, 2, bar_h - 2);
+        lv_obj_set_pos(mid, bar_w / 2 - 1, 0);
+        lv_obj_set_style_bg_color(mid, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_set_style_bg_opa(mid, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(mid, 0, 0);
+        lv_obj_set_style_pad_all(mid, 0, 0);
+        lv_obj_set_style_radius(mid, 0, 0);
+        lv_obj_clear_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(mid, LV_OBJ_FLAG_CLICKABLE);
+
+        lv_obj_t *needle = lv_obj_create(bar);
+        lv_obj_set_size(needle, 4, bar_h - 2);
+        lv_obj_set_pos(needle, bar_w / 2 - 2, 0);
+        lv_obj_set_style_bg_color(needle, lv_color_hex(theme.good), 0);
+        lv_obj_set_style_bg_opa(needle, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(needle, 0, 0);
+        lv_obj_set_style_pad_all(needle, 0, 0);
+        lv_obj_set_style_radius(needle, 2, 0);
+        lv_obj_clear_flag(needle, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_clear_flag(needle, LV_OBJ_FLAG_CLICKABLE);
+        t.aux2 = needle;
+    }
+}
+
+// Shared Gauge/Bar tile refresh (update_quad_grid + update_freeform were
+// byte-identical here; one body keeps the two paths from diverging). Drives
+// the fill (or the centre-zero needle), the centre label, and the style.zones
+// threshold colour (web parity: fill + hero text follow the active zone).
+static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat::View &data) {
+    double scalar = metric_scalar(m, data);
+    // Honor an explicit MIDL format.range when present; legacy bindings
+    // (range_min==range_max) fall back to the built-in per-source heuristic.
+    double frac = binding_unit_fraction(m, scalar);
+    int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
+    bool bipolar = (t.kind == WidgetKind::Gauge) && gauge_is_bipolar(m);
+    bool center_bar = (t.kind == WidgetKind::Bar) && m.center_bar && t.aux2;
+    if (center_bar) {
+        // Centre-zero deviation needle: dev = (fraction - 0.5) * 2 in [-1, 1];
+        // NaN parks at centre (the web renderer's `fraction ?? 0.5`).
+        int cpct = isnan(frac) ? 50 : pct;
+        if (t.aux && cpct != t.last_aux_pct) {
+            int bw = lv_obj_get_width(t.aux) - 2;  // content width inside the 1px border
+            if (bw < 8) bw = 8;
+            double dev = (cpct / 100.0 - 0.5) * 2.0;
+            int x = (int)(bw / 2 + dev * (bw / 2.0)) - 2;
+            if (x < 0) x = 0;
+            if (x > bw - 4) x = bw - 4;
+            lv_obj_set_x(t.aux2, x);
+            t.last_aux_pct = cpct;
+        }
+    } else if (t.aux && pct != t.last_aux_pct) {
+        if (t.kind == WidgetKind::Gauge) {
+            // Bipolar gauge (range straddles zero, e.g. rudder [-35,35]):
+            // fill outward from the top-centre zero. Other gauges keep the
+            // standard left-anchored 0..100 fill.
+            if (bipolar)
+                gauge_set_bipolar_fill(t.aux, m, scalar);
+            else
+                lv_arc_set_value(t.aux, pct);
+        } else {
+            lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
+        }
+        t.last_aux_pct = pct;
+    }
+    // Center label. Legacy tiles (no explicit MIDL format.range) show the
+    // percent of the heuristic range, matching the editor preview. When the
+    // element carries an explicit format.range, show the actual scalar value
+    // (formatted to format.precision, or 0 dp by default) so a real gauge —
+    // e.g. rudder on [-35,35] — reads its true magnitude, not a percent. With
+    // format.side, the magnitude carries the P/S suffix instead of a sign.
+    char buf[24];
+    if (m.range_min != m.range_max) {
+        if (isnan(scalar))
+            snprintf(buf, sizeof(buf), "--");
+        else if (m.side) {
+            format_side_value(scalar, unit_is_angle(m.unit), m.precision, buf, sizeof(buf));
+        } else {
+            int dp = m.precision >= 0 ? m.precision : 0;
+            // Append the unit when authored. No separator before a
+            // glued unit ("%", "°"=UTF-8 0xC2 lead byte); a thin space
+            // before word units ("kn"/"V"/"m"). Keeps BATT reading "77%"
+            // and rudder "12°", not a bare "77"/"12".
+            snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
+                     (m.unit && m.unit[0])
+                         ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : "\xE2\x80\x89")
+                         : "",
+                     (m.unit && m.unit[0]) ? m.unit : "");
+        }
+    } else if (isnan(frac)) {
+        snprintf(buf, sizeof(buf), "--");
+    } else {
+        snprintf(buf, sizeof(buf), "%d%%", pct);
+    }
+    ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
+    // style.zones: the LIVE fill + hero text colour track the active band
+    // (first zone whose lt exceeds the display value; none -> painter default).
+    if (m.zone_count > 0) {
+        uint32_t fallback = (t.kind == WidgetKind::Bar) ? theme.good : value_color(m);
+        int zi = zone_pick(m.zones, m.zone_count, scalar);
+        uint32_t zc = (zi >= 0) ? zone_rgb(m.zones[zi], fallback) : fallback;
+        if (zc != t.last_zone_rgb) {
+            if (t.kind == WidgetKind::Gauge && t.aux) {
+                lv_obj_set_style_arc_color(t.aux, lv_color_hex(zc), LV_PART_INDICATOR);
+            } else if (center_bar) {
+                lv_obj_set_style_bg_color(t.aux2, lv_color_hex(zc), 0);
+            } else if (t.aux) {
+                lv_obj_set_style_bg_color(t.aux, lv_color_hex(zc), LV_PART_INDICATOR);
+            }
+            if (t.value) lv_obj_set_style_text_color(t.value, lv_color_hex(zc), 0);
+            t.last_zone_rgb = zc;
+        }
+    }
 }
 
 // Trend widget: current reading (hero number) above a rolling sparkline. The
@@ -1122,6 +1543,178 @@ static void paint_trend_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_chart_set_all_values(chart, s, LV_CHART_POINT_NONE);
     t.aux = chart;
     t.last_aux_pct = -1;  // unset; first real sample always pushes
+}
+
+// ---------------------------------------------------------------------------
+// Clinometer widget: horizontal-arc bubble level for heel angle. A 90° track
+// arc spans the top of the tile (LVGL 225°..315°, upright = 270° top-centre)
+// with a ±45° tick scale, a port-red band left of zero and a starboard-green
+// band right of zero (theme tokens, so day/night flips keep working). The
+// "bubble" indicator slides along the track to the current roll; the hero
+// number reads |heel|° with the P/S convention, and pitch rides the secondary
+// slot as a small readout. Default-binds to attitude roll when unauthored.
+// MIDL token "clinometer" is a firmware extension (not in the catalog yet).
+
+// Bubble orbit inset from the track arc's outer radius (px).
+static constexpr int CLINO_BUBBLE_INSET = 12;
+static constexpr int CLINO_ARC_Y_OFS = 10;  // arc centre offset below tile centre
+
+// Current roll in display degrees for a clinometer tile: the authored binding
+// when present (navigation.attitude bridges to Roll_deg), else the default
+// attitude-roll source.
+static double clino_roll_deg(const MetricBinding &m, const boat::View &d) {
+    if (m.source != MetricSource::None || (m.path && m.path[0])) return metric_scalar(m, d);
+    return metric_value(MetricSource::Roll_deg, d);
+}
+
+static void paint_clinometer_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    int dia = (w < h ? w : h) - 48;
+    if (dia < 96) dia = 96;
+
+    // Track arc across the top (indicator removed: the bubble is the needle).
+    lv_obj_t *arc = lv_arc_create(t.root);
+    lv_obj_set_size(arc, dia, dia);
+    lv_obj_align(arc, LV_ALIGN_CENTER, 0, CLINO_ARC_Y_OFS);
+    lv_arc_set_bg_angles(arc, 225, 315);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_remove_style(arc, NULL, LV_PART_INDICATOR);
+    lv_obj_clear_flag(arc, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(theme.grid), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(arc, true, LV_PART_MAIN);
+    t.aux = arc;
+
+    // Port (left, red) / starboard (right, green) bands just outside the
+    // track, with a small gap around the zero mark (same idiom as the gauge
+    // style.zones bands).
+    struct Band {
+        int a0, a1;
+        uint32_t rgb;
+    } bands[2] = {{225, 268, theme.port}, {272, 315, theme.starboard}};
+    for (const Band &b : bands) {
+        lv_obj_t *band = lv_arc_create(t.root);
+        lv_obj_remove_style(band, NULL, LV_PART_KNOB);
+        lv_obj_clear_flag(band, LV_OBJ_FLAG_CLICKABLE);
+        int bd = dia + 12;
+        lv_obj_set_size(band, bd, bd);
+        lv_obj_align(band, LV_ALIGN_CENTER, 0, CLINO_ARC_Y_OFS);
+        lv_arc_set_bg_angles(band, b.a0, b.a1);
+        lv_arc_set_angles(band, b.a0, b.a1);
+        lv_obj_set_style_arc_color(band, lv_color_hex(b.rgb), LV_PART_MAIN);
+        lv_obj_set_style_arc_color(band, lv_color_hex(b.rgb), LV_PART_INDICATOR);
+        lv_obj_set_style_arc_width(band, 4, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(band, 4, LV_PART_INDICATOR);
+        lv_obj_set_style_arc_opa(band, LV_OPA_80, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(band, LV_OPA_80, LV_PART_INDICATOR);
+    }
+
+    // ±45° tick scale ringing the track (labels at -45 / 0 / +45).
+    lv_obj_t *scale = lv_scale_create(t.root);
+    lv_obj_set_size(scale, dia, dia);
+    lv_obj_align(scale, LV_ALIGN_CENTER, 0, CLINO_ARC_Y_OFS);
+    lv_scale_set_mode(scale, LV_SCALE_MODE_ROUND_INNER);
+    lv_scale_set_angle_range(scale, 90);
+    lv_scale_set_rotation(scale, 225);
+    lv_scale_set_range(scale, -45, 45);
+    lv_scale_set_total_tick_count(scale, 7);  // every 15°
+    lv_scale_set_major_tick_every(scale, 3);
+    lv_scale_set_label_show(scale, true);
+    lv_obj_set_style_text_font(scale, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_color(scale, lv_color_hex(theme.fg_dim), LV_PART_MAIN);
+    lv_obj_set_style_length(scale, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_line_color(scale, lv_color_hex(theme.fg_dim), LV_PART_INDICATOR);
+    lv_obj_set_style_line_width(scale, 1, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(scale, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_arc_opa(scale, LV_OPA_TRANSP, 0);
+    lv_obj_clear_flag(scale, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(scale, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Bubble indicator (parked at top-centre until data arrives).
+    lv_obj_t *bubble = lv_obj_create(t.root);
+    lv_obj_set_size(bubble, 16, 16);
+    lv_obj_set_style_radius(bubble, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(bubble, lv_color_hex(theme.accent), 0);
+    lv_obj_set_style_bg_opa(bubble, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(bubble, 0, 0);
+    lv_obj_set_style_pad_all(bubble, 0, 0);
+    lv_obj_clear_flag(bubble, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(bubble, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_align(bubble, LV_ALIGN_CENTER, 0, CLINO_ARC_Y_OFS - (dia / 2 - CLINO_BUBBLE_INSET));
+    t.aux2 = bubble;
+
+    // Hero heel readout at the arc centre; pitch as the small secondary line.
+    const lv_font_t *vfont = (dia >= 150) ? &lv_font_montserrat_48 : &lv_font_montserrat_38;
+    if (h < 140) vfont = &lv_font_montserrat_28;
+    t.value = lv_label_create(t.root);
+    lv_label_set_text(t.value, "--");
+    lv_obj_set_style_text_font(t.value, vfont, 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
+    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, CLINO_ARC_Y_OFS + 6);
+    lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+
+    t.secondary = lv_label_create(t.root);
+    lv_label_set_text(t.secondary, "");
+    lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.fg_dim), 0);
+    lv_obj_align(t.secondary, LV_ALIGN_BOTTOM_MID, 0, -6);
+    lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
+
+    t.last_aux_pct = -1;  // deci-degree cache: first update always positions
+}
+
+// Shared quad-grid/freeform refresh for a Clinometer tile: bubble position +
+// hero heel text + pitch secondary. Bubble/text colour follows the heel side
+// (port red / starboard green from the theme), neutral accent when upright.
+static void update_clinometer(QuadGridTile &t, const MetricBinding &m, const boat::View &data) {
+    double roll = clino_roll_deg(m, data);
+    // Heel text: magnitude + P/S (see format_metric Roll_deg convention).
+    char buf[16];
+    if (isnan(roll)) {
+        snprintf(buf, sizeof(buf), "--");
+    } else if (fabs(roll) < 0.5) {
+        snprintf(buf, sizeof(buf), "0\xC2\xB0");
+    } else {
+        snprintf(buf, sizeof(buf), "%.0f\xC2\xB0%c", fabs(roll), roll > 0 ? 'S' : 'P');
+    }
+    ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
+
+    // Bubble: slide along the track to 270° + clamp(roll, ±45°). Dirty-guard
+    // on deci-degrees via last_aux_pct (offset by 900 to stay non-negative;
+    // -1 = never positioned).
+    if (t.aux && t.aux2) {
+        double c = isnan(roll) ? 0.0 : roll;
+        if (c < -45.0) c = -45.0;
+        if (c > 45.0) c = 45.0;
+        int deci = (int)lround(c * 10.0) + 900;
+        if (deci != t.last_aux_pct) {
+            int dia = lv_obj_get_width(t.aux);
+            int rb = dia / 2 - CLINO_BUBBLE_INSET;
+            double a = (270.0 + c) * M_PI / 180.0;  // LVGL degrees: cw, 0=3 o'clock
+            int dx = (int)lround(rb * cos(a));
+            int dy = (int)lround(rb * sin(a));
+            lv_obj_align(t.aux2, LV_ALIGN_CENTER, dx, CLINO_ARC_Y_OFS + dy);
+            t.last_aux_pct = deci;
+        }
+        uint32_t col = theme.accent;
+        if (!isnan(roll) && roll <= -0.5) col = theme.port;
+        if (!isnan(roll) && roll >= 0.5) col = theme.starboard;
+        if (col != t.last_zone_rgb) {
+            lv_obj_set_style_bg_color(t.aux2, lv_color_hex(col), 0);
+            if (t.value) lv_obj_set_style_text_color(t.value, lv_color_hex(col), 0);
+            t.last_zone_rgb = col;
+        }
+    }
+
+    // Pitch secondary (always the typed attitude pitch; +ve = bow up).
+    if (t.secondary) {
+        double pitch = metric_value(MetricSource::Pitch_deg, data);
+        char sec[24];
+        if (isnan(pitch))
+            snprintf(sec, sizeof(sec), "PITCH --");
+        else
+            snprintf(sec, sizeof(sec), "PITCH %.0f\xC2\xB0", pitch);
+        ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary), sec);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3180,6 +3773,9 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
     case WidgetKind::Trend:
         paint_trend_body(t, m, w, h);
         break;
+    case WidgetKind::Clinometer:
+        paint_clinometer_body(t, m, w, h);
+        break;
     case WidgetKind::Numeric:
     default:
         paint_numeric_body(t, m, w, h);
@@ -3243,7 +3839,7 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
             bool interactive =
                 mb.zoom_target
                     ? (layout::zoom_action(mb.zoomable, mb.zoom_target) != layout::ZOOM_NONE)
-                    : (mb.source != MetricSource::None);
+                    : (mb.source != MetricSource::None || (mb.path && mb.path[0]));
             if (interactive) {
                 lv_obj_add_flag(st->tiles[i].root, LV_OBJ_FLAG_CLICKABLE);
                 lv_obj_add_event_cb(st->tiles[i].root, tile_zoom_action_cb, LV_EVENT_CLICKED,
@@ -3272,56 +3868,11 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
         // Per-kind aux updates (gauge arc fill, bar fill).
         switch (t.kind) {
         case WidgetKind::Gauge:
-        case WidgetKind::Bar: {
-            double scalar = metric_scalar(m, data);
-            // Honor an explicit MIDL format.range when present; legacy bindings
-            // (range_min==range_max) fall back to the built-in per-source heuristic.
-            double frac = binding_unit_fraction(m, scalar);
-            int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
-            bool bipolar = (t.kind == WidgetKind::Gauge) && gauge_is_bipolar(m);
-            if (t.aux && pct != t.last_aux_pct) {
-                if (t.kind == WidgetKind::Gauge) {
-                    // Bipolar gauge (range straddles zero, e.g. rudder [-35,35]):
-                    // fill outward from the top-centre zero. Other gauges keep the
-                    // standard left-anchored 0..100 fill.
-                    if (bipolar)
-                        gauge_set_bipolar_fill(t.aux, m, scalar);
-                    else
-                        lv_arc_set_value(t.aux, pct);
-                } else {
-                    lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
-                }
-                t.last_aux_pct = pct;
-            }
-            // Center label. Legacy tiles (no explicit MIDL format.range) show the
-            // percent of the heuristic range, matching the editor preview. When the
-            // element carries an explicit format.range, show the actual scalar value
-            // (formatted to format.precision, or 0 dp by default) so a real gauge —
-            // e.g. rudder on [-35,35] — reads its true magnitude, not a percent.
-            char buf[24];
-            if (m.range_min != m.range_max) {
-                if (isnan(scalar))
-                    snprintf(buf, sizeof(buf), "--");
-                else {
-                    int dp = m.precision >= 0 ? m.precision : 0;
-                    // Append the unit when authored. No separator before a
-                    // glued unit ("%", "°"=UTF-8 0xC2 lead byte); a thin space
-                    // before word units ("kn"/"V"/"m"). Keeps BATT reading "77%"
-                    // and rudder "12°", not a bare "77"/"12".
-                    snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
-                             (m.unit && m.unit[0])
-                                 ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : "\xE2\x80\x89")
-                                 : "",
-                             (m.unit && m.unit[0]) ? m.unit : "");
-                }
-            } else if (isnan(frac)) {
-                snprintf(buf, sizeof(buf), "--");
-            } else {
-                snprintf(buf, sizeof(buf), "%d%%", pct);
-            }
-            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
+        case WidgetKind::Bar:
+            // Shared with update_freeform: fill / centre-zero needle, centre
+            // label, style.zones colour tracking. See update_gauge_bar.
+            update_gauge_bar(t, m, data);
             break;
-        }
         case WidgetKind::Autopilot:
             // Full-screen HUD: drives all of its own widgets from boat::View directly
             // (last_aux_pct == -2 sentinel set by paint_autopilot_body). Skips the
@@ -3366,14 +3917,18 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
             // after HDG/CTS so its hollow outline stays readable on top. All at
             // their true (north-up) bearings (reference=0), matching the static
             // N/E/S/W cardinals — this fixed-bezel tile is north-up, not heading-up.
+            // An authored `bindings.dir` retargets the diamond pointer (built in
+            // warn by paint_compass_body) at the dir source instead of CTS.
             {
                 MetricBinding hdg = {}, cog = {}, cts = {};
                 hdg.source = MetricSource::HDG_deg;
                 cog.source = MetricSource::COG_deg;
                 cts.source = MetricSource::CTS_deg;
+                double dia_deg =
+                    binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(cts, data);
                 ui::MarkerSpec inner[2] = {
                     {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
-                    {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
+                    {dia_deg, ui::Glyph::Diamond, true, theme.alarm},
                 };
                 ui::marker_ring_update(t.markers, inner, 2, /*reference=*/0.0);
                 ui::MarkerSpec outer[1] = {
@@ -3402,6 +3957,9 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
             }
             break;
         }
+        case WidgetKind::Clinometer:
+            update_clinometer(t, m, data);
+            break;
         default:
             // Full-screen wind dial / steering composite: drive all their own
             // widgets from boat::View directly (last_aux_pct == -2 sentinel set by
@@ -3417,9 +3975,10 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
             // Numeric, WindRose, Text fallback - all use
             // the value/secondary text slots populated by format_metric.
             if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri)) {
-                if (t.kind == WidgetKind::Numeric && m.extras_count == 0) {
+                if (t.kind == WidgetKind::Numeric && m.extras_count == 0 && m.size_role == 0) {
                     // Shrink the hero value to fit the tile (scaled k/M strings + a
-                    // P/S suffix can be wider than the big font allows).
+                    // P/S suffix can be wider than the big font allows). An
+                    // authored style.size role pins the font instead.
                     fit_value_font(t.value, pri, QG_TILE_W - 56);
                 } else if (t.kind == WidgetKind::Text) {
                     // Text tiles (e.g. POS lat/lon) overflow the 28 px font on a
@@ -3449,8 +4008,12 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
                 MetricBinding awa = {}, twa = {};
                 awa.source = MetricSource::AWA_deg;
                 twa.source = MetricSource::TWA_deg;
+                // An authored `bindings.dir` drives the warn pointer instead of
+                // the built-in AWA head (web dial dirDeg semantics).
+                double warn_deg =
+                    binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(awa, data);
                 ui::MarkerSpec wind[2] = {
-                    {metric_scalar(awa, data), ui::Glyph::ChevronIn, true, theme.warn},
+                    {warn_deg, ui::Glyph::ChevronIn, true, theme.warn},
                     {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
                 };
                 ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);  // bow-up rose
@@ -4879,7 +5442,7 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
         const MetricBinding &mb = spec.metrics[i];
         bool interactive =
             mb.zoom_target ? (layout::zoom_action(mb.zoomable, mb.zoom_target) != layout::ZOOM_NONE)
-                           : (mb.source != MetricSource::None);
+                           : (mb.source != MetricSource::None || (mb.path && mb.path[0]));
         if (interactive) {
             lv_obj_add_flag(st->tiles[i].tile.root, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb(st->tiles[i].tile.root, tile_zoom_action_cb, LV_EVENT_CLICKED,
@@ -4907,53 +5470,11 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
         // Per-kind aux updates — mirrors update_quad_grid exactly.
         switch (t.kind) {
         case WidgetKind::Gauge:
-        case WidgetKind::Bar: {
-            double scalar = metric_scalar(m, data);
-            // Honor an explicit MIDL format.range when present; legacy bindings
-            // (range_min==range_max) fall back to the built-in per-source heuristic.
-            double frac = binding_unit_fraction(m, scalar);
-            int pct = isnan(frac) ? 0 : (int)(frac * 100.0 + 0.5);
-            bool bipolar = (t.kind == WidgetKind::Gauge) && gauge_is_bipolar(m);
-            if (t.aux && pct != t.last_aux_pct) {
-                if (t.kind == WidgetKind::Gauge) {
-                    // Bipolar gauge (range straddles zero): centre-anchored fill.
-                    if (bipolar)
-                        gauge_set_bipolar_fill(t.aux, m, scalar);
-                    else
-                        lv_arc_set_value(t.aux, pct);
-                } else {
-                    lv_bar_set_value(t.aux, pct, LV_ANIM_OFF);
-                }
-                t.last_aux_pct = pct;
-            }
-            // Center label. Mirrors update_quad_grid: a ranged element (explicit
-            // MIDL format.range) shows the actual scalar to format.precision so a
-            // real gauge — e.g. rudder on [-35,35] — reads its true magnitude;
-            // legacy/default-range tiles keep the "%d%%" percent of the heuristic
-            // range, matching the editor preview.
-            char buf[24];
-            if (m.range_min != m.range_max) {
-                if (isnan(scalar))
-                    snprintf(buf, sizeof(buf), "--");
-                else {
-                    int dp = m.precision >= 0 ? m.precision : 0;
-                    // Append the unit when authored — mirrors update_quad_grid.
-                    // No separator before a glued unit ("%", "°"=UTF-8 0xC2 lead
-                    // byte); a thin space before word units ("kn"/"V"/"m").
-                    snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
-                             (m.unit && m.unit[0])
-                                 ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : "\xE2\x80\x89")
-                                 : "",
-                             (m.unit && m.unit[0]) ? m.unit : "");
-                }
-            } else if (isnan(frac)) {
-                snprintf(buf, sizeof(buf), "--");
-            } else {
-                snprintf(buf, sizeof(buf), "%d%%", pct);
-            }
-            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
+        case WidgetKind::Bar:
+            // Shared with update_quad_grid: fill / centre-zero needle, centre
+            // label, style.zones colour tracking. See update_gauge_bar.
+            update_gauge_bar(t, m, data);
             break;
-        }
         case WidgetKind::Autopilot:
             // Full-screen HUD: drives its own widgets from boat::View
             // (last_aux_pct == -2 sentinel set by paint_autopilot_body). This is
@@ -4993,14 +5514,18 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
             }
             // HDG/CTS inner ring + COG outer ring (mirrors update_quad_grid): the
             // two-ring split keeps an HDG≈COG overlap from merging into one glyph.
+            // An authored `bindings.dir` retargets the diamond pointer at the dir
+            // source instead of CTS (mirrors update_quad_grid).
             {
                 MetricBinding hdg = {}, cog = {}, cts = {};
                 hdg.source = MetricSource::HDG_deg;
                 cog.source = MetricSource::COG_deg;
                 cts.source = MetricSource::CTS_deg;
+                double dia_deg =
+                    binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(cts, data);
                 ui::MarkerSpec inner[2] = {
                     {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
-                    {metric_scalar(cts, data), ui::Glyph::Diamond, true, theme.alarm},
+                    {dia_deg, ui::Glyph::Diamond, true, theme.alarm},
                 };
                 ui::marker_ring_update(t.markers, inner, 2, /*reference=*/0.0);
                 ui::MarkerSpec outer[1] = {
@@ -5029,6 +5554,10 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
             }
             break;
         }
+        case WidgetKind::Clinometer:
+            // Mirrors update_quad_grid.
+            update_clinometer(t, m, data);
+            break;
         default:
             // Full-screen wind dial / steering composite: drive their own widgets
             // from boat::View (last_aux_pct == -2 sentinel). This is the freeform
@@ -5047,9 +5576,11 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                     // Fullscreen hero: re-fit the transform_scale to the new value
                     // width (1-digit scales bigger than 3-digit; see fit_hero_scale).
                     fit_hero_scale(t.value, pri, t.hero_h, t.hero_max_w);
-                } else if (t.kind == WidgetKind::Numeric && m.extras_count == 0) {
+                } else if (t.kind == WidgetKind::Numeric && m.extras_count == 0 &&
+                           m.size_role == 0) {
                     // Use the tile's own width (solver may pick a rect different
                     // from the fixed QG_TILE_W). -56 matches the QuadGrid margin.
+                    // An authored style.size role pins the font instead.
                     fit_value_font(t.value, pri, st->tiles[i].tile_w - 56);
                 } else if (t.kind == WidgetKind::Text) {
                     // Text tiles overflow on narrow (160 px) freeform tiles; pick
@@ -5072,8 +5603,12 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 MetricBinding awa = {}, twa = {};
                 awa.source = MetricSource::AWA_deg;
                 twa.source = MetricSource::TWA_deg;
+                // An authored `bindings.dir` drives the warn pointer instead of
+                // the built-in AWA head (mirrors update_quad_grid).
+                double warn_deg =
+                    binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(awa, data);
                 ui::MarkerSpec wind[2] = {
-                    {metric_scalar(awa, data), ui::Glyph::ChevronIn, true, theme.warn},
+                    {warn_deg, ui::Glyph::ChevronIn, true, theme.warn},
                     {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
                 };
                 ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);

@@ -19,7 +19,7 @@ bool clamp_ui(UiConfig &c) {
         c.pos_format = PosFormat::DDM;
         ok = false;
     }
-    if ((uint8_t)c.theme > (uint8_t)Theme::Day) {
+    if ((uint8_t)c.theme > (uint8_t)Theme::Classic) {
         c.theme = Theme::Night;
         ok = false;
     }
@@ -68,13 +68,28 @@ bool clamp_signalk(SignalKConfig &c) {
 }
 
 const char *theme_name(Theme t) {
-    return t == Theme::Day ? "day" : "night";
+    switch (t) {
+    case Theme::Night:
+        return "night";
+    case Theme::Day:
+        return "day";
+    case Theme::HighContrast:
+        return "high-contrast";
+    case Theme::RedNight:
+        return "red-night";
+    case Theme::Classic:
+        return "classic";
+    }
+    return "night";
 }
 
 Theme parse_theme(const char *s, Theme fallback) {
     if (!s) return fallback;
     if (strcmp(s, "day") == 0) return Theme::Day;
     if (strcmp(s, "night") == 0) return Theme::Night;
+    if (strcmp(s, "high-contrast") == 0) return Theme::HighContrast;
+    if (strcmp(s, "red-night") == 0) return Theme::RedNight;
+    if (strcmp(s, "classic") == 0) return Theme::Classic;
     return fallback;
 }
 

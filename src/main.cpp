@@ -2114,22 +2114,25 @@ static bool handleMainCommand(const String &line) {
         net::logf("brightness -> %u/255", (unsigned)ui::brightness());
         return true;
     }
+    if (line == "theme") {
+        net::logf("[ui] theme = %s", ui::theme_id());
+        return true;
+    }
     if (line.startsWith("theme ")) {
         String v = line.substring(6);
         v.trim();
-        if (v == "day") {
-            ui::use_day();
-            net::logf("[ui] theme -> day (reboot to repaint)");
-        } else if (v == "night") {
-            ui::use_night();
-            net::logf("[ui] theme -> night (reboot to repaint)");
-        } else {
-            net::logf("usage: theme day|night");
+        // Validate here (pure check — this handler can run on the BLE task),
+        // then hand off to the pump: the SetTheme case flips the palette,
+        // persists it, and rebuilds the built screens live (no reboot).
+        // "auto" is a legacy token the pump persists without a palette flip.
+        if (!ui::theme_known(v.c_str()) && v != "auto") {
+            net::logf("usage: theme day|night|high-contrast|red-night|classic");
+            return true;
         }
-        {
-            storage::Namespace p("ui", false);
-            p.put_string("theme", v.c_str());
-        }
+        app::Command cmd;
+        cmd.type = app::CommandType::SetTheme;
+        strncpy(cmd.a, v.c_str(), sizeof(cmd.a) - 1);
+        if (!app::post(cmd)) net::logf("[ui] theme: ui queue full");
         return true;
     }
     // Control-protocol identity: the controller color (this device's colored
@@ -2237,11 +2240,12 @@ static void ui_refresh(lv_timer_t *) {
     // SK-age channel: record how stale sk::data was at the moment the
     // active screen read it. Only sample when SK has produced at least
     // one delta and isn't currently in steady-disconnected state.
+    // boat::last_update_ms() reads just the link timestamp - no full
+    // boat::compose() of every metric field for one uint32_t.
     {
-        boat::View d_snap;
-        boat::current_view(d_snap);
-        if (d_snap.lastUpdateMs) {
-            uint32_t age_ms = millis() - d_snap.lastUpdateMs;
+        uint32_t last_update = boat::last_update_ms();
+        if (last_update) {
+            uint32_t age_ms = millis() - last_update;
             // 1 hour cap so a never-updated reading doesn't pin max.
             if (age_ms < 3600000) {
                 latency::record(latency::Channel::SkAge, age_ms * 1000);

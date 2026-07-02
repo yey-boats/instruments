@@ -52,16 +52,55 @@ SolveStatus solve_split(JsonVariantConst node, Rect area, int depth, PlacementSe
     return SOLVE_OK;
 }
 
+// A grid SPACER cell: an object with none of element/preset/children/cells
+// (midl types.ts Node union: `{ colSpan?, rowSpan? }`). It occupies its grid
+// slots (spans honored) but emits no placement — ts/src/solve.ts yields [] for
+// such nodes.
+bool is_grid_spacer(JsonVariantConst node) {
+    return !node["element"].is<const char *>() && !node["preset"].is<const char *>() &&
+           !node["children"].is<JsonArrayConst>() && !node["cells"].is<JsonArrayConst>();
+}
+
+// Grid with colSpan/rowSpan + spacer cells. Occupancy tracking mirrors
+// ts/src/solve.ts:44-64 exactly: a spanned cell marks all covered slots
+// occupied; subsequent cells skip occupied slots; extra cells past the last
+// free slot are ignored. When every span is 1 (or absent) this degenerates to
+// the original row-major walk and produces byte-identical rects. Cell edges go
+// through the shared boundary() so a 2-span cell ends exactly where the next
+// 1-span column begins (integer remainder distribution, no gaps/overlap).
 SolveStatus solve_grid(JsonVariantConst node, Rect area, int depth, PlacementSet &out) {
     int rows = node["rows"] | 0, cols = node["cols"] | 0;
     JsonArrayConst cells = node["cells"].as<JsonArrayConst>();
     if (rows <= 0 || cols <= 0 || cells.isNull()) return SOLVE_BAD_NODE;
-    if ((int)cells.size() != rows * cols) return SOLVE_BAD_NODE;  // row-major, full
-    for (int i = 0; i < (int)cells.size(); i++) {
-        int r = i / cols, c = i % cols;
-        int x0 = area.x + boundary(area.w, c, cols), x1 = area.x + boundary(area.w, c + 1, cols);
-        int y0 = area.y + boundary(area.h, r, rows), y1 = area.y + boundary(area.h, r + 1, rows);
-        SolveStatus s = solve_node(cells[i], Rect{x0, y0, x1 - x0, y1 - y0}, depth + 1, out);
+    // Fixed-size occupancy map: 64 bytes per grid frame is safe on the 8 KB
+    // solver stack even at max nesting depth. Larger grids are rejected (a
+    // 64-slot grid already dwarfs max_tiles_per_screen).
+    constexpr int kMaxSlots = 64;
+    const int total_slots = rows * cols;
+    if (total_slots > kMaxSlots) return SOLVE_BAD_NODE;
+    bool occupied[kMaxSlots] = {};
+    int slot = 0;  // next candidate slot, row-major
+    for (JsonVariantConst child : cells) {
+        while (slot < total_slots && occupied[slot])
+            slot++;
+        if (slot >= total_slots) break;  // more cells than free slots (TS parity)
+        int r = slot / cols, c = slot % cols;
+        // Optional spans, clamped to the remaining grid space (TS parity). A
+        // missing/degenerate span is 1.
+        int cs = child["colSpan"] | 1, rs = child["rowSpan"] | 1;
+        if (cs < 1) cs = 1;
+        if (rs < 1) rs = 1;
+        if (cs > cols - c) cs = cols - c;
+        if (rs > rows - r) rs = rows - r;
+        for (int dr = 0; dr < rs; dr++) {
+            for (int dc = 0; dc < cs; dc++) {
+                occupied[(r + dr) * cols + (c + dc)] = true;
+            }
+        }
+        if (is_grid_spacer(child)) continue;  // occupies slots, renders nothing
+        int x0 = area.x + boundary(area.w, c, cols), x1 = area.x + boundary(area.w, c + cs, cols);
+        int y0 = area.y + boundary(area.h, r, rows), y1 = area.y + boundary(area.h, r + rs, rows);
+        SolveStatus s = solve_node(child, Rect{x0, y0, x1 - x0, y1 - y0}, depth + 1, out);
         if (s != SOLVE_OK) return s;
     }
     return SOLVE_OK;

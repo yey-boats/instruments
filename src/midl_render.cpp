@@ -4,6 +4,7 @@
 
 #include "midl_render.h"
 #include "layout_renderer.h"  // ui::layout_render::path_to_source
+#include "midl_limits.h"      // midl::FirmwareLimits::path_len
 
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,7 @@ namespace midl::render {
 using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
 using ui::layouts::WidgetKind;
+using ui::layouts::ZoneColor;
 
 // NOTE: This map is SEPARATE from ui::layout_render::widget_to_kind (metric_source_map.cpp).
 // It handles MIDL lowercase tokens ("single-value","windrose") emitted by the MIDL editor;
@@ -23,6 +25,9 @@ WidgetKind token_to_kind(const char *t) {
     if (!strcmp(t, "compass")) return WidgetKind::Compass;
     if (!strcmp(t, "windrose")) return WidgetKind::WindRose;
     if (!strcmp(t, "windsteer")) return WidgetKind::WindSteer;
+    // Firmware extension token — "clinometer" is NOT in the midl catalog yet
+    // (upstream follow-up); the schema allows unknown types with a warning.
+    if (!strcmp(t, "clinometer")) return WidgetKind::Clinometer;
     if (!strcmp(t, "gauge")) return WidgetKind::Gauge;
     if (!strcmp(t, "bar")) return WidgetKind::Bar;
     if (!strcmp(t, "autopilot")) return WidgetKind::Autopilot;
@@ -39,6 +44,43 @@ static void copy32(char *dst, const char *src) {
     }
     strncpy(dst, src, 31);
     dst[31] = 0;
+}
+
+// Copy a raw SignalK path into a caller-owned FirmwareLimits::path_len buffer.
+static void copy_path(char *dst, const char *src) {
+    constexpr size_t cap = midl::FirmwareLimits::path_len;
+    if (!src) {
+        dst[0] = 0;
+        return;
+    }
+    strncpy(dst, src, cap - 1);
+    dst[cap - 1] = 0;
+}
+
+// Parse "#rrggbb" into rgb; returns true on a well-formed literal.
+static bool parse_hex_color(const char *cs, uint32_t &rgb) {
+    if (!cs || cs[0] != '#' || strlen(cs) != 7) return false;
+    char *end = nullptr;
+    unsigned long v = strtoul(cs + 1, &end, 16);
+    if (end != cs + 7) return false;
+    rgb = (uint32_t)v;
+    return true;
+}
+
+// Map a MIDL zone/marker colour string (theme token or "#rrggbb") to the
+// palette-independent ZoneColor encoding the painter resolves at draw time.
+static ZoneColor parse_zone_color(const char *cs, uint32_t &rgb) {
+    rgb = 0;
+    if (!cs || !cs[0]) return ZoneColor::Default;
+    if (cs[0] == '#') return parse_hex_color(cs, rgb) ? ZoneColor::Literal : ZoneColor::Default;
+    if (!strcmp(cs, "accent")) return ZoneColor::Accent;
+    if (!strcmp(cs, "warn")) return ZoneColor::Warn;
+    if (!strcmp(cs, "alarm") || !strcmp(cs, "bad") || !strcmp(cs, "danger"))
+        return ZoneColor::Alarm;
+    if (!strcmp(cs, "good")) return ZoneColor::Good;
+    if (!strcmp(cs, "port")) return ZoneColor::Port;
+    if (!strcmp(cs, "starboard")) return ZoneColor::Starboard;
+    return ZoneColor::Default;
 }
 
 JsonVariantConst select_screen(JsonVariantConst doc, const char *screen_id, const char **out_id) {
@@ -82,11 +124,14 @@ JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element
 }
 
 bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out, char *id_buf,
-                 char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf) {
+                 char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf, char *path_buf,
+                 char *dir_buf) {
     if (!el.is<JsonObjectConst>()) return false;
     memset(&out, 0, sizeof(out));
     if (action_buf) action_buf[0] = 0;
     if (zoom_buf) zoom_buf[0] = 0;
+    if (path_buf) path_buf[0] = 0;
+    if (dir_buf) dir_buf[0] = 0;
     copy32(id_buf, element_id);
     const char *name = el["name"] | element_id;
     copy32(label_buf, name);
@@ -95,24 +140,90 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     out.label = label_buf;
     out.unit = unit_buf;
     out.kind = token_to_kind(el["type"] | "");
-    out.source = ui::layout_render::path_to_source(el["bindings"]["value"]["path"] | "");
+    // bindings.value: enum bridge first. On a miss, RETAIN the raw path (audit
+    // item 8): the dynamic PathStore + widget_data::resolve_numeric can serve
+    // any numeric SignalK path, so the widget resolves through the injected
+    // dynamic resolver instead of dropping to None + "--". format.unit (already
+    // in unit_buf) drives the SI -> display conversion in the painter.
+    const char *vpath = el["bindings"]["value"]["path"] | "";
+    out.source = ui::layout_render::path_to_source(vpath);
+    if (out.source == MetricSource::None && vpath[0] && path_buf) {
+        copy_path(path_buf, vpath);
+        out.path = path_buf;
+    }
+    // bindings.dir (audit item 3): a second source steering the dial pointer
+    // (compass/windrose) independently of the centre value — midl types.ts:24;
+    // the web dial renders it as the dashed warn pointer (dirDeg).
+    const char *dpath = el["bindings"]["dir"]["path"] | "";
+    out.dir_source = ui::layout_render::path_to_source(dpath);
+    if (out.dir_source == MetricSource::None && dpath[0] && dir_buf) {
+        copy_path(dir_buf, dpath);
+        out.dir_path = dir_buf;
+    }
     // Optional per-element scaling/formatting from the MIDL `format` block.
     // Defaults (set by the memset above): range_min==range_max==0 means "painter
     // uses its built-in default range"; precision==-1 means "painter default".
     out.range_min = 0;
     out.range_max = 0;
     out.precision = -1;
-    // format.range is a 2-element [min,max] array; only honor a well-formed pair.
+    // range is a 2-element [min,max] array. The schema places it under `style`
+    // (the canonical library docs author style.range); the editor historically
+    // emitted format.range, which wins when both are present (back-compat).
     JsonArrayConst rng = el["format"]["range"].as<JsonArrayConst>();
+    if (rng.isNull() || rng.size() != 2) rng = el["style"]["range"].as<JsonArrayConst>();
     if (!rng.isNull() && rng.size() == 2) {
         out.range_min = rng[0] | 0.0f;
         out.range_max = rng[1] | 0.0f;
     }
-    // format.precision is a decimal-places count; only honor non-negative ints.
-    JsonVariantConst prec = el["format"]["precision"];
+    // Decimal places: `decimals` is the canonical MIDL key (what the web
+    // formatValue reads — types.ts documents `precision` as its alias), so
+    // decimals wins when both are present. Only non-negative ints are honored.
+    JsonVariantConst prec = el["format"]["decimals"];
+    if (!prec.is<int>()) prec = el["format"]["precision"];
     if (prec.is<int>()) {
         int p = prec.as<int>();
         if (p >= 0 && p <= 127) out.precision = (int8_t)p;
+    }
+    // format.side (audit item 5): truthy = boolean true or a non-empty string
+    // (the design's "port-stbd"), mirroring web model.ts sideEnabled().
+    JsonVariantConst side = el["format"]["side"];
+    out.side = (side.is<bool>() && side.as<bool>()) ||
+               (side.is<const char *>() && (side.as<const char *>())[0] != 0);
+    // style.size role (audit item 6): S/M/L/XL/Fill -> 1..5 (the painter maps
+    // onto the enabled font ladder {14,20,28,48,64}). Legacy numeric px sizes
+    // stay 0 = auto (the height-based ladder pick).
+    JsonVariantConst sz = el["style"]["size"];
+    if (sz.is<const char *>()) {
+        const char *s = sz.as<const char *>();
+        if (!strcmp(s, "S"))
+            out.size_role = 1;
+        else if (!strcmp(s, "M"))
+            out.size_role = 2;
+        else if (!strcmp(s, "L"))
+            out.size_role = 3;
+        else if (!strcmp(s, "XL"))
+            out.size_role = 4;
+        else if (!strcmp(s, "Fill"))
+            out.size_role = 5;
+    }
+    // style.center (audit item 7): presence turns a bar into a centre-zero
+    // deviation needle (web tiles.ts barSvg keys on `center != null`; the
+    // numeric value itself is not used — deviation is around the range middle).
+    out.center_bar = el["style"]["center"].is<float>();
+    // style.zones (audit item 4): ordered threshold colour bands. Colours are
+    // theme tokens or #rrggbb literals; resolution against the live palette
+    // happens in the painter (zone_rgb) so day/night flips keep working.
+    JsonArrayConst zones = el["style"]["zones"].as<JsonArrayConst>();
+    if (!zones.isNull()) {
+        for (JsonVariantConst z : zones) {
+            if (out.zone_count >= ui::layouts::MAX_METRIC_ZONES) break;
+            JsonVariantConst lt = z["lt"];
+            if (!lt.is<float>()) continue;  // schema requires a numeric lt
+            ui::layouts::MetricZone &mz = out.zones[out.zone_count];
+            mz.lt = lt.as<float>();
+            mz.color = parse_zone_color(z["color"] | "", mz.rgb);
+            ++out.zone_count;
+        }
     }
     // style.color may be "#rrggbb" hex string (MIDL editor) or an integer; default 0
     // (painter uses theme default).
@@ -121,13 +232,9 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     if (col.is<unsigned>()) {
         out.accent = col.as<unsigned>();
     } else if (col.is<const char *>()) {
-        const char *cs = col.as<const char *>();
         // Accept only "#" followed by exactly 6 hex digits; reject malformed strings.
-        if (cs && cs[0] == '#' && strlen(cs) == 7) {
-            char *end = nullptr;
-            unsigned long v = strtoul(cs + 1, &end, 16);
-            if (end == cs + 7) out.accent = (uint32_t)v;
-        }
+        uint32_t rgb = 0;
+        if (parse_hex_color(col.as<const char *>(), rgb)) out.accent = rgb;
     }
     // Per-element `zoom` (tap-to-fullscreen). Three shapes:
     //   absent      -> DEFAULT: every value/instrument tile is zoomable to its
@@ -152,7 +259,10 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     // instead: zoom_action(zoomable=false, "") == ZOOM_NONE, so the tile is wired
     // non-interactive. The fullscreen-self default/true case keeps nullptr.
     JsonVariantConst zoom = el["zoom"];
-    bool self_zoomable = (out.kind != WidgetKind::Button && out.source != MetricSource::None);
+    // A dynamic-path binding (source None but path retained) is a real value
+    // tile: it zooms and stays tappable exactly like an enum-source tile.
+    bool has_value = out.source != MetricSource::None || (out.path && out.path[0]);
+    bool self_zoomable = (out.kind != WidgetKind::Button && has_value);
     out.zoomable = self_zoomable;
     out.zoom_target = self_zoomable ? nullptr /* fullscreen-self */
                                     : (zoom_buf ? zoom_buf : nullptr) /* "" -> ZOOM_NONE */;
@@ -183,7 +293,11 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
                 copy32(action_buf, target);
                 if (!strcmp(kind, "nav")) {
                     out.target_screen = action_buf;
-                } else if (!strcmp(kind, "command")) {
+                } else if (!strcmp(kind, "command") || !strcmp(kind, "put")) {
+                    // "put" (SignalK PUT to a dotted path) rides the command
+                    // slot; button_action_cb routes a dotted, space-free
+                    // target through the SignalK PUT queue instead of the
+                    // console-command funnel (Race-screen tack dialect).
                     out.command = action_buf;
                 }
             }

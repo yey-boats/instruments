@@ -3,8 +3,10 @@
 // Pure-C++ integer layout solver for resolved single-class MIDL documents.
 // Walks a layout node tree (leaf | split{dir|flow,children,weights} |
 // grid{rows,cols,cells} | preset) and assigns an integer pixel rect to each
-// leaf. Deterministic remainder distribution so this matches the web/Canvas
-// renderer pixel-for-pixel (spec §3.3 "Layout solving contract").
+// leaf. Grid cells honor colSpan/rowSpan and spacer cells (occupancy tracking
+// per ts/src/solve.ts). Deterministic remainder distribution so this matches
+// the web/Canvas renderer pixel-for-pixel (spec §3.3 "Layout solving
+// contract").
 //
 // Host-testable: depends only on ArduinoJson. The device feeds it a
 // PSRAM-allocated JsonDocument; recursion is bounded by midl::MAX_LAYOUT_DEPTH

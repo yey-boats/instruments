@@ -96,6 +96,10 @@ void build_manifest(JsonObject out) {
     JsonArray controls = out["controls"].to<JsonArray>();
     controls.add("autopilot");
 
+    // Advertised theme list mirrors the upstream MIDL catalog (all three are
+    // implemented in ui_theme.cpp). The firmware-extra skins (red-night,
+    // classic) are intentionally NOT listed here: the manifest must stay in
+    // lockstep with the catalog — adding them upstream is a midl-repo task.
     JsonArray themes = out["themes"].to<JsonArray>();
     themes.add("day");
     themes.add("night");

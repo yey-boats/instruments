@@ -38,8 +38,9 @@
 #include "midl_solve.h"  // midl::solve_screen, PlacementSet, SolveStatus, SOLVE_OK
 #include "ui_layouts.h"  // ui::layouts::create_freeform, update_freeform, ScreenVariantSpec, Rect
 #include "ui_screens.h"  // ui::Screen, register_screen, replace_screen, MAX_SCREENS
-#include "signalk.h"     // boat::current_view, boat::View
-#include "net.h"         // net::logf
+#include "signalk.h"     // boat::current_view, boat::View, sk::dynamicStore
+#include "widget_data_resolver.h"  // widget_data::resolve_numeric (dynamic-path fallback)
+#include "net.h"                   // net::logf
 
 #include "esp_heap_caps.h"
 
@@ -67,16 +68,19 @@ using ui::layouts::TemplateId;
 // capturing any stack variable.
 // ---------------------------------------------------------------------------
 
-static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // 4
+static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // spec-derived (9)
 static constexpr size_t STR_CAP = midl::FirmwareLimits::str_len;                 // 32
+static constexpr size_t PATH_CAP = midl::FirmwareLimits::path_len;               // 96
 
 struct MidlScreenArena {
     // String storage backing the MetricBinding non-owning pointers.
     char ids[MAX_TILES][STR_CAP];
     char labels[MAX_TILES][STR_CAP];
     char units[MAX_TILES][STR_CAP];
-    char actions[MAX_TILES][STR_CAP];  // button action target (nav/command)
-    char zooms[MAX_TILES][STR_CAP];    // per-element zoom screen id (string form)
+    char actions[MAX_TILES][STR_CAP];     // button action target (nav/command)
+    char zooms[MAX_TILES][STR_CAP];       // per-element zoom screen id (string form)
+    char paths[MAX_TILES][PATH_CAP];      // raw SignalK path (dynamic-store fallback)
+    char dir_paths[MAX_TILES][PATH_CAP];  // raw `bindings.dir` path (dial pointer)
 
     // The MetricBinding table passed to create_freeform / update_freeform.
     MetricBinding metrics[MAX_TILES];
@@ -216,7 +220,8 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
         JsonVariantConst el = find_element(elements_node, pl.element);
 
         bool ok = map_element(el, pl.element, arena.metrics[i], arena.ids[i], arena.labels[i],
-                              arena.units[i], arena.actions[i], arena.zooms[i]);
+                              arena.units[i], arena.actions[i], arena.zooms[i], arena.paths[i],
+                              arena.dir_paths[i]);
         if (!ok) {
             // Unknown element: leave as zero-init MetricBinding (None source -> "--").
             // Copy at least the id so the tile chrome shows something.
@@ -405,6 +410,12 @@ static void zoom_to_fullscreen(const MetricBinding &m) {
     zm.id = za->ids[0];
     zm.label = za->labels[0];
     zm.unit = za->units[0];
+    // Dynamic-path pointers also alias the source arena; deep-copy them too so
+    // the zoomed tile keeps resolving after a later apply_all rebuild.
+    strncpy(za->paths[0], m.path ? m.path : "", PATH_CAP - 1);
+    strncpy(za->dir_paths[0], m.dir_path ? m.dir_path : "", PATH_CAP - 1);
+    zm.path = za->paths[0][0] ? za->paths[0] : nullptr;
+    zm.dir_path = za->dir_paths[0][0] ? za->dir_paths[0] : nullptr;
     // The zoomed tile must NOT re-zoom (tap returns instead). zoomable=false with a
     // non-null zoom_target makes create_freeform's interactivity check resolve to
     // ZOOM_NONE, so it wires no tap on the tile — the root back handler owns taps.
@@ -490,8 +501,20 @@ static void zoom_to_fullscreen(const MetricBinding &m) {
 //
 // Returns the number of screens successfully built.
 // ---------------------------------------------------------------------------
+// Dynamic-path resolver injected into the painters (ui::layouts). Raw SI value
+// via the typed-alias table with a PathStore fallback (step 3 of the widget
+// data resolution order); the painter applies the format.unit conversion.
+static double midl_dynamic_resolve(const char *path, const boat::View &d) {
+    return widget_data::resolve_numeric(path, d, &sk::dynamicStore());
+}
+
 size_t apply_all(JsonVariantConst doc) {
     if (!arenas()) return 0;  // PSRAM alloc failed; logged in arenas()
+
+    // Install the dynamic-path resolver so bindings outside the enum bridge
+    // (MetricBinding.path) render through the PathStore instead of "--".
+    // Idempotent file-static handoff, same pattern as the zoom handler below.
+    ui::layouts::set_dynamic_resolver(midl_dynamic_resolve);
 
     // Install the fullscreen-zoom handler so a tap on any zoomable MIDL tile
     // (zoom_target == nullptr) builds the transient full-screen view. Idempotent;
