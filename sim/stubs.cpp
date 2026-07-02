@@ -54,7 +54,18 @@ void logf(const char *, ...) {
 }
 void logf_at(LogLevel, const char *, ...) {
 }
+// ui_layouts.cpp button/tile callbacks funnel user input through
+// net::dispatchCommand. The sim renders a static frame and never dispatches, so
+// this just needs to resolve.
+bool dispatchCommand(const String &) {
+    return false;
+}
 }  // namespace net
+
+// ui_layouts.cpp click handlers reference the global drag-suppression flag
+// (defined in main.cpp on device). No pointer input runs in the sim, so a
+// plain definition satisfies the link.
+volatile bool g_pointer_dragging = false;
 
 namespace ui {
 bool show_by_id(const char *) {
