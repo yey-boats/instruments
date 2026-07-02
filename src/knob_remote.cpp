@@ -322,7 +322,12 @@ bool fetch_views_for(int dev_idx) {
     // DeviceRecord: IP reads GET /api/p2p/device; BLE reads the DEVICE
     // characteristic via an on-demand connect (proto_ble::get_device_on_peer).
     if (transport == Transport::IP || transport == Transport::BLE) {
-        proto::DeviceRecord rec{};
+        // DeviceRecord is ~1.5 KB (transports[16][24] + 7x char[48]); keep it off
+        // the worker-task stack per the CLAUDE.md large-struct trap. knob_remote
+        // fetch/switch run single-flight on the worker task, so a function-static
+        // scratch is race-free.
+        static proto::DeviceRecord rec;
+        memset(&rec, 0, sizeof(rec));
         bool got = false;
         if (transport == Transport::IP) {
             if (!base_url[0]) return false;
@@ -432,7 +437,11 @@ bool ip_switch(const char *base_url, const char *view_id) {
     proto::Attach a{};
     build_attach(a);
 
-    proto::AttachAck ack{};
+    // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the worker-task
+    // stack per the CLAUDE.md large-struct trap. Switch drains single-flight on
+    // the worker task, so a function-static scratch is race-free.
+    static proto::AttachAck ack;
+    memset(&ack, 0, sizeof(ack));
     if (!proto_ip::attach(base, a, ack) || !ack.accepted) return false;
 
     proto::Switch sw{};
