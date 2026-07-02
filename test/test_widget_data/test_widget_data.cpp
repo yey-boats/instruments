@@ -42,6 +42,20 @@ static void test_raw_sk_path_numeric() {
         0.82, widget_data::resolve_numeric("electrical.batteries.house.stateOfCharge", d));
 }
 
+static void test_coverage_wave_paths_numeric() {
+    boat::View d;
+    d.roll = -0.0872;
+    d.engineRevs = 30.0;
+    d.outsidePressure = 101300.0;
+    d.headingMag = 1.0;
+    TEST_ASSERT_EQUAL_DOUBLE(-0.0872, widget_data::resolve_numeric("boat.roll", d));
+    TEST_ASSERT_EQUAL_DOUBLE(-0.0872, widget_data::resolve_numeric("navigation.attitude.roll", d));
+    TEST_ASSERT_EQUAL_DOUBLE(30.0, widget_data::resolve_numeric("propulsion.main.revolutions", d));
+    TEST_ASSERT_EQUAL_DOUBLE(101300.0,
+                             widget_data::resolve_numeric("environment.outside.pressure", d));
+    TEST_ASSERT_EQUAL_DOUBLE(1.0, widget_data::resolve_numeric("navigation.headingMagnetic", d));
+}
+
 static void test_unknown_path_returns_nan() {
     boat::View d = make_data();
     double v = widget_data::resolve_numeric("not.a.path", d);
@@ -120,6 +134,7 @@ int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_local_alias_numeric);
     RUN_TEST(test_raw_sk_path_numeric);
+    RUN_TEST(test_coverage_wave_paths_numeric);
     RUN_TEST(test_unknown_path_returns_nan);
     RUN_TEST(test_string_path_autopilot_state);
     RUN_TEST(test_string_path_unknown_returns_empty);

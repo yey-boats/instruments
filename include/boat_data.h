@@ -32,6 +32,71 @@ struct Field {
     SourceKind source = SourceKind::None;
 };
 
+// Stable per-metric ids, used as bit positions in a FieldMask. A parser
+// (SignalK delta, NMEA sentence, ...) reports which fields THIS message
+// actually carried so the ingest layer only republishes those - re-stamping
+// untouched fields with a fresh updated_ms would defeat per-field staleness
+// (a dead sensor's last value would stay "fresh" forever while any other
+// delta keeps arriving). Order mirrors View/Snapshot; append-only.
+enum class FieldId : uint8_t {
+    Lat = 0,
+    Lon,
+    Sog,
+    Stw,
+    CogTrue,
+    HeadingTrue,
+    Awa,
+    Aws,
+    Twa,
+    Tws,
+    BeatAngle,
+    GybeAngle,
+    Depth,
+    DepthKeel,
+    WaterTemp,
+    BattVoltage,
+    BattSoc,
+    TankFuel,
+    TankWater,
+    Xte,
+    Cts,
+    Btw,
+    Dtw,
+    Vmg,
+    VmgWind,
+    Rudder,
+    ApTargetHdg,
+    CurrentSet,
+    CurrentDrift,
+    ApState,
+    // ---- appended (coverage wave: environment / attitude / engine / power).
+    // APPEND-ONLY: these ids are bit positions in persisted-adjacent masks.
+    OutsideTemp,
+    OutsidePressure,
+    Humidity,
+    Roll,
+    Pitch,
+    RateOfTurn,
+    TripLog,
+    TotalLog,
+    BattCurrent,
+    BattTemp,
+    EngineRpm,
+    EngineCoolantTemp,
+    EngineOilPressure,
+    EngineFuelRate,
+    HeadingMag,
+    Variation,
+    COUNT,
+};
+static_assert(static_cast<uint8_t>(FieldId::COUNT) <= 64, "FieldMask is 64 bits");
+
+using FieldMask = uint64_t;
+
+inline constexpr FieldMask field_bit(FieldId id) {
+    return FieldMask(1) << static_cast<uint8_t>(id);
+}
+
 struct Snapshot {
     // navigation
     Field lat_deg;
@@ -40,6 +105,17 @@ struct Snapshot {
     Field stw_mps;
     Field cog_true_rad;
     Field heading_true_rad;
+    // Magnetic heading + variation (BUG-2: mag was folded into heading_true at
+    // the NMEA sources). heading_true_rad stays the render-facing field; when a
+    // source only has magnetic + variation it derives true = mag + variation
+    // and publishes BOTH (standard practice), so true-consumers keep working.
+    Field heading_mag_rad;
+    Field variation_rad;  // magnetic variation, +E / -W
+
+    // attitude
+    Field roll_rad;            // +ve = heel to starboard (SignalK convention)
+    Field pitch_rad;           // +ve = bow up
+    Field rate_of_turn_radps;  // +ve = turning to starboard
 
     // wind
     Field awa_rad;
@@ -57,11 +133,28 @@ struct Snapshot {
     Field depth_keel_m;
     Field water_temp_k;
 
+    // environment (outside)
+    Field outside_temp_k;
+    Field outside_pressure_pa;
+    Field humidity_ratio;  // relative humidity, 0..1
+
     // electrical/tanks
     Field battery_v;
     Field battery_soc;
+    Field battery_current_a;  // signed: +ve charging into the bank
+    Field battery_temp_k;
     Field tank_fuel;
     Field tank_water;
+
+    // propulsion (first/primary engine — any instance publishes here)
+    Field engine_rev_hz;           // revolutions, Hz (SI; display converts to RPM)
+    Field engine_coolant_temp_k;   // propulsion.*.temperature
+    Field engine_oil_pressure_pa;  // propulsion.*.oilPressure
+    Field engine_fuel_rate_m3s;    // propulsion.*.fuel.rate, m3/s
+
+    // trip / total log
+    Field trip_log_m;
+    Field total_log_m;
 
     // route
     Field xte_m;
@@ -196,6 +289,34 @@ struct View {
     double currentSetTrue = NAN;  // true direction current flows toward, rad
     double currentDrift = NAN;    // current speed, m/s
 
+    // heading (magnetic) + variation — see Snapshot.heading_mag_rad note
+    double headingMag = NAN;  // magnetic heading, rad
+    double variation = NAN;   // magnetic variation, rad, +E / -W
+
+    // attitude
+    double roll = NAN;        // rad, +ve = heel to starboard
+    double pitch = NAN;       // rad, +ve = bow up
+    double rateOfTurn = NAN;  // rad/s, +ve = turning to starboard
+
+    // environment (outside)
+    double outsideTemp = NAN;      // K
+    double outsidePressure = NAN;  // Pa
+    double humidity = NAN;         // relative humidity ratio 0..1
+
+    // electrical (battery bank detail)
+    double battCurrent = NAN;  // A, signed
+    double battTemp = NAN;     // K
+
+    // propulsion (first/primary engine)
+    double engineRevs = NAN;         // Hz (SI revolutions)
+    double engineCoolantTemp = NAN;  // K
+    double engineOilPressure = NAN;  // Pa
+    double engineFuelRate = NAN;     // m3/s
+
+    // trip / total log
+    double tripLog = NAN;   // m
+    double totalLog = NAN;  // m
+
     // SignalK WS link-state (NOT boat metrics - filled by the WS layer, used
     // by the stall classifier; carried here so the UI has one struct to read).
     uint32_t lastUpdateMs = 0;
@@ -203,5 +324,12 @@ struct View {
     uint32_t wsLastFrameMs = 0;
     bool connected = false;
 };
+
+// Cheap accessor for the SignalK link's lastUpdateMs (the timestamp
+// current_view() overlays onto View). Lets latency/health samplers avoid a
+// full boat::compose() when all they need is the link freshness. Implemented
+// in src/signalk.cpp next to current_view() (it needs the WS link state);
+// declared here so pure consumers don't have to pull in signalk.h.
+uint32_t last_update_ms();
 
 }  // namespace boat

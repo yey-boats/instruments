@@ -5,6 +5,7 @@
 #include <math.h>
 
 #include "boat_data.h"
+#include "n2k_decode.h"
 #include "net.h"
 #include "storage.h"
 #include "units.h"
@@ -35,6 +36,9 @@ volatile uint32_t s_frames_rx = 0;
 volatile uint32_t s_pgns_decoded = 0;
 volatile uint32_t s_pgns_unknown = 0;
 volatile uint32_t s_last_rx_ms = 0;
+// BUG-3 counted stat: PGN 130306 frames whose wind reference we do NOT map
+// (ref 1 magnetic ground direction, reserved refs). Never folded into TWA.
+volatile uint32_t s_wind_ref_dropped = 0;
 TaskHandle_t s_task = nullptr;
 
 void load_prefs() {
@@ -101,14 +105,90 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
     bool ok = false;
 
     switch (pgn) {
-    case 127250: {  // Vessel heading
-        if (n < 4) break;
-        uint16_t hdg_raw = u16le(d + 1);
-        if (hdg_raw != 0xFFFF) {
-            double hdg = hdg_raw * 0.0001;  // rad
-            boat::publish(&Snapshot::heading_true_rad, src, now, hdg);
+    case 127250: {  // Vessel heading (BUG-2: honor the reference byte)
+        n2k::Heading127250 h = n2k::decode_127250(d, n);
+        if (isfinite(h.variation_rad)) {
+            boat::publish(&Snapshot::variation_rad, src, now, h.variation_rad);
             ok = true;
         }
+        if (isfinite(h.heading_rad)) {
+            if (h.reference == 0) {
+                // True-referenced sensor heading.
+                boat::publish(&Snapshot::heading_true_rad, src, now, h.heading_rad);
+            } else if (h.reference == 1) {
+                // Magnetic heading on its own field. When variation is also
+                // available, derive true = magnetic + variation (+E) and
+                // publish BOTH — deriving true from mag+variation is standard
+                // practice, so heading_true consumers keep working on a
+                // magnetic-only compass install.
+                boat::publish(&Snapshot::heading_mag_rad, src, now, h.heading_rad);
+                if (isfinite(h.variation_rad)) {
+                    boat::publish(&Snapshot::heading_true_rad, src, now,
+                                  units::wrap_2pi(h.heading_rad + h.variation_rad));
+                }
+            }
+            // Unknown reference: heading dropped (variation may still have
+            // published above).
+            if (h.reference == 0 || h.reference == 1) ok = true;
+        }
+        break;
+    }
+    case 127251: {  // Rate of turn
+        double rot = n2k::decode_127251_rot_radps(d, n);
+        if (isfinite(rot)) {
+            boat::publish(&Snapshot::rate_of_turn_radps, src, now, rot);
+            ok = true;
+        }
+        break;
+    }
+    case 127257: {  // Attitude (roll/pitch; yaw duplicates heading)
+        n2k::Attitude127257 a = n2k::decode_127257(d, n);
+        if (isfinite(a.roll_rad)) {
+            boat::publish(&Snapshot::roll_rad, src, now, a.roll_rad);
+            ok = true;
+        }
+        if (isfinite(a.pitch_rad)) {
+            boat::publish(&Snapshot::pitch_rad, src, now, a.pitch_rad);
+            ok = true;
+        }
+        break;
+    }
+    case 127245: {  // Rudder — measured position onto the existing rudder field
+        n2k::Rudder127245 r = n2k::decode_127245(d, n);
+        if (isfinite(r.position_rad)) {
+            boat::publish(&Snapshot::rudder_angle_rad, src, now, units::wrap_pi(r.position_rad));
+            ok = true;
+        }
+        break;
+    }
+    case 127488: {  // Engine rapid — RPM (primary engine = instance 0)
+        n2k::EngineRapid127488 e = n2k::decode_127488(d, n);
+        if (e.instance == 0 && isfinite(e.rev_hz)) {
+            boat::publish(&Snapshot::engine_rev_hz, src, now, e.rev_hz);
+            ok = true;
+        }
+        break;
+    }
+    case 127489: {                  // Engine dynamic — FAST PACKET; reassemble then decode
+        static n2k::FastPacket fp;  // single stream; worker task only
+        if (!n2k::fastpacket_feed(fp, d, n)) break;
+        n2k::EngineDynamic127489 e = n2k::decode_127489(fp.buf, fp.expect);
+        fp.seq = 0xFF;               // consumed; wait for the next frame 0
+        if (e.instance != 0) break;  // primary engine only (matches 127488)
+        if (isfinite(e.oil_pressure_pa)) {
+            boat::publish(&Snapshot::engine_oil_pressure_pa, src, now, e.oil_pressure_pa);
+            ok = true;
+        }
+        if (isfinite(e.coolant_temp_k)) {
+            boat::publish(&Snapshot::engine_coolant_temp_k, src, now, e.coolant_temp_k);
+            ok = true;
+        }
+        if (isfinite(e.fuel_rate_m3s)) {
+            boat::publish(&Snapshot::engine_fuel_rate_m3s, src, now, e.fuel_rate_m3s);
+            ok = true;
+        }
+        // e.engine_hours_s: decoded but NOT published — boat::Snapshot has no
+        // engine-hours field yet (noted follow-up in the coverage report).
         break;
     }
     case 127508: {  // Battery status
@@ -161,20 +241,25 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         }
         break;
     }
-    case 130306: {  // Wind data
-        if (n < 6) break;
-        uint16_t ws_raw = u16le(d + 1);
-        uint16_t wa_raw = u16le(d + 3);
-        uint8_t ref = d[5] & 0x07;
-        if (ws_raw != 0xFFFF && wa_raw != 0xFFFF) {
-            double ws = ws_raw * 0.01;    // m/s
-            double wa = wa_raw * 0.0001;  // rad
-            // Wrap to signed.
-            wa = units::wrap_pi(wa);
-            bool apparent = (ref == 2);
-            boat::publish(apparent ? &Snapshot::aws_mps : &Snapshot::tws_mps, src, now, ws);
-            boat::publish(apparent ? &Snapshot::awa_rad : &Snapshot::twa_rad, src, now, wa);
+    case 130306: {  // Wind data (BUG-3: map the reference byte properly)
+        n2k::Wind130306 w = n2k::decode_130306(d, n);
+        if (isnan(w.speed_mps) || isnan(w.angle_rad)) break;
+        double wa = units::wrap_pi(w.angle_rad);
+        switch (w.target) {
+        case n2k::WindTarget::Apparent:  // ref 2
+            boat::publish(&Snapshot::aws_mps, src, now, w.speed_mps);
+            boat::publish(&Snapshot::awa_rad, src, now, wa);
             ok = true;
+            break;
+        case n2k::WindTarget::True:  // ref 0 (ground) / ref 3 (boat-referenced)
+            boat::publish(&Snapshot::tws_mps, src, now, w.speed_mps);
+            boat::publish(&Snapshot::twa_rad, src, now, wa);
+            ok = true;
+            break;
+        case n2k::WindTarget::Drop:  // ref 1 / reserved — counted, never TWA
+        default:
+            s_wind_ref_dropped++;
+            break;
         }
         break;
     }
@@ -379,10 +464,10 @@ bool handleSerialCommand(const String &line) {
         Status st = status();
         net::logf("[n2k] compiled=%d enabled=%d sniff=%d tx_enabled=%d "
                   "rx=%d tx=%d frames=%lu decoded=%lu unknown=%lu "
-                  "last_rx_ago=%lums",
+                  "wind_ref_dropped=%lu last_rx_ago=%lums",
                   st.compiled_in, st.enabled, st.sniff, st.tx_enabled, st.rx_pin, st.tx_pin,
                   (unsigned long)st.frames_rx, (unsigned long)st.pgns_decoded,
-                  (unsigned long)st.pgns_unknown,
+                  (unsigned long)st.pgns_unknown, (unsigned long)s_wind_ref_dropped,
                   st.last_rx_ms ? (unsigned long)(millis() - st.last_rx_ms) : 0UL);
         return true;
     }

@@ -30,110 +30,184 @@ static bool endsWith(const char *s, const char *suffix) {
     return sl >= suf && strcmp(s + sl - suf, suffix) == 0;
 }
 
-void applyValue(const char *path, JsonVariant val, boat::View &out) {
+void applyValue(const char *path, JsonVariant val, boat::View &out, boat::FieldMask *touched) {
     if (!path) return;
+
+    // Assign `dst` and mark its FieldId bit ONLY when the delta actually
+    // carried a numeric value (null / wrong-type leaves the field AND the
+    // mask untouched, preserving the old asDouble(v, old) semantics).
+    auto num = [&](double &dst, boat::FieldId id) {
+        if (!isNumeric(val)) return;
+        dst = val.as<double>();
+        if (touched) *touched |= boat::field_bit(id);
+    };
+    using FI = boat::FieldId;
 
     if (strcmp(path, "navigation.position") == 0) {
         if (val.is<JsonObject>()) {
-            out.lat = asDouble(val["latitude"], out.lat);
-            out.lon = asDouble(val["longitude"], out.lon);
+            JsonVariant la = val["latitude"];
+            JsonVariant lo = val["longitude"];
+            if (isNumeric(la)) {
+                out.lat = la.as<double>();
+                if (touched) *touched |= boat::field_bit(FI::Lat);
+            }
+            if (isNumeric(lo)) {
+                out.lon = lo.as<double>();
+                if (touched) *touched |= boat::field_bit(FI::Lon);
+            }
         }
     } else if (strcmp(path, "navigation.speedOverGround") == 0) {
-        out.sog = asDouble(val, out.sog);
+        num(out.sog, FI::Sog);
     } else if (strcmp(path, "navigation.speedThroughWater") == 0) {
-        out.stw = asDouble(val, out.stw);
+        num(out.stw, FI::Stw);
     } else if (strcmp(path, "navigation.courseOverGroundTrue") == 0) {
-        out.cogTrue = asDouble(val, out.cogTrue);
+        num(out.cogTrue, FI::CogTrue);
     } else if (strcmp(path, "navigation.headingTrue") == 0) {
-        out.headingTrue = asDouble(val, out.headingTrue);
+        num(out.headingTrue, FI::HeadingTrue);
     } else if (strcmp(path, "environment.wind.angleApparent") == 0) {
-        out.awa = asDouble(val, out.awa);
+        num(out.awa, FI::Awa);
     } else if (strcmp(path, "environment.wind.speedApparent") == 0) {
-        out.aws = asDouble(val, out.aws);
+        num(out.aws, FI::Aws);
     } else if (strcmp(path, "environment.wind.angleTrueWater") == 0 ||
                strcmp(path, "environment.wind.angleTrueGround") == 0) {
-        out.twa = asDouble(val, out.twa);
+        num(out.twa, FI::Twa);
     } else if (strcmp(path, "environment.wind.speedTrue") == 0) {
-        out.tws = asDouble(val, out.tws);
+        num(out.tws, FI::Tws);
     } else if (strcmp(path, "environment.depth.belowTransducer") == 0 ||
                strcmp(path, "environment.depth.belowSurface") == 0) {
-        out.depth = asDouble(val, out.depth);
+        num(out.depth, FI::Depth);
     } else if (strcmp(path, "environment.depth.belowKeel") == 0) {
-        out.depthKeel = asDouble(val, out.depthKeel);
+        num(out.depthKeel, FI::DepthKeel);
     } else if (strcmp(path, "environment.water.temperature") == 0) {
-        out.waterTemp = asDouble(val, out.waterTemp);
+        num(out.waterTemp, FI::WaterTemp);
+    } else if (strcmp(path, "environment.outside.temperature") == 0) {
+        num(out.outsideTemp, FI::OutsideTemp);
+    } else if (strcmp(path, "environment.outside.pressure") == 0) {
+        num(out.outsidePressure, FI::OutsidePressure);
+    } else if (strcmp(path, "environment.outside.humidity") == 0 ||
+               strcmp(path, "environment.outside.relativeHumidity") == 0) {
+        // Spec canonical is relativeHumidity; `humidity` is the widely-emitted
+        // legacy alias (both are a 0..1 ratio).
+        num(out.humidity, FI::Humidity);
+    } else if (strcmp(path, "navigation.attitude") == 0) {
+        // Object value {roll, pitch, yaw} — parsed like navigation.position.
+        // yaw duplicates headingTrue, so only roll/pitch land on typed fields.
+        if (val.is<JsonObject>()) {
+            JsonVariant ro = val["roll"];
+            JsonVariant pi = val["pitch"];
+            if (isNumeric(ro)) {
+                out.roll = ro.as<double>();
+                if (touched) *touched |= boat::field_bit(FI::Roll);
+            }
+            if (isNumeric(pi)) {
+                out.pitch = pi.as<double>();
+                if (touched) *touched |= boat::field_bit(FI::Pitch);
+            }
+        }
+    } else if (strcmp(path, "navigation.attitude.roll") == 0) {
+        num(out.roll, FI::Roll);  // some producers emit the leaf paths
+    } else if (strcmp(path, "navigation.attitude.pitch") == 0) {
+        num(out.pitch, FI::Pitch);
+    } else if (strcmp(path, "navigation.rateOfTurn") == 0) {
+        num(out.rateOfTurn, FI::RateOfTurn);
+    } else if (strcmp(path, "navigation.trip.log") == 0) {
+        num(out.tripLog, FI::TripLog);
+    } else if (strcmp(path, "navigation.log") == 0) {
+        num(out.totalLog, FI::TotalLog);
+    } else if (strcmp(path, "navigation.headingMagnetic") == 0) {
+        num(out.headingMag, FI::HeadingMag);
+    } else if (strcmp(path, "navigation.magneticVariation") == 0) {
+        num(out.variation, FI::Variation);
     } else if (strncmp(path, "electrical.batteries.", 21) == 0) {
         if (endsWith(path, ".voltage")) {
-            out.battVoltage = asDouble(val, out.battVoltage);
+            num(out.battVoltage, FI::BattVoltage);
         } else if (endsWith(path, ".stateOfCharge")) {
-            out.battSoc = asDouble(val, out.battSoc);
+            num(out.battSoc, FI::BattSoc);
+        } else if (endsWith(path, ".current")) {
+            num(out.battCurrent, FI::BattCurrent);
+        } else if (endsWith(path, ".temperature")) {
+            num(out.battTemp, FI::BattTemp);
+        }
+    } else if (strncmp(path, "propulsion.", 11) == 0) {
+        // Instance segment is arbitrary ("main"/"port"/"0"); prefix-match like
+        // electrical.batteries.* — first/primary engine wins the typed fields
+        // (multi-engine installs read the others via the dynamic PathStore).
+        if (endsWith(path, ".revolutions")) {
+            num(out.engineRevs, FI::EngineRpm);
+        } else if (endsWith(path, ".temperature")) {
+            num(out.engineCoolantTemp, FI::EngineCoolantTemp);
+        } else if (endsWith(path, ".oilPressure")) {
+            num(out.engineOilPressure, FI::EngineOilPressure);
+        } else if (endsWith(path, ".fuel.rate")) {
+            num(out.engineFuelRate, FI::EngineFuelRate);
         }
     } else if (strncmp(path, "tanks.fuel.", 11) == 0 && endsWith(path, ".currentLevel")) {
-        out.tankFuel = asDouble(val, out.tankFuel);
+        num(out.tankFuel, FI::TankFuel);
     } else if (strncmp(path, "tanks.freshWater.", 17) == 0 && endsWith(path, ".currentLevel")) {
-        out.tankWater = asDouble(val, out.tankWater);
+        num(out.tankWater, FI::TankWater);
     } else if (strcmp(path, "navigation.courseRhumbline.crossTrackError") == 0 ||
                strcmp(path, "navigation.courseGreatCircle.crossTrackError") == 0) {
-        out.xte = asDouble(val, out.xte);
+        num(out.xte, FI::Xte);
     } else if (strcmp(path, "navigation.courseRhumbline.bearingTrackTrue") == 0 ||
                strcmp(path, "navigation.courseGreatCircle.bearingTrackTrue") == 0) {
-        out.cts = asDouble(val, out.cts);
+        num(out.cts, FI::Cts);
     } else if (strcmp(path, "navigation.courseRhumbline.nextPoint.bearingTrue") == 0 ||
                strcmp(path, "navigation.courseGreatCircle.nextPoint.bearingTrue") == 0) {
-        out.btw = asDouble(val, out.btw);
+        num(out.btw, FI::Btw);
     } else if (strcmp(path, "navigation.courseRhumbline.nextPoint.distance") == 0 ||
                strcmp(path, "navigation.courseGreatCircle.nextPoint.distance") == 0) {
-        out.dtw = asDouble(val, out.dtw);
+        num(out.dtw, FI::Dtw);
     } else if (strcmp(path, "navigation.courseRhumbline.velocityMadeGood") == 0 ||
                strcmp(path, "navigation.courseGreatCircle.velocityMadeGood") == 0) {
         // VMG toward the next waypoint (route VMG). Kept on `vmg`.
-        out.vmg = asDouble(val, out.vmg);
+        num(out.vmg, FI::Vmg);
     } else if (strcmp(path, "performance.velocityMadeGood") == 0) {
         // Wind/polar VMG (made good to windward) — a DISTINCT metric from the
         // waypoint VMG above; surfaced on its own field/readout.
-        out.vmgWind = asDouble(val, out.vmgWind);
+        num(out.vmgWind, FI::VmgWind);
     } else if (strcmp(path, "performance.beatAngle") == 0) {
-        out.beatAngle = asDouble(val, out.beatAngle);
+        num(out.beatAngle, FI::BeatAngle);
     } else if (strcmp(path, "performance.gybeAngle") == 0) {
-        out.gybeAngle = asDouble(val, out.gybeAngle);
+        num(out.gybeAngle, FI::GybeAngle);
     } else if (strcmp(path, "steering.autopilot.target.headingTrue") == 0) {
-        out.apTargetHdg = asDouble(val, out.apTargetHdg);
+        num(out.apTargetHdg, FI::ApTargetHdg);
     } else if (strcmp(path, "steering.rudderAngle") == 0) {
-        out.rudder = asDouble(val, out.rudder);
+        num(out.rudder, FI::Rudder);
     } else if (strcmp(path, "environment.current.setTrue") == 0 ||
                strcmp(path, "environment.current.drift.setTrue") == 0) {
-        out.currentSetTrue = asDouble(val, out.currentSetTrue);
+        num(out.currentSetTrue, FI::CurrentSet);
     } else if (strcmp(path, "environment.current.drift") == 0 ||
                strcmp(path, "environment.current.speed") == 0) {
-        out.currentDrift = asDouble(val, out.currentDrift);
+        num(out.currentDrift, FI::CurrentDrift);
     } else if (strcmp(path, "steering.autopilot.state") == 0) {
         const char *s = val.as<const char *>();
         if (s) {
             strncpy(out.apState, s, sizeof(out.apState) - 1);
             out.apState[sizeof(out.apState) - 1] = 0;
+            if (touched) *touched |= boat::field_bit(FI::ApState);
         }
     }
 }
 
 static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonDocument &doc,
-                            PathStore *dyn);
+                            PathStore *dyn, boat::FieldMask *touched);
 
 int applyDelta(const char *json, size_t len, boat::View &out, ArduinoJson::Allocator *alloc,
-               PathStore *dyn) {
+               PathStore *dyn, boat::FieldMask *touched) {
     // alloc==nullptr -> default (internal heap) allocator. The device
     // build passes &yeyboats::psram_json so 1+ Hz SK deltas don't churn
     // the tiny internal heap (largest free block was ~7 KB at idle).
     // Host tests pass nullptr and use the default.
     if (alloc) {
         JsonDocument doc(alloc);
-        return apply_delta_impl(json, len, out, doc, dyn);
+        return apply_delta_impl(json, len, out, doc, dyn, touched);
     }
     JsonDocument doc;
-    return apply_delta_impl(json, len, out, doc, dyn);
+    return apply_delta_impl(json, len, out, doc, dyn, touched);
 }
 
 static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonDocument &doc,
-                            PathStore *dyn) {
+                            PathStore *dyn, boat::FieldMask *touched) {
     DeserializationError err = deserializeJson(doc, json, len);
     if (err) return -1;
     JsonArray updates = doc["updates"].as<JsonArray>();
@@ -148,11 +222,14 @@ static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonD
 #ifdef DBG_PERF_COUNTERS
             ++g_parsed_count;
 #endif
-            applyValue(p, v["value"], out);
+            // Resolve the value variant once (each operator[] is a member
+            // scan of the object - this is the parse hot path).
+            JsonVariant val = v["value"];
+            applyValue(p, val, out, touched);
             // Mirror numeric deltas into the dynamic store so authored fields
             // can render arbitrary paths by string (typed boat::View still drives
             // the built-in screens).
-            if (dyn && isNumeric(v["value"])) dyn->set(p, v["value"].as<double>());
+            if (dyn && isNumeric(val)) dyn->set(p, val.as<double>());
             ++count;
         }
     }

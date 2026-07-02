@@ -67,6 +67,15 @@ void parse_rmc(char **t, int n, ParseResult &r) {
     if (isfinite(lon)) push_field(r, FieldKind::LonDeg, lon);
     if (isfinite(sog)) push_field(r, FieldKind::SogKn, sog);
     if (isfinite(cog)) push_field(r, FieldKind::CogTrueDeg, cog);
+    // Magnetic variation: t[9] = magnitude deg, t[10] = E/W (W = negative,
+    // i.e. true = magnetic + variation with +E convention).
+    if (n >= 11) {
+        double var = atof_or_nan(t[9]);
+        if (isfinite(var)) {
+            if (t[10][0] == 'W' || t[10][0] == 'w') var = -var;
+            push_field(r, FieldKind::MagVarDeg, var);
+        }
+    }
 }
 
 void parse_gga(char **t, int n, ParseResult &r) {
@@ -107,9 +116,17 @@ void parse_hdt(char **t, int n, ParseResult &r) {
 }
 
 void parse_hdg(char **t, int n, ParseResult &r) {
+    // t[0]=heading_mag, t[1]=deviation, t[2]=dev E/W, t[3]=variation, t[4]=var E/W
     if (n < 1) return;
     double h = atof_or_nan(t[0]);
     if (isfinite(h)) push_field(r, FieldKind::HeadingMagDeg, h);
+    if (n >= 5) {
+        double var = atof_or_nan(t[3]);
+        if (isfinite(var)) {
+            if (t[4][0] == 'W' || t[4][0] == 'w') var = -var;
+            push_field(r, FieldKind::MagVarDeg, var);
+        }
+    }
 }
 
 void parse_mwv(char **t, int n, ParseResult &r) {

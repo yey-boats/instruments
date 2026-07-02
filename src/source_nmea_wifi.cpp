@@ -37,6 +37,11 @@ volatile uint32_t s_last_rx_ms = 0;
 TaskHandle_t s_task = nullptr;
 nmea0183::Stream s_stream;
 
+// Last variation seen on this link (rad, +E). HDG carries variation inline,
+// RMC carries it too; either keeps this fresh so an HDG *without* a variation
+// field can still derive a true heading. Single-writer (the n0183w task).
+double s_last_var_rad = NAN;
+
 // Map an NMEA0183 FieldKind to a publish into boat::Snapshot.
 void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
     if (!r.ok) {
@@ -49,6 +54,16 @@ void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
     using FK = nmea0183::FieldKind;
     using boat::Snapshot;
     using boat::SourceKind;
+    // BUG-2: does THIS sentence carry a true heading (VHW/HDT)? If so, the
+    // magnetic heading must not also derive a competing true value.
+    bool has_true_hdg = false;
+    for (int i = 0; i < r.count; ++i) {
+        if (r.fields[i].kind == FK::HeadingTrueDeg) has_true_hdg = true;
+        // Variation first: HDG/RMC push it after the heading field, but the
+        // derived-true computation below wants the freshest value.
+        if (r.fields[i].kind == FK::MagVarDeg && isfinite(r.fields[i].value))
+            s_last_var_rad = units::deg_to_rad(r.fields[i].value);
+    }
     for (int i = 0; i < r.count; ++i) {
         const auto &f = r.fields[i];
         double v = f.value;
@@ -72,9 +87,23 @@ void on_sentence(const nmea0183::ParseResult &r, void * /*user*/) {
             boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
                           units::deg_to_rad(v));
             break;
-        case FK::HeadingMagDeg:
-            // No mag field in Snapshot yet; treat as heading_true fallback when nothing better.
-            boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
+        case FK::HeadingMagDeg: {
+            // BUG-2 fix: magnetic heading lands on its OWN field (it used to be
+            // folded straight into heading_true, conflating the two references).
+            double mag = units::deg_to_rad(v);
+            boat::publish(&Snapshot::heading_mag_rad, SourceKind::NmeaWifi, now, mag);
+            // Derived true = magnetic + variation (+E) — standard practice when
+            // no true-referenced compass is present, so heading_true consumers
+            // keep working on an HDG-only install. Skipped when this same
+            // sentence carries a real true heading (VHW emits both forms).
+            if (!has_true_hdg && isfinite(s_last_var_rad)) {
+                boat::publish(&Snapshot::heading_true_rad, SourceKind::NmeaWifi, now,
+                              units::wrap_2pi(mag + s_last_var_rad));
+            }
+            break;
+        }
+        case FK::MagVarDeg:
+            boat::publish(&Snapshot::variation_rad, SourceKind::NmeaWifi, now,
                           units::deg_to_rad(v));
             break;
         case FK::AwaDeg:

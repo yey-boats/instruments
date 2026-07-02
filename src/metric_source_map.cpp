@@ -25,6 +25,7 @@ WidgetKind widget_to_kind(const char *widget) {
     if (strcmp(widget, "bar") == 0) return WidgetKind::Bar;
     if (strcmp(widget, "windRose") == 0) return WidgetKind::WindRose;
     if (strcmp(widget, "windSteer") == 0) return WidgetKind::WindSteer;
+    if (strcmp(widget, "clinometer") == 0) return WidgetKind::Clinometer;
     if (strcmp(widget, "autopilot") == 0) return WidgetKind::Autopilot;
     if (strcmp(widget, "text") == 0) return WidgetKind::Text;
     if (strcmp(widget, "button") == 0) return WidgetKind::Button;
@@ -58,6 +59,34 @@ MetricSource path_to_source(const char *p) {
     if (strcmp(p, "navigation.courseRhumbline.bearingTrackTrue") == 0) return MetricSource::CTS_deg;
     if (strcmp(p, "steering.rudderAngle") == 0) return MetricSource::Rudder_deg;
     if (strcmp(p, "steering.autopilot.state") == 0) return MetricSource::APState;
+    // ---- coverage wave. Instance-bearing paths map only the CANONICAL
+    // instance ("house" bank, "main" engine) onto the typed enum — a
+    // non-canonical instance falls through to None so the raw path is
+    // retained and served by the dynamic PathStore (and the per-screen
+    // subscription manager subscribes the actual authored path, not a
+    // remapped canonical one). The PARSER still prefix-matches any
+    // instance into the typed fields (first/primary engine wins).
+    if (strcmp(p, "environment.outside.temperature") == 0) return MetricSource::OutsideTemp_C;
+    if (strcmp(p, "environment.outside.pressure") == 0) return MetricSource::OutsidePressure_hPa;
+    if (strcmp(p, "environment.outside.humidity") == 0 ||
+        strcmp(p, "environment.outside.relativeHumidity") == 0)
+        return MetricSource::Humidity_pct;
+    // navigation.attitude is a {roll,pitch,yaw} object; the clinometer's
+    // primary reading is roll, so the object path bridges to Roll_deg.
+    if (strcmp(p, "navigation.attitude") == 0) return MetricSource::Roll_deg;
+    if (strcmp(p, "navigation.attitude.roll") == 0) return MetricSource::Roll_deg;
+    if (strcmp(p, "navigation.attitude.pitch") == 0) return MetricSource::Pitch_deg;
+    if (strcmp(p, "navigation.rateOfTurn") == 0) return MetricSource::ROT_degmin;
+    if (strcmp(p, "navigation.trip.log") == 0) return MetricSource::TripLog_nm;
+    if (strcmp(p, "navigation.log") == 0) return MetricSource::Log_nm;
+    if (strcmp(p, "navigation.headingMagnetic") == 0) return MetricSource::HDGm_deg;
+    if (strcmp(p, "navigation.magneticVariation") == 0) return MetricSource::Variation_deg;
+    if (strcmp(p, "electrical.batteries.house.current") == 0) return MetricSource::BattCurrent_A;
+    if (strcmp(p, "electrical.batteries.house.temperature") == 0) return MetricSource::BattTemp_C;
+    if (strcmp(p, "propulsion.main.revolutions") == 0) return MetricSource::EngineRpm;
+    if (strcmp(p, "propulsion.main.temperature") == 0) return MetricSource::EngineCoolant_C;
+    if (strcmp(p, "propulsion.main.oilPressure") == 0) return MetricSource::EngineOilP_bar;
+    if (strcmp(p, "propulsion.main.fuel.rate") == 0) return MetricSource::EngineFuelRate_lph;
     return MetricSource::None;
 }
 

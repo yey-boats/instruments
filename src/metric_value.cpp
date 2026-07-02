@@ -61,6 +61,38 @@ double metric_value(MetricSource src, const boat::View &d) {
         return isnan(d.dtw) ? NAN : units::m_to_nm(d.dtw);  // nm
     case MetricSource::Rudder_deg:
         return isnan(d.rudder) ? NAN : units::rad_to_deg(d.rudder);  // signed deg
+    case MetricSource::OutsideTemp_C:
+        return isnan(d.outsideTemp) ? NAN : units::k_to_c(d.outsideTemp);
+    case MetricSource::OutsidePressure_hPa:
+        return isnan(d.outsidePressure) ? NAN : units::pa_to_hpa(d.outsidePressure);
+    case MetricSource::Humidity_pct:
+        return isnan(d.humidity) ? NAN : d.humidity * 100.0;
+    case MetricSource::Roll_deg:
+        return isnan(d.roll) ? NAN : units::rad_to_deg(d.roll);  // signed deg
+    case MetricSource::Pitch_deg:
+        return isnan(d.pitch) ? NAN : units::rad_to_deg(d.pitch);  // signed deg
+    case MetricSource::ROT_degmin:
+        return isnan(d.rateOfTurn) ? NAN : units::radps_to_degmin(d.rateOfTurn);
+    case MetricSource::TripLog_nm:
+        return isnan(d.tripLog) ? NAN : units::m_to_nm(d.tripLog);
+    case MetricSource::Log_nm:
+        return isnan(d.totalLog) ? NAN : units::m_to_nm(d.totalLog);
+    case MetricSource::BattCurrent_A:
+        return d.battCurrent;  // signed A, no conversion
+    case MetricSource::BattTemp_C:
+        return isnan(d.battTemp) ? NAN : units::k_to_c(d.battTemp);
+    case MetricSource::EngineRpm:
+        return isnan(d.engineRevs) ? NAN : units::hz_to_rpm(d.engineRevs);
+    case MetricSource::EngineCoolant_C:
+        return isnan(d.engineCoolantTemp) ? NAN : units::k_to_c(d.engineCoolantTemp);
+    case MetricSource::EngineOilP_bar:
+        return isnan(d.engineOilPressure) ? NAN : units::pa_to_bar(d.engineOilPressure);
+    case MetricSource::EngineFuelRate_lph:
+        return isnan(d.engineFuelRate) ? NAN : units::m3s_to_lph(d.engineFuelRate);
+    case MetricSource::HDGm_deg:
+        return isnan(d.headingMag) ? NAN : rad_to_deg_pos(d.headingMag);
+    case MetricSource::Variation_deg:
+        return isnan(d.variation) ? NAN : units::rad_to_deg(d.variation);  // signed, +E
     default:
         return NAN;
     }
@@ -94,6 +126,30 @@ double metric_unit_fraction(MetricSource src, double v) {
         return clamp01(v / 15.0);
     case MetricSource::WaterTemp_C:
         return clamp01((v - 5.0) / (30.0 - 5.0));
+    case MetricSource::OutsideTemp_C:
+        return clamp01((v - (-10.0)) / (40.0 - (-10.0)));
+    case MetricSource::OutsidePressure_hPa:
+        // Barometer band: 960 (deep low) .. 1050 (strong high) hPa.
+        return clamp01((v - 960.0) / (1050.0 - 960.0));
+    case MetricSource::Humidity_pct:
+        return clamp01(v / 100.0);
+    case MetricSource::Roll_deg:
+        // Centre-zero: ±45° heel maps onto 0..1 with 0.5 = upright.
+        return clamp01((v + 45.0) / 90.0);
+    case MetricSource::Pitch_deg:
+        return clamp01((v + 30.0) / 60.0);  // centre-zero ±30°
+    case MetricSource::ROT_degmin:
+        return clamp01((v + 180.0) / 360.0);  // centre-zero ±180°/min
+    case MetricSource::BattTemp_C:
+        return clamp01(v / 60.0);
+    case MetricSource::EngineRpm:
+        return clamp01(v / 4000.0);
+    case MetricSource::EngineCoolant_C:
+        return clamp01(v / 120.0);
+    case MetricSource::EngineOilP_bar:
+        return clamp01(v / 6.0);
+    case MetricSource::EngineFuelRate_lph:
+        return clamp01(v / 20.0);
     default:
         return NAN;
     }

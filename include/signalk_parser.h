@@ -29,11 +29,18 @@ namespace sk {
 // internal-heap allocator, which host tests rely on.
 // `dyn` (optional): mirror every numeric delta value into this dynamic store
 // so authored fields can render arbitrary paths by string. nullptr to skip.
+// `touched` (optional): OR-accumulates a boat::field_bit() for every View
+// field THIS delta actually carried a usable value for. The SignalK ingest
+// path republishes only those fields, so per-field staleness survives a
+// chatty link (see boat::ingest_signalk). Not cleared here - caller inits.
 int applyDelta(const char *json, size_t len, boat::View &out,
-               ArduinoJson::Allocator *alloc = nullptr, PathStore *dyn = nullptr);
+               ArduinoJson::Allocator *alloc = nullptr, PathStore *dyn = nullptr,
+               boat::FieldMask *touched = nullptr);
 
-// Apply a single path/value pair. Public for unit testing.
-void applyValue(const char *path, JsonVariant val, boat::View &out);
+// Apply a single path/value pair. Public for unit testing. `touched` as in
+// applyDelta: bits are set only for fields this value actually populated.
+void applyValue(const char *path, JsonVariant val, boat::View &out,
+                boat::FieldMask *touched = nullptr);
 
 #ifdef DBG_PERF_COUNTERS
 // Benchmark: total path/value pairs seen by applyDelta since the last call

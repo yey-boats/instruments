@@ -73,6 +73,54 @@ double r_lat(const boat::View &d) {
 double r_lon(const boat::View &d) {
     return d.lon;
 }
+double r_hdgMag(const boat::View &d) {
+    return d.headingMag;
+}
+double r_variation(const boat::View &d) {
+    return d.variation;
+}
+double r_roll(const boat::View &d) {
+    return d.roll;
+}
+double r_pitch(const boat::View &d) {
+    return d.pitch;
+}
+double r_rot(const boat::View &d) {
+    return d.rateOfTurn;
+}
+double r_outTemp(const boat::View &d) {
+    return d.outsideTemp;
+}
+double r_outPressure(const boat::View &d) {
+    return d.outsidePressure;
+}
+double r_humidity(const boat::View &d) {
+    return d.humidity;
+}
+double r_battCurrent(const boat::View &d) {
+    return d.battCurrent;
+}
+double r_battTemp(const boat::View &d) {
+    return d.battTemp;
+}
+double r_engineRevs(const boat::View &d) {
+    return d.engineRevs;
+}
+double r_engineCoolant(const boat::View &d) {
+    return d.engineCoolantTemp;
+}
+double r_engineOilP(const boat::View &d) {
+    return d.engineOilPressure;
+}
+double r_engineFuel(const boat::View &d) {
+    return d.engineFuelRate;
+}
+double r_tripLog(const boat::View &d) {
+    return d.tripLog;
+}
+double r_totalLog(const boat::View &d) {
+    return d.totalLog;
+}
 
 const NumEntry NUM_TABLE[] = {
     // Local aliases (spec 19 §"Data Path Resolution")
@@ -113,6 +161,28 @@ const NumEntry NUM_TABLE[] = {
     {"navigation.courseRhumbline.nextPoint.distance", r_dtw},
     {"navigation.courseRhumbline.velocityMadeGood", r_vmg},
     {"steering.autopilot.target.headingTrue", r_apTarget},
+    // Coverage wave (all raw SI, same convention as above). Aliases first.
+    {"boat.headingMag", r_hdgMag},
+    {"boat.variation", r_variation},
+    {"boat.roll", r_roll},
+    {"boat.pitch", r_pitch},
+    {"navigation.headingMagnetic", r_hdgMag},
+    {"navigation.magneticVariation", r_variation},
+    {"navigation.attitude.roll", r_roll},
+    {"navigation.attitude.pitch", r_pitch},
+    {"navigation.rateOfTurn", r_rot},
+    {"navigation.trip.log", r_tripLog},
+    {"navigation.log", r_totalLog},
+    {"environment.outside.temperature", r_outTemp},
+    {"environment.outside.pressure", r_outPressure},
+    {"environment.outside.humidity", r_humidity},
+    {"environment.outside.relativeHumidity", r_humidity},
+    {"electrical.batteries.house.current", r_battCurrent},
+    {"electrical.batteries.house.temperature", r_battTemp},
+    {"propulsion.main.revolutions", r_engineRevs},
+    {"propulsion.main.temperature", r_engineCoolant},
+    {"propulsion.main.oilPressure", r_engineOilP},
+    {"propulsion.main.fuel.rate", r_engineFuel},
 };
 
 constexpr size_t NUM_TABLE_COUNT = sizeof(NUM_TABLE) / sizeof(NUM_TABLE[0]);

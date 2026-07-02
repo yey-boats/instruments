@@ -3,11 +3,12 @@
 // SignalK -> boat::Snapshot ingest + boat::Snapshot -> View projection
 // per docs/specs/12 Feature 1.
 //
-// Each time the SignalK WS task parses a delta into a transient boat::View,
-// it calls ingest_signalk(view, millis()), which publishes every present
-// (non-NaN) field into the global boat::Snapshot with SourceKind::SignalK,
-// honoring the configured priority. This is the sole SignalK ingest path
-// (there is no persistent sk::Data source-of-truth anymore).
+// Each time the SignalK WS task parses a delta, it calls
+// ingest_signalk(view, millis(), touched) with the parser's per-delta
+// FieldMask, which publishes ONLY the fields that delta actually carried
+// into the global boat::Snapshot with SourceKind::SignalK, honoring the
+// configured priority. This is the sole SignalK ingest path (there is no
+// persistent sk::Data source-of-truth anymore).
 //
 // Pure declaration here; implementation in src/source_signalk.cpp.
 
@@ -15,11 +16,15 @@
 
 namespace boat {
 
-// Republish all metric fields from `v` into the global Snapshot at time
-// `now_ms`. Returns the number of fields actually accepted (i.e. SignalK
-// was the winning source for them at this tick). Link-state fields on `v`
-// are ignored here.
-int ingest_signalk(const View &v, uint32_t now_ms);
+// Publish the metric fields of `v` selected by `touched` (a boat::field_bit
+// OR-mask produced by sk::applyDelta for the current delta) into the global
+// Snapshot at time `now_ms`. Publishing only the touched fields keeps
+// per-field staleness honest: a field whose sensor died is NOT re-stamped
+// fresh just because other deltas keep arriving, so it times out in
+// compose() and lower-priority sources can take it over. Returns the number
+// of fields actually accepted (i.e. SignalK was the winning source for them
+// at this tick). Link-state fields on `v` are ignored here.
+int ingest_signalk(const View &v, uint32_t now_ms, FieldMask touched);
 
 // Projection: fill the metric fields of `out` from the current fused
 // boat::Snapshot so renderers see the value chosen by the source-priority

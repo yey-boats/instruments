@@ -4,9 +4,9 @@
 // firmware and host so it can be unit-tested.
 //
 // Scope (first cut):
-//   RMC, GGA, VTG  -> position, SOG, COG
+//   RMC, GGA, VTG  -> position, SOG, COG (+ RMC magnetic variation)
 //   VHW            -> heading, STW
-//   HDT / HDG      -> heading true / heading magnetic
+//   HDT / HDG      -> heading true / heading magnetic (+ HDG variation)
 //   MWV            -> apparent/true wind angle + speed
 //   DPT, DBT       -> depth below transducer
 //   MTW            -> water temperature
@@ -38,6 +38,8 @@ enum class FieldKind : uint8_t {
     XteNm,  // nautical miles, signed (+ = steer right)
     BtwTrueDeg,
     DtwNm,
+    // APPEND-ONLY (mirrors the boat::FieldId discipline).
+    MagVarDeg,  // magnetic variation, signed degrees (+E, -W). From HDG/RMC.
 };
 
 struct FieldUpdate {

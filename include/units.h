@@ -54,6 +54,35 @@ constexpr double k_to_c(double k) {
     return k - kKelvinOffset;
 }
 
+// Pressure.
+constexpr double pa_to_hpa(double pa) {
+    return pa * 1e-2;  // barometric display convention ("1013")
+}
+constexpr double pa_to_bar(double pa) {
+    return pa * 1e-5;
+}
+constexpr double bar_to_pa(double bar) {
+    return bar * 1e5;
+}
+
+// Rotation rate. SignalK carries revolutions in Hz; displays read RPM.
+constexpr double hz_to_rpm(double hz) {
+    return hz * 60.0;
+}
+constexpr double rpm_to_hz(double rpm) {
+    return rpm / 60.0;
+}
+
+// Angular rate. Rate-of-turn instruments read degrees per MINUTE.
+constexpr double radps_to_degmin(double radps) {
+    return radps * (180.0 / M_PI) * 60.0;
+}
+
+// Volume flow. SignalK fuel.rate is m3/s; displays read litres per hour.
+constexpr double m3s_to_lph(double m3s) {
+    return m3s * 3.6e6;  // 1 m3/s = 1000 L / (1/3600 h)
+}
+
 // Normalise a heading/angle in radians to (-pi, pi]. Equivalent to the
 // single `if (a > M_PI) a -= 2*M_PI` guards that NMEA2000 wind PGNs used
 // for inputs already in [0, 2pi), but safe for any input.

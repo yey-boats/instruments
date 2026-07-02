@@ -60,6 +60,7 @@ struct RendererSlot {
     char screen_id[layout::STR_LEN];
     char screen_title[layout::STR_LEN];
     MetricBinding tiles[layout::MAX_TILES_PER_SCREEN];
+    char tile_ids[layout::MAX_TILES_PER_SCREEN][layout::STR_LEN];
     char tile_labels[layout::MAX_TILES_PER_SCREEN][layout::STR_LEN];
     ScreenVariantSpec spec;
     bool in_use;
@@ -146,7 +147,12 @@ size_t apply() {
             const char *label = lt.title[0] ? lt.title : lt.id;
             strncpy(slot.tile_labels[t], label, sizeof(slot.tile_labels[t]) - 1);
             slot.tile_labels[t][sizeof(slot.tile_labels[t]) - 1] = 0;
-            mb.id = slot.screen_id;  // safe static-ish reference
+            // Per the MetricBinding contract (ui_layouts_types.h) `id` is the
+            // TILE's stable id, not the screen's. Copied into the slot so the
+            // pointer outlives the (replaceable) layout::Config source.
+            strncpy(slot.tile_ids[t], lt.id, sizeof(slot.tile_ids[t]) - 1);
+            slot.tile_ids[t][sizeof(slot.tile_ids[t]) - 1] = 0;
+            mb.id = slot.tile_ids[t];
             mb.label = slot.tile_labels[t];
             mb.source = path_to_source(lt.primary_path);
             // Editor-pushed tiles carry no unit string; derive the native unit

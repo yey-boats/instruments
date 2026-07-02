@@ -255,6 +255,256 @@ static void test_apstate_truncates_safely() {
     TEST_ASSERT_TRUE(strlen(d.apState) <= 15);
 }
 
+// --- coverage wave: environment / attitude / engine / power paths ---
+
+static void test_parses_outside_environment() {
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"environment.outside.temperature\",\"value\":291.15},"
+                    "{\"path\":\"environment.outside.pressure\",\"value\":101300},"
+                    "{\"path\":\"environment.outside.relativeHumidity\",\"value\":0.62}"
+                    "]}]}";
+    int n = sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(3, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 291.15, d.outsideTemp);
+    TEST_ASSERT_FLOAT_WITHIN(0.5, 101300.0, d.outsidePressure);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 0.62, d.humidity);
+    boat::FieldMask want = boat::field_bit(boat::FieldId::OutsideTemp) |
+                           boat::field_bit(boat::FieldId::OutsidePressure) |
+                           boat::field_bit(boat::FieldId::Humidity);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_parses_humidity_legacy_alias() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("environment.outside.humidity", "0.55");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 0.55, d.humidity);
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::Humidity), touched);
+}
+
+static void test_parses_attitude_object() {
+    // {roll, pitch, yaw} object parsed like navigation.position; yaw ignored.
+    View d;
+    boat::FieldMask touched = 0;
+    auto j =
+        singleValueDelta("navigation.attitude", "{\"roll\":-0.0872,\"pitch\":0.0349,\"yaw\":1.57}");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(1, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, -0.0872, d.roll);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, 0.0349, d.pitch);
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::Roll) | boat::field_bit(boat::FieldId::Pitch);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_parses_attitude_partial_object() {
+    // Only roll present -> only the Roll bit may be set.
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("navigation.attitude", "{\"roll\":0.1}");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, 0.1, d.roll);
+    TEST_ASSERT_TRUE(std::isnan(d.pitch));
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::Roll), touched);
+}
+
+static void test_parses_attitude_leaf_paths() {
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"navigation.attitude.roll\",\"value\":0.05},"
+                    "{\"path\":\"navigation.attitude.pitch\",\"value\":-0.02}"
+                    "]}]}";
+    sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, 0.05, d.roll);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, -0.02, d.pitch);
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::Roll) | boat::field_bit(boat::FieldId::Pitch);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_parses_rate_of_turn() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("navigation.rateOfTurn", "0.0175");  // ~1 deg/s to stbd
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, 0.0175, d.rateOfTurn);
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::RateOfTurn), touched);
+}
+
+static void test_parses_trip_and_total_log() {
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"navigation.trip.log\",\"value\":9260},"
+                    "{\"path\":\"navigation.log\",\"value\":1852000}"
+                    "]}]}";
+    int n = sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(2, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.5, 9260.0, d.tripLog);      // 5 nm in metres
+    TEST_ASSERT_FLOAT_WITHIN(0.5, 1852000.0, d.totalLog);  // 1000 nm
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::TripLog) | boat::field_bit(boat::FieldId::TotalLog);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_parses_battery_current_and_temperature() {
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"electrical.batteries.house.current\",\"value\":-12.4},"
+                    "{\"path\":\"electrical.batteries.house.temperature\",\"value\":298.15}"
+                    "]}]}";
+    int n = sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(2, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, -12.4, d.battCurrent);  // signed: discharging
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 298.15, d.battTemp);
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::BattCurrent) | boat::field_bit(boat::FieldId::BattTemp);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_parses_propulsion_any_instance() {
+    // Instance segment is prefix-matched like electrical.batteries.* — the
+    // first/primary engine wins the typed fields whatever it is named.
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"propulsion.main.revolutions\",\"value\":30},"
+                    "{\"path\":\"propulsion.main.temperature\",\"value\":361.15},"
+                    "{\"path\":\"propulsion.main.oilPressure\",\"value\":350000},"
+                    "{\"path\":\"propulsion.main.fuel.rate\",\"value\":0.0000012}"
+                    "]}]}";
+    int n = sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(4, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 30.0, d.engineRevs);  // Hz (=1800 RPM)
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 361.15, d.engineCoolantTemp);
+    TEST_ASSERT_FLOAT_WITHIN(1.0, 350000.0, d.engineOilPressure);  // 3.5 bar
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 0.0000012, d.engineFuelRate);
+    boat::FieldMask want = boat::field_bit(boat::FieldId::EngineRpm) |
+                           boat::field_bit(boat::FieldId::EngineCoolantTemp) |
+                           boat::field_bit(boat::FieldId::EngineOilPressure) |
+                           boat::field_bit(boat::FieldId::EngineFuelRate);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+
+    // A differently-named instance still lands on the typed fields.
+    View d2;
+    auto j2 = singleValueDelta("propulsion.port.revolutions", "25");
+    sk::applyDelta(j2.data(), j2.size(), d2);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 25.0, d2.engineRevs);
+}
+
+static void test_propulsion_unrelated_leaf_ignored() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("propulsion.main.oilTemperature", "320");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    // oilTemperature must NOT collide with the ".temperature" coolant suffix.
+    TEST_ASSERT_TRUE(std::isnan(d.engineCoolantTemp));
+    TEST_ASSERT_EQUAL_UINT64(0, touched);
+}
+
+static void test_parses_heading_magnetic_and_variation() {
+    // BUG-2: magnetic heading and variation land on their OWN fields and must
+    // NOT touch headingTrue.
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"updates\":[{\"values\":["
+                    "{\"path\":\"navigation.headingMagnetic\",\"value\":1.0},"
+                    "{\"path\":\"navigation.magneticVariation\",\"value\":0.05}"
+                    "]}]}";
+    int n = sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(2, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, 1.0, d.headingMag);
+    TEST_ASSERT_FLOAT_WITHIN(0.0001, 0.05, d.variation);
+    TEST_ASSERT_TRUE(std::isnan(d.headingTrue));  // not conflated
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::HeadingMag) | boat::field_bit(boat::FieldId::Variation);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+// --- touched-mask (per-delta field tracking for the staleness-honest ingest) ---
+
+static void test_touched_mask_single_field() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("navigation.speedOverGround", "3.5");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(1, n);
+    // Exactly the SOG bit - nothing else in this delta.
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::Sog), touched);
+}
+
+static void test_touched_mask_multiple_fields_accumulate() {
+    View d;
+    boat::FieldMask touched = 0;
+    const char *j = "{\"context\":\"vessels.self\",\"updates\":[{"
+                    "\"values\":["
+                    "{\"path\":\"navigation.speedOverGround\",\"value\":4.0},"
+                    "{\"path\":\"environment.depth.belowTransducer\",\"value\":7.5}"
+                    "]}]}";
+    int n = sk::applyDelta(j, strlen(j), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(2, n);
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::Sog) | boat::field_bit(boat::FieldId::Depth);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_touched_mask_survives_stale_accumulator() {
+    // The device parses into a persistent accumulator View: a field set by a
+    // PREVIOUS delta stays non-NaN, but a new delta that doesn't mention it
+    // must NOT mark it touched (that would re-stamp a dead sensor fresh).
+    View d;
+    auto j1 = singleValueDelta("environment.depth.belowTransducer", "7.5");
+    sk::applyDelta(j1.data(), j1.size(), d);  // accumulator now holds depth
+    boat::FieldMask touched = 0;
+    auto j2 = singleValueDelta("navigation.speedOverGround", "4.0");
+    sk::applyDelta(j2.data(), j2.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 7.5, d.depth);  // still in the accumulator
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::Sog), touched);  // but NOT touched
+}
+
+static void test_touched_mask_null_value_not_marked() {
+    View d;
+    d.sog = 5.0;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("navigation.speedOverGround", "null");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 5.0, d.sog);  // unchanged...
+    TEST_ASSERT_EQUAL_UINT64(0, touched);         // ...and not marked touched
+}
+
+static void test_touched_mask_unknown_path_not_marked() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("some.random.unknown.path", "42");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(1, n);               // seen (dyn-store eligible)...
+    TEST_ASSERT_EQUAL_UINT64(0, touched);  // ...but no typed field touched
+}
+
+static void test_touched_mask_position_sets_lat_lon() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("navigation.position", "{\"latitude\":41.3,\"longitude\":2.17}");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    boat::FieldMask want =
+        boat::field_bit(boat::FieldId::Lat) | boat::field_bit(boat::FieldId::Lon);
+    TEST_ASSERT_EQUAL_UINT64(want, touched);
+}
+
+static void test_touched_mask_apstate() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("steering.autopilot.state", "\"auto\"");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL_STRING("auto", d.apState);
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::ApState), touched);
+}
+
 // classifyStatus: WS not connected -> "disconnected", regardless of timestamps.
 static void test_status_disconnected() {
     TEST_ASSERT_EQUAL_STRING("disconnected", sk::classifyStatus(false, 0, 0, 0, 50000, 10000));
@@ -394,6 +644,24 @@ int main(int, char **) {
     RUN_TEST(test_parses_current);
     RUN_TEST(test_great_circle_aliases_route);
     RUN_TEST(test_apstate_truncates_safely);
+    RUN_TEST(test_parses_outside_environment);
+    RUN_TEST(test_parses_humidity_legacy_alias);
+    RUN_TEST(test_parses_attitude_object);
+    RUN_TEST(test_parses_attitude_partial_object);
+    RUN_TEST(test_parses_attitude_leaf_paths);
+    RUN_TEST(test_parses_rate_of_turn);
+    RUN_TEST(test_parses_trip_and_total_log);
+    RUN_TEST(test_parses_battery_current_and_temperature);
+    RUN_TEST(test_parses_propulsion_any_instance);
+    RUN_TEST(test_propulsion_unrelated_leaf_ignored);
+    RUN_TEST(test_parses_heading_magnetic_and_variation);
+    RUN_TEST(test_touched_mask_single_field);
+    RUN_TEST(test_touched_mask_multiple_fields_accumulate);
+    RUN_TEST(test_touched_mask_survives_stale_accumulator);
+    RUN_TEST(test_touched_mask_null_value_not_marked);
+    RUN_TEST(test_touched_mask_unknown_path_not_marked);
+    RUN_TEST(test_touched_mask_position_sets_lat_lon);
+    RUN_TEST(test_touched_mask_apstate);
     RUN_TEST(test_status_disconnected);
     RUN_TEST(test_status_live_during_warmup);
     RUN_TEST(test_status_stalled_after_warmup_no_activity);

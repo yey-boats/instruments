@@ -19,6 +19,7 @@
 #include <esp_attr.h>
 #include <esp_heap_caps.h>
 #include <esp_system.h>
+#include <atomic>
 #include <new>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -161,6 +162,28 @@ static const char *const FULL_PATHS[] = {
     "steering.autopilot.state",
     "environment.current.setTrue",
     "environment.current.drift",
+    // Weather / environment (coverage wave). Subscribe both humidity spellings:
+    // relativeHumidity is spec-canonical, humidity the common legacy alias.
+    "environment.outside.temperature",
+    "environment.outside.pressure",
+    "environment.outside.relativeHumidity",
+    "environment.outside.humidity",
+    // Attitude (roll/pitch object) + rate of turn + logs.
+    "navigation.attitude",
+    "navigation.rateOfTurn",
+    "navigation.trip.log",
+    "navigation.log",
+    // Magnetic heading + variation (BUG-2: distinct from headingTrue).
+    "navigation.headingMagnetic",
+    "navigation.magneticVariation",
+    // Battery bank detail (voltage/SOC already above).
+    "electrical.batteries.house.current",
+    "electrical.batteries.house.temperature",
+    // Primary engine (MIDL library Engine screen binds propulsion.main.*).
+    "propulsion.main.revolutions",
+    "propulsion.main.temperature",
+    "propulsion.main.oilPressure",
+    "propulsion.main.fuel.rate",
     // Push-live: manager plugin emits this when a view is applied; the
     // onText handler triggers an immediate config fetch for our device.
     "network.yeyboats.configPush",
@@ -193,7 +216,10 @@ static SubscriptionSet &g_desired() {
 // Guards g_desired + the s_subs_dirty flag (UI writer vs SK reader). Separate
 // from s_data_mtx so the SK task never blocks the parser hot path on it.
 static SemaphoreHandle_t s_sub_mtx = nullptr;
-static volatile bool s_subs_dirty = false;
+// Atomic (not volatile): written by the UI task (setDesiredPaths) and read/
+// cleared by the SK task outside s_sub_mtx; volatile does not order or
+// atomicize cross-core accesses on the S3's two cores.
+static std::atomic<bool> s_subs_dirty{false};
 // Wall-clock of the most recent desired-set change (a screen switch).
 // Asymmetric apply: ADD subscriptions almost immediately (a brief settle so a
 // flurry of switches coalesces), but DEFER reductions until the screen has been
@@ -202,7 +228,7 @@ static volatile bool s_subs_dirty = false;
 // through screens never thrashes the socket; only settling on a screen pays a
 // single brief reconnect to trim its subscription. A (re)connect sets the
 // change time in the past so the resubscribe applies at once (data resumes).
-static volatile uint32_t s_subs_change_ms = 0;
+static std::atomic<uint32_t> s_subs_change_ms{0};
 static uint32_t s_last_pump_ms = 0;
 static constexpr uint32_t SUBS_ADD_DEBOUNCE_MS = 300;    // settle adds briefly
 static constexpr uint32_t SUBS_REDUCE_STABLE_MS = 4000;  // only reduce when settled
@@ -354,20 +380,31 @@ void setDesiredPaths(const SubscriptionSet &screenPaths) {
     if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
 }
 
-// Bounded substring search (payload may not be NUL-terminated).
+// Bounded substring search (payload may not be NUL-terminated). memchr
+// skips straight to first-byte candidates so the common miss case is one
+// libc scan instead of a per-offset memcmp loop.
 static bool frame_contains(const uint8_t *hay, size_t n, const char *needle) {
     if (!needle || !*needle) return false;
     size_t m = strlen(needle);
     if (m > n) return false;
-    for (size_t i = 0; i + m <= n; ++i)
-        if (memcmp(hay + i, needle, m) == 0) return true;
+    const uint8_t first = (uint8_t)needle[0];
+    const uint8_t *p = hay;
+    const uint8_t *last = hay + (n - m);  // last valid start position
+    while (p <= last) {
+        const uint8_t *hit = (const uint8_t *)memchr(p, first, (size_t)(last - p) + 1);
+        if (!hit) return false;
+        if (memcmp(hit, needle, m) == 0) return true;
+        p = hit + 1;
+    }
     return false;
 }
 
 static void onText(uint8_t *payload, size_t len) {
     // Push-live: the manager plugin emits a `configPush` delta carrying this
     // device's id when a new view is applied. Seeing it (we subscribe to the
-    // path) triggers an immediate config fetch instead of waiting for the poll.
+    // path) triggers an immediate config fetch instead of waiting for the
+    // poll. Fast path: the (rare) "configPush" hit gates the device-id scan,
+    // so ordinary deltas pay for exactly one substring scan.
     if (frame_contains(payload, len, "configPush")) {
         const char *did = device_identity::get().device_id;
         if (did && *did && frame_contains(payload, len, did)) {
@@ -375,11 +412,25 @@ static void onText(uint8_t *payload, size_t len) {
             net::logf("[sk] configPush for us -> immediate config fetch");
         }
     }
+    // Parse OUTSIDE s_data_mtx into an SK-task-private working View seeded
+    // from the accumulator, so UI/web readers are never blocked for the
+    // whole JSON parse (PERF: parse of a big delta is hundreds of us).
+    // Function-static, not a stack local, per the CLAUDE.md task-stack rule;
+    // race-free because onText only ever runs on the SK task.
+    static boat::View work;
     if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+    work = s_parsed;
+    if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+
+    // `touched` records which View fields THIS delta actually carried, so
+    // ingest_signalk republishes only those - re-stamping the whole
+    // accumulator would keep dead sensors "fresh" forever (BUG: per-field
+    // staleness defeated). PathStore does its own locking (see path_store.h).
+    boat::FieldMask touched = 0;
 #ifdef DBG_PERF_COUNTERS
     uint32_t t0 = micros();
-    int n =
-        applyDelta((const char *)payload, len, s_parsed, &yeyboats::psram_json, &dynamicStore());
+    int n = applyDelta((const char *)payload, len, work, &yeyboats::psram_json, &dynamicStore(),
+                       &touched);
     uint32_t dt = micros() - t0;
     g_bench_ws_frames++;
     g_bench_ws_bytes += (uint32_t)len;
@@ -387,21 +438,26 @@ static void onText(uint8_t *payload, size_t len) {
     g_bench_parse_us_total += dt;
     if (dt > g_bench_parse_us_peak) g_bench_parse_us_peak = dt;
 #else
-    int n =
-        applyDelta((const char *)payload, len, s_parsed, &yeyboats::psram_json, &dynamicStore());
+    int n = applyDelta((const char *)payload, len, work, &yeyboats::psram_json, &dynamicStore(),
+                       &touched);
 #endif
     uint32_t now = millis();
+    // Merge back under a short lock: the SK task is the only writer of
+    // s_parsed's metric fields, and link-state transitions (set_connected)
+    // run on this same task via onEvent, so nothing can have mutated
+    // s_parsed between the snapshot above and this assign.
+    if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+    s_parsed = work;
     // Always tick the WS frame timestamp: any TEXT we receive proves
     // the link is alive even if applyDelta found no value-bearing path
     // (server hello, subscription ack, envelope-only delta).
     s_parsed.wsLastFrameMs = now;
     if (n > 0) s_parsed.lastUpdateMs = now;
-    boat::View snap = s_parsed;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
     // Ingest into the source-neutral fused model. boat::publish() does its
-    // own locking; we hand it a snapshot so the SK mutex isn't held across
+    // own locking; `work` is SK-task-private so no SK mutex is held across
     // the priority-resolution path. This is the sole SignalK ingest path.
-    if (n > 0) boat::ingest_signalk(snap, now);
+    if (n > 0 && touched) boat::ingest_signalk(work, now, touched);
 }
 
 static void set_connected(bool v) {
@@ -474,6 +530,16 @@ void fill_current_view(boat::View &out) {
     out.lastUpdateMs = s_parsed.lastUpdateMs;
     out.connected = s_parsed.connected;
     if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+}
+
+// Backing for boat::last_update_ms() (defined at the end of this file):
+// just the WS link's last value-bearing-delta timestamp, under the same
+// mutex the writers use.
+uint32_t link_last_update_ms() {
+    if (s_data_mtx) xSemaphoreTake(s_data_mtx, portMAX_DELAY);
+    uint32_t v = s_parsed.lastUpdateMs;
+    if (s_data_mtx) xSemaphoreGive(s_data_mtx);
+    return v;
 }
 
 // Start (or restart) the WebSocket client against the current
@@ -1135,6 +1201,14 @@ namespace boat {
 // that lives in signalk.cpp.
 void current_view(View &out) {
     sk::fill_current_view(out);
+}
+
+// Cheap link-freshness accessor (declared in boat_data.h): just the
+// lastUpdateMs that current_view() would overlay, WITHOUT the full
+// boat::compose() of every metric field. Used by the ui_refresh latency
+// sampler, which only needs the timestamp.
+uint32_t last_update_ms() {
+    return sk::link_last_update_ms();
 }
 
 }  // namespace boat
