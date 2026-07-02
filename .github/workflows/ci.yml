@@ -165,3 +165,31 @@ jobs:
 
       - name: Check generated files are up to date
         run: git diff --exit-code include/proto/records_generated.h proto/js/types.d.ts
+
+  sim-build:
+    name: Host render sim builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-sim-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            pio-sim-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      # Host-only LVGL render harness envs (no hardware). Keeps the documented
+      # `make sim` design-preview workflow from silently breaking at link time.
+      - name: Build sim render envs
+        run: pio run -e sim -e sim-screens -e sim-ap -e sim-wind -e sim-midl -e sim-knob -e sim-control
