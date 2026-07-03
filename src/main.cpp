@@ -2,7 +2,10 @@
 #include <Wire.h>
 #include <Arduino_GFX_Library.h>
 #include <lvgl.h>
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+// Boards with a CST816S touch controller (the round touch panels). The 1.28"
+// Waveshare round board shares the knob's touch path but has no encoder.
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8) || defined(BOARD_ID_WAVESHARE_TOUCH_LCD_1_28)
+#define YEYBOATS_TOUCH_CST816S 1
 #include <CST816S.h>
 #endif
 
@@ -60,6 +63,33 @@ static Arduino_DataBus *bus =
 // gfx->draw16bitRGBBitmap (a base virtual) so it stays board-agnostic.
 static Arduino_GFX *gfx =
     new Arduino_ST77916(bus, LCD_RST, 0 /* rotation */, true /* IPS */, LCD_W, LCD_H);
+
+#elif defined(BOARD_ID_WAVESHARE_TOUCH_LCD_1_28)
+// Waveshare ESP32-S3-Touch-LCD-1.28: 240x240 round GC9A01 over plain 4-wire
+// SPI (pins in include/board_pins_waveshare_touch_lcd_1_28.h). Same flush
+// contract as the knob: LVGL blits via gfx->draw16bitRGBBitmap (base
+// virtual), so the render path stays board-agnostic.
+static Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI, LCD_MISO);
+static Arduino_GFX *gfx = new Arduino_GC9A01(bus, LCD_RST, 0 /* rotation */, true /* IPS */);
+
+#elif defined(BOARD_ID_SUNTON_8048S050) || defined(BOARD_ID_SUNTON_8048S070)
+// Sunton/Guition ESP32-8048S050 / S070: 800x480 RGB parallel TTL panel
+// (ST7262 / EK9716-class). Unlike the ST7701 on the 4848S040 there is NO
+// init-command table and no 3-wire SPI init bus - the controller is
+// configured by strapping pins and the panel is driven purely by the RGB
+// timing macros from the pins header (Arduino_RGB_Display's bus/init
+// params default to NULL). Timings + pin map per the Arduino_GFX
+// dev-device configs; see the pins headers for sources and the R/B
+// camera-verification warning.
+static Arduino_ESP32RGBPanel *rgbpanel = new Arduino_ESP32RGBPanel(
+    RGB_DE, RGB_VSYNC, RGB_HSYNC, RGB_PCLK, RGB_R0, RGB_R1, RGB_R2, RGB_R3, RGB_R4, RGB_G0, RGB_G1,
+    RGB_G2, RGB_G3, RGB_G4, RGB_G5, RGB_B0, RGB_B1, RGB_B2, RGB_B3, RGB_B4, RGB_HSYNC_POLARITY,
+    RGB_HSYNC_FRONT_PORCH, RGB_HSYNC_PULSE_WIDTH, RGB_HSYNC_BACK_PORCH, RGB_VSYNC_POLARITY,
+    RGB_VSYNC_FRONT_PORCH, RGB_VSYNC_PULSE_WIDTH, RGB_VSYNC_BACK_PORCH, RGB_PCLK_ACTIVE_NEG,
+    RGB_PCLK_HZ /* prefer_speed */, false /* useBigEndian */);
+
+static Arduino_RGB_Display *gfx =
+    new Arduino_RGB_Display(LCD_W, LCD_H, rgbpanel, 0 /* rotation */, true /* auto_flush */);
 
 #else
 // ST7701 init via 3-wire SPI, then RGB takes over.
@@ -158,7 +188,7 @@ static Arduino_RGB_Display *gfx =
     new Arduino_RGB_Display(LCD_W, LCD_H, rgbpanel, 0 /* rotation */, true /* auto_flush */, bus,
                             -1 /* RST */, st7701_4848S040_init, sizeof(st7701_4848S040_init));
 #endif  // !RENDER_DOUBLE_BUFFER
-#endif  // BOARD_ID_WAVESHARE_KNOB_1_8
+#endif  // BOARD_ID_* display dispatch (default: ST7701 RGB)
 
 static bool touch_present = false;
 
@@ -536,8 +566,9 @@ static bool gt911_read_once(int16_t *out_x, int16_t *out_y) {
     return has_point;
 }
 
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
-// Waveshare knob: CST816S capacitive touch (I2C, addr 0x15) on the touch
+#if defined(YEYBOATS_TOUCH_CST816S)
+// Round Waveshare panels (1.8" knob, 1.28" touch): CST816S capacitive touch
+// (I2C, addr 0x15) on the touch
 // bus. The fbiego/CST816S driver is IRQ-driven: available() latches true on
 // each controller event, and data.event is 0=Down / 1=Up / 2=Contact. We
 // keep a sticky "pressed" latch so the existing 60 Hz touch_task poll path
@@ -572,12 +603,13 @@ static bool cst816_read_once(int16_t *out_x, int16_t *out_y) {
     }
     return g_cst816_pressed;
 }
-#endif  // BOARD_ID_WAVESHARE_KNOB_1_8
+#endif  // YEYBOATS_TOUCH_CST816S
 
 // Board-agnostic single-sample read: routes to the panel's touch
-// controller (CST816S on the knob, GT911 on the Sunton/Guition panels).
+// controller (CST816S on the round Waveshare panels, GT911 on the
+// Sunton/Guition/Waveshare rectangular panels).
 static bool touch_read_point(int16_t *out_x, int16_t *out_y) {
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+#if defined(YEYBOATS_TOUCH_CST816S)
     return cst816_read_once(out_x, out_y);
 #else
     return gt911_read_once(out_x, out_y);
@@ -2325,15 +2357,16 @@ void setup() {
             delay(1000);
     }
     gfx->fillScreen(BLACK);
-    puts("[gfx] ST7701 RGB panel ok");
+    printf("[gfx] panel ok: %s\n", board::display_name());
 #endif
 
     Wire.begin(TOUCH_SDA, TOUCH_SCL);
     Wire.setClock(400000);
     delay(50);
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
-    // Waveshare knob: CST816S capacitive touch (addr 0x15). Secondary input
-    // (the menu is encoder-first), so a missing controller is non-fatal.
+#if defined(YEYBOATS_TOUCH_CST816S)
+    // Round Waveshare panels: CST816S capacitive touch (addr 0x15). A
+    // missing controller is non-fatal (the knob is encoder-first; the
+    // 1.28" still boots and is reachable over BLE/serial).
     g_cst816.begin(TOUCH_INT_ACTIVE_LOW ? FALLING : RISING);
     Wire.beginTransmission(CST816S_ADDRESS);
     bool ok = (Wire.endTransmission() == 0);
@@ -2364,7 +2397,7 @@ void setup() {
     g_touch_i2c_mtx = xSemaphoreCreateMutex();
     if (touch_present && g_touch_mtx) {
         xTaskCreatePinnedToCore(touch_task, "touch", 4096, nullptr, 2, &g_touch_task, 0);
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+#if defined(YEYBOATS_TOUCH_CST816S)
         // CST816S installs its own IRQ handler in begin() and the touch_task
         // drains its event latch via available() at 60 Hz. Do NOT attach the
         // GT911-style touch_irq_isr here -- it would clobber the driver ISR.

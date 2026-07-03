@@ -2,6 +2,12 @@
 
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
 #include "board_pins_waveshare_knob.h"
+#elif defined(BOARD_ID_WAVESHARE_TOUCH_LCD_1_28)
+#include "board_pins_waveshare_touch_lcd_1_28.h"
+#elif defined(BOARD_ID_SUNTON_8048S050)
+#include "board_pins_sunton_8048s050.h"
+#elif defined(BOARD_ID_SUNTON_8048S070)
+#include "board_pins_sunton_8048s070.h"
 #else
 // clang-format off
 
@@ -70,4 +76,4 @@
 #define RELAY_CANDIDATE_GPIOS_HINT "consumed by RGB; needs board-specific check"
 
 // clang-format on
-#endif  // BOARD_ID_WAVESHARE_KNOB_1_8 / else
+#endif  // BOARD_ID_* pins dispatch (default: Sunton 4848S040)

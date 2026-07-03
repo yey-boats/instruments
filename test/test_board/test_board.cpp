@@ -149,6 +149,26 @@ static void test_round_480_safe_area_inset() {
     TEST_ASSERT_EQUAL_UINT16(384, ctx.short_side);
 }
 
+static void test_round_240_safe_area_inset() {
+    // Waveshare ESP32-S3-Touch-LCD-1.28 class: 240x240 round touch panel.
+    // Below the 480 threshold the fake applies the 42 px inscribed-square
+    // inset; layout class stays SquareCompact (roundness is shape+usable,
+    // same convention as the 1.8" knob board).
+    board::native_fake::set_geometry(240, 240, 13, board::DisplayShape::Round);
+    auto g = board::geometry();
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::DisplayShape::Round), static_cast<int>(g.shape));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(board::LayoutClass::SquareCompact),
+                          static_cast<int>(g.layout_class));
+    TEST_ASSERT_EQUAL_UINT16(42, g.usable_x);
+    TEST_ASSERT_EQUAL_UINT16(42, g.usable_y);
+    TEST_ASSERT_EQUAL_UINT16(156, g.usable_width);
+    TEST_ASSERT_EQUAL_UINT16(156, g.usable_height);
+    auto ctx = ui::layout_context();
+    TEST_ASSERT_EQUAL_UINT16(156, ctx.short_side);
+    TEST_ASSERT_TRUE(ctx.square);
+    TEST_ASSERT_FALSE(ctx.wide);
+}
+
 static void test_board_name_helpers() {
     TEST_ASSERT_EQUAL_STRING("square", board::shape_name(board::DisplayShape::Square));
     TEST_ASSERT_EQUAL_STRING("round", board::shape_name(board::DisplayShape::Round));
@@ -228,6 +248,7 @@ int main(int, char **) {
     RUN_TEST(test_800x480_large_panel_uses_compact_class_but_wide_context);
     RUN_TEST(test_landscape_1024x600_uses_hdpi_spacing);
     RUN_TEST(test_round_480_safe_area_inset);
+    RUN_TEST(test_round_240_safe_area_inset);
     RUN_TEST(test_board_name_helpers);
     RUN_TEST(test_landscape_compact_640x480);
     RUN_TEST(test_portrait_compact_480x640);
