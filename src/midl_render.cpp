@@ -11,6 +11,10 @@
 
 namespace midl::render {
 
+using ui::layouts::BindKind;
+using ui::layouts::DialMarker;
+using ui::layouts::DialSector;
+using ui::layouts::DialShape;
 using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
 using ui::layouts::WidgetKind;
@@ -57,6 +61,15 @@ static void copy_path(char *dst, const char *src) {
     dst[cap - 1] = 0;
 }
 
+// Bump-allocate one raw-path buffer from the StyleAlloc pool and copy `src`
+// into it. Returns NULL when the pool is absent/exhausted (caller degrades).
+static const char *alloc_style_path(StyleAlloc *sa, const char *src) {
+    if (!sa || !sa->paths || sa->paths_used >= sa->path_cap || !src || !src[0]) return nullptr;
+    char *dst = sa->paths[sa->paths_used++];
+    copy_path(dst, src);
+    return dst;
+}
+
 // Parse "#rrggbb" into rgb; returns true on a well-formed literal.
 static bool parse_hex_color(const char *cs, uint32_t &rgb) {
     if (!cs || cs[0] != '#' || strlen(cs) != 7) return false;
@@ -81,6 +94,39 @@ static ZoneColor parse_zone_color(const char *cs, uint32_t &rgb) {
     if (!strcmp(cs, "port")) return ZoneColor::Port;
     if (!strcmp(cs, "starboard")) return ZoneColor::Starboard;
     return ZoneColor::Default;
+}
+
+// Parse one sector edge (style.sectors[].from/.to). A number is a fixed angle
+// in degrees; a string names a key in the element's `bindings` map (dynamic
+// laylines per midl types.ts:57) resolved through the enum bridge, a retained
+// raw path, or a const binding. Returns false when the edge is unusable (the
+// whole sector is then skipped, mirroring the web's numeric-only strictness).
+static bool parse_sector_edge(JsonVariantConst edge, JsonVariantConst bindings, StyleAlloc *sa,
+                              float &fixed, MetricSource &src, const char *&path) {
+    fixed = NAN;
+    src = MetricSource::None;
+    path = nullptr;
+    if (edge.is<float>()) {
+        fixed = edge.as<float>();
+        return true;
+    }
+    if (!edge.is<const char *>()) return false;
+    // `edge` names a bindings key; the key string lives in the same document,
+    // so ArduinoJson's operator[] pointer-identity fast path is safe here.
+    JsonVariantConst b = bindings[edge.as<const char *>()];
+    if (!b.is<JsonObjectConst>()) return false;
+    if (!strcmp(b["kind"] | "", "const")) {
+        JsonVariantConst cv = b["value"];
+        if (!cv.is<float>()) return false;
+        fixed = cv.as<float>();
+        return true;
+    }
+    const char *p = b["path"] | "";
+    if (!p[0]) return false;
+    src = ui::layout_render::path_to_source(p);
+    if (src != MetricSource::None) return true;
+    path = alloc_style_path(sa, p);
+    return path != nullptr;
 }
 
 JsonVariantConst select_screen(JsonVariantConst doc, const char *screen_id, const char **out_id) {
@@ -125,13 +171,14 @@ JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element
 
 bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out, char *id_buf,
                  char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf, char *path_buf,
-                 char *dir_buf) {
+                 char *dir_buf, char *action_value_buf, StyleAlloc *style_alloc) {
     if (!el.is<JsonObjectConst>()) return false;
     memset(&out, 0, sizeof(out));
     if (action_buf) action_buf[0] = 0;
     if (zoom_buf) zoom_buf[0] = 0;
     if (path_buf) path_buf[0] = 0;
     if (dir_buf) dir_buf[0] = 0;
+    if (action_value_buf) action_value_buf[0] = 0;
     copy32(id_buf, element_id);
     const char *name = el["name"] | element_id;
     copy32(label_buf, name);
@@ -140,16 +187,43 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     out.label = label_buf;
     out.unit = unit_buf;
     out.kind = token_to_kind(el["type"] | "");
-    // bindings.value: enum bridge first. On a miss, RETAIN the raw path (audit
-    // item 8): the dynamic PathStore + widget_data::resolve_numeric can serve
-    // any numeric SignalK path, so the widget resolves through the injected
-    // dynamic resolver instead of dropping to None + "--". format.unit (already
-    // in unit_buf) drives the SI -> display conversion in the painter.
-    const char *vpath = el["bindings"]["value"]["path"] | "";
-    out.source = ui::layout_render::path_to_source(vpath);
-    if (out.source == MetricSource::None && vpath[0] && path_buf) {
-        copy_path(path_buf, vpath);
-        out.path = path_buf;
+    // bindings.value: dispatch on Source.kind (schema $defs/source). "signalk"
+    // (or an absent kind with a path — legacy docs) takes the enum bridge; on a
+    // miss the RAW path is RETAINED (audit item 8) for the dynamic PathStore.
+    // "const" renders a literal and "local" a device-local metric — NEITHER
+    // subscribes anything (source stays None, path stays NULL, so collect_paths
+    // adds no SignalK subscription for them). "computed" is unsupported -> "--".
+    JsonVariantConst vbind = el["bindings"]["value"];
+    const char *vkind = vbind["kind"] | "";
+    if (!strcmp(vkind, "const")) {
+        JsonVariantConst cv = vbind["value"];
+        if (cv.is<bool>()) {
+            out.value_kind = BindKind::ConstBind;
+            out.const_value = cv.as<bool>() ? 1.0f : 0.0f;
+        } else if (cv.is<float>()) {
+            out.value_kind = BindKind::ConstBind;
+            out.const_value = cv.as<float>();
+        } else if (cv.is<const char *>() && path_buf) {
+            out.value_kind = BindKind::ConstBind;
+            out.const_value = NAN;
+            copy_path(path_buf, cv.as<const char *>());
+            out.const_text = path_buf;
+        }
+        // missing/unusable literal: value_kind stays PathBind + source None -> "--"
+    } else if (!strcmp(vkind, "local")) {
+        const char *lid = vbind["id"] | "";
+        if (lid[0] && path_buf) {
+            out.value_kind = BindKind::LocalBind;
+            copy_path(path_buf, lid);
+            out.local_id = path_buf;
+        }
+    } else {
+        const char *vpath = vbind["path"] | "";
+        out.source = ui::layout_render::path_to_source(vpath);
+        if (out.source == MetricSource::None && vpath[0] && path_buf) {
+            copy_path(path_buf, vpath);
+            out.path = path_buf;
+        }
     }
     // bindings.dir (audit item 3): a second source steering the dial pointer
     // (compass/windrose) independently of the centre value — midl types.ts:24;
@@ -225,6 +299,82 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
             ++out.zone_count;
         }
     }
+    // style.hull / style.shape (dial presentation, web dial.ts:139-146/:50).
+    out.hull = el["style"]["hull"] | false;
+    if (!strcmp(el["style"]["shape"] | "", "band")) out.shape = DialShape::Band;
+    // style.sectors: colored dial arcs (no-go zone / laylines). Edges are fixed
+    // degrees or bindings-key strings (parse_sector_edge); colours reuse the
+    // zone token encoding and resolve against the live theme in the painter.
+    // Slots come from the caller's StyleAlloc pool (per-SCREEN, like markers —
+    // inlining DialSector[3] in every MetricBinding would blow the arena budget).
+    if (style_alloc && style_alloc->sectors) {
+        JsonArrayConst secs = el["style"]["sectors"].as<JsonArrayConst>();
+        JsonVariantConst bindings = el["bindings"];
+        if (!secs.isNull()) {
+            uint8_t start = style_alloc->sectors_used;
+            uint8_t count = 0;
+            for (JsonVariantConst s : secs) {
+                if (count >= ui::layouts::MAX_DIAL_SECTORS) break;
+                if (style_alloc->sectors_used >= style_alloc->sector_cap) break;
+                DialSector &ds = style_alloc->sectors[style_alloc->sectors_used];
+                if (!parse_sector_edge(s["from"], bindings, style_alloc, ds.from, ds.from_source,
+                                       ds.from_path))
+                    continue;
+                if (!parse_sector_edge(s["to"], bindings, style_alloc, ds.to, ds.to_source,
+                                       ds.to_path))
+                    continue;
+                ds.color = parse_zone_color(s["color"] | "", ds.rgb);
+                ++style_alloc->sectors_used;
+                ++count;
+            }
+            if (count) {
+                out.sectors = &style_alloc->sectors[start];
+                out.sector_count = count;
+            }
+        }
+    }
+    // element.markers[]: per-marker glyph / colour / dir binding / rim-vs-vector
+    // kind (schema $defs + midl types.ts Marker). Slots come from the caller's
+    // StyleAlloc pool; the manifest cap (maxMarkersPerDial == MAX_DIAL_MARKERS)
+    // bounds one dial. Only dial kinds render markers, so non-dial elements do
+    // not consume pool slots.
+    if (style_alloc && style_alloc->markers &&
+        (out.kind == WidgetKind::Compass || out.kind == WidgetKind::WindRose)) {
+        JsonArrayConst mks = el["markers"].as<JsonArrayConst>();
+        if (!mks.isNull()) {
+            uint8_t start = style_alloc->markers_used;
+            uint8_t count = 0;
+            for (JsonVariantConst mk : mks) {
+                if (count >= ui::layouts::MAX_DIAL_MARKERS) break;
+                if (style_alloc->markers_used >= style_alloc->marker_cap) break;
+                DialMarker &dm = style_alloc->markers[style_alloc->markers_used];
+                ui::GlyphId g = ui::glyph_from_token(mk["glyph"] | "triangle");
+                // Unknown glyph -> Circle (the web's small filled-dot fallback).
+                dm.glyph = (uint8_t)(g == ui::GlyphId::COUNT ? ui::GlyphId::Circle : g);
+                dm.vector = !strcmp(mk["kind"] | "rim", "vector");
+                dm.color = parse_zone_color(mk["color"] | "", dm.rgb);
+                dm.dir_source = MetricSource::None;
+                dm.dir_path = nullptr;
+                dm.dir_const = NAN;
+                JsonVariantConst dir = mk["dir"];
+                if (!strcmp(dir["kind"] | "", "const")) {
+                    JsonVariantConst cv = dir["value"];
+                    if (cv.is<float>()) dm.dir_const = cv.as<float>();
+                } else {
+                    const char *dp = dir["path"] | "";
+                    dm.dir_source = ui::layout_render::path_to_source(dp);
+                    if (dm.dir_source == MetricSource::None && dp[0])
+                        dm.dir_path = alloc_style_path(style_alloc, dp);
+                }
+                ++style_alloc->markers_used;
+                ++count;
+            }
+            if (count) {
+                out.markers = &style_alloc->markers[start];
+                out.marker_count = count;
+            }
+        }
+    }
     // style.color may be "#rrggbb" hex string (MIDL editor) or an integer; default 0
     // (painter uses theme default).
     out.accent = 0;
@@ -260,8 +410,10 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     // non-interactive. The fullscreen-self default/true case keeps nullptr.
     JsonVariantConst zoom = el["zoom"];
     // A dynamic-path binding (source None but path retained) is a real value
-    // tile: it zooms and stays tappable exactly like an enum-source tile.
-    bool has_value = out.source != MetricSource::None || (out.path && out.path[0]);
+    // tile: it zooms and stays tappable exactly like an enum-source tile. So
+    // are const/local bindings (they render a real value without subscribing).
+    bool has_value = out.source != MetricSource::None || (out.path && out.path[0]) ||
+                     out.value_kind != BindKind::PathBind;
     bool self_zoomable = (out.kind != WidgetKind::Button && has_value);
     out.zoomable = self_zoomable;
     out.zoom_target = self_zoomable ? nullptr /* fullscreen-self */
@@ -299,6 +451,25 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
                     // target through the SignalK PUT queue instead of the
                     // console-command funnel (Race-screen tack dialect).
                     out.command = action_buf;
+                    // Optional action.value: JSON-encode it so the PUT sends
+                    // the authored payload instead of the fixed `true`
+                    // action-trigger convention (sk::putValue takes a JSON
+                    // value string; see aphud::put_state's "\"auto\"").
+                    if (action_value_buf) {
+                        JsonVariantConst av = action["value"];
+                        if (av.is<bool>()) {
+                            copy32(action_value_buf, av.as<bool>() ? "true" : "false");
+                            out.action_value = action_value_buf;
+                        } else if (av.is<float>()) {
+                            // %g (6 sig. digits) is stable across the float/
+                            // double JsonFloat configs; ample for PUT payloads.
+                            snprintf(action_value_buf, 32, "%g", av.as<double>());
+                            out.action_value = action_value_buf;
+                        } else if (av.is<const char *>()) {
+                            snprintf(action_value_buf, 32, "\"%s\"", av.as<const char *>());
+                            out.action_value = action_value_buf;
+                        }
+                    }
                 }
             }
         }

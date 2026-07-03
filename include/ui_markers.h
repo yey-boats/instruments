@@ -37,13 +37,22 @@ struct MarkerRing {
 };
 
 // Build a 28x28 glyph visual (filled or outline) on a PSRAM canvas. Exposed for
-// reuse (e.g. a legend); the ring uses it internally.
+// reuse (e.g. a legend); the ring uses it internally. The canvas buffer is
+// freed automatically when the canvas object is deleted (LV_EVENT_DELETE
+// handler; LVGL does not own a user-supplied canvas buffer) — screens rebuilt
+// by MIDL apply_all / live theme switching therefore do NOT leak PSRAM.
 lv_obj_t *draw_glyph(lv_obj_t *parent, Glyph g, bool filled, uint32_t color);
 
 // Build the ring. specs[].glyph/filled/color are fixed at build; specs[].value_deg
 // is read later by marker_ring_update. count is clamped to kMaxMarkersPerDial.
 MarkerRing build_marker_ring(lv_obj_t *parent, int cx, int cy, int r, const MarkerSpec *specs,
                              uint8_t count, bool occlude_lower);
+
+// Same, but each marker orbits at its own radius (radii[i]) around the shared
+// center — used for authored MIDL markers where `rim` and `vector` markers ride
+// different radii on one dial. ring.r stores the largest radius.
+MarkerRing build_marker_ring_radii(lv_obj_t *parent, int cx, int cy, const int *radii,
+                                   const MarkerSpec *specs, uint8_t count, bool occlude_lower);
 
 // Place each marker at marker_screen_angle(specs[i].value_deg, reference_deg);
 // hide NaN/occluded. Cheap: only changed rotations/visibility touch LVGL.

@@ -10,9 +10,31 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 #include <ArduinoJson.h>
+#include "midl_limits.h"       // midl::FirmwareLimits::path_len (StyleAlloc path pool)
 #include "ui_layouts_types.h"  // ui::layouts::MetricBinding, WidgetKind, MetricSource
 
 namespace midl::render {
+
+// Caller-owned storage pool for the variable-size style artifacts one screen's
+// elements can author: dial markers (element.markers[]), dial sectors
+// (style.sectors) and the dynamic-path strings their `dir` bindings / bound
+// sector edges may need. map_element bump-allocates from it; the MetricBinding
+// stores non-owning pointers into it (same lifetime contract as id/label/unit).
+// A null/exhausted pool degrades gracefully: markers/sectors past the pool are
+// dropped, dynamic paths past the pool fall back to "hidden" (NaN), never
+// dangling.
+struct StyleAlloc {
+    ui::layouts::DialMarker *markers;  // pool of marker slots
+    uint8_t marker_cap;                // total slots in `markers`
+    uint8_t markers_used;              // bump cursor (caller resets per screen)
+    ui::layouts::DialSector *sectors;  // pool of sector slots
+    uint8_t sector_cap;
+    uint8_t sectors_used;
+    // Pool of raw-path buffers, each midl::FirmwareLimits::path_len bytes.
+    char (*paths)[midl::FirmwareLimits::path_len];
+    uint8_t path_cap;
+    uint8_t paths_used;
+};
 
 // Map a MIDL element token ("single-value","text","gauge","bar","compass",
 // "windrose","trend","autopilot","button") to a device WidgetKind. Unknown
@@ -44,9 +66,25 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 // = true with out.zoom_target = the copied screen id (switch to that screen).
 // `zoom_buf` may be null (zoom string then ignored). Returns false if `el` is not
 // an object.
+//
+// Dial-fidelity wave (all optional trailing params; null = feature degrades):
+//   - bindings.value {kind:"const"|"local"} -> out.value_kind + const_value /
+//     const_text / local_id (const_text and local_id share `path_buf` — they are
+//     mutually exclusive with a dynamic path). Neither subscribes any SignalK
+//     path (collect_paths sees source == None, path == NULL).
+//   - action.value -> JSON-encoded into `action_value_buf` (>=32) and pointed
+//     at by out.action_value (number "42", bool "true", string "\"s\"").
+//   - element.markers[] (compass/windrose, cap MAX_DIAL_MARKERS) -> slots from
+//     `style_alloc` (out.markers/marker_count); marker dir paths + bound sector
+//     edge paths draw from the same pool's path buffers.
+//   - style.sectors (cap MAX_DIAL_SECTORS per dial) -> slots from `style_alloc`
+//     (out.sectors/sector_count); an edge is a fixed numeric angle or a string
+//     naming a `bindings` key for a data-bound edge (dynamic laylines).
+//   - style.hull -> out.hull; style.shape "band" -> out.shape = DialShape::Band.
 bool map_element(JsonVariantConst el, const char *element_id, ui::layouts::MetricBinding &out,
                  char *id_buf, char *label_buf, char *unit_buf, char *action_buf, char *zoom_buf,
-                 char *path_buf = nullptr, char *dir_buf = nullptr);
+                 char *path_buf = nullptr, char *dir_buf = nullptr,
+                 char *action_value_buf = nullptr, StyleAlloc *style_alloc = nullptr);
 
 // Pure (host-testable): select a screen object from a MIDL document.
 //

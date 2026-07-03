@@ -72,6 +72,15 @@ struct QuadGridTile {
     // Last applied style.zones colour on the gauge/bar fill + hero text
     // (0 = never styled). Additive trailing field (aggregate-init order).
     uint32_t last_zone_rgb;
+    // ---- dial-fidelity wave (all additive trailing; zero-init on legacy tiles).
+    // Authored MIDL markers[] ring (rim + vector radii). Empty when the binding
+    // carries no markers.
+    ui::MarkerRing markers_auth;
+    // style.sectors arcs + last-set LVGL angles (dirty cache; INT32_MIN unset).
+    lv_obj_t *sector_arcs[MAX_DIAL_SECTORS];
+    int sector_last_s[MAX_DIAL_SECTORS];
+    int sector_last_e[MAX_DIAL_SECTORS];
+    int8_t sector_last_hidden[MAX_DIAL_SECTORS];
 };
 
 struct QuadGridState {
@@ -161,6 +170,8 @@ const char *source_to_path(MetricSource s) {
         return "navigation.headingMagnetic";
     case MetricSource::Variation_deg:
         return "navigation.magneticVariation";
+    case MetricSource::EngineHours_h:
+        return "propulsion.main.runTime";
     case MetricSource::None:
     default:
         return nullptr;
@@ -179,6 +190,25 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
         const char *dp = source_to_path(m.dir_source);
         if (dp) out.add(dp);
         if (!dp && m.dir_path && m.dir_path[0]) out.add(m.dir_path);
+        // NOTE: const/local value bindings subscribe NOTHING by construction —
+        // the mapper leaves source == None and path == NULL for them.
+        // Authored dial markers: each marker's `dir` binding is a live bearing.
+        for (uint8_t k = 0; k < m.marker_count && m.markers; ++k) {
+            const char *mp = source_to_path(m.markers[k].dir_source);
+            if (mp) out.add(mp);
+            if (!mp && m.markers[k].dir_path && m.markers[k].dir_path[0])
+                out.add(m.markers[k].dir_path);
+        }
+        // Bound sector edges (dynamic laylines).
+        for (uint8_t k = 0; m.sectors && k < m.sector_count && k < MAX_DIAL_SECTORS; ++k) {
+            const DialSector &ds = m.sectors[k];
+            const char *fp = source_to_path(ds.from_source);
+            if (fp) out.add(fp);
+            if (!fp && ds.from_path && ds.from_path[0]) out.add(ds.from_path);
+            const char *tp = source_to_path(ds.to_source);
+            if (tp) out.add(tp);
+            if (!tp && ds.to_path && ds.to_path[0]) out.add(ds.to_path);
+        }
         uint8_t ne = m.extras_count;
         if (ne > 4) ne = 4;  // bound to the fixed extras[] array
         for (uint8_t e = 0; e < ne; ++e) {
@@ -268,6 +298,24 @@ void set_dynamic_resolver(DynamicResolveFn fn) {
     s_dynamic_resolver = fn;
 }
 
+// Device-local metric resolver ({kind:"local", id:"..."} bindings). Installed
+// by midl_render_apply.cpp (device status APIs); NULL on host/sim builds so
+// local bindings degrade to "--" there.
+static LocalResolveFn s_local_resolver = nullptr;
+void set_local_resolver(LocalResolveFn fn) {
+    s_local_resolver = fn;
+}
+
+// Display value of a const/local binding; NaN for PathBind (caller handles) or
+// an unknown/unresolvable id. Const values are authored in display units (no
+// SI conversion — mirrors the web MockDataProvider const path, data.ts:35).
+static double bound_value(const MetricBinding &m, const boat::View & /*d*/) {
+    if (m.value_kind == BindKind::ConstBind) return m.const_value;
+    if (m.value_kind == BindKind::LocalBind && m.local_id && m.local_id[0] && s_local_resolver)
+        return s_local_resolver(m.local_id);
+    return NAN;
+}
+
 // Display-unit value for a dynamic binding: raw SI from the resolver, then the
 // format.unit conversion (convert_si_display). NaN when unresolved/uninstalled.
 static double dynamic_display_value(const MetricBinding &m, const boat::View &d) {
@@ -293,12 +341,13 @@ static double binding_dir_deg(const MetricBinding &m, const boat::View &d) {
     return NAN;
 }
 
-// Resolve a MetricZone's authored colour against the LIVE theme palette (so
+// Resolve an authored colour token against the LIVE theme palette (so
 // day/night flips keep working); Default falls back to the caller's colour.
-static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
-    switch (z.color) {
+// Shared by style.zones, markers[] and style.sectors (one token encoding).
+static uint32_t token_rgb(ZoneColor c, uint32_t literal, uint32_t fallback) {
+    switch (c) {
     case ZoneColor::Literal:
-        return z.rgb;
+        return literal;
     case ZoneColor::Accent:
         return theme.accent;
     case ZoneColor::Warn:
@@ -315,6 +364,10 @@ static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
     default:
         return fallback;
     }
+}
+
+static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
+    return token_rgb(z.color, z.rgb, fallback);
 }
 
 static void format_metric(const MetricBinding &m, const boat::View &d, char *primary, size_t pcap,
@@ -561,6 +614,12 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
             snprintf(primary, pcap, "--");
         }
         break;
+    case MetricSource::EngineHours_h:
+        if (!isnan(d.engineHours))
+            snprintf(primary, pcap, "%.1f", units::s_to_h(d.engineHours));
+        else
+            snprintf(primary, pcap, "--");
+        break;
     case MetricSource::Position:
         if (!isnan(d.lat) && !isnan(d.lon)) {
             format_position(d.lat, d.lon, pos_format(), primary, pcap);
@@ -576,10 +635,26 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
         break;
     case MetricSource::None:
     default:
-        // Dynamic-path binding: any numeric SignalK path served by the
-        // PathStore, converted to format.unit (else raw SI). Decimals follow
-        // format.decimals/precision; default 1 dp.
-        if (m.path && m.path[0]) {
+        if (m.value_kind == BindKind::ConstBind && m.const_text && m.const_text[0]) {
+            // Const STRING literal: rendered verbatim (Text/Button captions).
+            snprintf(primary, pcap, "%s", m.const_text);
+        } else if (m.value_kind != BindKind::PathBind) {
+            // Const numeric / local device metric. Display units already; only
+            // format.decimals applies (const default: %g renders the literal
+            // untouched; local default matches the dynamic-path 1 dp).
+            double v = bound_value(m, d);
+            if (isnan(v))
+                snprintf(primary, pcap, "--");
+            else if (m.precision >= 0)
+                snprintf(primary, pcap, "%.*f", m.precision, v);
+            else if (m.value_kind == BindKind::ConstBind)
+                snprintf(primary, pcap, "%g", v);
+            else
+                snprintf(primary, pcap, "%.1f", v);
+        } else if (m.path && m.path[0]) {
+            // Dynamic-path binding: any numeric SignalK path served by the
+            // PathStore, converted to format.unit (else raw SI). Decimals
+            // follow format.decimals/precision; default 1 dp.
             double v = dynamic_display_value(m, d);
             if (isnan(v))
                 snprintf(primary, pcap, "--");
@@ -692,6 +767,7 @@ static void tile_zoom_action_cb(lv_event_t *e) {
 // PathStore resolver + format.unit conversion instead.
 static double metric_scalar(const MetricBinding &m, const boat::View &d) {
     if (m.source != MetricSource::None) return metric_value(m.source, d);
+    if (m.value_kind != BindKind::PathBind) return bound_value(m, d);
     return dynamic_display_value(m, d);
 }
 
@@ -741,13 +817,15 @@ static void button_action_cb(lv_event_t *e) {
         // dotted ARGUMENTS ("sk 192.168.1.5") on the dispatch funnel, and
         // action.kind "put" is mapped onto this slot by map_element.
         if (strchr(m->command, '.') && !strchr(m->command, ' ')) {
-            net::logf("[layout] button PUT path='%s'", m->command);
+            // Payload: the authored action.value (JSON-encoded by map_element:
+            // number/bool/string) when present, else `true` — the SignalK
+            // action-trigger convention (tack/gybe/silence).
+            const char *val = (m->action_value && m->action_value[0]) ? m->action_value : "true";
+            net::logf("[layout] button PUT path='%s' value=%s", m->command, val);
             app::Command c;
             c.type = app::CommandType::SignalKPut;
             strncpy(c.a, m->command, sizeof(c.a) - 1);
-            // No authored value payload in the MIDL action block; `true` is
-            // the SignalK action-trigger convention (tack/gybe/silence).
-            strncpy(c.b, "true", sizeof(c.b) - 1);
+            strncpy(c.b, val, sizeof(c.b) - 1);
             app::post_net(c, 100);
             return;
         }
@@ -1009,6 +1087,202 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     }
 }
 
+// ---------------------------------------------------------------------------
+// Dial-fidelity helpers (MIDL markers[] / style.sectors / style.hull / band).
+// Shared by the compass and windrose painters + their update paths.
+
+// Free a heap/PSRAM state struct attached as user_data when its LVGL object is
+// deleted. MIDL screens are rebuilt live (apply_all on config push / theme
+// switch -> reset_screens -> lv_obj_delete), so states that historically lived
+// forever must now ride the object lifetime or they leak on every rebuild.
+static void free_user_data_cb(lv_event_t *e) {
+    lv_obj_t *obj = (lv_obj_t *)lv_event_get_target(e);
+    void *p = lv_obj_get_user_data(obj);
+    if (p) {
+        heap_caps_free(p);
+        lv_obj_set_user_data(obj, nullptr);
+    }
+}
+
+// Free a plain heap allocation (e.g. an lv_line points array) on delete.
+static void free_alloc_cb(lv_event_t *e) {
+    void *p = lv_event_get_user_data(e);
+    if (p) heap_caps_free(p);
+}
+
+static inline double wrap360(double d) {
+    d = fmod(d, 360.0);
+    if (d < 0) d += 360.0;
+    return d;
+}
+
+// Authored marker bearing (display degrees) for this frame: enum bridge ->
+// metric_value (already degrees for the *_deg family); dynamic path -> raw
+// SignalK radians via the injected resolver; {kind:"const"} -> fixed bearing.
+// NaN hides the marker (marker_ring_update contract).
+static double marker_dir_deg(const DialMarker &mk, const boat::View &d) {
+    if (mk.dir_source != MetricSource::None) return metric_value(mk.dir_source, d);
+    if (mk.dir_path && mk.dir_path[0] && s_dynamic_resolver) {
+        double raw = s_dynamic_resolver(mk.dir_path, d);
+        if (isnan(raw)) return NAN;
+        return wrap360(raw * (180.0 / M_PI));
+    }
+    return mk.dir_const;  // NAN when unset
+}
+
+// Fill MarkerSpecs from the binding's authored markers. glyph/colour are fixed
+// at build (build_marker_ring contract; theme switches rebuild the screen);
+// value_deg is NaN at build and live in update.
+static uint8_t authored_marker_specs(const MetricBinding &m, const boat::View *d,
+                                     ui::MarkerSpec *specs) {
+    uint8_t n = m.marker_count;
+    if (!m.markers) return 0;
+    if (n > MAX_DIAL_MARKERS) n = MAX_DIAL_MARKERS;
+    for (uint8_t i = 0; i < n; ++i) {
+        const DialMarker &mk = m.markers[i];
+        specs[i].value_deg = d ? marker_dir_deg(mk, *d) : NAN;
+        specs[i].glyph = (ui::Glyph)mk.glyph;
+        specs[i].filled = true;  // the web glyph set renders filled shapes
+        specs[i].color = token_rgb(mk.color, mk.rgb, theme.accent);
+    }
+    return n;
+}
+
+// Build the authored-marker ring: rim markers orbit at `rim_r`, vector markers
+// (tide/current style) at `vec_r`. Returns an empty ring when none authored.
+static ui::MarkerRing build_authored_ring(lv_obj_t *parent, const MetricBinding &m, int cx, int cy,
+                                          int rim_r, int vec_r, bool occlude_lower) {
+    ui::MarkerSpec specs[MAX_DIAL_MARKERS];
+    uint8_t n = authored_marker_specs(m, nullptr, specs);
+    if (!n) return ui::MarkerRing{};
+    int radii[MAX_DIAL_MARKERS];
+    for (uint8_t i = 0; i < n; ++i)
+        radii[i] = m.markers[i].vector ? vec_r : rim_r;
+    return ui::build_marker_ring_radii(parent, cx, cy, radii, specs, n, occlude_lower);
+}
+
+static void update_authored_ring(ui::MarkerRing &ring, const MetricBinding &m, const boat::View &d,
+                                 double reference_deg) {
+    if (!ring.count) return;
+    ui::MarkerSpec specs[MAX_DIAL_MARKERS];
+    uint8_t n = authored_marker_specs(m, &d, specs);
+    ui::marker_ring_update(ring, specs, n, reference_deg);
+}
+
+// A colored sector arc on a dial (style.sectors — no-go zone / laylines),
+// drawn behind the needle/markers. Screen-angle convention: degrees from the
+// top, clockwise (matches marker_screen_angle / the web arc() helper).
+static lv_obj_t *make_dial_sector(lv_obj_t *parent, int cx, int cy, int radius, int width,
+                                  uint32_t color, lv_opa_t opa) {
+    lv_obj_t *a = lv_arc_create(parent);
+    lv_obj_remove_style(a, NULL, LV_PART_KNOB);
+    lv_obj_clear_flag(a, LV_OBJ_FLAG_CLICKABLE);
+    int d = radius * 2;
+    lv_obj_set_size(a, d, d);
+    lv_obj_set_pos(a, cx - radius, cy - radius);
+    lv_arc_set_rotation(a, 0);
+    lv_obj_set_style_arc_opa(a, LV_OPA_TRANSP, LV_PART_MAIN);  // bg track invisible
+    lv_obj_set_style_arc_color(a, lv_color_hex(color), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(a, opa, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(a, width, LV_PART_INDICATOR);
+    return a;
+}
+
+// Place a sector spanning screen angles [t0,t1] (deg from top, +cw); cached so
+// the arc is only re-stroked on whole-degree change (LVGL top = 270).
+static void set_dial_sector(lv_obj_t *a, double t0, double t1, int *last_s, int *last_e) {
+    int s = (int)wrap360(270.0 + t0);
+    int e = (int)wrap360(270.0 + t1);
+    if (s == *last_s && e == *last_e) return;
+    *last_s = s;
+    *last_e = e;
+    lv_arc_set_bg_angles(a, s, e);
+    lv_arc_set_angles(a, s, e);
+}
+
+// One sector edge for this frame: bound source (enum -> display degrees, raw
+// path -> SignalK radians) or the authored fixed angle. NaN hides the sector.
+static double sector_edge_deg(float fixed, MetricSource src, const char *path,
+                              const boat::View &d) {
+    if (src != MetricSource::None) return metric_value(src, d);
+    if (path && path[0]) {
+        if (!s_dynamic_resolver) return NAN;
+        double raw = s_dynamic_resolver(path, d);
+        return isnan(raw) ? NAN : raw * (180.0 / M_PI);
+    }
+    return fixed;
+}
+
+// Build the binding's sector arcs into `arcs`/caches (any dial painter).
+// Fixed-edge sectors are stroked immediately; bound-edge sectors start hidden
+// and appear on the first refresh once their sources resolve.
+static void build_sector_arcs(lv_obj_t *parent, const MetricBinding &m, int cx, int cy, int radius,
+                              int width, lv_opa_t opa, lv_obj_t **arcs, int *last_s, int *last_e,
+                              int8_t *last_hidden) {
+    for (uint8_t i = 0; m.sectors && i < m.sector_count && i < MAX_DIAL_SECTORS; ++i) {
+        const DialSector &ds = m.sectors[i];
+        lv_obj_t *a = make_dial_sector(parent, cx, cy, radius, width,
+                                       token_rgb(ds.color, ds.rgb, theme.accent), opa);
+        arcs[i] = a;
+        last_s[i] = INT32_MIN;
+        last_e[i] = INT32_MIN;
+        last_hidden[i] = -1;
+        bool fixed = ds.from_source == MetricSource::None && !ds.from_path &&
+                     ds.to_source == MetricSource::None && !ds.to_path && !isnan(ds.from) &&
+                     !isnan(ds.to);
+        if (fixed) {
+            set_dial_sector(a, ds.from, ds.to, &last_s[i], &last_e[i]);
+            last_hidden[i] = 0;
+        } else {
+            lv_obj_add_flag(a, LV_OBJ_FLAG_HIDDEN);
+            last_hidden[i] = 1;
+        }
+    }
+}
+
+// Per-frame sector update: resolves bound edges and rotates by `reference_deg`
+// (0 for the north-up round dials; the live heading for the band, per web
+// dial.ts:245 heading-relative band sectors).
+static void update_sector_arcs(const MetricBinding &m, const boat::View &d, double reference_deg,
+                               lv_obj_t *const *arcs, int *last_s, int *last_e,
+                               int8_t *last_hidden) {
+    for (uint8_t i = 0; m.sectors && i < m.sector_count && i < MAX_DIAL_SECTORS; ++i) {
+        if (!arcs[i]) continue;
+        const DialSector &ds = m.sectors[i];
+        double a = sector_edge_deg(ds.from, ds.from_source, ds.from_path, d);
+        double b = sector_edge_deg(ds.to, ds.to_source, ds.to_path, d);
+        bool hide = isnan(a) || isnan(b);
+        ui::set_hidden_if_changed(arcs[i], &last_hidden[i], hide);
+        if (hide) continue;
+        set_dial_sector(arcs[i], a - reference_deg, b - reference_deg, &last_s[i], &last_e[i]);
+    }
+}
+
+// style.hull — boat silhouette (7-point outline, web dial.ts:139-146) centered
+// at (cx,cy) in `parent`, scaled by the inner-face radius `s`. The points array
+// must outlive the lv_line (LVGL does not copy it): small PSRAM alloc freed on
+// the line's LV_EVENT_DELETE.
+static void add_hull(lv_obj_t *parent, int cx, int cy, int s) {
+    static const float kHull[7][2] = {{-0.18f, 0.40f}, {-0.18f, -0.05f}, {-0.14f, -0.27f},
+                                      {0.0f, -0.58f},  {0.14f, -0.27f},  {0.18f, -0.05f},
+                                      {0.18f, 0.40f}};
+    lv_point_precise_t *pts =
+        (lv_point_precise_t *)heap_caps_malloc(7 * sizeof(lv_point_precise_t), MALLOC_CAP_SPIRAM);
+    if (!pts) return;  // PSRAM exhausted: skip the decoration, no crash
+    for (int i = 0; i < 7; ++i) {
+        pts[i].x = cx + (int)lroundf(kHull[i][0] * (float)s);
+        pts[i].y = cy + (int)lroundf(kHull[i][1] * (float)s);
+    }
+    lv_obj_t *ln = lv_line_create(parent);
+    lv_line_set_points(ln, pts, 7);
+    lv_obj_add_event_cb(ln, free_alloc_cb, LV_EVENT_DELETE, pts);
+    lv_obj_set_style_line_width(ln, 3, 0);
+    lv_obj_set_style_line_color(ln, lv_color_hex(theme.fg), 0);
+    lv_obj_set_style_line_opa(ln, LV_OPA_30, 0);
+    lv_obj_set_style_line_rounded(ln, true, 0);
+    lv_obj_clear_flag(ln, LV_OBJ_FLAG_CLICKABLE);
+}
+
 // Center, in t.root *content* coordinates, of a dial placed with
 // LV_ALIGN_CENTER, 0, +4 on a style_panel()'d tile. style_panel adds a
 // border + padding inset, so LV_ALIGN_CENTER centers the dial inside the
@@ -1023,10 +1297,127 @@ static inline void dial_center(int w, int h, int &cx, int &cy) {
     cy = (h - 2 * inset) / 2 + 4;  // matches the dial's LV_ALIGN_CENTER, 0, +4
 }
 
+// ---------------------------------------------------------------------------
+// style.shape "band": the semicircular rolling heading band (web dial.ts:227
+// bandSvg / the device autopilot HUD's compass primitive). Reuses
+// ui::build_compass (white band + green rail + rotating tick scale + upright
+// numerals + red lubber) with the HDG hero below the band centre. Authored
+// markers ride a heading-relative ring; authored sectors are heading-relative
+// arcs on the band (clipped to the top semicircle by the compass root).
+struct CompassBandState {
+    ui::Compass cp;
+    int scx, scy;         // band centre in tile-root content coordinates
+    ui::MarkerRing auth;  // authored markers (reference = live heading)
+    lv_obj_t *sector_arcs[MAX_DIAL_SECTORS];
+    int sector_last_s[MAX_DIAL_SECTORS];
+    int sector_last_e[MAX_DIAL_SECTORS];
+    int8_t sector_last_hidden[MAX_DIAL_SECTORS];
+    int16_t last_rot;
+};
+
+// Build the band into the tile. Returns false when the tile is too small for a
+// legible band (caller falls back to the round dial) or PSRAM is exhausted.
+static bool paint_compass_band_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    const int inset = chrome::panel_border + chrome::panel_pad;
+    const int cw_avail = w - 2 * inset;
+    const int ch_avail = h - 2 * inset;
+    const int cap_h = 22;                          // chrome caption row
+    const int hero_h = ch_avail >= 220 ? 64 : 40;  // HDG hero under the band
+    int region_h = ch_avail - cap_h - hero_h - 6;  // compass region budget
+    int cw_fit = 2 * (region_h - 24 + 8);          // width giving cp.h == region_h
+    int cw = cw_avail - 4;
+    if (cw_fit < cw) cw = cw_fit;
+    if (cw < 110 || region_h < 80) return false;  // too small -> round fallback
+
+    // PSRAM state; freed on the compass root's delete (live rebuilds must not
+    // leak — CLAUDE.md glyph-canvas/teardown trap, applied to states too).
+    CompassBandState *st =
+        (CompassBandState *)heap_caps_calloc(1, sizeof(CompassBandState), MALLOC_CAP_SPIRAM);
+    if (!st) {
+        net::logf("[layout] compass band alloc failed");
+        return false;
+    }
+
+    int cox = (cw_avail - cw) / 2;
+    int coy = cap_h;
+    st->cp = ui::build_compass(t.root, cox, coy, cw);
+    st->scx = cox + st->cp.cx;
+    st->scy = coy + st->cp.cy;
+    st->last_rot = INT16_MIN;
+    lv_obj_set_user_data(st->cp.root, st);
+    lv_obj_add_event_cb(st->cp.root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
+
+    // Authored sectors: children of the compass root (its clip hides the lower
+    // half), at the white band centre (r-36; band spans r-10..r-62), slotted at
+    // index 2 so they render UNDER the tick scale + numerals. Heading-relative:
+    // angles are set per frame in update_compass_band.
+    {
+        int r_band = st->cp.r - 36;
+        int band_w = 36;
+        build_sector_arcs(st->cp.root, m, st->cp.cx, st->cp.cy, r_band, band_w, LV_OPA_40,
+                          st->sector_arcs, st->sector_last_s, st->sector_last_e,
+                          st->sector_last_hidden);
+        for (uint8_t i = 0; i < m.sector_count && i < MAX_DIAL_SECTORS; ++i) {
+            if (!st->sector_arcs[i]) continue;
+            lv_obj_move_to_index(st->sector_arcs[i], 2);
+            // All band sectors wait for the first refresh (heading-relative).
+            lv_obj_add_flag(st->sector_arcs[i], LV_OBJ_FLAG_HIDDEN);
+            st->sector_last_hidden[i] = 1;
+            st->sector_last_s[i] = INT32_MIN;
+            st->sector_last_e[i] = INT32_MIN;
+        }
+    }
+
+    // Authored markers: heading-relative ring on the tile root (the compass
+    // root would clip glyphs orbiting the rim), lower half occluded like the
+    // AP HUD. Band markers all ride the band radius (web bandSvg puts every
+    // marker ON the band; no separate vector radius there).
+    int r_mark = st->cp.r - ui::kSemiMarkerInset;
+    st->auth = build_authored_ring(t.root, m, st->scx, st->scy, r_mark, r_mark,
+                                   /*occlude_lower=*/true);
+
+    // HDG hero below the band centre (web bandSvg hero).
+    const lv_font_t *hf = &font_xl_64;
+    if (hero_h < 64) hf = &lv_font_montserrat_38;
+    t.value = lv_label_create(t.root);
+    lv_label_set_text(t.value, "--");
+    lv_obj_set_style_text_font(t.value, hf, 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
+    lv_obj_set_style_text_align(t.value, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_width(t.value, cw_avail);
+    lv_obj_set_pos(t.value, 0, coy + st->cp.h + 2);
+    lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+
+    t.aux = st->cp.root;
+    t.last_aux_pct = -2;  // composite sentinel (mirrors winddial/aphud)
+    return true;
+}
+
+// Per-frame band drive: rotate the tick scale by -heading, relayout the upright
+// numerals, refresh hero text, and rotate authored markers/sectors with the
+// heading as reference. `pri` is format_metric's primary text for the binding.
+static void update_compass_band(QuadGridTile &t, const MetricBinding &m, const boat::View &d,
+                                const char *pri) {
+    CompassBandState *st = t.aux ? (CompassBandState *)lv_obj_get_user_data(t.aux) : nullptr;
+    if (!st) return;
+    ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+    double hdg = metric_scalar(m, d);
+    double ref = isnan(hdg) ? 0.0 : hdg;
+    int16_t before = st->last_rot;
+    ui::set_rot_if_changed(st->cp.scale, &st->last_rot, ui::deg_to_lvgl(-ref));
+    if (st->last_rot != before) ui::compass_layout_labels(st->cp, ref);
+    update_authored_ring(st->auth, m, d, ref);
+    update_sector_arcs(m, d, ref, st->sector_arcs, st->sector_last_s, st->sector_last_e,
+                       st->sector_last_hidden);
+}
+
 // Compass widget: round bezel with accent border, heading number in the
 // center, small "▲" marker at top, CTS label at bottom. Mirrors editor
 // .wpreview .compass.
 static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    // style.shape "band" -> the semicircular rolling heading band; falls back
+    // to this round dial when the tile is too small / PSRAM is exhausted.
+    if (m.shape == DialShape::Band && paint_compass_band_body(t, m, w, h)) return;
     // Ring size: reserve top 24 px for chrome caption + marker, bottom
     // 22 px for CTS label. Diameter = min(w,h) - 56 keeps the heading
     // text from colliding with cardinals at 14 px.
@@ -1071,6 +1462,23 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     };
     t.markers_cog = ui::build_marker_ring(t.root, mcx, mcy, dia / 2, cog_markers, 1,
                                           /*occlude_lower=*/false);
+
+    // style.sectors: colored arcs just inside the bezel (web roundHud draws
+    // them at fixed screen angles on this north-up face — the needle rotates,
+    // not the face). Built before the authored markers/vignette/hero so they
+    // stay behind everything (the "behind the needle" contract).
+    build_sector_arcs(t.root, m, mcx, mcy, dia / 2 - 5, 6, LV_OPA_70, t.sector_arcs,
+                      t.sector_last_s, t.sector_last_e, t.sector_last_hidden);
+
+    // style.hull: boat silhouette on the dial face.
+    if (m.hull) add_hull(ring, dia / 2, dia / 2, dia / 2 - 10);
+
+    // Authored MIDL markers[]: rim markers orbit at the bezel, vector markers
+    // (tide/current) on an inner ring just outside the centre vignette. Built
+    // after the built-in rings so custom glyphs read on top; the hero/vignette
+    // created below still paint over the very centre.
+    t.markers_auth = build_authored_ring(t.root, m, mcx, mcy, dia / 2, (dia / 2) * 62 / 100,
+                                         /*occlude_lower=*/false);
 
     // N/E/S/W cardinals: padded in from the ring border so they don't
     // visually merge with the heading number (which is centered).
@@ -2217,6 +2625,8 @@ static WindDialState *build(lv_obj_t *parent, int w, int h) {
     if (st->show_band) build_tiles(st, r, w, h, TILE_BAND);
 
     lv_obj_set_user_data(st->root, st);
+    // Freed on teardown: MIDL screens are rebuilt live (theme switch / push).
+    lv_obj_add_event_cb(st->root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
     return st;
 }
 
@@ -2643,6 +3053,8 @@ static ApHudState *build(lv_obj_t *parent, int w, int h) {
     }
 
     lv_obj_set_user_data(st->root, st);
+    // Freed on teardown: MIDL screens are rebuilt live (theme switch / push).
+    lv_obj_add_event_cb(st->root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
     return st;
 }
 
@@ -3198,6 +3610,8 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h) {
     }
 
     lv_obj_set_user_data(st->root, st);
+    // Freed on teardown: MIDL screens are rebuilt live (theme switch / push).
+    lv_obj_add_event_cb(st->root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
     return st;
 }
 
@@ -3480,6 +3894,19 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     dial_center(w, h, mcx, mcy);
     t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2, wind_markers, 2,
                                       /*occlude_lower=*/false);
+
+    // style.sectors: bow-relative arcs just inside the warn ring (close-hauled
+    // / no-go zones; this rose is bow-up so screen angle == authored angle).
+    // Built before the hero so they stay behind it.
+    build_sector_arcs(t.root, m, mcx, mcy, dia / 2 - 5, 6, LV_OPA_70, t.sector_arcs,
+                      t.sector_last_s, t.sector_last_e, t.sector_last_hidden);
+
+    // style.hull: boat silhouette at the rose centre (bow-up).
+    if (m.hull) add_hull(ring, dia / 2, dia / 2, dia / 2 - 10);
+
+    // Authored MIDL markers[]: rim at the ring radius, vector markers inside.
+    t.markers_auth = build_authored_ring(t.root, m, mcx, mcy, dia / 2, (dia / 2) * 62 / 100,
+                                         /*occlude_lower=*/false);
 
     // Wind speed (AWS) is the hero number, sized to dominate the ring (the
     // marker is now outside, so the number can fill the dial).
@@ -3849,6 +4276,8 @@ static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spe
     }
 
     lv_obj_set_user_data(root, st);
+    // Freed on teardown: screens are rebuilt live (theme switch / config push).
+    lv_obj_add_event_cb(root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
     return root;
 }
 
@@ -3893,6 +4322,11 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
             // Static label; no update needed.
             break;
         case WidgetKind::Compass:
+            // Band composite (style.shape "band") — same sentinel as freeform.
+            if (t.last_aux_pct == -2) {
+                update_compass_band(t, m, data, pri);
+                break;
+            }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
             if (t.secondary) {
                 // Compass CTS line: prefer extras[0] (operator-bound second
@@ -3936,6 +4370,10 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
                 };
                 ui::marker_ring_update(t.markers_cog, outer, 1, /*reference=*/0.0);
             }
+            // Authored markers/sectors (north-up round dial: reference 0).
+            update_authored_ring(t.markers_auth, m, data, 0.0);
+            update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
+                               t.sector_last_hidden);
             break;
         case WidgetKind::Trend: {
             // Hero number is the live reading; sparkline gets one normalized
@@ -4017,6 +4455,10 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
                     {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
                 };
                 ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);  // bow-up rose
+                // Authored markers/sectors (bow-up rose: reference 0).
+                update_authored_ring(t.markers_auth, m, data, 0.0);
+                update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
+                                   t.sector_last_hidden);
             }
             break;
         }
@@ -5451,6 +5893,10 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
     }
 
     lv_obj_set_user_data(root, st);
+    // Freed on teardown: MIDL screens are rebuilt live by apply_all (config
+    // push / theme switch) — without this every rebuild leaked one
+    // FreeformState per screen.
+    lv_obj_add_event_cb(root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
     return root;
 }
 
@@ -5495,6 +5941,13 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
             // Static label; no update needed.
             break;
         case WidgetKind::Compass:
+            // Band composite (style.shape "band"): drives its own rotating
+            // scale + heading-relative markers/sectors (last_aux_pct == -2
+            // sentinel set by paint_compass_band_body).
+            if (t.last_aux_pct == -2) {
+                update_compass_band(t, m, data, pri);
+                break;
+            }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
             if (t.secondary) {
                 char cts[24];
@@ -5533,6 +5986,10 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 };
                 ui::marker_ring_update(t.markers_cog, outer, 1, /*reference=*/0.0);
             }
+            // Authored markers/sectors (north-up round dial: reference 0).
+            update_authored_ring(t.markers_auth, m, data, 0.0);
+            update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
+                               t.sector_last_hidden);
             break;
         case WidgetKind::Trend: {
             // Mirrors update_quad_grid: hero number is the live reading; the
@@ -5612,6 +6069,10 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                     {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
                 };
                 ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);
+                // Authored markers/sectors (bow-up rose: reference 0).
+                update_authored_ring(t.markers_auth, m, data, 0.0);
+                update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
+                                   t.sector_last_hidden);
             }
             break;
         }

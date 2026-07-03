@@ -15,7 +15,7 @@ inline constexpr const char *JSON = R"midljson({
       "maxTiles": 9,
       "maxDepth": 3,
       "presets": ["full", "hero-split"],
-      "elements": ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button"]
+      "elements": ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button", "clinometer"]
     }
   ],
   "elements": [
@@ -27,13 +27,14 @@ inline constexpr const char *JSON = R"midljson({
     { "type": "windrose", "bindings": ["value", "dir"], "attrs": ["title", "format", "size", "unit", "color", "side", "sectors", "hull", "shape"], "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"] },
     { "type": "trend", "bindings": ["value"], "attrs": ["title", "size", "unit", "color"] },
     { "type": "autopilot", "bindings": ["value"], "attrs": ["title", "size", "color"] },
-    { "type": "button", "bindings": [], "attrs": ["title", "size", "color"] }
+    { "type": "button", "bindings": [], "attrs": ["title", "size", "color"] },
+    { "type": "clinometer", "bindings": ["value"], "attrs": ["title", "format", "size", "unit", "color", "zones", "range"] }
   ],
   "sources": ["signalk", "local"],
   "actionKinds": ["nav", "command"],
   "presets": ["full", "hero-split"],
   "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"],
-  "themes": ["day", "night", "high-contrast"],
+  "themes": ["day", "night", "high-contrast", "red-night", "classic"],
   "fonts": [14, 20, 28, 48]
 }
 )midljson";

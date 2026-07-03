@@ -30,13 +30,25 @@ static lv_obj_t *make_holder(lv_obj_t *parent, int cx, int cy, int r) {
     return h;
 }
 
+// Free the PSRAM canvas buffer when its canvas object is deleted. LVGL does
+// NOT own a user-supplied canvas buffer, and MIDL screens are now rebuilt live
+// (theme switch / config push -> apply_all -> reset_screens -> lv_obj_delete),
+// so without this every rebuild leaked one buffer per glyph. LV_EVENT_DELETE
+// fires on every object in a deleted subtree, covering both whole-screen
+// teardown and any future targeted canvas delete. Classic built-once screens
+// simply never fire it — behavior there is unchanged.
+static void free_canvas_buf_cb(lv_event_t *e) {
+    void *buf = lv_event_get_user_data(e);
+    if (buf) heap_caps_free(buf);
+}
+
 lv_obj_t *draw_glyph(lv_obj_t *parent, Glyph g, bool filled, uint32_t color) {
     uint32_t *buf = (uint32_t *)heap_caps_malloc(GBOX * GBOX * 4, MALLOC_CAP_SPIRAM);
-    // Buffer lives for the screen session and is intentionally never freed here.
-    // If a future task deletes glyph canvases, heap_caps_free(buf) FIRST or it leaks PSRAM.
     lv_obj_t *cv = lv_canvas_create(parent);
     lv_obj_set_size(cv, GBOX, GBOX);
     if (!buf) return cv;  // PSRAM exhausted: empty canvas, no crash
+    // Tie the buffer's lifetime to the canvas object (freed on delete).
+    lv_obj_add_event_cb(cv, free_canvas_buf_cb, LV_EVENT_DELETE, buf);
     lv_canvas_set_buffer(cv, buf, GBOX, GBOX, LV_COLOR_FORMAT_ARGB8888);
     lv_canvas_fill_bg(cv, lv_color_black(), LV_OPA_TRANSP);
 
@@ -165,14 +177,15 @@ lv_obj_t *draw_glyph(lv_obj_t *parent, Glyph g, bool filled, uint32_t color) {
     return cv;
 }
 
-MarkerRing build_marker_ring(lv_obj_t *parent, int cx, int cy, int r, const MarkerSpec *specs,
-                             uint8_t count, bool occlude_lower) {
+MarkerRing build_marker_ring_radii(lv_obj_t *parent, int cx, int cy, const int *radii,
+                                   const MarkerSpec *specs, uint8_t count, bool occlude_lower) {
     MarkerRing ring = {};
-    ring.r = r;
     ring.occlude_lower = occlude_lower;
     if (count > kMaxMarkersPerDial) count = kMaxMarkersPerDial;
     ring.count = count;
     for (uint8_t i = 0; i < count; ++i) {
+        int r = radii[i];
+        if (r > ring.r) ring.r = r;
         lv_obj_t *h = make_holder(parent, cx, cy, r);
         lv_obj_t *cv = draw_glyph(h, specs[i].glyph, specs[i].filled, specs[i].color);
         lv_obj_align(cv, LV_ALIGN_TOP_MID, 0, MARGIN - GBOX - 2);
@@ -181,6 +194,17 @@ MarkerRing build_marker_ring(lv_obj_t *parent, int cx, int cy, int r, const Mark
         ring.last_rot[i] = INT16_MIN;
         ring.last_hidden[i] = -1;
     }
+    return ring;
+}
+
+MarkerRing build_marker_ring(lv_obj_t *parent, int cx, int cy, int r, const MarkerSpec *specs,
+                             uint8_t count, bool occlude_lower) {
+    int radii[kMaxMarkersPerDial];
+    if (count > kMaxMarkersPerDial) count = kMaxMarkersPerDial;
+    for (uint8_t i = 0; i < count; ++i)
+        radii[i] = r;
+    MarkerRing ring = build_marker_ring_radii(parent, cx, cy, radii, specs, count, occlude_lower);
+    ring.r = r;
     return ring;
 }
 

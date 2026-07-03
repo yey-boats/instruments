@@ -44,6 +44,7 @@
 
 #include "esp_heap_caps.h"
 
+#include <Arduino.h>  // temperatureRead / millis (local metric resolver)
 #include <string.h>
 
 // Global (main.cpp): true while the current touch contact is a drag/swipe, not a
@@ -72,15 +73,31 @@ static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen; 
 static constexpr size_t STR_CAP = midl::FirmwareLimits::str_len;                 // 32
 static constexpr size_t PATH_CAP = midl::FirmwareLimits::path_len;               // 96
 
+// Per-SCREEN pools for the dial-fidelity artifacts (markers + sectors +
+// dynamic marker/sector paths). Shared across the screen's tiles (not
+// per-tile: 12 markers / 3 sectors x 9 tiles x 16 arenas would blow
+// MIDL_ARENA_PSRAM_BUDGET); the per-dial caps stay MAX_DIAL_MARKERS /
+// MAX_DIAL_SECTORS. First-come-first-served on multi-dial screens; overflow
+// degrades (markers/sectors dropped / dynamic bearings hidden).
+static constexpr size_t MARKER_POOL = ui::layouts::MAX_DIAL_MARKERS;      // 12 per screen
+static constexpr size_t SECTOR_POOL = 2 * ui::layouts::MAX_DIAL_SECTORS;  // 6 per screen
+static constexpr size_t STYLE_PATH_POOL = 4;  // dynamic marker-dir/sector-edge paths
+
 struct MidlScreenArena {
     // String storage backing the MetricBinding non-owning pointers.
     char ids[MAX_TILES][STR_CAP];
     char labels[MAX_TILES][STR_CAP];
     char units[MAX_TILES][STR_CAP];
-    char actions[MAX_TILES][STR_CAP];     // button action target (nav/command)
-    char zooms[MAX_TILES][STR_CAP];       // per-element zoom screen id (string form)
-    char paths[MAX_TILES][PATH_CAP];      // raw SignalK path (dynamic-store fallback)
-    char dir_paths[MAX_TILES][PATH_CAP];  // raw `bindings.dir` path (dial pointer)
+    char actions[MAX_TILES][STR_CAP];        // button action target (nav/command)
+    char action_values[MAX_TILES][STR_CAP];  // JSON-encoded action.value (PUT payload)
+    char zooms[MAX_TILES][STR_CAP];          // per-element zoom screen id (string form)
+    char paths[MAX_TILES][PATH_CAP];         // raw SignalK path (dynamic-store fallback)
+    char dir_paths[MAX_TILES][PATH_CAP];     // raw `bindings.dir` path (dial pointer)
+
+    // Dial-fidelity pools (see MARKER_POOL/SECTOR_POOL/STYLE_PATH_POOL above).
+    ui::layouts::DialMarker marker_pool[MARKER_POOL];
+    ui::layouts::DialSector sector_pool[SECTOR_POOL];
+    char style_paths[STYLE_PATH_POOL][PATH_CAP];
 
     // The MetricBinding table passed to create_freeform / update_freeform.
     MetricBinding metrics[MAX_TILES];
@@ -211,6 +228,16 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
     size_t n = placements.count;
     if (n > MAX_TILES) n = MAX_TILES;
 
+    // Per-screen style pool (markers + dynamic marker/sector paths), bump-
+    // allocated across this screen's elements by map_element.
+    StyleAlloc style = {};
+    style.markers = arena.marker_pool;
+    style.marker_cap = (uint8_t)MARKER_POOL;
+    style.sectors = arena.sector_pool;
+    style.sector_cap = (uint8_t)SECTOR_POOL;
+    style.paths = arena.style_paths;
+    style.path_cap = (uint8_t)STYLE_PATH_POOL;
+
     for (size_t i = 0; i < n; ++i) {
         const midl::Placement &pl = placements.items[i];
         // Look up the element by KEY via find_element (pure, host-tested):
@@ -221,7 +248,7 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
 
         bool ok = map_element(el, pl.element, arena.metrics[i], arena.ids[i], arena.labels[i],
                               arena.units[i], arena.actions[i], arena.zooms[i], arena.paths[i],
-                              arena.dir_paths[i]);
+                              arena.dir_paths[i], arena.action_values[i], &style);
         if (!ok) {
             // Unknown element: leave as zero-init MetricBinding (None source -> "--").
             // Copy at least the id so the tile chrome shows something.
@@ -411,11 +438,53 @@ static void zoom_to_fullscreen(const MetricBinding &m) {
     zm.label = za->labels[0];
     zm.unit = za->units[0];
     // Dynamic-path pointers also alias the source arena; deep-copy them too so
-    // the zoomed tile keeps resolving after a later apply_all rebuild.
-    strncpy(za->paths[0], m.path ? m.path : "", PATH_CAP - 1);
+    // the zoomed tile keeps resolving after a later apply_all rebuild. path /
+    // const_text / local_id are mutually exclusive uses of the same source
+    // buffer, so za->paths[0] serves whichever one is set.
+    const char *pathlike = m.path ? m.path : (m.const_text ? m.const_text : m.local_id);
+    strncpy(za->paths[0], pathlike ? pathlike : "", PATH_CAP - 1);
     strncpy(za->dir_paths[0], m.dir_path ? m.dir_path : "", PATH_CAP - 1);
-    zm.path = za->paths[0][0] ? za->paths[0] : nullptr;
+    zm.path = m.path ? za->paths[0] : nullptr;
+    zm.const_text = m.const_text ? za->paths[0] : nullptr;
+    zm.local_id = m.local_id ? za->paths[0] : nullptr;
     zm.dir_path = za->dir_paths[0][0] ? za->dir_paths[0] : nullptr;
+    // Authored markers/sectors: deep-copy into the zoom arena's own pools so
+    // the fullscreen dial keeps its rings after the source screen is rebuilt.
+    // Dynamic bearing paths refill za->style_paths; overflow degrades to NaN
+    // (marker hidden) rather than dangling.
+    uint8_t zpaths_used = 0;
+    auto copy_style_path = [&](const char *src) -> const char * {
+        if (!src || !src[0] || zpaths_used >= STYLE_PATH_POOL) return nullptr;
+        char *dst = za->style_paths[zpaths_used++];
+        strncpy(dst, src, PATH_CAP - 1);
+        dst[PATH_CAP - 1] = 0;
+        return dst;
+    };
+    if (m.marker_count && m.markers) {
+        uint8_t nmk = m.marker_count;
+        if (nmk > MARKER_POOL) nmk = (uint8_t)MARKER_POOL;
+        memcpy(za->marker_pool, m.markers, nmk * sizeof(za->marker_pool[0]));
+        for (uint8_t i = 0; i < nmk; ++i)
+            za->marker_pool[i].dir_path = copy_style_path(za->marker_pool[i].dir_path);
+        zm.markers = za->marker_pool;
+        zm.marker_count = nmk;
+    }
+    if (zm.sector_count && m.sectors) {
+        uint8_t nsc = zm.sector_count;
+        if (nsc > SECTOR_POOL) nsc = (uint8_t)SECTOR_POOL;
+        memcpy(za->sector_pool, m.sectors, nsc * sizeof(za->sector_pool[0]));
+        for (uint8_t i = 0; i < nsc; ++i) {
+            za->sector_pool[i].from_path = copy_style_path(za->sector_pool[i].from_path);
+            za->sector_pool[i].to_path = copy_style_path(za->sector_pool[i].to_path);
+        }
+        zm.sectors = za->sector_pool;
+        zm.sector_count = nsc;
+    } else {
+        zm.sectors = nullptr;
+        zm.sector_count = 0;
+    }
+    // The zoom tile carries no action; clear the PUT payload with the rest.
+    zm.action_value = nullptr;
     // The zoomed tile must NOT re-zoom (tap returns instead). zoomable=false with a
     // non-null zoom_target makes create_freeform's interactivity check resolve to
     // ZOOM_NONE, so it wires no tap on the tile — the root back handler owns taps.
@@ -508,6 +577,25 @@ static double midl_dynamic_resolve(const char *path, const boat::View &d) {
     return widget_data::resolve_numeric(path, d, &sk::dynamicStore());
 }
 
+// Device-local metric resolver ({kind:"local", id:"..."} bindings). The
+// manifest advertises the "local" source kind without an id catalog, so the
+// supported set is the device-status surface the firmware already exposes
+// elsewhere (main.cpp status line / web.cpp /api device block). Values are in
+// DISPLAY units; unknown ids return NaN and the tile degrades to "--".
+// Accepted with or without a "device." prefix.
+static double midl_local_resolve(const char *id) {
+    if (!id || !id[0]) return NAN;
+    if (strncmp(id, "device.", 7) == 0) id += 7;
+    if (!strcmp(id, "temperature") || !strcmp(id, "temp"))
+        return (double)temperatureRead();                                       // SoC temp, degC
+    if (!strcmp(id, "heap")) return (double)esp_get_free_heap_size() / 1024.0;  // free internal, KB
+    if (!strcmp(id, "psram"))
+        return (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0;  // KB
+    if (!strcmp(id, "rssi")) return (double)net::rssi();                     // dBm
+    if (!strcmp(id, "uptime")) return (double)(millis() / 1000UL);           // s
+    return NAN;
+}
+
 size_t apply_all(JsonVariantConst doc) {
     if (!arenas()) return 0;  // PSRAM alloc failed; logged in arenas()
 
@@ -515,6 +603,9 @@ size_t apply_all(JsonVariantConst doc) {
     // (MetricBinding.path) render through the PathStore instead of "--".
     // Idempotent file-static handoff, same pattern as the zoom handler below.
     ui::layouts::set_dynamic_resolver(midl_dynamic_resolve);
+
+    // Install the device-local metric resolver ({kind:"local"} bindings).
+    ui::layouts::set_local_resolver(midl_local_resolve);
 
     // Install the fullscreen-zoom handler so a tap on any zoomable MIDL tile
     // (zoom_target == nullptr) builds the transient full-screen view. Idempotent;

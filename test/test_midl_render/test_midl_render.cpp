@@ -13,13 +13,25 @@ using ui::layouts::WidgetKind;
 // function-static buffers (idb/lab/unit). Do NOT call mapOne twice and compare
 // both results — the second call overwrites those buffers, invalidating the first
 // MetricBinding's string pointers.
+static ui::layouts::DialMarker s_marker_slots[ui::layouts::MAX_DIAL_MARKERS];
+static ui::layouts::DialSector s_sector_slots[2 * ui::layouts::MAX_DIAL_SECTORS];
+static char s_style_paths[4][96];
+
 static MetricBinding mapOne(const char *json, const char *id) {
     JsonDocument doc;
     deserializeJson(doc, json);
-    static char idb[32], lab[32], unit[32], act[32], zoom[32], path[96], dir[96];
+    static char idb[32], lab[32], unit[32], act[32], zoom[32], path[96], dir[96], aval[32];
+    static midl::render::StyleAlloc style;
+    style = midl::render::StyleAlloc{};
+    style.markers = s_marker_slots;
+    style.marker_cap = ui::layouts::MAX_DIAL_MARKERS;
+    style.sectors = s_sector_slots;
+    style.sector_cap = 2 * ui::layouts::MAX_DIAL_SECTORS;
+    style.paths = s_style_paths;
+    style.path_cap = 4;
     MetricBinding mb{};
     midl::render::map_element(doc.as<JsonVariantConst>(), id, mb, idb, lab, unit, act, zoom, path,
-                              dir);
+                              dir, aval, &style);
     return mb;
 }
 
@@ -507,6 +519,241 @@ void test_zoom_string_sets_target_screen() {
     TEST_ASSERT_EQUAL_STRING("speed_detail", m.zoom_target);
 }
 
+// --- dial-fidelity wave: markers / sectors / hull / band / const / local ----
+
+void test_markers_parsed() {
+    MetricBinding m = mapOne(
+        R"({"type":"compass",
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}},
+            "markers":[
+              {"glyph":"diamond","color":"#ff0000",
+               "dir":{"kind":"signalk","path":"navigation.courseOverGroundTrue"}},
+              {"dir":{"kind":"signalk","path":"environment.current.setTrue"},
+               "kind":"vector","color":"warn"},
+              {"glyph":"frobnicate","dir":{"kind":"const","value":135}}
+            ]})",
+        "hdg");
+    TEST_ASSERT_EQUAL_UINT8(3, m.marker_count);
+    TEST_ASSERT_NOT_NULL(m.markers);
+    // [0]: explicit glyph + literal colour + enum-bridge dir.
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)ui::GlyphId::Diamond, m.markers[0].glyph);
+    TEST_ASSERT_EQUAL(ui::layouts::ZoneColor::Literal, m.markers[0].color);
+    TEST_ASSERT_EQUAL_HEX32(0xFF0000u, m.markers[0].rgb);
+    TEST_ASSERT_EQUAL(MetricSource::COG_deg, m.markers[0].dir_source);
+    TEST_ASSERT_NULL(m.markers[0].dir_path);
+    TEST_ASSERT_FALSE(m.markers[0].vector);
+    // [1]: default glyph triangle, warn token, vector kind, dynamic dir path.
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)ui::GlyphId::Triangle, m.markers[1].glyph);
+    TEST_ASSERT_EQUAL(ui::layouts::ZoneColor::Warn, m.markers[1].color);
+    TEST_ASSERT_TRUE(m.markers[1].vector);
+    TEST_ASSERT_EQUAL(MetricSource::None, m.markers[1].dir_source);
+    TEST_ASSERT_NOT_NULL(m.markers[1].dir_path);
+    TEST_ASSERT_EQUAL_STRING("environment.current.setTrue", m.markers[1].dir_path);
+    // [2]: unknown glyph -> Circle (web dot fallback); const dir -> fixed bearing.
+    TEST_ASSERT_EQUAL_UINT8((uint8_t)ui::GlyphId::Circle, m.markers[2].glyph);
+    TEST_ASSERT_EQUAL(MetricSource::None, m.markers[2].dir_source);
+    TEST_ASSERT_NULL(m.markers[2].dir_path);
+    TEST_ASSERT_EQUAL_FLOAT(135.0f, m.markers[2].dir_const);
+    // Non-const markers carry NaN dir_const (hidden until their source lives).
+    TEST_ASSERT_TRUE(isnan(m.markers[0].dir_const));
+}
+
+void test_markers_capped_at_max() {
+    char json[2048];
+    int off = snprintf(json, sizeof(json),
+                       R"({"type":"windrose","bindings":{"value":{"kind":"signalk",)"
+                       R"("path":"environment.wind.speedApparent"}},"markers":[)");
+    for (int i = 0; i < 14; ++i)
+        off += snprintf(json + off, sizeof(json) - off, "%s{\"glyph\":\"circle\"}", i ? "," : "");
+    snprintf(json + off, sizeof(json) - off, "]}");
+    MetricBinding m = mapOne(json, "rose");
+    TEST_ASSERT_EQUAL_UINT8(ui::layouts::MAX_DIAL_MARKERS, m.marker_count);  // cap 12
+}
+
+void test_markers_without_alloc_degrade() {
+    // Legacy 8-arg call (no StyleAlloc) — markers/sectors must drop cleanly,
+    // never dangle.
+    MetricBinding m = mapOneNoPathBufs(
+        R"({"type":"compass","markers":[{"glyph":"diamond"}],
+            "style":{"sectors":[{"from":0,"to":30,"color":"port"}]},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}})",
+        "hdg");
+    TEST_ASSERT_EQUAL_UINT8(0, m.marker_count);
+    TEST_ASSERT_NULL(m.markers);
+    TEST_ASSERT_EQUAL_UINT8(0, m.sector_count);
+    TEST_ASSERT_NULL(m.sectors);
+}
+
+void test_markers_ignored_on_non_dial() {
+    // Only compass/windrose advertise marker glyphs; a numeric tile must not
+    // consume pool slots.
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","markers":[{"glyph":"diamond"}],
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "sog");
+    TEST_ASSERT_EQUAL_UINT8(0, m.marker_count);
+    TEST_ASSERT_NULL(m.markers);
+}
+
+void test_sectors_fixed() {
+    MetricBinding m = mapOne(
+        R"({"type":"windrose",
+            "style":{"sectors":[{"from":-30,"to":0,"color":"port"},
+                                {"from":0,"to":30,"color":"starboard"},
+                                {"from":170,"to":190,"color":"#123456"}]},
+            "bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"}}})",
+        "rose");
+    TEST_ASSERT_EQUAL_UINT8(3, m.sector_count);
+    TEST_ASSERT_EQUAL_FLOAT(-30.0f, m.sectors[0].from);
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, m.sectors[0].to);
+    TEST_ASSERT_EQUAL(ui::layouts::ZoneColor::Port, m.sectors[0].color);
+    TEST_ASSERT_EQUAL(MetricSource::None, m.sectors[0].from_source);
+    TEST_ASSERT_NULL(m.sectors[0].from_path);
+    TEST_ASSERT_EQUAL(ui::layouts::ZoneColor::Starboard, m.sectors[1].color);
+    TEST_ASSERT_EQUAL(ui::layouts::ZoneColor::Literal, m.sectors[2].color);
+    TEST_ASSERT_EQUAL_HEX32(0x123456u, m.sectors[2].rgb);
+}
+
+void test_sectors_bound_edges() {
+    // A string edge names a bindings key (dynamic laylines, midl types.ts:57):
+    // enum bridge for known paths, raw-path retention otherwise, const value
+    // bindings resolve to a fixed edge.
+    MetricBinding m = mapOne(
+        R"({"type":"compass",
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},
+                        "beat":{"kind":"signalk","path":"performance.beatAngle"},
+                        "cts":{"kind":"signalk","path":"navigation.courseRhumbline.bearingTrackTrue"},
+                        "nogo":{"kind":"const","value":45}},
+            "style":{"sectors":[{"from":"beat","to":"cts","color":"warn"},
+                                {"from":-15,"to":"nogo","color":"alarm"}]}})",
+        "hdg");
+    TEST_ASSERT_EQUAL_UINT8(2, m.sector_count);
+    // beat: performance.beatAngle misses the enum bridge -> raw path retained.
+    TEST_ASSERT_EQUAL(MetricSource::None, m.sectors[0].from_source);
+    TEST_ASSERT_NOT_NULL(m.sectors[0].from_path);
+    TEST_ASSERT_EQUAL_STRING("performance.beatAngle", m.sectors[0].from_path);
+    // cts: enum bridge hit.
+    TEST_ASSERT_EQUAL(MetricSource::CTS_deg, m.sectors[0].to_source);
+    TEST_ASSERT_NULL(m.sectors[0].to_path);
+    // Mixed fixed + const-binding edge.
+    TEST_ASSERT_EQUAL_FLOAT(-15.0f, m.sectors[1].from);
+    TEST_ASSERT_EQUAL_FLOAT(45.0f, m.sectors[1].to);
+    TEST_ASSERT_EQUAL(MetricSource::None, m.sectors[1].to_source);
+    TEST_ASSERT_NULL(m.sectors[1].to_path);
+}
+
+void test_sectors_malformed_skipped_and_capped() {
+    // Unresolvable string edge -> sector skipped; count capped at 3.
+    MetricBinding m = mapOne(
+        R"({"type":"compass",
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}},
+            "style":{"sectors":[{"from":"missingKey","to":10,"color":"warn"},
+                                {"from":0,"to":10,"color":"warn"},
+                                {"from":10,"to":20,"color":"warn"},
+                                {"from":20,"to":30,"color":"warn"},
+                                {"from":30,"to":40,"color":"warn"}]}})",
+        "hdg");
+    TEST_ASSERT_EQUAL_UINT8(3, m.sector_count);  // MAX_DIAL_SECTORS
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, m.sectors[0].from);
+}
+
+void test_hull_and_shape() {
+    MetricBinding m = mapOne(
+        R"({"type":"compass","style":{"hull":true,"shape":"band"},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}})",
+        "hdg");
+    TEST_ASSERT_TRUE(m.hull);
+    TEST_ASSERT_EQUAL(ui::layouts::DialShape::Band, m.shape);
+    MetricBinding d = mapOne(
+        R"({"type":"compass","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}})",
+        "hdg");
+    TEST_ASSERT_FALSE(d.hull);
+    TEST_ASSERT_EQUAL(ui::layouts::DialShape::Round, d.shape);
+    // Unknown shape token stays round.
+    MetricBinding u = mapOne(
+        R"({"type":"compass","style":{"shape":"frobnicate"},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}})",
+        "hdg");
+    TEST_ASSERT_EQUAL(ui::layouts::DialShape::Round, u.shape);
+}
+
+void test_const_numeric_binding() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","name":"TGT","format":{"unit":"kn","decimals":1},
+            "bindings":{"value":{"kind":"const","value":6.5}}})",
+        "tgt");
+    TEST_ASSERT_EQUAL(ui::layouts::BindKind::ConstBind, m.value_kind);
+    TEST_ASSERT_EQUAL_FLOAT(6.5f, m.const_value);
+    TEST_ASSERT_NULL(m.const_text);
+    // Const subscribes NOTHING: no enum source, no retained path.
+    TEST_ASSERT_EQUAL(MetricSource::None, m.source);
+    TEST_ASSERT_NULL(m.path);
+    // …but it is a real value tile: zoomable fullscreen-self.
+    TEST_ASSERT_TRUE(m.zoomable);
+    TEST_ASSERT_NULL(m.zoom_target);
+}
+
+void test_const_string_and_bool() {
+    MetricBinding s =
+        mapOne(R"({"type":"text","bindings":{"value":{"kind":"const","value":"MOORED"}}})", "st");
+    TEST_ASSERT_EQUAL(ui::layouts::BindKind::ConstBind, s.value_kind);
+    TEST_ASSERT_NOT_NULL(s.const_text);
+    TEST_ASSERT_EQUAL_STRING("MOORED", s.const_text);
+    TEST_ASSERT_TRUE(isnan(s.const_value));
+    MetricBinding b = mapOne(
+        R"({"type":"single-value","bindings":{"value":{"kind":"const","value":true}}})", "b");
+    TEST_ASSERT_EQUAL(ui::layouts::BindKind::ConstBind, b.value_kind);
+    TEST_ASSERT_EQUAL_FLOAT(1.0f, b.const_value);
+}
+
+void test_local_binding() {
+    MetricBinding m = mapOne(
+        R"({"type":"single-value","name":"RSSI","format":{"unit":"","decimals":0},
+            "bindings":{"value":{"kind":"local","id":"rssi"}}})",
+        "rssi");
+    TEST_ASSERT_EQUAL(ui::layouts::BindKind::LocalBind, m.value_kind);
+    TEST_ASSERT_NOT_NULL(m.local_id);
+    TEST_ASSERT_EQUAL_STRING("rssi", m.local_id);
+    // Local subscribes NOTHING (no source, no retained SignalK path).
+    TEST_ASSERT_EQUAL(MetricSource::None, m.source);
+    TEST_ASSERT_NULL(m.path);
+    TEST_ASSERT_TRUE(m.zoomable);
+}
+
+void test_local_without_pathbuf_degrades() {
+    MetricBinding m = mapOneNoPathBufs(
+        R"({"type":"single-value","bindings":{"value":{"kind":"local","id":"rssi"}}})", "x");
+    TEST_ASSERT_EQUAL(ui::layouts::BindKind::PathBind, m.value_kind);
+    TEST_ASSERT_NULL(m.local_id);
+    TEST_ASSERT_EQUAL(MetricSource::None, m.source);  // -> "--", never dangles
+}
+
+void test_action_value_number_string_bool() {
+    MetricBinding n = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"steering.autopilot.target.headingTrue","value":1.5708}})",
+        "b");
+    TEST_ASSERT_NOT_NULL(n.action_value);
+    TEST_ASSERT_EQUAL_STRING("1.5708", n.action_value);
+    MetricBinding s = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"steering.autopilot.state","value":"auto"}})",
+        "b");
+    TEST_ASSERT_NOT_NULL(s.action_value);
+    TEST_ASSERT_EQUAL_STRING("\"auto\"", s.action_value);  // JSON string for putValue
+    MetricBinding f = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"steering.autopilot.tack","value":false}})",
+        "b");
+    TEST_ASSERT_NOT_NULL(f.action_value);
+    TEST_ASSERT_EQUAL_STRING("false", f.action_value);
+}
+
+void test_action_value_absent_stays_null() {
+    // No authored value -> NULL; button_action_cb then sends the legacy `true`.
+    MetricBinding m = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"steering.autopilot.tack"}})", "tk");
+    TEST_ASSERT_NOT_NULL(m.command);
+    TEST_ASSERT_NULL(m.action_value);
+}
+
 void setUp() {
 }
 void tearDown() {
@@ -555,5 +802,19 @@ int main(int, char **) {
     RUN_TEST(test_zoom_false_disables);
     RUN_TEST(test_zoom_true_keeps_self);
     RUN_TEST(test_zoom_string_sets_target_screen);
+    RUN_TEST(test_markers_parsed);
+    RUN_TEST(test_markers_capped_at_max);
+    RUN_TEST(test_markers_without_alloc_degrade);
+    RUN_TEST(test_markers_ignored_on_non_dial);
+    RUN_TEST(test_sectors_fixed);
+    RUN_TEST(test_sectors_bound_edges);
+    RUN_TEST(test_sectors_malformed_skipped_and_capped);
+    RUN_TEST(test_hull_and_shape);
+    RUN_TEST(test_const_numeric_binding);
+    RUN_TEST(test_const_string_and_bool);
+    RUN_TEST(test_local_binding);
+    RUN_TEST(test_local_without_pathbuf_degrades);
+    RUN_TEST(test_action_value_number_string_bool);
+    RUN_TEST(test_action_value_absent_stays_null);
     return UNITY_END();
 }

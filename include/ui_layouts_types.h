@@ -13,6 +13,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "marker_math.h"  // ui::GlyphId + kMaxMarkersPerDial (host-clean, no LVGL)
+
 namespace boat {
 struct View;  // fwd — full definition in boat_data.h (not needed here)
 }
@@ -80,6 +82,7 @@ enum class MetricSource : uint8_t {
     EngineFuelRate_lph,   // m3s_to_lph(d.engineFuelRate)
     HDGm_deg,             // rad_to_deg_pos(d.headingMag)
     Variation_deg,        // signed deg, +E / -W
+    EngineHours_h,        // s_to_h(d.engineHours) — propulsion.*.runTime / N2K 127489
 };
 
 // Optional extra row beneath the primary value (multi-value tiles).
@@ -138,6 +141,63 @@ struct MetricZone {
 // Bound on authored zones carried per binding (good/warn/alarm + a sentinel
 // top bucket is the idiomatic maximum).
 constexpr uint8_t MAX_METRIC_ZONES = 4;
+
+// ---------------------------------------------------------------------------
+// Dial-fidelity wave (MIDL markers[] / style.sectors / style.hull /
+// style.shape + const/local binding kinds). All host-clean PODs.
+
+// Authored markers a single dial can carry — the manifest cap
+// (maxMarkersPerDial, capabilities.cpp) is ui::kMaxMarkersPerDial (12).
+constexpr uint8_t MAX_DIAL_MARKERS = ui::kMaxMarkersPerDial;
+
+// Authored sectors per dial (no-go zone + two laylines is the idiomatic max).
+constexpr uint8_t MAX_DIAL_SECTORS = 3;
+
+// style.shape — dial geometry (web dial.ts:50/:227). Round is the default;
+// Band renders the semicircular rolling heading band (compass only).
+enum class DialShape : uint8_t {
+    Round = 0,
+    Band,
+};
+
+// bindings.value source kind (MIDL Source.kind). PathBind covers "signalk"
+// (the historical only kind — value-inits to 0 on every legacy binding);
+// ConstBind renders a literal; LocalBind maps a device-local metric id
+// resolved through the injected local resolver ("computed" is unsupported
+// and degrades to PathBind/None -> "--").
+enum class BindKind : uint8_t {
+    PathBind = 0,
+    ConstBind,
+    LocalBind,
+};
+
+// One authored dial marker (MIDL element.markers[]). glyph is a ui::GlyphId
+// ordinal (uint8_t so this header stays POD-simple); `vector` maps kind ==
+// "vector" (center vector, e.g. tide/current) vs the default rim marker.
+// The colour reuses the ZoneColor token encoding (resolved against the live
+// theme at build). `dir` follows the bindings.dir convention: enum bridge
+// first, raw path retained on a miss (non-owning, caller-arena storage).
+struct DialMarker {
+    uint8_t glyph;            // ui::GlyphId ordinal (unknown token -> Circle)
+    bool vector;              // kind == "vector" -> inner-radius placement
+    ZoneColor color;          // theme token (Default -> accent) or Literal
+    uint32_t rgb;             // literal colour when color == ZoneColor::Literal
+    MetricSource dir_source;  // marker bearing source (enum bridge hit)
+    const char *dir_path;     // raw path retained on an enum miss (else NULL)
+    float dir_const;          // fixed bearing when dir is {kind:"const"} (else NAN)
+};
+
+// One authored dial sector (MIDL style.sectors[]). Fixed edges carry the
+// authored degree values; an edge authored as a STRING names a key in the
+// element's `bindings` map (dynamic laylines per midl types.ts:57) and
+// resolves per frame — enum bridge first, raw path retained on a miss.
+struct DialSector {
+    float from, to;                       // fixed edge angles (deg, bow/north-relative)
+    MetricSource from_source, to_source;  // bound edges (None = use the fixed value)
+    ZoneColor color;                      // theme token (Default -> accent) or Literal
+    uint32_t rgb;                         // literal colour when Literal
+    const char *from_path, *to_path;      // raw paths on enum miss (else NULL)
+};
 
 struct MetricBinding {
     const char *id;             // "wind", "depth", ... stable id for API addressing
@@ -203,6 +263,34 @@ struct MetricBinding {
     // style.zones threshold bands (see MetricZone). zone_count <= MAX_METRIC_ZONES.
     uint8_t zone_count;
     MetricZone zones[MAX_METRIC_ZONES];
+    // ---- dial-fidelity wave (markers/sectors/hull/band + const/local +
+    // action.value). ALL additive and trailing with NO default member
+    // initializers (aggregate rule above); legacy tables value-init to 0/NULL.
+    // Authored markers[] — non-owning pointer into the caller's arena marker
+    // pool (like id/label/unit). NULL/0 on legacy bindings.
+    const DialMarker *markers;
+    uint8_t marker_count;
+    // style.sectors — colored dial arcs. Non-owning pointer into the caller's
+    // arena sector pool (a 24-byte DialSector inlined x MAX_DIAL_SECTORS x
+    // 9 tiles x 16 arenas would blow MIDL_ARENA_PSRAM_BUDGET, so sectors pool
+    // per SCREEN exactly like markers). sector_count <= MAX_DIAL_SECTORS;
+    // NULL/0 on legacy bindings.
+    uint8_t sector_count;
+    const DialSector *sectors;
+    // style.hull — boat silhouette at the dial center (compass/windrose).
+    bool hull;
+    // style.shape — Round (0, default) or Band (semicircular heading band).
+    DialShape shape;
+    // bindings.value source kind. PathBind (0) keeps source/path semantics;
+    // ConstBind renders const_value/const_text; LocalBind resolves local_id
+    // through the injected local resolver. Const/local subscribe NOTHING.
+    BindKind value_kind;
+    float const_value;       // ConstBind numeric literal (NAN when const_text set)
+    const char *const_text;  // ConstBind string literal (else NULL; arena storage)
+    const char *local_id;    // LocalBind device-local metric id (else NULL)
+    // action.value — JSON-encoded PUT payload ("true"/"42"/"\"s\""); NULL keeps
+    // the legacy fixed-`true` SignalK action-trigger convention.
+    const char *action_value;
 };
 
 struct ScreenVariantSpec {
@@ -229,6 +317,14 @@ struct Rect {
 // painters never link the SignalK store. Returns the RAW (SI) value or NaN.
 using DynamicResolveFn = double (*)(const char *path, const boat::View &d);
 void set_dynamic_resolver(DynamicResolveFn fn);  // defined in ui_layouts.cpp
+
+// Device-local metric resolver ({kind:"local", id:"..."} bindings). Returns the
+// value in DISPLAY units (device temp degC, heap/psram free KB, rssi dBm,
+// uptime s) or NaN for an unknown id. Installed by midl_render_apply.cpp at
+// apply time; kept as an injection point so host/sim builds of the painters
+// never link the device status APIs.
+using LocalResolveFn = double (*)(const char *id);
+void set_local_resolver(LocalResolveFn fn);  // defined in ui_layouts.cpp
 
 // ---------------------------------------------------------------------------
 // Pure presentation helpers shared by the MIDL mapper, the painters, and the

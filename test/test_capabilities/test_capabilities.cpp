@@ -68,8 +68,10 @@ static void test_controls_and_themes() {
     capabilities::build_manifest(doc.to<JsonObject>());
     TEST_ASSERT_EQUAL_STRING("autopilot", doc["controls"][0].as<const char *>());
     JsonArray themes = doc["themes"];
-    TEST_ASSERT_EQUAL_INT(3, themes.size());
+    TEST_ASSERT_EQUAL_INT(5, themes.size());
     TEST_ASSERT_EQUAL_STRING("day", themes[0].as<const char *>());
+    TEST_ASSERT_EQUAL_STRING("red-night", themes[3].as<const char *>());
+    TEST_ASSERT_EQUAL_STRING("classic", themes[4].as<const char *>());
 }
 
 static void test_markers_glyphs_and_cap() {
