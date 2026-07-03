@@ -13,6 +13,7 @@
 
 #include "board_pins.h"
 #include "screens.h"
+#include "sim_theme.h"  // SIM_THEME env -> ui::use_theme
 #include "ui_layouts.h"
 #include "signalk.h"
 
@@ -113,6 +114,7 @@ int main(int argc, char **argv) {
     const char *id = (argc > 1) ? argv[1] : "nav";
     const char *out = (argc > 2) ? argv[2] : "screen.bmp";
 
+    if (!sim::apply_theme_from_env()) return 2;
     lv_init();
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     static uint8_t *buf = (uint8_t *)malloc((size_t)LCD_W * LCD_H * 2);

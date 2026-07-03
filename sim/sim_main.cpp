@@ -11,6 +11,7 @@
 
 #include "board_pins.h"  // sim LCD_W/LCD_H from build defines
 #include "signalk.h"     // boat::View, boat::current_view (stub)
+#include "sim_theme.h"   // SIM_THEME env -> ui::use_theme
 #include "ui_layouts.h"
 
 using namespace ui::layouts;
@@ -73,6 +74,7 @@ static void write_bmp(const char *path, const uint8_t *rgb565, int w, int h, int
 int main(int argc, char **argv) {
     const char *out = (argc > 1) ? argv[1] : "dash.bmp";
 
+    if (!sim::apply_theme_from_env()) return 2;
     lv_init();
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     static uint8_t *buf = (uint8_t *)malloc((size_t)LCD_W * LCD_H * 2);
@@ -80,23 +82,34 @@ int main(int argc, char **argv) {
                            LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
 
-    // 2x2 dashboard: wind dial, SOG, depth, battery bar.
+    // 2x2 dashboard: wind dial, SOG, depth, battery bar. Accents come from the
+    // LIVE ui::theme tokens (apply_theme_from_env ran above), mirroring
+    // src/ui/screen_dashboard.cpp — hardcoded night literals rendered cyan /
+    // green on the classic / red-night sweeps.
     static const MetricBinding tiles[] = {
         {"wind",
          "WIND",
          "kn",
          MetricSource::AWS_kn,
-         0xffb84d,
+         ui::theme.warn,
          nullptr,
          0,
          {},
          WidgetKind::WindRose},
-        {"sog", "SOG", "kn", MetricSource::SOG_kn, 0x4fc3f7, nullptr, 0, {}, WidgetKind::Numeric},
+        {"sog",
+         "SOG",
+         "kn",
+         MetricSource::SOG_kn,
+         ui::theme.accent,
+         nullptr,
+         0,
+         {},
+         WidgetKind::Numeric},
         {"depth",
          "DEPTH",
          "m",
          MetricSource::Depth_m,
-         0x4fc3f7,
+         ui::theme.good,
          nullptr,
          0,
          {},
@@ -105,7 +118,7 @@ int main(int argc, char **argv) {
          "BATT",
          "%",
          MetricSource::BatterySOC_pct,
-         0x36d399,
+         ui::theme.good,
          nullptr,
          0,
          {},

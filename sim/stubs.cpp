@@ -46,6 +46,22 @@ void current_view(View &out) {
     std::snprintf(out.apState, sizeof(out.apState), "%s", "auto");
     out.apTargetHdg = 1.117;  // ~64 deg
     out.xte = 278.0;          // m to the right of track (~0.15 nm)
+    // Routing / performance (MIDL demo-doc Course + Race screens).
+    out.dtw = 4630.0;    // m (~2.5 nm to waypoint)
+    out.btw = 1.047;     // ~60 deg
+    out.cts = 1.065;     // ~61 deg
+    out.vmg = 2.62;      // m/s (~5.1 kn to waypoint)
+    out.vmgWind = 2.32;  // m/s (~4.5 kn wind VMG)
+    out.rudder = 0.052;  // ~3 deg starboard helm
+    // Propulsion + electrical detail (MIDL demo-doc Engine + Power screens).
+    out.engineRevs = 30.0;           // Hz -> 1800 RPM (mid "good" zone)
+    out.engineCoolantTemp = 358.15;  // K -> 85 C
+    out.engineOilPressure = 320000;  // Pa -> 3.2 bar
+    out.engineFuelRate = 1.75e-6;    // m3/s -> ~6.3 l/h
+    out.engineHours = 1523.4 * 3600.0;
+    out.tankFuel = 0.62;
+    out.battCurrent = -12.4;  // A, discharging
+    out.battTemp = 296.15;    // K -> 23 C
 }
 }  // namespace boat
 

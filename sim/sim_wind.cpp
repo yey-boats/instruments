@@ -14,6 +14,7 @@
 #include "board_pins.h"  // sim LCD_W/LCD_H from build defines
 #include "screens.h"     // ui::wind::build / refresh
 #include "signalk.h"     // boat::View, boat::current_view (stub)
+#include "sim_theme.h"   // SIM_THEME env -> ui::use_theme
 
 static void flush_cb(lv_display_t *d, const lv_area_t *, uint8_t *) {
     lv_display_flush_ready(d);
@@ -73,6 +74,7 @@ static void write_bmp(const char *path, const uint8_t *rgb565, int w, int h, int
 int main(int argc, char **argv) {
     const char *out = (argc > 1) ? argv[1] : "wind.bmp";
 
+    if (!sim::apply_theme_from_env()) return 2;
     lv_init();
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     static uint8_t *buf = (uint8_t *)malloc((size_t)LCD_W * LCD_H * 2);

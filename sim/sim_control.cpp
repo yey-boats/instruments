@@ -21,7 +21,8 @@
 
 #include "board.h"
 #include "proto/proto.h"
-#include "screens.h"  // ui::control_frame::{build,set_sessions}
+#include "screens.h"    // ui::control_frame::{build,set_sessions}
+#include "sim_theme.h"  // SIM_THEME env -> ui::use_theme
 
 // ---- board::geometry() shape switch (driver-owned) ----------------------
 // g_round + g_w/g_h are set from argv before build() runs.
@@ -148,6 +149,7 @@ int main(int argc, char **argv) {
     if (count < 0) count = 0;
     if (count > proto::kMaxSessions) count = proto::kMaxSessions;
 
+    if (!sim::apply_theme_from_env()) return 2;
     lv_init();
     lv_display_t *disp = lv_display_create(g_w, g_h);
     static uint8_t *buf = nullptr;
@@ -156,8 +158,9 @@ int main(int argc, char **argv) {
                            LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
 
-    // Give the active screen a dark background so the colored rings read.
-    lv_obj_set_style_bg_color(lv_screen_active(), lv_color_hex(0x0a1018), 0);
+    // Give the active screen the theme background so the colored rings read
+    // (and the SIM_THEME sweep is visible: night keeps the old 0x0a1018).
+    lv_obj_set_style_bg_color(lv_screen_active(), ui::c(ui::theme.bg), 0);
 
     ui::control_frame::build(nullptr);
 

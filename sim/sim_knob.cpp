@@ -23,6 +23,7 @@
 #include "knob_menu.h"   // knob::Event / knob::Level for driving the overlay
 #include "knob_ui.h"     // knob_ui::setup / apply_event / model
 #include "screens.h"     // ui::ap_hud / knob_compass / knob_wind / knob_big
+#include "sim_theme.h"   // SIM_THEME env -> ui::use_theme
 
 // Test-only seeding hook implemented in stubs_knob.cpp: rebuilds the knob_remote
 // registry as the local knob + `n_remote` synthetic remote displays so the
@@ -227,6 +228,7 @@ int main(int argc, char **argv) {
     const char *view_name = (argc > 1) ? argv[1] : "ap_hud";
     const char *out = (argc > 2) ? argv[2] : "knob.bmp";
 
+    if (!sim::apply_theme_from_env()) return 2;
     boot_lvgl();
 
     // Menu overlay states render through the dispatch core, not a single view.

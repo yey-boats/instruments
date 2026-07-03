@@ -1,12 +1,20 @@
-// Host MIDL design-parity harness: renders the baked YB-MIDL demo document
-// (midl::demo::SQUARE_480_JSON) through the REAL device render path —
-// midl::solve_screen -> midl::render::map_element -> ui::layouts::create_freeform
-// — headlessly via LVGL, snapshots the active screen, and writes a 24-bit BMP.
-// This mirrors src/midl_render_apply.cpp's apply_doc() flow (which is device-only
-// and not in the native/sim build), so the snapshot is a faithful preview of what
-// the firmware paints for the demo doc. Compare against preview-square-480.png.
+// Host MIDL design-parity harness: renders one screen of the baked YB-MIDL
+// demo document (midl::demo::SQUARE_480_JSON, 6 gallery screens) through the
+// REAL device render path — midl::solve_screen -> midl::render::map_element ->
+// ui::layouts::create_freeform — headlessly via LVGL, snapshots the active
+// screen, and writes a 24-bit BMP. This mirrors src/midl_render_apply.cpp's
+// apply_doc() flow (which is device-only and not in the native/sim build), so
+// the snapshot is a faithful preview of what the firmware paints for the demo
+// doc. Compare against preview-square-480.png.
 //
-// No SDL/display server required. Output path is argv[1] (default midl.bmp).
+// Usage (no SDL/display server required):
+//   program <out.bmp>            render the doc's first screen (legacy form,
+//                                kept for tools/sim_render.sh)
+//   program <screen> <out.bmp>   render the gallery screen selected by exact
+//                                id ("dash","nav",...) or case-insensitive
+//                                title ("wind","course","engine","power",
+//                                "race","anchor")
+// SIM_THEME selects the palette (see sim/sim_theme.h).
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -14,6 +22,7 @@
 
 #include <ArduinoJson.h>
 
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -23,7 +32,8 @@
 #include "midl_demo_doc.h"
 #include "midl_render.h"
 #include "midl_solve.h"
-#include "signalk.h"  // boat::View, boat::current_view (stub)
+#include "signalk.h"    // boat::View, boat::current_view (stub)
+#include "sim_theme.h"  // SIM_THEME env -> ui::use_theme
 #include "ui_layouts.h"
 
 using namespace ui::layouts;
@@ -91,9 +101,22 @@ static void write_bmp(const char *path, const uint8_t *rgb565, int w, int h, int
 static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // 4
 static constexpr size_t STR_CAP = midl::FirmwareLimits::str_len;                 // 32
 
-int main(int argc, char **argv) {
-    const char *out = (argc > 1) ? argv[1] : "midl.bmp";
+// Case-insensitive ASCII string equality (screen titles are single words).
+static bool iequals(const char *a, const char *b) {
+    if (!a || !b) return false;
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
 
+int main(int argc, char **argv) {
+    const char *sel = (argc > 2) ? argv[1] : nullptr;
+    const char *out = (argc > 2) ? argv[2] : (argc > 1 ? argv[1] : "midl.bmp");
+
+    if (!sim::apply_theme_from_env()) return 2;
     lv_init();
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     static uint8_t *buf = (uint8_t *)malloc((size_t)LCD_W * LCD_H * 2);
@@ -109,13 +132,37 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    // --- Locate screen[0] (mirrors apply_doc step 1, first-screen fallback) ---
+    // --- Locate the requested screen (mirrors apply_doc step 1). With no
+    // selector, fall back to screens[0] like the legacy single-shot harness.
     JsonVariantConst screens = midl_doc["screens"];
     if (!screens.is<JsonArrayConst>() || screens.size() == 0) {
         fprintf(stderr, "doc has no screens[]\n");
         return 1;
     }
     JsonVariantConst screen = screens[0];
+    const char *screen_id = screen["id"] | "screen0";
+    const char *screen_title = screen["title"] | screen_id;
+    if (sel) {
+        bool found = false;
+        for (JsonVariantConst s : screens.as<JsonArrayConst>()) {
+            const char *id = s["id"] | "";
+            const char *title = s["title"] | "";
+            if (strcmp(sel, id) == 0 || iequals(sel, title)) {
+                screen = s;
+                screen_id = id;
+                screen_title = title[0] ? title : id;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            fprintf(stderr, "no demo screen matches '%s' (id or title of:", sel);
+            for (JsonVariantConst s : screens.as<JsonArrayConst>())
+                fprintf(stderr, " %s/%s", s["id"] | "?", s["title"] | "?");
+            fprintf(stderr, ")\n");
+            return 2;
+        }
+    }
 
     // --- Solve the layout (mirrors apply_doc step 2) ---
     midl::PlacementSet ps;
@@ -177,7 +224,8 @@ int main(int argc, char **argv) {
     }
 
     // --- Build the ScreenVariantSpec + freeform screen (apply_doc steps 4-5) ---
-    ScreenVariantSpec spec = {"midl", "MIDL Demo", TemplateId::QuadGrid, metrics, (uint8_t)n, 0};
+    ScreenVariantSpec spec = {screen_id, screen_title, TemplateId::QuadGrid,
+                              metrics,   (uint8_t)n,   0};
 
     lv_obj_t *root = create_freeform(nullptr, spec, rects);
     if (!root) {
@@ -230,7 +278,8 @@ int main(int argc, char **argv) {
             }
         }
     if (rc == 0)
-        printf("layout ok (%u tiles, no overlap, in bounds, non-blank) %dx%d\n", na, LCD_W, LCD_H);
+        printf("screen '%s' (%s) layout ok (%u tiles, no overlap, in bounds, non-blank) %dx%d\n",
+               screen_id, screen_title, na, LCD_W, LCD_H);
 
     lv_draw_buf_t *snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
     if (!snap) {
