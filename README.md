@@ -406,6 +406,9 @@ For the full onboard checklist and network model, see
 For managed-display registry/config/command concepts, see
 [SignalK ESP Display Manager](docs/signalk-espdisp-manager.md).
 For the full status and upcoming work, see the [project roadmap](docs/roadmap.md).
+For the full protocol/data-path reference (every NMEA2000 PGN, NMEA0183
+sentence, and SignalK path the firmware understands), see
+[Data coverage](docs/data-coverage.md).
 
 ## Development make targets
 

@@ -17,7 +17,7 @@ The Makefile is the user-facing entry point; targets wrap PlatformIO. Three envs
 |---|---|
 | `esp32-4848s040` | Production firmware build |
 | `ota` | Same build, `upload_protocol=espota` for OTA flashing |
-| `native` | Host unit tests (Unity). Builds **only** `signalk_parser.cpp` + `layout.cpp`. |
+| `native` | Host unit tests (Unity). Builds the pure-C++ side modules (~30 TUs — parser, layout, boat_data, MIDL solve/render mapping, stores, …) per `[env:native] build_src_filter`. |
 
 ```sh
 make build                              # pio run -e esp32-4848s040
@@ -128,13 +128,17 @@ Key contracts:
 - **`board_pins.h` ST7701 init table and the NUS UUID `#define` block
   are wrapped in `// clang-format off`/`on`** — keep that protection when
   editing or `make lint` will fail in CI.
-- **`ui_markers::draw_glyph` allocates a per-glyph PSRAM canvas buffer that
-  is intentionally never freed** (lifetime = the screen session, like all
-  built-once screen objects). Marker rings build their glyph canvases at
-  screen-build time; `marker_ring_update` never allocates. If you ever add a
-  path that *deletes* glyph canvases (dynamic/rebuilt dials), you must
-  `heap_caps_free(buf)` the canvas buffer first or it leaks PSRAM — LVGL does
-  not own a user-supplied canvas buffer. Keep glyph drawing on the UI task.
+- **`ui_markers::draw_glyph` allocates a per-glyph PSRAM canvas buffer; LVGL
+  does not own a user-supplied canvas buffer.** Since live theme switching
+  made screens rebuildable, every such buffer (and the other heap states on
+  rebuildable roots: FreeformState, QuadGridState, composite HUD states, hull
+  point arrays) is freed via an `LV_EVENT_DELETE` callback registered at
+  allocation time — both teardown paths (`reset_screens`, `replace_screen`)
+  go through `lv_obj_delete`, which fires DELETE on the whole subtree. If you
+  allocate a buffer an LVGL object points at, register the same DELETE-free
+  callback or it leaks PSRAM on every theme switch / re-apply. Marker rings
+  build glyph canvases at screen-build time; `marker_ring_update` never
+  allocates. Keep glyph drawing on the UI task.
 
 ## Adding things
 
