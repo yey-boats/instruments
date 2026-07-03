@@ -177,9 +177,11 @@ static void build_bezel(lv_obj_t *parent) {
     lv_obj_set_style_transform_pivot_y(bezel, bcy, 0);
 
     // Wide white band + green rail (reference rim), then the structural rings.
-    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2, 26, theme.arc_band, LV_OPA_90);
-    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 + 18, 7, theme.good, LV_OPA_80);
-    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, 0x0c1828);  // inner highlight
+    // Band + rail at full opacity so the annulus samples exactly the
+    // theme.arc_band token (OPA_90 read ~13% darker than every other band).
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2, 26, theme.arc_band, LV_OPA_COVER);
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 + 18, 7, theme.good, LV_OPA_COVER);
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, theme.grid);  // inner highlight
 
     // Cardinal labels are NOT children of the bezel — they live in a separate
     // upright overlay (see build_cardinals / layout_cardinals) so they stay
@@ -343,7 +345,7 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_t *shaft = lv_obj_create(tide_arrow);
     lv_obj_set_size(shaft, 5, 54);
     lv_obj_set_pos(shaft, 16 - 2, TIDE_MID - 54);
-    lv_obj_set_style_bg_color(shaft, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_bg_color(shaft, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_bg_opa(shaft, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(shaft, 0, 0);
     lv_obj_set_style_radius(shaft, 2, 0);
@@ -355,7 +357,7 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_t *head = lv_label_create(tide_arrow);
     lv_label_set_text(head, LV_SYMBOL_UP);
     lv_obj_set_style_text_font(head, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(head, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_text_color(head, lv_color_hex(theme.accent), 0);
     lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(tide_arrow, LV_OBJ_FLAG_HIDDEN);
 
@@ -364,7 +366,7 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_set_size(tide_zero, 26, 26);
     apply_pivot_center(tide_zero, 13, 13);  // centred on the dial
     lv_obj_set_style_bg_opa(tide_zero, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(tide_zero, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_border_color(tide_zero, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_border_width(tide_zero, 3, 0);
     lv_obj_set_style_radius(tide_zero, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(tide_zero, 0, 0);
@@ -377,7 +379,7 @@ static void build_tide(lv_obj_t *parent) {
 static void build_waypoint(lv_obj_t *parent) {
     waypoint_marker = lv_obj_create(parent);
     lv_obj_set_size(waypoint_marker, 14, 18);
-    lv_obj_set_style_bg_color(waypoint_marker, lv_color_hex(0xffd21f), 0);
+    lv_obj_set_style_bg_color(waypoint_marker, lv_color_hex(theme.warn), 0);
     lv_obj_set_style_bg_opa(waypoint_marker, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(waypoint_marker, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(waypoint_marker, 1, 0);
@@ -477,8 +479,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     // they overlap (apparent is the one you steer to).
     // High-contrast, clearly distinct colors: A (apparent, the one you steer to)
     // in orange, T (true) in cyan. Both read on the white band and dark face.
-    twa_marker = make_wind_marker(s_root, "T", 0x2bd4e8);
-    awa_marker = make_wind_marker(s_root, "A", 0xff8800);
+    twa_marker = make_wind_marker(s_root, "T", theme.accent);
+    awa_marker = make_wind_marker(s_root, "A", theme.warn);
 
     build_bezel(s_root);
     build_cardinals(s_root);  // upright cardinal overlay (laid out per heading)

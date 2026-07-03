@@ -14,11 +14,13 @@ namespace ui::demo_grid {
 
 static lv_obj_t *s_root = nullptr;
 
-static const ui::layouts::MetricBinding s_tiles[] = {
-    {"wind", "WIND", "kn", ui::layouts::MetricSource::AWS_kn, 0xf6a21a, "wind"},
-    {"speed", "SPEED", "kn", ui::layouts::MetricSource::SOG_kn, 0x57c7d8, "nav"},
-    {"depth", "DEPTH", "m", ui::layouts::MetricSource::Depth_m, 0x39d98a, "depth"},
-    {"battery", "BATT", "V", ui::layouts::MetricSource::BatteryV, 0xff4058, "status"},
+// Accents are theme tokens resolved in build() (a theme switch rebuilds every
+// screen); raw night-palette literals would render wrong on the other skins.
+static ui::layouts::MetricBinding s_tiles[] = {
+    {"wind", "WIND", "kn", ui::layouts::MetricSource::AWS_kn, 0 /*warn*/, "wind"},
+    {"speed", "SPEED", "kn", ui::layouts::MetricSource::SOG_kn, 0 /*accent*/, "nav"},
+    {"depth", "DEPTH", "m", ui::layouts::MetricSource::Depth_m, 0 /*good*/, "depth"},
+    {"battery", "BATT", "V", ui::layouts::MetricSource::BatteryV, 0 /*alarm*/, "status"},
 };
 
 static const ui::layouts::ScreenVariantSpec s_spec = {
@@ -35,6 +37,11 @@ static void collect_paths(sk::SubscriptionSet &out) {
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
+    // Resolve accents from the LIVE palette (theme switches rebuild screens).
+    s_tiles[0].accent = ui::theme.warn;
+    s_tiles[1].accent = ui::theme.accent;
+    s_tiles[2].accent = ui::theme.good;
+    s_tiles[3].accent = ui::theme.alarm;
     s_root = ui::layouts::create(parent, s_spec);
     ui::set_screen_collect_paths(s_spec.screen_id, collect_paths);
     return s_root;

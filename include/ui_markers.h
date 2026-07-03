@@ -31,6 +31,11 @@ struct MarkerRing {
     lv_obj_t *holder[kMaxMarkersPerDial];
     int16_t last_rot[kMaxMarkersPerDial];
     int8_t last_hidden[kMaxMarkersPerDial];
+    // Close-angle radial stagger level applied to each glyph (0 = on the rim
+    // radius; each level steps the glyph inward). Computed per update from
+    // ui::marker_stagger_levels so near-coincident bearings never stack into
+    // one blob. -1 = unset (forces the first update to place the glyph).
+    int8_t last_level[kMaxMarkersPerDial];
     uint8_t count;
     bool occlude_lower;
     int r;

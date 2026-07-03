@@ -8,7 +8,17 @@
 namespace ui {
 
 static constexpr int GBOX = 28;    // glyph canvas side
-static constexpr int MARGIN = 18;  // holder extends this far past the rim
+static constexpr int MARGIN = 32;  // holder extends this far past the rim
+// How far the glyph's OUTER edge orbits past the ring radius `r`. Must stay
+// <= MARGIN or the canvas crosses the holder's top edge and LVGL clips it --
+// the old MARGIN=18 / -12px overhang decapitated the outer 12 px of every
+// glyph (visible as cut triangles at the dial rim).
+static constexpr int GLYPH_OVERHANG = 20;
+// Radial step per close-angle stagger level (see ui::marker_stagger_levels):
+// markers within ~8 deg of each other slide inward in these increments so
+// each stays identifiable instead of stacking into one blob.
+static constexpr int STAGGER_STEP = 24;
+static constexpr double STAGGER_THRESHOLD_DEG = 8.0;
 static constexpr double kSemicircleHalfWindowDeg =
     96.0;  // matches the |rel|>96 degree-label hide in ui_compass.cpp / marker_math.h
 
@@ -188,11 +198,14 @@ MarkerRing build_marker_ring_radii(lv_obj_t *parent, int cx, int cy, const int *
         if (r > ring.r) ring.r = r;
         lv_obj_t *h = make_holder(parent, cx, cy, r);
         lv_obj_t *cv = draw_glyph(h, specs[i].glyph, specs[i].filled, specs[i].color);
-        lv_obj_align(cv, LV_ALIGN_TOP_MID, 0, MARGIN - GBOX - 2);
+        // Glyph outer edge lands GLYPH_OVERHANG px past radius r, fully inside
+        // the holder (offset >= 0) so nothing is clipped at the rim.
+        lv_obj_align(cv, LV_ALIGN_TOP_MID, 0, MARGIN - GLYPH_OVERHANG);
         lv_obj_add_flag(h, LV_OBJ_FLAG_HIDDEN);  // shown on first update
         ring.holder[i] = h;
         ring.last_rot[i] = INT16_MIN;
         ring.last_hidden[i] = -1;
+        ring.last_level[i] = 0;  // built at level 0 (on-radius)
     }
     return ring;
 }
@@ -212,13 +225,29 @@ void marker_ring_update(MarkerRing &ring, const MarkerSpec *specs, uint8_t count
                         double reference_deg) {
     if (count > ring.count) count = ring.count;
     double half = kSemicircleHalfWindowDeg;
+    // Pass 1: screen angles + visibility (hidden markers become NaN so the
+    // stagger pass ignores them).
+    double sa[kMaxMarkersPerDial];
     for (uint8_t i = 0; i < count; ++i) {
-        double sa = marker_screen_angle(specs[i].value_deg, reference_deg);
-        bool hide = isnan(sa) || (ring.occlude_lower && marker_occluded(sa, half));
+        sa[i] = marker_screen_angle(specs[i].value_deg, reference_deg);
+        if (!isnan(sa[i]) && ring.occlude_lower && marker_occluded(sa[i], half)) sa[i] = NAN;
+    }
+    // Pass 2: close-angle radial stagger levels (pure, host-tested).
+    uint8_t level[kMaxMarkersPerDial];
+    marker_stagger_levels(sa, count, STAGGER_THRESHOLD_DEG, level);
+    for (uint8_t i = 0; i < count; ++i) {
+        bool hide = isnan(sa[i]);
         set_hidden_if_changed(ring.holder[i], &ring.last_hidden[i], hide);
         if (hide) continue;
-        int16_t rot = (int16_t)(lround(sa) * 10 % 3600);
+        int16_t rot = (int16_t)(lround(sa[i]) * 10 % 3600);
         set_rot_if_changed(ring.holder[i], &ring.last_rot[i], rot);
+        if ((int8_t)level[i] != ring.last_level[i]) {
+            ring.last_level[i] = (int8_t)level[i];
+            lv_obj_t *cv = lv_obj_get_child(ring.holder[i], 0);
+            if (cv)
+                lv_obj_align(cv, LV_ALIGN_TOP_MID, 0,
+                             MARGIN - GLYPH_OVERHANG + level[i] * STAGGER_STEP);
+        }
     }
 }
 

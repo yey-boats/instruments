@@ -205,7 +205,10 @@ static void build_mode_modal(lv_obj_t *parent) {
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, kModeName[i]);
         lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
-        lv_obj_set_style_text_color(l, lv_color_hex(i == 3 ? theme.fg : 0x05101c), 0);
+        // Ink on the accent-filled buttons is theme.bg (the ground colour
+        // always contrasts the accent in every palette); the old night-navy
+        // literal disappeared against the day/classic accents.
+        lv_obj_set_style_text_color(l, lv_color_hex(i == 3 ? theme.fg : theme.bg), 0);
         lv_obj_center(l);
         lv_obj_add_event_cb(b, on_mode_pick, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }
@@ -241,9 +244,27 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // --- compass --- (wider on the roomy wide panels; square is width-bound)
     int top_bar_h = 56;
-    int cw = wide ? (LCD_H - 36) : (LCD_W - 32);
+    const int xte_h = 44;  // strip below the dial (sized here: block layout)
+    int cw, coy;
+    if (wide) {
+        // Use the REAL panel height: size the dial against the space below the
+        // top bar for the dial + XTE-strip block (width-capped so the flanking
+        // tile columns keep ~180 px, never smaller than the old LCD_H - 36
+        // dial), then centre that block vertically. The old fixed cw left up
+        // to ~200 px of dead canvas at the bottom on 1024x600.
+        int space = LCD_H - top_bar_h - 8;       // below the bar, 8 px bottom margin
+        int max_r = space - 24 - 4 - xte_h;      // root h = r + 24, +4 gap, +strip
+        int cwh = 2 * (max_r + 8);               // r = cw/2 - 8
+        int cww = LCD_W - 2 * 196;               // two >=180 px side columns (+pad)
+        if (cww < LCD_H - 36) cww = LCD_H - 36;  // never below the legacy dial
+        cw = cwh < cww ? cwh : cww;
+        int block_h = (cw / 2 - 8 + 24) + 4 + xte_h;
+        coy = top_bar_h + (space - block_h) / 2;
+    } else {
+        cw = LCD_W - 32;
+        coy = top_bar_h;
+    }
     int cox = (LCD_W - cw) / 2;
-    int coy = top_bar_h;
     s_cp = ui::build_compass(s_root, cox, coy, cw);
     int scx = cox + s_cp.cx;
     int scy = coy + s_cp.cy;
@@ -277,10 +298,11 @@ lv_obj_t *build(lv_obj_t *parent) {
     // Built on s_root (the full screen), NOT on the compass root: the compass
     // root is sized exactly to the dial and would clip any glyph orbiting near
     // its top/sides. Centered at the compass's screen-space center (scx, scy).
-    // A holder glyph orbits ~16px OUTSIDE the radius passed here (make_holder's
-    // MARGIN), so we pass r - 42 to land the glyphs on the white band just inside
-    // the green rail (at ~r - 26) — clear of the top bar above the dial AND the
-    // inset degree labels (LABEL_INSET = 44). occlude_lower hides the bottom half
+    // ui_markers lands a glyph's outer edge GLYPH_OVERHANG px past the radius
+    // passed here, so r - kSemiMarkerInset puts the glyphs on the white band
+    // just inside the green rail (centre ~r - 26) — clear of the top bar above
+    // the dial AND the inset degree labels (LABEL_INSET = 44), and staggered
+    // radially when bearings crowd. occlude_lower hides the bottom half
     // (it would overlap the XTE strip / tiles). Built AFTER the center readouts so
     // it draws on top. glyph/filled/color are baked here; bearings fill in refresh.
     ui::MarkerSpec ap_markers[4] = {
@@ -299,7 +321,6 @@ lv_obj_t *build(lv_obj_t *parent) {
     dial_tap_zone(s_root, scx + 6, dz_y, s_cp.r - 12, dz_h, +1);
 
     // --- XTE strip below the compass (placed by the compass's real height) ---
-    int xte_h = 44;
     int xte_y = coy + s_cp.h + 4;
     int xte_x = wide ? cox : 16;
     int xte_w = wide ? cw : (LCD_W - 32);
@@ -422,13 +443,13 @@ void refresh() {
     snprintf(buf, sizeof(buf), "COG %s  |  SOG %s", cogs, sogs);
     set_text_if_changed(lbl_cogsog, s_last_cogsog, sizeof(s_last_cogsog), buf);
 
-    // XTE needle (cross-track error, nm; +stbd). Clamp to +/-1.0 full-scale.
-    double xte = d.xte;  // meters; convert to nm
-    if (!isnan(xte)) {
-        double nm = xte / 1852.0;
-        if (nm > 1.0) nm = 1.0;
-        if (nm < -1.0) nm = -1.0;
-        int nx = s_xte.center_x + (int)(nm * s_xte.half_px) - 1;
+    // XTE needle (cross-track error, ±1.0 nm full-scale). Deflection side must
+    // match the readout's P/S letter (positive xte -> 'P' -> PORT/left end);
+    // ui::xte_needle_frac owns that sign convention (host-tested). The old
+    // `center + xte` mapping put a 'P' reading on the STBD side.
+    if (!isnan(d.xte)) {
+        double frac = ui::xte_needle_frac(d.xte, 1852.0);  // full scale = 1 nm
+        int nx = s_xte.center_x + (int)(frac * s_xte.half_px) - 1;
         if (nx != s_last_xte_x) {
             s_last_xte_x = nx;
             lv_obj_set_x(s_xte.needle, nx);

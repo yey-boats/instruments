@@ -243,8 +243,9 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     // Steering marker ring -> HDG/COG/CTS + amber TWD bug, heading-up. Built on
     // s_root (not the dial-sized compass root, which would clip it) at the
-    // compass's screen-space centre; r - 42 lands the glyphs on the white band
-    // just inside the rail (same as the AP HUD). occlude_lower hides them in the
+    // compass's screen-space centre; r - kSemiMarkerInset lands the glyphs on
+    // the white band just inside the rail (same as the AP HUD), staggered
+    // radially when bearings crowd. occlude_lower hides them in the
     // bottom half. Driven by marker_ring_update in refresh().
     ui::MarkerSpec ws_markers[4] = {
         {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG (under lubber at offset 0)
@@ -453,12 +454,12 @@ void refresh() {
     double wind_ref = isnan(hdg) ? 0.0 : hdg;
     ui::marker_ring_update(s_cp.markers, steer_live, 4, wind_ref);
 
-    // XTE needle (same as AP).
+    // XTE needle (same as AP): deflection side matches the readout's P/S
+    // letter (positive xte -> 'P' -> PORT/left end; ui::xte_needle_frac owns
+    // the sign convention, host-tested).
     if (!isnan(d.xte)) {
-        double nm = d.xte / 1852.0;
-        if (nm > 1.0) nm = 1.0;
-        if (nm < -1.0) nm = -1.0;
-        int nx = s_xte.center_x + (int)(nm * s_xte.half_px) - 1;
+        double frac = ui::xte_needle_frac(d.xte, 1852.0);  // full scale = 1 nm
+        int nx = s_xte.center_x + (int)(frac * s_xte.half_px) - 1;
         if (nx != s_last_xte_x) {
             s_last_xte_x = nx;
             lv_obj_set_x(s_xte.needle, nx);

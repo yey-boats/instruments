@@ -168,13 +168,16 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_label_set_text(lbl_hdg, "HDG ---\xC2\xB0");
     lv_obj_set_style_text_font(lbl_hdg, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_hdg, LV_ALIGN_CENTER, -50, 56);
+    lv_obj_align(lbl_hdg, LV_ALIGN_CENTER, -55, 56);
 
+    // "TURN" = target - heading (the turn still to make). ASCII on purpose:
+    // the Greek Δ (U+0394) is not in the Montserrat ranges LVGL bundles and
+    // rendered as a tofu box between the HDG and delta readouts.
     lbl_delta = lv_label_create(s_root);
-    lv_label_set_text(lbl_delta, "\xCE\x94 ---\xC2\xB0");
+    lv_label_set_text(lbl_delta, "TURN ---\xC2\xB0");
     lv_obj_set_style_text_font(lbl_delta, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(lbl_delta, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_delta, LV_ALIGN_CENTER, 50, 56);
+    lv_obj_align(lbl_delta, LV_ALIGN_CENTER, 55, 56);
 
     return s_root;
 }
@@ -229,10 +232,10 @@ void refresh() {
             delta -= 360;
         while (delta < -180)
             delta += 360;
-        snprintf(buf, sizeof(buf), "\xCE\x94 %+.0f\xC2\xB0", delta);
+        snprintf(buf, sizeof(buf), "TURN %+.0f\xC2\xB0", delta);
         set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), buf);
     } else {
-        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "\xCE\x94 ---\xC2\xB0");
+        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "TURN ---\xC2\xB0");
     }
 }
 
@@ -408,12 +411,17 @@ lv_obj_t *build(lv_obj_t * /*parent*/) {
     lv_obj_t *top = lv_layer_top();
 
     s_root = lv_obj_create(top);
-    // Round backdrop that fills the panel; content kept in the usable rect.
+    // Backdrop that fills the WHOLE panel with the theme ground, exactly like
+    // make_round_root() does for the views: full opacity, no corner radius.
+    // The old LV_OPA_90 rounded circle left the corners un-painted and dimmed
+    // the fill 10% toward black, so menu levels rendered darker than every
+    // other knob screen (grey-beige instead of cream on classic). Content
+    // still stays inside the usable inscribed rect.
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_center(s_root);
     lv_obj_set_style_bg_color(s_root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(s_root, LV_OPA_90, 0);
-    lv_obj_set_style_radius(s_root, LCD_W / 2, 0);
+    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(s_root, 0, 0);
     lv_obj_set_style_border_width(s_root, 0, 0);
     lv_obj_set_style_pad_all(s_root, 0, 0);
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);

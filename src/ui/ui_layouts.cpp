@@ -938,12 +938,54 @@ static void fit_text_font(lv_obj_t *label, const char *txt, int max_w) {
     lv_obj_set_style_text_font(label, ladder[2], 0);
 }
 
+// Gauge-centre variant of fit_value_font: the ladder is CAPPED at the
+// diameter-based size paint_gauge_body picked (48/38/28), so the hero never
+// grows past the painter's intent, and steps DOWN when value+unit would spill
+// past the dial's inner width (e.g. "1800 rpm" @48 overflowed a 160px dial
+// into the neighbouring tile). Always restarts from the cap so the value
+// grows back when it shortens. Called only on text change.
+static void fit_gauge_center_font(lv_obj_t *label, const char *txt, int dia) {
+    static const lv_font_t *const ladder[] = {&lv_font_montserrat_48, &lv_font_montserrat_38,
+                                              &lv_font_montserrat_28, &lv_font_montserrat_20};
+    int start = 2;              // mirrors paint_gauge_body's vfont pick
+    if (dia >= 110) start = 1;  // montserrat_38
+    if (dia >= 160) start = 0;  // montserrat_48
+    // Inner width budget: label sits at the dial's vertical centre, where the
+    // 10px fill arc bounds it on both sides; keep a couple px of air.
+    int max_w = dia - 24;
+    if (max_w < 40) max_w = 40;
+    for (int i = start; i < 3; ++i) {
+        lv_point_t sz;
+        lv_text_get_size(&sz, txt, ladder[i], 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w) {
+            lv_obj_set_style_text_font(label, ladder[i], 0);
+            return;
+        }
+    }
+    lv_obj_set_style_text_font(label, ladder[3], 0);
+}
+
 // Hero-value color: honor the element's authored style.color (MetricBinding.accent,
 // 0xRRGGBB) when set, else the theme accent. Restores the per-tile semantic colors
 // the glass-cockpit design intends (warn XTE, good depth, etc.); MIDL docs set it
 // via style.color → map_element → m.accent. accent==0 keeps the legacy theme color.
 static inline uint32_t value_color(const MetricBinding &m) {
     return m.accent ? m.accent : theme.accent;
+}
+
+// Blend `fg` over `bg` at pct% (0..100). Used to derive theme-relative tint
+// fills (e.g. the autopilot engaged pill) from live palette tokens instead of
+// hardcoding a palette-specific color that would survive a theme switch.
+static uint32_t mix_rgb(uint32_t fg, uint32_t bg, int pct) {
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    uint32_t out = 0;
+    for (int shift = 16; shift >= 0; shift -= 8) {
+        int f = (int)((fg >> shift) & 0xFF);
+        int b = (int)((bg >> shift) & 0xFF);
+        out |= (uint32_t)(b + ((f - b) * pct) / 100) << shift;
+    }
+    return out;
 }
 
 static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
@@ -1866,13 +1908,15 @@ static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat
         } else {
             int dp = m.precision >= 0 ? m.precision : 0;
             // Append the unit when authored. No separator before a
-            // glued unit ("%", "°"=UTF-8 0xC2 lead byte); a thin space
-            // before word units ("kn"/"V"/"m"). Keeps BATT reading "77%"
-            // and rudder "12°", not a bare "77"/"12".
+            // glued unit ("%", "°"=UTF-8 0xC2 lead byte); a plain ASCII
+            // space before word units ("kn"/"V"/"m"). Keeps BATT reading
+            // "77%" and rudder "12°", not a bare "77"/"12". Must be a
+            // regular space: the bundled Montserrat fonts have no glyph
+            // for U+2009 THIN SPACE (or U+2007/U+00A0), which rendered
+            // as a tofu box between value and unit.
             snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
-                     (m.unit && m.unit[0])
-                         ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : "\xE2\x80\x89")
-                         : "",
+                     (m.unit && m.unit[0]) ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : " ")
+                                           : "",
                      (m.unit && m.unit[0]) ? m.unit : "");
         }
     } else if (isnan(frac)) {
@@ -1880,7 +1924,13 @@ static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat
     } else {
         snprintf(buf, sizeof(buf), "%d%%", pct);
     }
-    ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf);
+    if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf) &&
+        t.kind == WidgetKind::Gauge && t.aux) {
+        // Re-fit the centre label on every text change: a ranged value+unit
+        // string ("1800 rpm") can outgrow the dial at the painter's default
+        // font size and collide with the neighbouring tile.
+        fit_gauge_center_font(t.value, buf, (int)lv_obj_get_style_width(t.aux, LV_PART_MAIN));
+    }
     // style.zones: the LIVE fill + hero text colour track the active band
     // (first zone whose lt exceeds the display value; none -> painter default).
     if (m.zone_count > 0) {
@@ -4047,8 +4097,29 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int w, in
     t.aux = btn;
 }
 
-// Autopilot widget: state pill (green) + target text + 4 nudge buttons row.
-// Mirrors editor .wpreview .ap.
+// Style the stand-in autopilot state pill for engaged/standby. All colors are
+// derived from the live theme tokens — engaged is a `good` tint over the panel
+// with a `good` border/label, standby a hollow panel_edge outline with dim
+// text — so red-night shows an amber-toned engaged state, classic a deep
+// green on cream, etc. (the old hardcoded 0x143b2a forest fill leaked the
+// original dark palette into every theme). Shared by the painter (initial
+// standby look) and both update paths (quad-grid + freeform) on state flips.
+static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged) {
+    if (!pill || !value) return;
+    if (engaged) {
+        lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(pill, lv_color_hex(mix_rgb(theme.good, theme.panel, 30)), 0);
+        lv_obj_set_style_border_color(pill, lv_color_hex(theme.good), 0);
+        lv_obj_set_style_text_color(value, lv_color_hex(theme.good), 0);
+    } else {
+        lv_obj_set_style_bg_opa(pill, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_color(pill, lv_color_hex(theme.panel_edge), 0);
+        lv_obj_set_style_text_color(value, lv_color_hex(theme.fg_dim), 0);
+    }
+}
+
+// Autopilot widget: state pill (filled `good` tint when engaged, hollow when
+// standby) + target text + 4 nudge buttons row. Mirrors editor .wpreview .ap.
 static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
     // Full-screen autopilot leaf → the high-fidelity HUD (semicircular heading-up
     // compass, HDG/COG/CTS/AP-target marker ring, XTE strip, numeric tiles). The
@@ -4066,13 +4137,11 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, i
         // Fall through to the stand-in if the PSRAM alloc failed.
     }
 
-    // State pill.
+    // State pill. Built in the standby (hollow) look; the update paths flip it
+    // to the engaged tint via style_ap_pill when the live apState says so.
     lv_obj_t *pill = lv_obj_create(t.root);
     lv_obj_set_size(pill, w - 32, 26);
     lv_obj_align(pill, LV_ALIGN_TOP_MID, 0, 24);
-    lv_obj_set_style_bg_color(pill, lv_color_hex(0x143b2a), 0);
-    lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(pill, lv_color_hex(theme.good), 0);
     lv_obj_set_style_border_width(pill, 1, 0);
     lv_obj_set_style_radius(pill, 4, 0);
     lv_obj_set_style_pad_all(pill, 0, 0);
@@ -4083,9 +4152,9 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     t.value = lv_label_create(pill);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.good), 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+    style_ap_pill(pill, t.value, false);
 
     // Target text below the pill.
     t.secondary = lv_label_create(t.root);
@@ -4311,6 +4380,17 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
                 break;
             }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+            // Engaged/standby pill restyle on state flips only. The stand-in
+            // never uses last_aux_pct as a percentage, so it doubles as the
+            // styled-state cache here: -1 unset, 0 standby, 1 engaged.
+            {
+                bool engaged = data.apState[0] && strcmp(data.apState, "standby") != 0;
+                int want = engaged ? 1 : 0;
+                if (t.last_aux_pct != want) {
+                    t.last_aux_pct = want;
+                    style_ap_pill(t.aux2, t.value, engaged);
+                }
+            }
             if (t.secondary) {
                 char tgt[24];
                 snprintf(tgt, sizeof(tgt), "target %s", sec[0] ? sec : "---");
@@ -5930,6 +6010,17 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 break;
             }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
+            // Engaged/standby pill restyle on state flips only (mirrors
+            // update_quad_grid): last_aux_pct doubles as the styled-state
+            // cache for the stand-in (-1 unset, 0 standby, 1 engaged).
+            {
+                bool engaged = data.apState[0] && strcmp(data.apState, "standby") != 0;
+                int want = engaged ? 1 : 0;
+                if (t.last_aux_pct != want) {
+                    t.last_aux_pct = want;
+                    style_ap_pill(t.aux2, t.value, engaged);
+                }
+            }
             if (t.secondary) {
                 char tgt[24];
                 snprintf(tgt, sizeof(tgt), "target %s", sec[0] ? sec : "---");
@@ -6186,6 +6277,25 @@ static void back_cb(lv_event_t *) {
     ui::show_by_id("dashboard");
 }
 
+// Hero color: an authored per-element accent (MIDL style.color) wins, else the
+// theme accent token. The pre-theme built-in screens and the sim harness zoom
+// targets bake the ORIGINAL dark-palette literals into their bindings' accent
+// field (cyan 0x57c7d8 "accent" / green 0x39d98a "good"); those are legacy
+// defaults, not authored intent, so remap them to the live theme token —
+// honoring them verbatim painted cyan/green heroes in every theme (a night
+// vision violation in red-night, off-palette in classic).
+static uint32_t hero_rgb(const ui::layouts::MetricBinding &m) {
+    switch (m.accent) {
+    case 0:
+    case 0x57c7d8:  // legacy dark-palette accent literal
+        return ui::theme.accent;
+    case 0x39d98a:  // legacy dark-palette good literal
+        return ui::theme.good;
+    default:
+        return m.accent;
+    }
+}
+
 lv_obj_t *build(lv_obj_t *parent) {
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
@@ -6238,7 +6348,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 void refresh() {
     if (!s_root) return;
     const ui::layouts::MetricBinding &m = ui::layouts::g_zoom_target;
-    lv_obj_set_style_text_color(s_value, lv_color_hex(m.accent ? m.accent : ui::theme.fg), 0);
+    lv_obj_set_style_text_color(s_value, lv_color_hex(hero_rgb(m)), 0);
     lv_label_set_text(s_cap, m.label ? m.label : "");
     lv_label_set_text(s_unit, m.unit ? m.unit : "");
     boat::View d;

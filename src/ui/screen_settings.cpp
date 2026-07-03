@@ -77,7 +77,7 @@ static void update_segment(Segmented &seg, int selected) {
     for (uint8_t i = 0; i < seg.count; ++i) {
         bool active = (i == selected);
         uint32_t bg = active ? theme.accent : theme.panel;
-        uint32_t fg = active ? 0xffffff : theme.fg;
+        uint32_t fg = active ? theme.bg : theme.fg;  // bg token contrasts the accent fill
         lv_obj_set_style_bg_color(seg.buttons[i], lv_color_hex(bg), 0);
         lv_obj_set_style_border_color(seg.buttons[i],
                                       lv_color_hex(active ? theme.accent : theme.panel_edge), 0);
@@ -144,7 +144,7 @@ static lv_obj_t *make_action(lv_obj_t *parent, const char *text, int x, int y, i
     lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, nullptr);
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, text);
-    lv_obj_set_style_text_color(label, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(theme.bg), 0);  // ink on accent fill
     lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
     lv_obj_center(label);
     return button;

@@ -50,7 +50,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "BELOW KEEL",
      "m",
      ui::layouts::MetricSource::DepthKeel_m,
-     0x57c7d8 /*accent*/,
+     0 /*accent unused: spec only feeds collect_paths, screen is hand-built*/,
      nullptr,
      3,
      {
@@ -121,11 +121,24 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
-    // Hero depth card. Shorter than Trip's 200 px hero to make room for the
-    // doubled (~128 px) value and the bottom history strip.
+    // Vertical bands derived from the REAL panel height. A 480-tall panel
+    // keeps the historical 160 / 88 / 170 hero/stats/history split; taller
+    // panels (1024x600 boards) stretch each band proportionally instead of
+    // leaving dead canvas below the history card.
+    const int top_y = 38;
+    const int band_gap = 6;
+    const int content_h = LCD_H - top_y - 12 /*bottom margin*/ - 2 * band_gap;
+    const int hero_h = content_h * 160 / 418;
+    const int stat_h = content_h * 88 / 418;
+    const int hist_h = content_h - hero_h - stat_h;
+    const int stats_y = top_y + hero_h + band_gap;
+    const int hist_y = stats_y + stat_h + band_gap;
+
+    // Hero depth card. Shorter than Trip's hero to make room for the doubled
+    // (~128 px) value and the bottom history strip.
     lv_obj_t *hero = lv_obj_create(s_root);
-    lv_obj_set_size(hero, LCD_W - 16, 160);
-    lv_obj_set_pos(hero, 8, 38);
+    lv_obj_set_size(hero, LCD_W - 16, hero_h);
+    lv_obj_set_pos(hero, 8, top_y);
     lv_obj_set_style_bg_color(hero, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_border_color(hero, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(hero, 1, 0);
@@ -167,20 +180,19 @@ lv_obj_t *build(lv_obj_t *parent) {
     // with a left bias and never grows past the reserved unit gutter).
     lv_obj_align(unit, LV_ALIGN_BOTTOM_RIGHT, -16, -16);
 
-    // Three stats side by side. Shorter (88 px) and higher than Trip's row to
-    // leave a ~170 px history strip at the bottom.
-    int row_y = 204;
+    // Three stats side by side. Shorter and higher than Trip's row to leave
+    // the history strip at the bottom.
     int col_w = (LCD_W - 32) / 3;
-    make_stat(s_root, "WATER TEMP", 8, row_y, col_w, 88, &lbl_temp, theme.fg);
-    make_stat(s_root, "SOG", 8 + col_w + 8, row_y, col_w, 88, &lbl_sog, theme.fg);
+    make_stat(s_root, "WATER TEMP", 8, stats_y, col_w, stat_h, &lbl_temp, theme.fg);
+    make_stat(s_root, "SOG", 8 + col_w + 8, stats_y, col_w, stat_h, &lbl_sog, theme.fg);
     // TWA neutral (theme.fg): green is reserved for a favoured-tack cue, which
     // we don't compute -- so a permanently-green TWA was a false signal.
-    make_stat(s_root, "TWA", 8 + (col_w + 8) * 2, row_y, col_w - 8, 88, &lbl_twa, theme.fg);
+    make_stat(s_root, "TWA", 8 + (col_w + 8) * 2, stats_y, col_w - 8, stat_h, &lbl_twa, theme.fg);
 
-    // Depth-history card (sparkline) spans the bottom (y 298..468).
+    // Depth-history card (sparkline) fills the remaining bottom band.
     lv_obj_t *hist = lv_obj_create(s_root);
-    lv_obj_set_size(hist, LCD_W - 16, 170);
-    lv_obj_set_pos(hist, 8, 298);
+    lv_obj_set_size(hist, LCD_W - 16, hist_h);
+    lv_obj_set_pos(hist, 8, hist_y);
     lv_obj_set_style_bg_color(hist, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_border_color(hist, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(hist, 1, 0);
@@ -196,7 +208,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(hist_cap, LV_ALIGN_TOP_LEFT, 0, 0);
 
     s_chart = lv_chart_create(hist);
-    lv_obj_set_size(s_chart, LCD_W - 16 - 16 - 8, 170 - 16 - 22);
+    lv_obj_set_size(s_chart, LCD_W - 16 - 16 - 8, hist_h - 16 - 22);
     lv_obj_align(s_chart, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(s_chart, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(s_chart, 0, 0);

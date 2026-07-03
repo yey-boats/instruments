@@ -50,6 +50,44 @@ inline bool marker_occluded(double screen_angle_deg, double half_window_deg) {
     return rel > half_window_deg || rel < -half_window_deg;
 }
 
+// Radial stagger levels for a cluster of dial markers. A marker within
+// `threshold_deg` of an EARLIER visible marker steps one level further inward
+// so near-coincident bearings stay individually identifiable instead of
+// stacking into one blob at the rim. NaN angles (hidden markers) always get
+// level 0 and never push the others. Levels cap at 3 (four stacked glyphs is
+// the practical dial maximum). Pure/host-tested; the pixel step per level
+// lives with the renderer (ui_markers.cpp).
+inline void marker_stagger_levels(const double *screen_angle_deg, uint8_t count,
+                                  double threshold_deg, uint8_t *level_out) {
+    for (uint8_t i = 0; i < count; ++i) {
+        level_out[i] = 0;
+        if (isnan(screen_angle_deg[i])) continue;
+        for (uint8_t j = 0; j < i; ++j) {
+            if (isnan(screen_angle_deg[j])) continue;
+            double da = fabs(screen_angle_deg[i] - screen_angle_deg[j]);
+            if (da > 180.0) da = 360.0 - da;
+            if (da <= threshold_deg && (uint8_t)(level_out[j] + 1) > level_out[i])
+                level_out[i] = (uint8_t)(level_out[j] + 1);
+        }
+        if (level_out[i] > 3) level_out[i] = 3;
+    }
+}
+
+// Center-zero strip deflection for a signed cross-track error, as a fraction
+// of full scale in [-1, +1]. NEGATIVE = deflect toward the PORT (left) end.
+// The firmware renders XTE text as magnitude + side letter with positive
+// xte -> 'P' (ui::format_xte and the QuadGrid XTE tile share that convention),
+// so the needle must deflect toward the side the letter names: positive xte
+// -> 'P' -> port -> negative fraction. Out-of-range clamps to the end stop;
+// NaN -> 0 (callers leave the needle centered when there is no fix).
+inline double xte_needle_frac(double xte_m, double full_scale_m) {
+    if (isnan(xte_m) || !(full_scale_m > 0)) return 0.0;
+    double f = -xte_m / full_scale_m;
+    if (f > 1.0) f = 1.0;
+    if (f < -1.0) f = -1.0;
+    return f;
+}
+
 // Glyph token (manifest/editor string) -> GlyphId. Returns COUNT on unknown.
 GlyphId glyph_from_token(const char *token);
 

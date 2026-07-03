@@ -13,9 +13,13 @@
 namespace ui {
 
 // Inset (px) from the compass radius at which marker glyphs orbit on the
-// semicircular HUD dials: MARGIN(18, ui_markers) + glyph half-extent lands them
-// at ~r-26 on the white band, clear of the LABEL_INSET(44) degree labels.
-constexpr int kSemiMarkerInset = 42;
+// semicircular HUD dials. ui_markers places a glyph's OUTER edge
+// GLYPH_OVERHANG(20) px past the radius passed to build_marker_ring, so an
+// inset of 32 lands the 28 px glyphs on the white band at r-40..r-12 (centre
+// ~r-26), just inside the green rail and clear of the LABEL_INSET(44) degree
+// labels. Close-angle stagger (ui_markers) may step individual glyphs further
+// inward when bearings crowd within ~8 deg.
+constexpr int kSemiMarkerInset = 32;
 
 // Semicircular heading compass. The white band + green rail + lubber are fixed;
 // the `scale` ring (degree numbers + ticks) is rotated by -heading so the

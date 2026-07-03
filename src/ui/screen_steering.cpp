@@ -25,14 +25,17 @@ namespace ui::steering {
 
 static lv_obj_t *s_root = nullptr;
 
-static const ui::layouts::MetricBinding s_tiles[] = {
+// Tile accents are theme tokens resolved in build() (a theme switch rebuilds
+// every screen). Hardcoded night-palette literals here rendered cyan/green on
+// the classic / red-night skins — the table must never carry raw 0xRRGGBB.
+static ui::layouts::MetricBinding s_tiles[] = {
     // Compass: heading with CTS (course-to-steer) as secondary — matches
     // the editor's steeringScreen() preset (HDG / CTS).
     {"hdg",
      "HDG / CTS",
      "",
      ui::layouts::MetricSource::HDG_deg,
-     0x57c7d8 /*accent*/,
+     0 /*accent: theme token, set in build()*/,
      nullptr,
      1,
      {{"CTS", ui::layouts::MetricSource::CTS_deg}},
@@ -41,7 +44,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "XTE",
      "nm",
      ui::layouts::MetricSource::XTE,
-     0xffb84d /*warn*/,
+     0 /*warn: theme token, set in build()*/,
      nullptr,
      0,
      {},
@@ -50,7 +53,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "VMG",
      "kn",
      ui::layouts::MetricSource::VMG_kn,
-     0x39d98a /*good*/,
+     0 /*good: theme token, set in build()*/,
      nullptr,
      0,
      {},
@@ -59,7 +62,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "RUDDER",
      "deg",
      ui::layouts::MetricSource::Rudder_deg,
-     0x52736f /*grid*/,
+     0 /*fg: theme token, set in build()*/,
      nullptr,
      0,
      {},
@@ -127,6 +130,11 @@ static void build_course_row(lv_obj_t *parent) {
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
+    // Resolve accents from the LIVE palette (theme switches rebuild screens).
+    s_tiles[0].accent = ui::theme.accent;  // HDG hero
+    s_tiles[1].accent = ui::theme.warn;    // XTE: deviation cue
+    s_tiles[2].accent = ui::theme.good;    // VMG: making-good cue
+    s_tiles[3].accent = ui::theme.fg;      // RUDDER: neutral value
     s_root = ui::layouts::create(parent, s_spec);
     ui::set_screen_collect_paths(s_spec.screen_id, collect_paths);
     if (s_root) build_course_row(s_root);

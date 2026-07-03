@@ -22,7 +22,10 @@ static lv_obj_t *s_root = nullptr;
 // windRose / numeric SOG / numeric DEPTH / bar BATT_SOC. Widget kinds
 // drive the per-tile painter in ui_layouts.cpp so the device render
 // approximates the editor's widgetPreview() canvas.
-static const ui::layouts::MetricBinding s_tiles[] = {
+// Tile accents are theme tokens resolved in build() (a theme switch rebuilds
+// every screen). Hardcoded night-palette literals here rendered cyan/green on
+// the classic / red-night skins — the table must never carry raw 0xRRGGBB.
+static ui::layouts::MetricBinding s_tiles[] = {
     // WIND: wind-rose ring with AWS in center (tap -> wind detail).
     // The WindRose painter draws the apparent/true wind-angle chevrons and the
     // secondary AWA text, so the tile MUST subscribe the angle + true-wind paths
@@ -38,7 +41,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "WIND",
      "kn",
      ui::layouts::MetricSource::AWS_kn,
-     0xffb84d /*warn*/,
+     0 /*warn: theme token, set in build()*/,
      "wind",
      3,
      {{"AWA", ui::layouts::MetricSource::AWA_deg},
@@ -50,7 +53,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "SOG",
      "kn",
      ui::layouts::MetricSource::SOG_kn,
-     0x57c7d8 /*accent*/,
+     0 /*accent: theme token, set in build()*/,
      "nav",
      0,
      {},
@@ -60,7 +63,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "DEPTH",
      "m",
      ui::layouts::MetricSource::Depth_m,
-     0x39d98a /*good*/,
+     0 /*good: theme token, set in build()*/,
      "depth",
      0,
      {},
@@ -70,7 +73,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "BATT",
      "",
      ui::layouts::MetricSource::BatterySOC_pct,
-     0x52736f /*grid*/,
+     0 /*good: theme token, set in build()*/,
      "status",
      0,
      {},
@@ -91,6 +94,11 @@ static void collect_paths(sk::SubscriptionSet &out) {
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
+    // Resolve accents from the LIVE palette (theme switches rebuild screens).
+    s_tiles[0].accent = ui::theme.warn;    // WIND rose
+    s_tiles[1].accent = ui::theme.accent;  // SOG hero
+    s_tiles[2].accent = ui::theme.good;    // DEPTH: safe-water cue
+    s_tiles[3].accent = ui::theme.good;    // BATT bar: positive/charge cue
     s_root = ui::layouts::create(parent, s_spec);
     ui::set_screen_collect_paths(s_spec.screen_id, collect_paths);
     return s_root;

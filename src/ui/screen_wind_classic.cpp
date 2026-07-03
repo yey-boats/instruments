@@ -3,6 +3,7 @@
 #include "ui_data.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
+#include "ui_markers.h"
 #include "signalk.h"
 #include "board_pins.h"
 
@@ -154,10 +155,11 @@ static void build_bezel(lv_obj_t *parent) {
     lv_obj_set_style_transform_pivot_y(bezel, bcy, 0);
 
     // Rim ring + shadow + highlight ring; all concentric with the
-    // dial-center rings drawn on s_root.
+    // dial-center rings drawn on s_root. Structural hairlines take the theme
+    // grid token (the old night-navy literals vanished on the light skins).
     make_ring_at(bezel, bcx, bcy, R_BEZEL * 2, 6, theme.panel_edge);
-    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 + 10, 2, 0x111a26);  // outer shadow
-    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 - 14, 1, 0x0c1828);  // inner highlight
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 + 10, 2, theme.grid);  // outer shadow
+    make_ring_at(bezel, bcx, bcy, R_BEZEL * 2 - 14, 1, theme.grid);  // inner highlight
 
     // Cardinal labels are NOT children of the rotating bezel — they live in a
     // separate upright overlay (build_cardinals / layout_cardinals) so the dial
@@ -266,16 +268,23 @@ static void build_boat(lv_obj_t *parent) {
 
 // ---- wind markers (T and A) --------------------------------------------
 
-// A wind index that orbits the rim at the wind-source bearing: a filled
-// triangle (LV_SYMBOL_DOWN) pointing INWARD — i.e. in the direction the wind is
-// blowing across the boat — with the A / T letter riding just inboard of it.
-// The holder pivots at the dial centre, so set_rot_if_changed() in refresh()
-// sweeps the whole index around the rose to AWA / TWA. At rotation 0 the index
-// sits at the bow (wind dead ahead) and the triangle points down toward centre.
-// Mirrors the make_dir_marker() idiom on the dashboard wind-rose tile.
+// A wind index that orbits the rim at the wind-source bearing: a SOLID filled
+// triangle pointing INWARD — i.e. in the direction the wind is blowing across
+// the boat — with the A / T letter riding just inboard of it. The triangle is
+// drawn on a small canvas (ui::draw_glyph): the previous LV_SYMBOL_DOWN was a
+// two-stroke chevron glyph that rendered as disconnected "L" shapes, and its
+// -6 px overhang was clipped by the holder. The holder pivots at the dial
+// centre, so set_rot_if_changed() in refresh() sweeps the whole index around
+// the rose to AWA / TWA. All visible parts live in a `body` sub-container
+// (child 0) so refresh() can slide one index radially inward when A and T
+// crowd within a few degrees of each other (close-angle stagger).
+// Inward slide of the staggered index: must clear the full triangle+letter
+// body (~50 px) of the marker ahead of it, or the T triangle lands on the A
+// letter.
+static constexpr int WIND_MARKER_STAGGER_PX = 52;
 static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t color) {
     lv_obj_t *m = lv_obj_create(parent);
-    lv_obj_set_size(m, 34, 54);
+    lv_obj_set_size(m, 34, 64 + WIND_MARKER_STAGGER_PX);
     lv_obj_set_style_bg_opa(m, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(m, 0, 0);
     lv_obj_set_style_pad_all(m, 0, 0);
@@ -283,19 +292,30 @@ static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t
     lv_obj_clear_flag(m, LV_OBJ_FLAG_CLICKABLE);
     apply_pivot_center(m, 17, R_MARKER);  // pivot at dial centre; top edge near rim
 
-    // Triangle at the outer (rim) end, pointing inward toward the boat.
-    lv_obj_t *tri = lv_label_create(m);
-    lv_label_set_text(tri, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
-    lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -6);
+    // Body: triangle + letter as one sliding unit (child 0 of the holder).
+    lv_obj_t *body = lv_obj_create(m);
+    lv_obj_set_size(body, 34, 64);
+    lv_obj_set_pos(body, 0, 0);
+    lv_obj_set_style_bg_opa(body, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(body, 0, 0);
+    lv_obj_set_style_pad_all(body, 0, 0);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(body, LV_OBJ_FLAG_CLICKABLE);
+
+    // Solid triangle head at the rim end. draw_glyph paints it apex-UP, so
+    // rotate the canvas 180° about its own centre to point inward (down).
+    lv_obj_t *tri = ui::draw_glyph(body, ui::Glyph::Triangle, /*filled=*/true, color);
+    lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_transform_pivot_x(tri, 14, 0);
+    lv_obj_set_style_transform_pivot_y(tri, 14, 0);
+    lv_obj_set_style_transform_rotation(tri, 1800, 0);
 
     // A / T letter inboard of the triangle so apparent vs true stay legible.
-    lv_obj_t *l = lv_label_create(m);
+    lv_obj_t *l = lv_label_create(body);
     lv_label_set_text(l, letter);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
-    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 24);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 30);
     return m;
 }
 
@@ -322,7 +342,7 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_t *shaft = lv_obj_create(tide_arrow);
     lv_obj_set_size(shaft, 5, 54);
     lv_obj_set_pos(shaft, 16 - 2, TIDE_MID - 54);
-    lv_obj_set_style_bg_color(shaft, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_bg_color(shaft, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_bg_opa(shaft, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(shaft, 0, 0);
     lv_obj_set_style_radius(shaft, 2, 0);
@@ -334,7 +354,7 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_t *head = lv_label_create(tide_arrow);
     lv_label_set_text(head, LV_SYMBOL_UP);
     lv_obj_set_style_text_font(head, &lv_font_montserrat_28, 0);
-    lv_obj_set_style_text_color(head, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_text_color(head, lv_color_hex(theme.accent), 0);
     lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(tide_arrow, LV_OBJ_FLAG_HIDDEN);
 
@@ -343,7 +363,7 @@ static void build_tide(lv_obj_t *parent) {
     lv_obj_set_size(tide_zero, 26, 26);
     apply_pivot_center(tide_zero, 13, 13);  // centred on the dial
     lv_obj_set_style_bg_opa(tide_zero, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(tide_zero, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_border_color(tide_zero, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_border_width(tide_zero, 3, 0);
     lv_obj_set_style_radius(tide_zero, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(tide_zero, 0, 0);
@@ -356,7 +376,7 @@ static void build_tide(lv_obj_t *parent) {
 static void build_waypoint(lv_obj_t *parent) {
     waypoint_marker = lv_obj_create(parent);
     lv_obj_set_size(waypoint_marker, 14, 18);
-    lv_obj_set_style_bg_color(waypoint_marker, lv_color_hex(0xffd21f), 0);
+    lv_obj_set_style_bg_color(waypoint_marker, lv_color_hex(theme.warn), 0);
     lv_obj_set_style_bg_opa(waypoint_marker, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(waypoint_marker, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(waypoint_marker, 1, 0);
@@ -534,7 +554,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // sits at the wind-source bearing and points inward — the direction the
     // wind blows across the boat — with the A / T letter just inboard.
     twa_marker = make_wind_marker(s_root, "T", theme.fg);
-    awa_marker = make_wind_marker(s_root, "A", 0xf6a21a);
+    awa_marker = make_wind_marker(s_root, "A", theme.warn);
 
     build_bezel(s_root);
     build_cardinals(s_root);  // upright cardinal overlay (laid out per heading)
@@ -549,7 +569,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     //   top-centre  : HDG
     const int dxl = -96;  // left column (pulled toward centre)
     const int dxr = 96;   // right column
-    inner_readout(s_root, "AWS", dxl, 0, &lv_font_montserrat_48, 0xf6a21a, &lbl_aws_value,
+    inner_readout(s_root, "AWS", dxl, 0, &lv_font_montserrat_48, theme.warn, &lbl_aws_value,
                   &lbl_awa_value);
     inner_readout(s_root, "TWS", dxr, 0, &lv_font_montserrat_48, theme.fg, &lbl_tws_value,
                   &lbl_twa_value);
@@ -602,6 +622,7 @@ static int8_t s_last_tide_hidden = -1;
 static int8_t s_last_tide_zero_hidden = -1;
 static int8_t s_last_wp_hidden = -1;
 static int8_t s_last_drift_cap_hidden = -1;
+static int8_t s_last_twa_stagger = -1;  // close-angle radial stagger of the T index
 
 // Helpers moved to include/ui_dirty.h - shared across all screens.
 using ui::set_hidden_if_changed;
@@ -664,6 +685,24 @@ void refresh() {
     } else {
         set_text_if_changed(lbl_twa_value, s_last_twa, sizeof(s_last_twa), "--");
         set_hidden_if_changed(twa_marker, &s_last_twa_hidden, true);
+    }
+
+    // Close-angle stagger: when the A and T indices ride within ~8° of each
+    // other they stack into one blob at the rim; slide the TRUE index radially
+    // inward so both stay identifiable (same policy as ui_markers rings). The
+    // sliding body is the holder's child 0 (see make_wind_marker).
+    {
+        int8_t stag = 0;
+        if (!isnan(d.awa) && !isnan(d.twa)) {
+            double da = fabs(rad_to_deg_pos(d.awa) - rad_to_deg_pos(d.twa));
+            if (da > 180.0) da = 360.0 - da;
+            if (da <= 8.0) stag = 1;
+        }
+        if (stag != s_last_twa_stagger) {
+            s_last_twa_stagger = stag;
+            lv_obj_t *body = twa_marker ? lv_obj_get_child(twa_marker, 0) : nullptr;
+            if (body) lv_obj_set_y(body, stag ? WIND_MARKER_STAGGER_PX : 0);
+        }
     }
 
     // --- heading: rotate the dial (-heading) + lay out the upright cardinals ---

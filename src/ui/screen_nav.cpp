@@ -16,7 +16,10 @@ namespace ui::nav {
 
 static lv_obj_t *s_root = nullptr;
 
-static const ui::layouts::MetricBinding s_tiles[] = {
+// Tile accents are theme tokens resolved in build() (a theme switch rebuilds
+// every screen). Hardcoded night-palette literals here rendered cyan/green on
+// the classic / red-night skins — the table must never carry raw 0xRRGGBB.
+static ui::layouts::MetricBinding s_tiles[] = {
     // Compass: heading with CTS (course-to-steer) as the secondary reference
     // angle. COG was previously the secondary here AND a dedicated tile below
     // (tile 2) -- a duplicate readout, and the "COG" bottom line crowded the
@@ -26,7 +29,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "HDG",
      "",
      ui::layouts::MetricSource::HDG_deg,
-     0x57c7d8 /*accent*/,
+     0 /*accent: theme token, set in build()*/,
      nullptr,
      1,
      {{"CTS", ui::layouts::MetricSource::CTS_deg}},
@@ -35,7 +38,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "SOG",
      "kn",
      ui::layouts::MetricSource::SOG_kn,
-     0x57c7d8 /*accent*/,
+     0 /*accent: theme token, set in build()*/,
      nullptr,
      0,
      {},
@@ -44,7 +47,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "COG",
      "",
      ui::layouts::MetricSource::COG_deg,
-     0x52736f /*grid*/,
+     0 /*fg: theme token, set in build()*/,
      nullptr,
      0,
      {},
@@ -53,7 +56,7 @@ static const ui::layouts::MetricBinding s_tiles[] = {
      "POS",
      "",
      ui::layouts::MetricSource::Position,
-     0x39d98a /*good*/,
+     0 /*good: theme token, set in build()*/,
      nullptr,
      0,
      {},
@@ -72,6 +75,12 @@ static void collect_paths(sk::SubscriptionSet &out) {
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
+    // Resolve accents from the LIVE palette (theme switches rebuild screens,
+    // so build-time assignment tracks every skin).
+    s_tiles[0].accent = ui::theme.accent;  // HDG hero
+    s_tiles[1].accent = ui::theme.accent;  // SOG hero
+    s_tiles[2].accent = ui::theme.fg;      // COG: neutral value
+    s_tiles[3].accent = ui::theme.good;    // POS: positive/fix-ok cue
     s_root = ui::layouts::create(parent, s_spec);
     ui::set_screen_collect_paths(s_spec.screen_id, collect_paths);
     return s_root;

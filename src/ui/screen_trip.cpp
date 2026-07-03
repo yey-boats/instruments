@@ -102,10 +102,24 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
-    // Hero distance card spans top half
+    // Vertical bands derived from the REAL panel height: hero / stats / live
+    // SOG strip stretch proportionally (basis: the 200/100/60 bands of the
+    // 480-tall layout) instead of leaving dead canvas above the footer tip on
+    // taller panels.
+    const int top_y = 40;
+    const int band_gap = 8;
+    const int tip_h = 22;  // "console: trip-reset" footer line
+    const int content_h = LCD_H - top_y - tip_h - 4 /*bottom margin*/ - 2 * band_gap;
+    const int hero_h = content_h * 200 / 360;
+    const int stat_h = content_h * 100 / 360;
+    const int strip_h = content_h - hero_h - stat_h;
+    const int stats_y = top_y + hero_h + band_gap;
+    const int strip_y = stats_y + stat_h + band_gap;
+
+    // Hero distance card spans the top band
     lv_obj_t *hero = lv_obj_create(s_root);
-    lv_obj_set_size(hero, LCD_W - 16, 200);
-    lv_obj_set_pos(hero, 8, 40);
+    lv_obj_set_size(hero, LCD_W - 16, hero_h);
+    lv_obj_set_pos(hero, 8, top_y);
     lv_obj_set_style_bg_color(hero, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_border_color(hero, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(hero, 1, 0);
@@ -137,21 +151,20 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align_to(lbl_dist_unit, lbl_dist, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -6);
 
     // Three stats side by side
-    int row_y = 248;
     int col_w = (LCD_W - 32) / 3;
-    make_stat(s_root, "TIME UNDERWAY", 8, row_y, col_w, 100, &lbl_time, &lv_font_montserrat_28,
+    make_stat(s_root, "TIME UNDERWAY", 8, stats_y, col_w, stat_h, &lbl_time, &lv_font_montserrat_28,
               theme.fg);
-    make_stat(s_root, "AVG SPEED", 8 + col_w + 8, row_y, col_w, 100, &lbl_avg,
+    make_stat(s_root, "AVG SPEED", 8 + col_w + 8, stats_y, col_w, stat_h, &lbl_avg,
               &lv_font_montserrat_28, theme.fg);
     // MAX SPEED neutral (theme.fg): green implied a "good" state it doesn't have
     // (it's just a record); reserve green for genuine favourable cues.
-    make_stat(s_root, "MAX SPEED", 8 + (col_w + 8) * 2, row_y, col_w - 8, 100, &lbl_max,
+    make_stat(s_root, "MAX SPEED", 8 + (col_w + 8) * 2, stats_y, col_w - 8, stat_h, &lbl_max,
               &lv_font_montserrat_28, theme.fg);
 
-    // Live SOG strip
+    // Live SOG strip fills the remaining band above the footer tip
     lv_obj_t *strip = lv_obj_create(s_root);
-    lv_obj_set_size(strip, LCD_W - 16, 60);
-    lv_obj_set_pos(strip, 8, 356);
+    lv_obj_set_size(strip, LCD_W - 16, strip_h);
+    lv_obj_set_pos(strip, 8, strip_y);
     lv_obj_set_style_bg_color(strip, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_border_color(strip, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(strip, 1, 0);
