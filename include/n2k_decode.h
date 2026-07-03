@@ -196,8 +196,10 @@ inline Wind130306 decode_130306(const uint8_t *d, uint8_t n) {
 // state per PGN of interest). Frame 0 carries [seq|0, total_len, 6 data
 // bytes]; frames 1..N carry [seq|frame, 7 data bytes]. Returns true when the
 // full payload is available in fp.buf[0..fp.expect).
+// buf is sized for the largest PGN we reassemble (129794 AIS Class A static
+// = 75 bytes; was 64 when 127489's 26 bytes was the only fast-packet user).
 struct FastPacket {
-    uint8_t buf[64];
+    uint8_t buf[96];
     uint8_t len = 0;         // bytes assembled so far
     uint8_t expect = 0;      // total payload length from frame 0
     uint8_t seq = 0xFF;      // current sequence id; 0xFF = idle
@@ -233,6 +235,164 @@ inline bool fastpacket_feed(FastPacket &fp, const uint8_t *d, uint8_t n) {
     fp.len = (uint8_t)(fp.len + take);
     fp.next_frame++;
     return fp.len >= fp.expect;
+}
+
+// ---------------------------------------------------------------------------
+// Multi-stream fast-packet reassembly. AIS position bursts (129038/129039
+// from several targets, plus 127489 engine frames) interleave on the bus, and
+// distinct (PGN, source address) streams must not reset each other — the
+// single-stream FastPacket above corrupts under that interleave. Small
+// fixed pool: streams are keyed by (pgn, src); frame 0 claims a free slot or
+// steals the STALEST one (oldest last_ms) when all 4 are busy (a stolen
+// stream simply re-syncs on its next frame 0).
+struct FastPacketPool {
+    static constexpr int SLOTS = 4;
+    struct Slot {
+        uint32_t pgn = 0;
+        uint8_t src = 0xFF;
+        bool active = false;
+        uint32_t last_ms = 0;
+        FastPacket fp;
+    };
+    Slot slots[SLOTS];
+};
+
+// Feed one CAN frame belonging to fast-packet stream (pgn, src). Returns the
+// completed FastPacket (payload in ->buf[0..->expect)) or nullptr while the
+// stream is still assembling / on error. The returned stream's slot is
+// released before returning, so the pointer is only valid until the next
+// feed on the same pool (single-task use, matching the device worker).
+inline FastPacket *fastpacket_pool_feed(FastPacketPool &pool, uint32_t pgn, uint8_t src,
+                                        const uint8_t *d, uint8_t n, uint32_t now_ms) {
+    if (!d || n < 2) return nullptr;
+    uint8_t frame = (uint8_t)(d[0] & 0x1F);
+    // Existing stream for this (pgn, src)?
+    FastPacketPool::Slot *slot = nullptr;
+    for (auto &s : pool.slots) {
+        if (s.active && s.pgn == pgn && s.src == src) {
+            slot = &s;
+            break;
+        }
+    }
+    if (!slot) {
+        if (frame != 0) return nullptr;  // mid-stream frame for a stream we never opened
+        // Claim a free slot, else steal the stalest.
+        for (auto &s : pool.slots) {
+            if (!s.active) {
+                slot = &s;
+                break;
+            }
+        }
+        if (!slot) {
+            slot = &pool.slots[0];
+            for (auto &s : pool.slots)
+                if ((int32_t)(s.last_ms - slot->last_ms) < 0) slot = &s;
+        }
+        slot->pgn = pgn;
+        slot->src = src;
+        slot->active = true;
+        slot->fp.seq = 0xFF;
+    }
+    slot->last_ms = now_ms;
+    bool done = fastpacket_feed(slot->fp, d, n);
+    if (done) {
+        slot->active = false;  // released; payload stays readable until reuse
+        return &slot->fp;
+    }
+    if (slot->fp.seq == 0xFF) slot->active = false;  // feed reset (bogus/ooo) — free the slot
+    return nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// AIS PGNs (fast packet). Layouts per canboat.
+//
+// PGN 129038 — Class A Position Report — and PGN 129039 — Class B Position
+// Report — share the fields we consume:
+//   byte 0      message id (6 bits) + repeat (2 bits)
+//   bytes 1-4   user id (MMSI), u32
+//   bytes 5-8   longitude, s32 * 1e-7 deg
+//   bytes 9-12  latitude,  s32 * 1e-7 deg
+//   byte 13     accuracy/RAIM/time stamp
+//   bytes 14-15 COG, u16 * 1e-4 rad
+//   bytes 16-17 SOG, u16 * 0.01 m/s
+//   bytes 18-20 communication state + transceiver info
+//   bytes 21-22 true heading, u16 * 1e-4 rad (often unavailable on Class B)
+struct AisPosition {
+    uint32_t mmsi = 0;
+    double lat_deg = NAN;
+    double lon_deg = NAN;
+    double sog_mps = NAN;
+    double cog_rad = NAN;
+    double heading_rad = NAN;
+};
+inline AisPosition decode_ais_position(const uint8_t *d, uint8_t n) {
+    AisPosition r;
+    if (!d || n < 13) return r;
+    r.mmsi = u32le(d + 1);
+    r.lon_deg = s32_res(d + 5, 1e-7);
+    r.lat_deg = s32_res(d + 9, 1e-7);
+    if (n >= 16) r.cog_rad = u16_res(d + 14, 0.0001);
+    if (n >= 18) r.sog_mps = u16_res(d + 16, 0.01);
+    if (n >= 23) r.heading_rad = u16_res(d + 21, 0.0001);
+    return r;
+}
+inline AisPosition decode_129038(const uint8_t *d, uint8_t n) {
+    return decode_ais_position(d, n);
+}
+inline AisPosition decode_129039(const uint8_t *d, uint8_t n) {
+    return decode_ais_position(d, n);
+}
+
+// PGN 129794 — AIS Class A Static and Voyage Related Data (75-byte payload).
+//   byte 0      message id + repeat
+//   bytes 1-4   user id (MMSI), u32
+//   bytes 5-8   IMO number, u32
+//   bytes 9-15  callsign, 7 ASCII
+//   bytes 16-35 name, 20 ASCII ('@'/space padded per ITU-R M.1371)
+struct AisStatic129794 {
+    uint32_t mmsi = 0;
+    char name[21] = {0};  // trimmed, NUL-terminated
+};
+inline AisStatic129794 decode_129794(const uint8_t *d, uint8_t n) {
+    AisStatic129794 r;
+    if (!d || n < 36) return r;
+    r.mmsi = u32le(d + 1);
+    memcpy(r.name, d + 16, 20);
+    r.name[20] = 0;
+    // Trim AIS padding: trailing '@', spaces, and 0xFF "no data" bytes.
+    for (int i = 19; i >= 0; --i) {
+        char c = r.name[i];
+        if (c == '@' || c == ' ' || (uint8_t)c == 0xFF || c == 0)
+            r.name[i] = 0;
+        else
+            break;
+    }
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// PGN 65288 — Raymarine Seatalk Alarm (single frame, proprietary).
+//   bytes 0-1  manufacturer code (1851) + industry
+//   byte 2     SID
+//   byte 3     alarm status (0 = condition not met, 1 = met not silenced,
+//              2 = met and silenced)
+//   byte 4     alarm id
+//   byte 5     alarm group (0 instrument, 1 autopilot, 2 radar, ...)
+//   bytes 6-7  alarm priority
+struct SeatalkAlarm65288 {
+    uint8_t status = 0xFF;
+    uint8_t alarm_id = 0xFF;
+    uint8_t group = 0xFF;
+    bool valid = false;
+};
+inline SeatalkAlarm65288 decode_65288(const uint8_t *d, uint8_t n) {
+    SeatalkAlarm65288 r;
+    if (!d || n < 6) return r;
+    r.status = d[3];
+    r.alarm_id = d[4];
+    r.group = d[5];
+    r.valid = true;
+    return r;
 }
 
 }  // namespace n2k

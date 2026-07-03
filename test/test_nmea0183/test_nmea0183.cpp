@@ -335,6 +335,208 @@ static void test_n2k_fastpacket_out_of_order_resets() {
     TEST_ASSERT_FALSE(n2k::fastpacket_feed(fp, f1, 8));
 }
 
+// --- Phase 5: multi-stream fast-packet pool + AIS PGNs ---
+
+static void put_u32le(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)((v >> 8) & 0xFF);
+    p[2] = (uint8_t)((v >> 16) & 0xFF);
+    p[3] = (uint8_t)((v >> 24) & 0xFF);
+}
+static void put_u16le(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xFF);
+    p[1] = (uint8_t)(v >> 8);
+}
+
+// Split `payload` into ISO-11783 fast-packet frames (frame 0 = len + 6 data
+// bytes, continuations = 7 data bytes), captured-bus style. Returns #frames.
+static int make_fp_frames(uint8_t seq, const uint8_t *payload, uint8_t len, uint8_t frames[][8]) {
+    int nf = 0;
+    frames[nf][0] = (uint8_t)(seq << 5);
+    frames[nf][1] = len;
+    for (int i = 0; i < 6; ++i)
+        frames[nf][2 + i] = i < len ? payload[i] : 0xFF;
+    ++nf;
+    int off = 6;
+    while (off < len) {
+        frames[nf][0] = (uint8_t)((seq << 5) | nf);
+        for (int i = 0; i < 7; ++i)
+            frames[nf][1 + i] = (off + i) < len ? payload[off + i] : 0xFF;
+        off += 7;
+        ++nf;
+    }
+    return nf;
+}
+
+// Canboat-shaped 28-byte AIS position payload (shared 129038/129039 layout).
+static void mk_ais_position(uint8_t *p, uint32_t mmsi, double lat, double lon, double sog_mps,
+                            double cog_rad, double hdg_rad) {
+    memset(p, 0xFF, 28);
+    p[0] = 0x01;  // message id 1, repeat 0
+    put_u32le(p + 1, mmsi);
+    put_u32le(p + 5, (uint32_t)(int32_t)llround(lon / 1e-7));
+    put_u32le(p + 9, (uint32_t)(int32_t)llround(lat / 1e-7));
+    p[13] = 0x00;  // accuracy/RAIM/timestamp
+    put_u16le(p + 14, (uint16_t)llround(cog_rad / 0.0001));
+    put_u16le(p + 16, (uint16_t)llround(sog_mps / 0.01));
+    if (!std::isnan(hdg_rad)) put_u16le(p + 21, (uint16_t)llround(hdg_rad / 0.0001));
+}
+
+static void test_n2k_129038_ais_position_decode() {
+    uint8_t p[28];
+    mk_ais_position(p, 244813000u, 41.31, 2.18, 6.2, 1.5, 1.6);
+    n2k::AisPosition a = n2k::decode_129038(p, sizeof(p));
+    TEST_ASSERT_EQUAL_UINT32(244813000u, a.mmsi);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 41.31, a.lat_deg);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 2.18, a.lon_deg);
+    TEST_ASSERT_DOUBLE_WITHIN(0.005, 6.2, a.sog_mps);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 1.5, a.cog_rad);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 1.6, a.heading_rad);
+}
+
+static void test_n2k_129039_unavailable_fields_are_nan() {
+    // Class B report with heading/SOG/COG left at the 0xFFFF sentinel.
+    uint8_t p[28];
+    memset(p, 0xFF, sizeof(p));
+    p[0] = 0x12;  // message id 18 (Class B), repeat 0
+    put_u32le(p + 1, 265547250u);
+    put_u32le(p + 5, (uint32_t)(int32_t)llround(11.97 / 1e-7));
+    put_u32le(p + 9, (uint32_t)(int32_t)llround(57.66 / 1e-7));
+    n2k::AisPosition a = n2k::decode_129039(p, sizeof(p));
+    TEST_ASSERT_EQUAL_UINT32(265547250u, a.mmsi);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 57.66, a.lat_deg);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, 11.97, a.lon_deg);
+    TEST_ASSERT_TRUE(std::isnan(a.sog_mps));
+    TEST_ASSERT_TRUE(std::isnan(a.cog_rad));
+    TEST_ASSERT_TRUE(std::isnan(a.heading_rad));
+    // Negative longitude survives the s32 round-trip.
+    put_u32le(p + 5, (uint32_t)(int32_t)llround(-9.14 / 1e-7));
+    a = n2k::decode_129039(p, sizeof(p));
+    TEST_ASSERT_DOUBLE_WITHIN(1e-6, -9.14, a.lon_deg);
+}
+
+static void test_n2k_129794_static_name_trims_padding() {
+    uint8_t p[75];
+    memset(p, 0xFF, sizeof(p));
+    p[0] = 0x05;
+    put_u32le(p + 1, 244813000u);
+    put_u32le(p + 5, 9234567u);                  // IMO
+    memcpy(p + 9, "ABC1234", 7);                 // callsign
+    memcpy(p + 16, "MV NORDLYS@@@@@@@@@@", 20);  // '@'-padded per ITU M.1371
+    n2k::AisStatic129794 st = n2k::decode_129794(p, (uint8_t)sizeof(p));
+    TEST_ASSERT_EQUAL_UINT32(244813000u, st.mmsi);
+    TEST_ASSERT_EQUAL_STRING("MV NORDLYS", st.name);
+    // Space-padded variant trims too.
+    memcpy(p + 16, "PILOT 7             ", 20);
+    st = n2k::decode_129794(p, (uint8_t)sizeof(p));
+    TEST_ASSERT_EQUAL_STRING("PILOT 7", st.name);
+    // Truncated payload (< name end) decodes to nothing rather than garbage.
+    st = n2k::decode_129794(p, 20);
+    TEST_ASSERT_EQUAL_UINT32(0, st.mmsi);
+}
+
+static void test_n2k_65288_seatalk_alarm_decode() {
+    // Manufacturer bytes (Raymarine 1851 + marine industry), SID, status=1
+    // (condition met, not silenced), alarm id 15, group 1 (autopilot).
+    uint8_t d[8] = {0x3B, 0x9F, 0x00, 0x01, 0x0F, 0x01, 0x00, 0x00};
+    n2k::SeatalkAlarm65288 a = n2k::decode_65288(d, 8);
+    TEST_ASSERT_TRUE(a.valid);
+    TEST_ASSERT_EQUAL_UINT8(1, a.status);
+    TEST_ASSERT_EQUAL_UINT8(15, a.alarm_id);
+    TEST_ASSERT_EQUAL_UINT8(1, a.group);
+    TEST_ASSERT_FALSE(n2k::decode_65288(d, 4).valid);  // short frame
+}
+
+static void test_n2k_fastpacket_pool_interleaved_streams() {
+    // Two AIS targets (same PGN, different source addresses) + an engine
+    // 127489 burst interleaved on the bus. The keyed pool must reassemble
+    // all three; a single shared stream state corrupts under this pattern.
+    uint8_t pos_a[28], pos_b[28], eng[26];
+    mk_ais_position(pos_a, 244813000u, 41.31, 2.18, 6.2, 1.5, 1.6);
+    mk_ais_position(pos_b, 265547250u, 57.66, 11.97, 2.0, 0.5, NAN);
+    for (int i = 0; i < 26; ++i)
+        eng[i] = (uint8_t)i;
+    uint8_t fa[6][8], fb[6][8], fe[6][8];
+    int na = make_fp_frames(2, pos_a, 28, fa);
+    int nb = make_fp_frames(5, pos_b, 28, fb);
+    int ne = make_fp_frames(1, eng, 26, fe);
+    TEST_ASSERT_EQUAL(5, na);  // 6 + 7*4 >= 28
+    TEST_ASSERT_EQUAL(5, nb);
+    TEST_ASSERT_EQUAL(4, ne);
+
+    n2k::FastPacketPool pool;
+    int done = 0;
+    uint32_t got_a = 0, got_b = 0;
+    bool got_eng = false;
+    // Round-robin interleave: a[i], b[i], e[i].
+    for (int i = 0; i < 5; ++i) {
+        if (i < na) {
+            n2k::FastPacket *fp = n2k::fastpacket_pool_feed(pool, 129038, 0x10, fa[i], 8, 100 + i);
+            if (fp) {
+                got_a = n2k::decode_129038(fp->buf, fp->expect).mmsi;
+                ++done;
+            }
+        }
+        if (i < nb) {
+            n2k::FastPacket *fp = n2k::fastpacket_pool_feed(pool, 129038, 0x12, fb[i], 8, 100 + i);
+            if (fp) {
+                got_b = n2k::decode_129038(fp->buf, fp->expect).mmsi;
+                ++done;
+            }
+        }
+        if (i < ne) {
+            n2k::FastPacket *fp = n2k::fastpacket_pool_feed(pool, 127489, 0x20, fe[i], 8, 100 + i);
+            if (fp) {
+                TEST_ASSERT_EQUAL_UINT8(26, fp->expect);
+                TEST_ASSERT_EQUAL_MEMORY(eng, fp->buf, 26);
+                got_eng = true;
+                ++done;
+            }
+        }
+    }
+    TEST_ASSERT_EQUAL(3, done);
+    TEST_ASSERT_EQUAL_UINT32(244813000u, got_a);
+    TEST_ASSERT_EQUAL_UINT32(265547250u, got_b);
+    TEST_ASSERT_TRUE(got_eng);
+}
+
+static void test_n2k_fastpacket_pool_mid_stream_frame_ignored() {
+    // A continuation frame for a stream we never saw frame 0 of must not
+    // claim a slot or complete.
+    n2k::FastPacketPool pool;
+    uint8_t f1[8] = {0x41, 1, 2, 3, 4, 5, 6, 7};
+    TEST_ASSERT_NULL(n2k::fastpacket_pool_feed(pool, 129038, 0x10, f1, 8, 100));
+    for (auto &s : pool.slots)
+        TEST_ASSERT_FALSE(s.active);
+}
+
+static void test_n2k_fastpacket_pool_steals_stalest_slot() {
+    // 5 concurrent streams > 4 slots: the newest frame-0 steals the stalest
+    // slot; the stolen stream re-syncs on its next frame 0 without wedging.
+    n2k::FastPacketPool pool;
+    uint8_t payload[28];
+    uint8_t fr[6][8];
+    for (uint8_t src = 0x10; src < 0x15; ++src) {
+        mk_ais_position(payload, 200000000u + src, 41.0, 2.0, 1.0, 1.0, NAN);
+        make_fp_frames(0, payload, 28, fr);
+        // Open all five streams (frame 0 only), timestamps increasing.
+        TEST_ASSERT_NULL(n2k::fastpacket_pool_feed(pool, 129038, src, fr[0], 8, 100 + src));
+    }
+    // Oldest stream (0x10) was stolen: its continuations are now orphaned.
+    mk_ais_position(payload, 200000000u + 0x10, 41.0, 2.0, 1.0, 1.0, NAN);
+    int nf = make_fp_frames(0, payload, 28, fr);
+    for (int i = 1; i < nf; ++i)
+        TEST_ASSERT_NULL(n2k::fastpacket_pool_feed(pool, 129038, 0x10, fr[i], 8, 200 + i));
+    // The newest stream (0x14) survives and completes.
+    mk_ais_position(payload, 200000000u + 0x14, 41.0, 2.0, 1.0, 1.0, NAN);
+    nf = make_fp_frames(0, payload, 28, fr);
+    n2k::FastPacket *fp = nullptr;
+    for (int i = 1; i < nf; ++i)
+        fp = n2k::fastpacket_pool_feed(pool, 129038, 0x14, fr[i], 8, 300 + i);
+    TEST_ASSERT_NOT_NULL(fp);
+    TEST_ASSERT_EQUAL_UINT32(200000000u + 0x14, n2k::decode_129038(fp->buf, fp->expect).mmsi);
+}
+
 // --- BUG-3: PGN 130306 wind reference mapping ---
 
 static void mk_wind(uint8_t *d, uint16_t speed_raw, uint16_t angle_raw, uint8_t ref) {
@@ -451,6 +653,13 @@ int main(int, char **) {
     RUN_TEST(test_n2k_127489_engine_dynamic_payload);
     RUN_TEST(test_n2k_fastpacket_reassembly);
     RUN_TEST(test_n2k_fastpacket_out_of_order_resets);
+    RUN_TEST(test_n2k_129038_ais_position_decode);
+    RUN_TEST(test_n2k_129039_unavailable_fields_are_nan);
+    RUN_TEST(test_n2k_129794_static_name_trims_padding);
+    RUN_TEST(test_n2k_65288_seatalk_alarm_decode);
+    RUN_TEST(test_n2k_fastpacket_pool_interleaved_streams);
+    RUN_TEST(test_n2k_fastpacket_pool_mid_stream_frame_ignored);
+    RUN_TEST(test_n2k_fastpacket_pool_steals_stalest_slot);
     RUN_TEST(test_n2k_wind_ref2_is_apparent);
     RUN_TEST(test_n2k_wind_ref0_and_ref3_are_true);
     RUN_TEST(test_n2k_wind_ref1_and_unknown_dropped);

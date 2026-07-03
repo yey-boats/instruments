@@ -67,6 +67,7 @@ void compose(View &out, uint32_t now_ms) {
     out.engineCoolantTemp = v(s.engine_coolant_temp_k);
     out.engineOilPressure = v(s.engine_oil_pressure_pa);
     out.engineFuelRate = v(s.engine_fuel_rate_m3s);
+    out.engineHours = v(s.engine_hours_s);
     out.tripLog = v(s.trip_log_m);
     out.totalLog = v(s.total_log_m);
     Field ap_field;
@@ -134,6 +135,7 @@ int ingest_signalk(const View &v, uint32_t now_ms, FieldMask touched) {
              v.engineOilPressure);
     n +=
         pub(&Snapshot::engine_fuel_rate_m3s, FI::EngineFuelRate, touched, now_ms, v.engineFuelRate);
+    n += pub(&Snapshot::engine_hours_s, FI::EngineHours, touched, now_ms, v.engineHours);
     n += pub(&Snapshot::trip_log_m, FI::TripLog, touched, now_ms, v.tripLog);
     n += pub(&Snapshot::total_log_m, FI::TotalLog, touched, now_ms, v.totalLog);
     if ((touched & field_bit(FI::ApState)) && v.apState[0] != 0) {

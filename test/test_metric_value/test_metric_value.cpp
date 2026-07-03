@@ -151,6 +151,14 @@ static void test_battery_current_signed_and_temp() {
     TEST_ASSERT_FLOAT_WITHIN(0.01, 25.0, metric_value(MetricSource::BattTemp_C, d));
 }
 
+static void test_engine_hours_s_to_h() {
+    boat::View d = blank();
+    d.engineHours = 5400.0;  // seconds
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 1.5, metric_value(MetricSource::EngineHours_h, d));
+    d.engineHours = NAN;
+    TEST_ASSERT_TRUE(isnan(metric_value(MetricSource::EngineHours_h, d)));
+}
+
 static void test_heading_magnetic_and_variation() {
     boat::View d = blank();
     d.headingMag = -M_PI / 2.0;  // wraps into [0,360) like HDG_deg
@@ -214,6 +222,7 @@ int main(int, char **) {
     RUN_TEST(test_rate_of_turn_radps_to_degmin);
     RUN_TEST(test_trip_and_total_log_m_to_nm);
     RUN_TEST(test_battery_current_signed_and_temp);
+    RUN_TEST(test_engine_hours_s_to_h);
     RUN_TEST(test_heading_magnetic_and_variation);
     RUN_TEST(test_fraction_soc);
     RUN_TEST(test_fraction_speed_range);

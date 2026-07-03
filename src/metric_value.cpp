@@ -93,6 +93,8 @@ double metric_value(MetricSource src, const boat::View &d) {
         return isnan(d.headingMag) ? NAN : rad_to_deg_pos(d.headingMag);
     case MetricSource::Variation_deg:
         return isnan(d.variation) ? NAN : units::rad_to_deg(d.variation);  // signed, +E
+    case MetricSource::EngineHours_h:
+        return isnan(d.engineHours) ? NAN : units::s_to_h(d.engineHours);
     default:
         return NAN;
     }

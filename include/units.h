@@ -83,6 +83,11 @@ constexpr double m3s_to_lph(double m3s) {
     return m3s * 3.6e6;  // 1 m3/s = 1000 L / (1/3600 h)
 }
 
+// Duration. SignalK propulsion.*.runTime is seconds; hour meters read hours.
+constexpr double s_to_h(double s) {
+    return s / 3600.0;
+}
+
 // Normalise a heading/angle in radians to (-pi, pi]. Equivalent to the
 // single `if (a > M_PI) a -= 2*M_PI` guards that NMEA2000 wind PGNs used
 // for inputs already in [0, 2pi), but safe for any input.

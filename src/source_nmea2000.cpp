@@ -4,9 +4,13 @@
 #include <freertos/task.h>
 #include <math.h>
 
+#include <stdio.h>
+
+#include "ais_store.h"
 #include "boat_data.h"
 #include "n2k_decode.h"
 #include "net.h"
+#include "notifications.h"
 #include "storage.h"
 #include "units.h"
 
@@ -96,13 +100,28 @@ inline uint32_t u32le(const uint8_t *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
-void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
+// Publish a reassembled AIS position payload (PGN 129038 Class A / 129039
+// Class B share the consumed layout) into the AIS target store.
+void publish_ais_position(const uint8_t *buf, uint8_t len, ais::VesselClass cls, uint32_t now) {
+    n2k::AisPosition p = n2k::decode_ais_position(buf, len);
+    if (p.mmsi == 0) return;
+    ais::store().upsert_position(p.mmsi, p.lat_deg, p.lon_deg, (float)p.sog_mps, (float)p.cog_rad,
+                                 (float)p.heading_rad, cls, now);
+}
+
+// `src_addr` is the J1939 source address - fast-packet streams are keyed by
+// (PGN, source) so interleaved AIS bursts from several targets reassemble
+// independently (the old single-stream state corrupted under interleave).
+void decode_pgn(uint32_t pgn, uint8_t src_addr, const uint8_t *d, uint8_t n) {
     using boat::Snapshot;
     using boat::SourceKind;
     const SourceKind src = SourceKind::Nmea2000;
     uint32_t now = millis();
     s_last_rx_ms = now;
     bool ok = false;
+    // Shared 4-slot fast-packet pool (worker task only; ~400 B static is fine
+    // in .bss - the PSRAM rule is for KB-scale objects).
+    static n2k::FastPacketPool fp_pool;
 
     switch (pgn) {
     case 127250: {  // Vessel heading (BUG-2: honor the reference byte)
@@ -169,11 +188,10 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         }
         break;
     }
-    case 127489: {                  // Engine dynamic — FAST PACKET; reassemble then decode
-        static n2k::FastPacket fp;  // single stream; worker task only
-        if (!n2k::fastpacket_feed(fp, d, n)) break;
-        n2k::EngineDynamic127489 e = n2k::decode_127489(fp.buf, fp.expect);
-        fp.seq = 0xFF;               // consumed; wait for the next frame 0
+    case 127489: {  // Engine dynamic — FAST PACKET; reassemble then decode
+        n2k::FastPacket *fp = n2k::fastpacket_pool_feed(fp_pool, pgn, src_addr, d, n, now);
+        if (!fp) break;
+        n2k::EngineDynamic127489 e = n2k::decode_127489(fp->buf, fp->expect);
         if (e.instance != 0) break;  // primary engine only (matches 127488)
         if (isfinite(e.oil_pressure_pa)) {
             boat::publish(&Snapshot::engine_oil_pressure_pa, src, now, e.oil_pressure_pa);
@@ -187,8 +205,10 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
             boat::publish(&Snapshot::engine_fuel_rate_m3s, src, now, e.fuel_rate_m3s);
             ok = true;
         }
-        // e.engine_hours_s: decoded but NOT published — boat::Snapshot has no
-        // engine-hours field yet (noted follow-up in the coverage report).
+        if (isfinite(e.engine_hours_s)) {
+            boat::publish(&Snapshot::engine_hours_s, src, now, e.engine_hours_s);
+            ok = true;
+        }
         break;
     }
     case 127508: {  // Battery status
@@ -241,6 +261,33 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         }
         break;
     }
+    // --- AIS target PGNs (phase 5): reassembled per (PGN, source address),
+    // decoded pure in n2k_decode.h, published into ais::store() (never into
+    // boat::Snapshot - AIS targets are other vessels).
+    case 129038: {  // AIS Class A position report — FAST PACKET
+        n2k::FastPacket *fp = n2k::fastpacket_pool_feed(fp_pool, pgn, src_addr, d, n, now);
+        if (!fp) break;
+        publish_ais_position(fp->buf, fp->expect, ais::VesselClass::ClassA, now);
+        ok = true;
+        break;
+    }
+    case 129039: {  // AIS Class B position report — FAST PACKET
+        n2k::FastPacket *fp = n2k::fastpacket_pool_feed(fp_pool, pgn, src_addr, d, n, now);
+        if (!fp) break;
+        publish_ais_position(fp->buf, fp->expect, ais::VesselClass::ClassB, now);
+        ok = true;
+        break;
+    }
+    case 129794: {  // AIS Class A static/voyage (name) — FAST PACKET
+        n2k::FastPacket *fp = n2k::fastpacket_pool_feed(fp_pool, pgn, src_addr, d, n, now);
+        if (!fp) break;
+        n2k::AisStatic129794 st = n2k::decode_129794(fp->buf, fp->expect);
+        if (st.mmsi == 0) break;
+        ais::store().upsert_static(st.mmsi, st.name, ais::VesselClass::ClassA, now);
+        ok = true;
+        break;
+    }
+
     case 130306: {  // Wind data (BUG-3: map the reference byte properly)
         n2k::Wind130306 w = n2k::decode_130306(d, n);
         if (isnan(w.speed_mps) || isnan(w.angle_rad)) break;
@@ -318,15 +365,31 @@ void decode_pgn(uint32_t pgn, const uint8_t *d, uint8_t n) {
         }
         break;
     }
-    case 65288: {  // Raymarine Pilot Alarm State
-        // Minimal: any non-zero alarm code -> mark autopilot warning
-        // by appending "/alarm" suffix to the current state, or
-        // record the bare alarm flag in the field for now. Since we
-        // don't have a dedicated autopilot_alarm field, just log.
-        if (n < 8) break;
-        uint16_t alarm = u16le(d + 2);
-        if (alarm) {
-            net::logf("[n2k] Raymarine alarm code=0x%04x", alarm);
+    case 65288: {  // Raymarine Seatalk Alarm -> notifications store (phase 5)
+        n2k::SeatalkAlarm65288 a = n2k::decode_65288(d, n);
+        if (!a.valid) break;
+        // Stable per-alarm key so re-asserts upsert rather than duplicate.
+        char path[32];
+        snprintf(path, sizeof(path), "seatalk.alarm.%u.%u", (unsigned)a.group,
+                 (unsigned)a.alarm_id);
+        char msg[48];
+        snprintf(msg, sizeof(msg), "N2K alarm %u/%u", (unsigned)a.group, (unsigned)a.alarm_id);
+        if (a.status == 1) {
+            // Condition met, not silenced -> active alarm (sound + visual).
+            notif::store().upsert(path, notif::State::Alarm, msg,
+                                  notif::METHOD_SOUND | notif::METHOD_VISUAL, now);
+            net::logf("[n2k] Seatalk alarm group=%u id=%u ACTIVE", (unsigned)a.group,
+                      (unsigned)a.alarm_id);
+            ok = true;
+        } else if (a.status == 2) {
+            // Met but silenced at the source -> visual only, pre-acknowledged.
+            int idx =
+                notif::store().upsert(path, notif::State::Alarm, msg, notif::METHOD_VISUAL, now);
+            if (idx >= 0) notif::store().acknowledge(idx);
+            ok = true;
+        } else if (a.status == 0) {
+            // Condition no longer met -> clears the entry.
+            notif::store().upsert(path, notif::State::Normal, nullptr, 0, now);
             ok = true;
         }
         break;
@@ -407,7 +470,7 @@ void worker(void *) {
                     net::logf("[n2k-sniff] pgn=%lu src=%u prio=%u dlc=%u %s", (unsigned long)id.pgn,
                               id.source, id.priority, msg.data_length_code, hex);
                 }
-                decode_pgn(id.pgn, msg.data, msg.data_length_code);
+                decode_pgn(id.pgn, id.source, msg.data, msg.data_length_code);
             }
         }
     }

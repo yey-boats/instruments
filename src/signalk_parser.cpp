@@ -140,6 +140,8 @@ void applyValue(const char *path, JsonVariant val, boat::View &out, boat::FieldM
             num(out.engineOilPressure, FI::EngineOilPressure);
         } else if (endsWith(path, ".fuel.rate")) {
             num(out.engineFuelRate, FI::EngineFuelRate);
+        } else if (endsWith(path, ".runTime")) {
+            num(out.engineHours, FI::EngineHours);  // seconds (SI); display shows hours
         }
     } else if (strncmp(path, "tanks.fuel.", 11) == 0 && endsWith(path, ".currentLevel")) {
         num(out.tankFuel, FI::TankFuel);
@@ -189,29 +191,144 @@ void applyValue(const char *path, JsonVariant val, boat::View &out, boat::FieldM
     }
 }
 
+// Context helpers (phase 5: AIS + notifications routing) -------------------
+
+// True when a delta context names OUR vessel. Absent context and the literal
+// "vessels.self" are always self; otherwise compare against the hello-derived
+// self id, tolerating the "vessels." prefix on either side (servers report
+// hello self as "vessels.urn:..." but some emit bare "urn:..." contexts).
+static bool context_is_self(const char *ctx, const char *self_id) {
+    if (!ctx || !ctx[0]) return true;
+    if (strcmp(ctx, "vessels.self") == 0) return true;
+    if (!self_id || !self_id[0]) return false;
+    const char *a = ctx;
+    const char *b = self_id;
+    if (strncmp(a, "vessels.", 8) == 0) a += 8;
+    if (strncmp(b, "vessels.", 8) == 0) b += 8;
+    return strcmp(a, b) == 0;
+}
+
+// MMSI from "vessels.urn:mrn:imo:mmsi:244813000". 0 when the context is not
+// an mmsi urn (e.g. uuid vessels, shore stations) - those targets are dropped
+// (the AIS store is keyed by MMSI).
+static uint32_t context_mmsi(const char *ctx) {
+    if (!ctx) return 0;
+    const char *m = strstr(ctx, "mmsi:");
+    if (!m) return 0;
+    m += 5;
+    uint32_t v = 0;
+    int digits = 0;
+    for (; *m; ++m) {
+        if (*m < '0' || *m > '9') return 0;
+        v = v * 10u + (uint32_t)(*m - '0');
+        if (++digits > 9) return 0;  // MMSI is at most 9 digits
+    }
+    return digits > 0 ? v : 0;
+}
+
+// notifications.<suffix> value object {state, message, method[]} -> store
+// upsert. Null value or state "normal" clears. Returns true when the pair
+// was routed (counts as value-bearing for link liveness).
+static bool apply_notification(const char *path, JsonVariant val, const DeltaSinks *sinks) {
+    static constexpr size_t PREFIX = 14;  // strlen("notifications.")
+    const char *suffix = path + PREFIX;
+    if (!suffix[0] || !sinks || !sinks->notifications) return false;
+    if (val.isNull()) {
+        // Nulled-out notification value = alarm gone.
+        sinks->notifications->upsert(suffix, notif::State::Normal, nullptr, 0, sinks->now_ms);
+        return true;
+    }
+    if (!val.is<JsonObject>()) return false;
+    const char *state = val["state"];
+    const char *message = val["message"];
+    uint8_t method = 0;
+    JsonArray m = val["method"].as<JsonArray>();
+    if (!m.isNull()) {
+        for (JsonVariant mm : m) {
+            const char *s = mm.as<const char *>();
+            if (!s) continue;
+            if (strcmp(s, "visual") == 0) method |= notif::METHOD_VISUAL;
+            if (strcmp(s, "sound") == 0) method |= notif::METHOD_SOUND;
+        }
+    }
+    sinks->notifications->upsert(suffix, notif::state_from_string(state), message, method,
+                                 sinks->now_ms);
+    return true;
+}
+
+// One path/value pair of a NON-SELF vessel delta -> AIS store. Never touches
+// boat::View. Returns true when the pair was routed.
+static bool apply_ais_value(uint32_t mmsi, const char *path, JsonVariant val,
+                            const DeltaSinks *sinks) {
+    ais::Store *st = sinks->ais;
+    const uint32_t now = sinks->now_ms;
+    const ais::VesselClass cls = ais::VesselClass::Unknown;
+    if (strcmp(path, "navigation.position") == 0) {
+        if (!val.is<JsonObject>()) return false;
+        double la = asDouble(val["latitude"]);
+        double lo = asDouble(val["longitude"]);
+        if (isnan(la) || isnan(lo)) return false;
+        return st->upsert_position(mmsi, la, lo, NAN, NAN, NAN, cls, now) >= 0;
+    }
+    if (strcmp(path, "navigation.speedOverGround") == 0) {
+        if (!isNumeric(val)) return false;
+        return st->upsert_position(mmsi, NAN, NAN, (float)val.as<double>(), NAN, NAN, cls, now) >=
+               0;
+    }
+    if (strcmp(path, "navigation.courseOverGroundTrue") == 0) {
+        if (!isNumeric(val)) return false;
+        return st->upsert_position(mmsi, NAN, NAN, NAN, (float)val.as<double>(), NAN, cls, now) >=
+               0;
+    }
+    if (strcmp(path, "navigation.headingTrue") == 0) {
+        if (!isNumeric(val)) return false;
+        return st->upsert_position(mmsi, NAN, NAN, NAN, NAN, (float)val.as<double>(), cls, now) >=
+               0;
+    }
+    // Vessel name from the static tree: either the root object (path "")
+    // carrying {"name": ...} or the "name" leaf directly.
+    if (strcmp(path, "name") == 0) {
+        const char *nm = val.as<const char *>();
+        if (!nm || !nm[0]) return false;
+        return st->upsert_static(mmsi, nm, cls, now) >= 0;
+    }
+    if (path[0] == 0 && val.is<JsonObject>()) {
+        const char *nm = val["name"];
+        if (!nm || !nm[0]) return false;
+        return st->upsert_static(mmsi, nm, cls, now) >= 0;
+    }
+    return false;
+}
+
 static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonDocument &doc,
-                            PathStore *dyn, boat::FieldMask *touched);
+                            PathStore *dyn, boat::FieldMask *touched, const DeltaSinks *sinks);
 
 int applyDelta(const char *json, size_t len, boat::View &out, ArduinoJson::Allocator *alloc,
-               PathStore *dyn, boat::FieldMask *touched) {
+               PathStore *dyn, boat::FieldMask *touched, const DeltaSinks *sinks) {
     // alloc==nullptr -> default (internal heap) allocator. The device
     // build passes &yeyboats::psram_json so 1+ Hz SK deltas don't churn
     // the tiny internal heap (largest free block was ~7 KB at idle).
     // Host tests pass nullptr and use the default.
     if (alloc) {
         JsonDocument doc(alloc);
-        return apply_delta_impl(json, len, out, doc, dyn, touched);
+        return apply_delta_impl(json, len, out, doc, dyn, touched, sinks);
     }
     JsonDocument doc;
-    return apply_delta_impl(json, len, out, doc, dyn, touched);
+    return apply_delta_impl(json, len, out, doc, dyn, touched, sinks);
 }
 
 static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonDocument &doc,
-                            PathStore *dyn, boat::FieldMask *touched) {
+                            PathStore *dyn, boat::FieldMask *touched, const DeltaSinks *sinks) {
     DeserializationError err = deserializeJson(doc, json, len);
     if (err) return -1;
     JsonArray updates = doc["updates"].as<JsonArray>();
     if (updates.isNull()) return 0;
+    // Route by context ONCE per delta (context is a top-level field). A
+    // non-self vessel's values go to the AIS store and must never leak into
+    // the self View/PathStore/touched-mask.
+    const char *ctx = doc["context"];
+    const bool is_self = context_is_self(ctx, sinks ? sinks->self_id : nullptr);
+    const uint32_t mmsi = (!is_self && sinks && sinks->ais) ? context_mmsi(ctx) : 0;
     int count = 0;
     for (JsonObject upd : updates) {
         JsonArray values = upd["values"].as<JsonArray>();
@@ -225,6 +342,17 @@ static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonD
             // Resolve the value variant once (each operator[] is a member
             // scan of the object - this is the parse hot path).
             JsonVariant val = v["value"];
+            if (!is_self) {
+                if (mmsi && apply_ais_value(mmsi, p, val, sinks)) ++count;
+                continue;
+            }
+            if (strncmp(p, "notifications.", 14) == 0) {
+                // Alarm path: routed to the notifications store, never a
+                // View field (the value is an object, not a metric).
+                apply_notification(p, val, sinks);
+                ++count;
+                continue;
+            }
             applyValue(p, val, out, touched);
             // Mirror numeric deltas into the dynamic store so authored fields
             // can render arbitrary paths by string (typed boat::View still drives
@@ -234,6 +362,27 @@ static int apply_delta_impl(const char *json, size_t len, boat::View &out, JsonD
         }
     }
     return count;
+}
+
+static bool parse_hello_impl(JsonDocument &doc, const char *json, size_t len, char *out,
+                             size_t cap) {
+    if (deserializeJson(doc, json, len) != DeserializationError::Ok) return false;
+    const char *self = doc["self"];
+    if (!self || !self[0]) return false;
+    strncpy(out, self, cap - 1);
+    out[cap - 1] = 0;
+    return true;
+}
+
+bool parseHello(const char *json, size_t len, char *out, size_t cap,
+                ArduinoJson::Allocator *alloc) {
+    if (!json || !out || cap == 0) return false;
+    if (alloc) {
+        JsonDocument doc(alloc);
+        return parse_hello_impl(doc, json, len, out, cap);
+    }
+    JsonDocument doc;
+    return parse_hello_impl(doc, json, len, out, cap);
 }
 
 const char *classifyStatus(bool connected, uint32_t lastUpdateMs, uint32_t connectedSinceMs,

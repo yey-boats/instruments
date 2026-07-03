@@ -1,9 +1,11 @@
 #include "signalk.h"
+#include "ais_store.h"
 #include "board.h"
 #include "build_config.h"
 #include "device_identity.h"
 #include "manager.h"
 #include "net_health.h"
+#include "notifications.h"
 #include "psram_json.h"
 #include "signalk_parser.h"
 #include "source_signalk.h"
@@ -149,7 +151,8 @@ static const char *const FULL_PATHS[] = {
     "navigation.courseRhumbline.velocityMadeGood",
     // VMG is commonly published under performance.* (the sim/most plugins do
     // not emit the courseRhumbline alias above). Subscribe both; the parser
-    // maps either onto sk::s_parsed.vmg.
+    // keeps them distinct: courseRhumbline -> vmg (waypoint VMG),
+    // performance.* -> vmgWind (wind VMG).
     "performance.velocityMadeGood",
     // Rudder angle for the steering/wind-steer rudder gauge.
     "steering.rudderAngle",
@@ -184,6 +187,9 @@ static const char *const FULL_PATHS[] = {
     "propulsion.main.temperature",
     "propulsion.main.oilPressure",
     "propulsion.main.fuel.rate",
+    "propulsion.main.runTime",
+    // Alarms (phase 5): the parser routes notifications.* into notif::store().
+    "notifications.*",
     // Push-live: manager plugin emits this when a view is applied; the
     // onText handler triggers an immediate config fetch for our device.
     "network.yeyboats.configPush",
@@ -194,6 +200,9 @@ static const char *const FULL_PATHS[] = {
 static const char *const BASELINE_PATHS[] = {
     "network.yeyboats.configPush",
     "steering.autopilot.state",
+    // Alarms must arrive regardless of the visible screen (the banner phase
+    // renders them everywhere; the beeper sounds them even sooner).
+    "notifications.*",
 };
 
 // PSRAM-resident set singletons (see dynamicStore() for the exact pattern).
@@ -265,6 +274,47 @@ static void send_sub_message(const SubscriptionSet &set, bool subscribe_op) {
     String out;
     serializeJson(doc, out);
     ws.sendTXT(out);
+}
+
+// ---------------------------------------------------------------------------
+// AIS (phase 5): a SEPARATE subscribe message with context "vessels.*" for
+// the three nav paths of nearby vessels. Kept apart from the vessels.self
+// subscribe so the per-screen diff/unsubscribe machinery never touches it
+// (the SK server tracks subscriptions per context). Runtime-toggleable via
+// `sk-ais on|off` (NVS-persisted), default ON. The parser routes non-self
+// contexts into ais::store() and never into boat::View.
+static bool s_ais_sub_enabled = true;
+// Self identity from the server hello ("self":"vessels.urn:mrn:imo:mmsi:...").
+// SK-task only (written in onText, read for DeltaSinks on the same task).
+static char s_self_ctx[96] = {0};
+
+static const char *const AIS_PATHS[] = {
+    "navigation.position",
+    "navigation.speedOverGround",
+    "navigation.courseOverGroundTrue",
+};
+
+// SK-task only (owns ws.sendTXT). Sent once per (re)connect.
+static void send_ais_subscribe() {
+    if (!s_ais_sub_enabled) return;
+    JsonDocument doc(&yeyboats::psram_json);
+    doc["context"] = "vessels.*";
+    JsonArray arr = doc["subscribe"].to<JsonArray>();
+    for (auto p : AIS_PATHS) {
+        JsonObject o = arr.add<JsonObject>();
+        o["path"] = p;
+        // AIS plot cadence: 1 Hz per target is plenty and keeps a busy
+        // anchorage from flooding the WS (48-target pool, 5 Hz UI).
+        o["period"] = 1000;
+        o["minPeriod"] = 1000;
+        o["format"] = "delta";
+        o["policy"] = "instant";
+    }
+    String out;
+    serializeJson(doc, out);
+    ws.sendTXT(out);
+    net::logf("[sk] ais subscribe sent (vessels.*, %u paths)",
+              (unsigned)(sizeof(AIS_PATHS) / sizeof(AIS_PATHS[0])));
 }
 
 // SK-task: one wildcard unsubscribe (clears the server's whole subscription for
@@ -412,6 +462,18 @@ static void onText(uint8_t *payload, size_t len) {
             net::logf("[sk] configPush for us -> immediate config fetch");
         }
     }
+    // Capture the self identity from the server hello (first frame after
+    // connect). The substring gate keeps ordinary deltas at one memchr scan;
+    // hello is once-per-connect so the extra parse is negligible. Knowing
+    // self is what lets the vessels.* AIS subscription coexist with the self
+    // View: deltas about our own ship carry the full urn context, and the
+    // parser must NOT treat them as an AIS target.
+    if (s_self_ctx[0] == 0 && frame_contains(payload, len, "\"self\"")) {
+        if (parseHello((const char *)payload, len, s_self_ctx, sizeof(s_self_ctx),
+                       &yeyboats::psram_json)) {
+            net::logf("[sk] hello self=%s", s_self_ctx);
+        }
+    }
     // Parse OUTSIDE s_data_mtx into an SK-task-private working View seeded
     // from the accumulator, so UI/web readers are never blocked for the
     // whole JSON parse (PERF: parse of a big delta is hundreds of us).
@@ -427,10 +489,19 @@ static void onText(uint8_t *payload, size_t len) {
     // accumulator would keep dead sensors "fresh" forever (BUG: per-field
     // staleness defeated). PathStore does its own locking (see path_store.h).
     boat::FieldMask touched = 0;
+    // Side-channel sinks (phase 5): notifications.* -> notif::store(),
+    // non-self vessel contexts -> ais::store(). Both stores do their own
+    // locking; routing is always-on (the AIS flag only gates the vessels.*
+    // subscription, so a server pushing unsolicited targets still lands).
+    DeltaSinks sinks;
+    sinks.notifications = &notif::store();
+    sinks.ais = &ais::store();
+    sinks.self_id = s_self_ctx[0] ? s_self_ctx : nullptr;
+    sinks.now_ms = millis();
 #ifdef DBG_PERF_COUNTERS
     uint32_t t0 = micros();
     int n = applyDelta((const char *)payload, len, work, &yeyboats::psram_json, &dynamicStore(),
-                       &touched);
+                       &touched, &sinks);
     uint32_t dt = micros() - t0;
     g_bench_ws_frames++;
     g_bench_ws_bytes += (uint32_t)len;
@@ -439,7 +510,7 @@ static void onText(uint8_t *payload, size_t len) {
     if (dt > g_bench_parse_us_peak) g_bench_parse_us_peak = dt;
 #else
     int n = applyDelta((const char *)payload, len, work, &yeyboats::psram_json, &dynamicStore(),
-                       &touched);
+                       &touched, &sinks);
 #endif
     uint32_t now = millis();
     // Merge back under a short lock: the SK task is the only writer of
@@ -484,9 +555,14 @@ static void onEvent(WStype_t type, uint8_t *payload, size_t len) {
     case WStype_CONNECTED:
         net::logf("[sk] WS connected to %s:%u", s_host.c_str(), s_port);
         set_connected(true);
+        // Re-learn self from this session's hello (server/vessel may differ).
+        s_self_ctx[0] = 0;
         // Fresh stream: server is subscribed to nothing. Reset g_active and
         // mark dirty so the SK loop re-sends the current desired set.
         reset_subscriptions_on_connect();
+        // AIS targets ride a separate vessels.* subscription so the
+        // per-screen self-context diffing never drops it.
+        send_ais_subscribe();
         break;
     case WStype_DISCONNECTED:
         net::logf("[sk] WS disconnected (target %s:%u)", s_host.c_str(), s_port);
@@ -890,6 +966,11 @@ static void sk_task(void *) {
         if ((int32_t)(now_ms - next_stall_check_ms) >= 0 && !net::otaInProgress()) {
             next_stall_check_ms = now_ms + 5000;
             check_stall_autorecover(now_ms);
+            // Phase-5 store housekeeping on the same 5 s cadence: drop AIS
+            // targets not heard for 6 min and alarms not re-asserted for 10
+            // min (both O(pool) walks over PSRAM, microseconds).
+            ais::store().age_out(now_ms);
+            notif::store().expire(now_ms);
         }
 
         // 10 ms cadence is plenty for WS frame draining and matches what
@@ -906,6 +987,7 @@ void setup(const String &host, uint16_t port) {
         s_host = String(prefs.get_string("host", host.c_str()).c_str());
         s_port = (uint16_t)prefs.get_u32("port", port);
         s_token = String(prefs.get_string("token", "").c_str());
+        s_ais_sub_enabled = prefs.get_u8("ais_sub", 1) != 0;  // AIS targets default ON
     }
     // Auto mode iff no saved host. Manual mode persists across reboot
     // by virtue of a saved host being present.
@@ -1132,6 +1214,30 @@ bool handleSerialCommand(const String &line) {
                   s_auto_mode ? "auto" : "manual", s_host.c_str(), s_port,
                   (unsigned)s_token.length(), s_parsed.connected,
                   (unsigned long)(s_parsed.lastUpdateMs ? (millis() - s_parsed.lastUpdateMs) : 0));
+        // Phase-5 stores: alarm + AIS summary (function-static scratch, not a
+        // stack buffer, per the small-task-stack rule; serial commands are
+        // dispatched serially so this is race-free).
+        static char nline[96];
+        notif::status_line(nline, sizeof(nline));
+        net::logf("%s ais_sub=%s ais_targets=%d self=%s", nline, s_ais_sub_enabled ? "on" : "off",
+                  ais::store().count(), s_self_ctx[0] ? s_self_ctx : "?");
+        return true;
+    }
+    if (line.startsWith("sk-ais")) {
+        // Toggle the vessels.* AIS subscription (persisted; applied on the
+        // next (re)connect - `sk-reconnect` applies it immediately).
+        String rest = line.length() > 6 ? line.substring(6) : String("");
+        rest.trim();
+        if (rest == "on" || rest == "off") {
+            s_ais_sub_enabled = (rest == "on");
+            storage::Namespace prefs("sk", false);
+            prefs.put_u8("ais_sub", s_ais_sub_enabled ? 1 : 0);
+            net::logf("[sk] ais subscription %s (takes effect on reconnect)",
+                      s_ais_sub_enabled ? "ON" : "OFF");
+        } else {
+            net::logf("[sk] ais_sub=%s targets=%d (usage: sk-ais on|off)",
+                      s_ais_sub_enabled ? "on" : "off", ais::store().count());
+        }
         return true;
     }
     if (line == "sk-dump") {

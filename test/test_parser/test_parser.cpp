@@ -505,6 +505,218 @@ static void test_touched_mask_apstate() {
     TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::ApState), touched);
 }
 
+// --- Context routing (phase 5): self vs vessels.* (AIS) + notifications ----
+
+// Build a delta with an explicit context.
+static std::string contextDelta(const char *ctx, const char *path, const char *valueJson) {
+    std::string s = "{\"context\":\"";
+    s += ctx;
+    s += "\",\"updates\":[{\"values\":[{\"path\":\"";
+    s += path;
+    s += "\",\"value\":";
+    s += valueJson;
+    s += "}]}]}";
+    return s;
+}
+
+static const char *SELF_ID = "vessels.urn:mrn:imo:mmsi:239000001";
+
+static void test_context_other_vessel_routes_to_ais_not_view() {
+    View d;
+    ais::Store st;
+    boat::FieldMask touched = 0;
+    sk::DeltaSinks sinks;
+    sinks.ais = &st;
+    sinks.self_id = SELF_ID;
+    sinks.now_ms = 5000;
+    auto j = contextDelta("vessels.urn:mrn:imo:mmsi:244813000", "navigation.position",
+                          "{\"latitude\":41.31,\"longitude\":2.18}");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched, &sinks);
+    TEST_ASSERT_EQUAL(1, n);  // routed values count for link liveness
+    TEST_ASSERT_TRUE(std::isnan(d.lat));
+    TEST_ASSERT_TRUE(std::isnan(d.lon));
+    TEST_ASSERT_EQUAL_UINT64(0, touched);  // never touches the self mask
+    TEST_ASSERT_EQUAL(1, st.count());
+    ais::Target t;
+    TEST_ASSERT_TRUE(st.get(st.find(244813000u), t));
+    // 1e-4 deg (~10 m): ArduinoJson may store the literal at float precision.
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 41.31, t.lat_deg);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-4, 2.18, t.lon_deg);
+    TEST_ASSERT_EQUAL_UINT32(5000, t.last_seen_ms);
+}
+
+static void test_context_other_vessel_sog_cog_merge() {
+    View d;
+    ais::Store st;
+    sk::DeltaSinks sinks;
+    sinks.ais = &st;
+    sinks.self_id = SELF_ID;
+    sinks.now_ms = 1000;
+    const char *ctx = "vessels.urn:mrn:imo:mmsi:244813000";
+    auto j1 = contextDelta(ctx, "navigation.speedOverGround", "6.2");
+    auto j2 = contextDelta(ctx, "navigation.courseOverGroundTrue", "1.5");
+    sk::applyDelta(j1.data(), j1.size(), d, nullptr, nullptr, nullptr, &sinks);
+    sk::applyDelta(j2.data(), j2.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_EQUAL(1, st.count());  // dedup by MMSI across deltas
+    ais::Target t;
+    TEST_ASSERT_TRUE(st.get(0, t));
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 6.2f, t.sog_mps);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 1.5f, t.cog_rad);
+    TEST_ASSERT_TRUE(std::isnan(d.sog));  // self View untouched
+    TEST_ASSERT_TRUE(std::isnan(d.cogTrue));
+}
+
+static void test_context_other_vessel_name_from_static_tree() {
+    View d;
+    ais::Store st;
+    sk::DeltaSinks sinks;
+    sinks.ais = &st;
+    sinks.self_id = SELF_ID;
+    sinks.now_ms = 1000;
+    const char *ctx = "vessels.urn:mrn:imo:mmsi:244813000";
+    auto j1 = contextDelta(ctx, "name", "\"NORDKAPP\"");
+    auto j2 = contextDelta(ctx, "", "{\"name\":\"SOLVEIG\"}");  // root-object form
+    sk::applyDelta(j1.data(), j1.size(), d, nullptr, nullptr, nullptr, &sinks);
+    ais::Target t;
+    TEST_ASSERT_TRUE(st.get(st.find(244813000u), t));
+    TEST_ASSERT_EQUAL_STRING("NORDKAPP", t.name);
+    sk::applyDelta(j2.data(), j2.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_TRUE(st.get(st.find(244813000u), t));
+    TEST_ASSERT_EQUAL_STRING("SOLVEIG", t.name);
+    TEST_ASSERT_EQUAL(1, st.count());
+}
+
+static void test_context_self_urn_still_fills_view() {
+    // Deltas about OUR OWN ship carry the full urn context; with self_id
+    // from the hello they must keep landing on the View, not the AIS store.
+    View d;
+    ais::Store st;
+    boat::FieldMask touched = 0;
+    sk::DeltaSinks sinks;
+    sinks.ais = &st;
+    sinks.self_id = SELF_ID;
+    sinks.now_ms = 1000;
+    auto j =
+        contextDelta("vessels.urn:mrn:imo:mmsi:239000001", "navigation.speedOverGround", "4.2");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched, &sinks);
+    TEST_ASSERT_EQUAL(1, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 4.2, d.sog);
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::Sog), touched);
+    TEST_ASSERT_EQUAL(0, st.count());
+}
+
+static void test_context_self_id_matches_without_vessels_prefix() {
+    // Some servers report hello self WITHOUT the "vessels." prefix.
+    View d;
+    sk::DeltaSinks sinks;
+    sinks.self_id = "urn:mrn:imo:mmsi:239000001";
+    sinks.now_ms = 1000;
+    auto j =
+        contextDelta("vessels.urn:mrn:imo:mmsi:239000001", "navigation.speedOverGround", "4.2");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 4.2, d.sog);
+}
+
+static void test_context_uuid_vessel_dropped() {
+    // Non-MMSI vessels (uuid urns) can't key the AIS store - dropped whole.
+    View d;
+    ais::Store st;
+    sk::DeltaSinks sinks;
+    sinks.ais = &st;
+    sinks.self_id = SELF_ID;
+    sinks.now_ms = 1000;
+    auto j =
+        contextDelta("vessels.urn:mrn:signalk:uuid:aaaa-bbbb", "navigation.speedOverGround", "6.0");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_EQUAL(0, n);
+    TEST_ASSERT_EQUAL(0, st.count());
+    TEST_ASSERT_TRUE(std::isnan(d.sog));
+}
+
+static void test_context_other_vessel_without_sinks_ignored() {
+    // Legacy callers (no sinks): a non-self delta is dropped, not misapplied.
+    View d;
+    auto j =
+        contextDelta("vessels.urn:mrn:imo:mmsi:244813000", "navigation.speedOverGround", "6.0");
+    int n = sk::applyDelta(j.data(), j.size(), d);
+    TEST_ASSERT_EQUAL(0, n);
+    TEST_ASSERT_TRUE(std::isnan(d.sog));
+}
+
+static void test_notification_upsert_from_delta() {
+    View d;
+    notif::Store st;
+    sk::DeltaSinks sinks;
+    sinks.notifications = &st;
+    sinks.now_ms = 7000;
+    auto j = singleValueDelta("notifications.navigation.anchor",
+                              "{\"state\":\"emergency\",\"message\":\"Anchor drag!\","
+                              "\"method\":[\"visual\",\"sound\"]}");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_EQUAL(1, n);
+    TEST_ASSERT_EQUAL(1, st.count());
+    notif::Entry e;
+    TEST_ASSERT_TRUE(st.get(0, e));
+    TEST_ASSERT_EQUAL_STRING("navigation.anchor", e.path);
+    TEST_ASSERT_EQUAL_STRING("Anchor drag!", e.message);
+    TEST_ASSERT_EQUAL(static_cast<int>(notif::State::Emergency), static_cast<int>(e.state));
+    TEST_ASSERT_EQUAL_UINT8(notif::METHOD_VISUAL | notif::METHOD_SOUND, e.method);
+    TEST_ASSERT_EQUAL_UINT32(7000, e.first_ms);
+}
+
+static void test_notification_normal_state_clears() {
+    View d;
+    notif::Store st;
+    sk::DeltaSinks sinks;
+    sinks.notifications = &st;
+    sinks.now_ms = 7000;
+    auto raise = singleValueDelta("notifications.environment.depth",
+                                  "{\"state\":\"alarm\",\"message\":\"Shallow\"}");
+    sk::applyDelta(raise.data(), raise.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_EQUAL(1, st.count());
+    auto clear = singleValueDelta("notifications.environment.depth",
+                                  "{\"state\":\"normal\",\"message\":\"ok\"}");
+    sk::applyDelta(clear.data(), clear.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_EQUAL(0, st.count());
+    // Null value clears too (alarm withdrawn entirely).
+    sk::applyDelta(raise.data(), raise.size(), d, nullptr, nullptr, nullptr, &sinks);
+    auto nulled = singleValueDelta("notifications.environment.depth", "null");
+    sk::applyDelta(nulled.data(), nulled.size(), d, nullptr, nullptr, nullptr, &sinks);
+    TEST_ASSERT_EQUAL(0, st.count());
+}
+
+static void test_notification_path_never_touches_view_mask() {
+    View d;
+    notif::Store st;
+    boat::FieldMask touched = 0;
+    sk::DeltaSinks sinks;
+    sinks.notifications = &st;
+    sinks.now_ms = 100;
+    auto j = singleValueDelta("notifications.navigation.anchor", "{\"state\":\"alert\"}");
+    sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched, &sinks);
+    TEST_ASSERT_EQUAL_UINT64(0, touched);
+}
+
+static void test_parse_hello_extracts_self() {
+    const char *hello = "{\"name\":\"sk\",\"version\":\"2.0.0\","
+                        "\"self\":\"vessels.urn:mrn:imo:mmsi:239000001\",\"roles\":[]}";
+    char out[96] = {0};
+    TEST_ASSERT_TRUE(sk::parseHello(hello, strlen(hello), out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("vessels.urn:mrn:imo:mmsi:239000001", out);
+    const char *delta = "{\"updates\":[]}";
+    TEST_ASSERT_FALSE(sk::parseHello(delta, strlen(delta), out, sizeof(out)));
+}
+
+static void test_parses_engine_run_time() {
+    View d;
+    boat::FieldMask touched = 0;
+    auto j = singleValueDelta("propulsion.main.runTime", "9000.0");
+    int n = sk::applyDelta(j.data(), j.size(), d, nullptr, nullptr, &touched);
+    TEST_ASSERT_EQUAL(1, n);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 9000.0, d.engineHours);  // seconds, SI
+    TEST_ASSERT_EQUAL_UINT64(boat::field_bit(boat::FieldId::EngineHours), touched);
+}
+
 // classifyStatus: WS not connected -> "disconnected", regardless of timestamps.
 static void test_status_disconnected() {
     TEST_ASSERT_EQUAL_STRING("disconnected", sk::classifyStatus(false, 0, 0, 0, 50000, 10000));
@@ -662,6 +874,18 @@ int main(int, char **) {
     RUN_TEST(test_touched_mask_unknown_path_not_marked);
     RUN_TEST(test_touched_mask_position_sets_lat_lon);
     RUN_TEST(test_touched_mask_apstate);
+    RUN_TEST(test_context_other_vessel_routes_to_ais_not_view);
+    RUN_TEST(test_context_other_vessel_sog_cog_merge);
+    RUN_TEST(test_context_other_vessel_name_from_static_tree);
+    RUN_TEST(test_context_self_urn_still_fills_view);
+    RUN_TEST(test_context_self_id_matches_without_vessels_prefix);
+    RUN_TEST(test_context_uuid_vessel_dropped);
+    RUN_TEST(test_context_other_vessel_without_sinks_ignored);
+    RUN_TEST(test_notification_upsert_from_delta);
+    RUN_TEST(test_notification_normal_state_clears);
+    RUN_TEST(test_notification_path_never_touches_view_mask);
+    RUN_TEST(test_parse_hello_extracts_self);
+    RUN_TEST(test_parses_engine_run_time);
     RUN_TEST(test_status_disconnected);
     RUN_TEST(test_status_live_during_warmup);
     RUN_TEST(test_status_stalled_after_warmup_no_activity);

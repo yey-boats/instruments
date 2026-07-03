@@ -87,6 +87,7 @@ MetricSource path_to_source(const char *p) {
     if (strcmp(p, "propulsion.main.temperature") == 0) return MetricSource::EngineCoolant_C;
     if (strcmp(p, "propulsion.main.oilPressure") == 0) return MetricSource::EngineOilP_bar;
     if (strcmp(p, "propulsion.main.fuel.rate") == 0) return MetricSource::EngineFuelRate_lph;
+    if (strcmp(p, "propulsion.main.runTime") == 0) return MetricSource::EngineHours_h;
     return MetricSource::None;
 }
 

@@ -31,23 +31,50 @@ static const char *unit_for_source(MetricSource s) {
     case MetricSource::AWS_kn:
     case MetricSource::TWS_kn:
     case MetricSource::SOG_kn:
+    case MetricSource::STW_kn:
     case MetricSource::VMG_kn:
+    case MetricSource::VMGwind_kn:
         return "kn";
     case MetricSource::COG_deg:
     case MetricSource::HDG_deg:
+    case MetricSource::HDGm_deg:
     case MetricSource::BTW_deg:
     case MetricSource::CTS_deg:
+    case MetricSource::Roll_deg:
+    case MetricSource::Pitch_deg:
+    case MetricSource::Variation_deg:
         return "\xC2\xB0";  // UTF-8 degree sign
     case MetricSource::Depth_m:
     case MetricSource::DepthKeel_m:
     case MetricSource::XTE:
         return "m";
     case MetricSource::WaterTemp_C:
+    case MetricSource::OutsideTemp_C:
+    case MetricSource::BattTemp_C:
+    case MetricSource::EngineCoolant_C:
         return "\xC2\xB0\x43";  // °C
     case MetricSource::BatteryV:
         return "V";
+    case MetricSource::BattCurrent_A:
+        return "A";
     case MetricSource::DTW:
+    case MetricSource::TripLog_nm:
+    case MetricSource::Log_nm:
         return "nm";
+    case MetricSource::OutsidePressure_hPa:
+        return "hPa";
+    case MetricSource::Humidity_pct:
+        return "%";
+    case MetricSource::ROT_degmin:
+        return "\xC2\xB0/min";
+    case MetricSource::EngineRpm:
+        return "rpm";
+    case MetricSource::EngineOilP_bar:
+        return "bar";
+    case MetricSource::EngineFuelRate_lph:
+        return "L/h";
+    case MetricSource::EngineHours_h:
+        return "h";
     default:
         return "";  // AWA/TWA/SOC (embedded qualifier), Position, APState, None
     }

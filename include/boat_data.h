@@ -87,6 +87,8 @@ enum class FieldId : uint8_t {
     EngineFuelRate,
     HeadingMag,
     Variation,
+    // ---- appended (MFD overhaul phase 5: engine hours).
+    EngineHours,
     COUNT,
 };
 static_assert(static_cast<uint8_t>(FieldId::COUNT) <= 64, "FieldMask is 64 bits");
@@ -151,6 +153,7 @@ struct Snapshot {
     Field engine_coolant_temp_k;   // propulsion.*.temperature
     Field engine_oil_pressure_pa;  // propulsion.*.oilPressure
     Field engine_fuel_rate_m3s;    // propulsion.*.fuel.rate, m3/s
+    Field engine_hours_s;          // propulsion.*.runTime, s (N2K 127489 total hours)
 
     // trip / total log
     Field trip_log_m;
@@ -312,6 +315,7 @@ struct View {
     double engineCoolantTemp = NAN;  // K
     double engineOilPressure = NAN;  // Pa
     double engineFuelRate = NAN;     // m3/s
+    double engineHours = NAN;        // s (SI; display converts to hours)
 
     // trip / total log
     double tripLog = NAN;   // m

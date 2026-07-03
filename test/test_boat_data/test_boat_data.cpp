@@ -273,6 +273,30 @@ static void test_ingest_heading_mag_and_variation_compose() {
     TEST_ASSERT_TRUE(std::isnan(out.headingTrue));  // BUG-2: not conflated
 }
 
+static void test_ingest_engine_hours_mask_gated_and_composes() {
+    // Phase 5: propulsion.*.runTime (seconds) rides the same mask-gated
+    // ingest and composes onto View.engineHours.
+    View v;
+    v.engineHours = 5400.0;  // 1.5 h in seconds
+    // In the accumulator but NOT in the mask -> never published.
+    ingest_signalk(v, 1000, field_bit(FieldId::Sog));
+    Snapshot s;
+    copy_snapshot(s);
+    TEST_ASSERT_TRUE(std::isnan(s.engine_hours_s.value));
+    // Mask carries it -> published + composes.
+    int n = ingest_signalk(v, 2000, field_bit(FieldId::EngineHours));
+    TEST_ASSERT_EQUAL(1, n);
+    copy_snapshot(s);
+    TEST_ASSERT_EQUAL_DOUBLE(5400.0, s.engine_hours_s.value);
+    TEST_ASSERT_EQUAL_UINT32(2000, s.engine_hours_s.updated_ms);
+    View out;
+    compose(out, 2500);
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 5400.0, out.engineHours);
+    // And it goes stale like any SignalK field (default 10 s window).
+    compose(out, 13000);
+    TEST_ASSERT_TRUE(std::isnan(out.engineHours));
+}
+
 static void test_ingest_empty_mask_publishes_nothing() {
     View v;
     v.sog = 4.0;
@@ -305,6 +329,7 @@ int main(int, char **) {
     RUN_TEST(test_ingest_apstate_gated_by_mask);
     RUN_TEST(test_ingest_new_fields_mask_gated);
     RUN_TEST(test_ingest_heading_mag_and_variation_compose);
+    RUN_TEST(test_ingest_engine_hours_mask_gated_and_composes);
     RUN_TEST(test_ingest_empty_mask_publishes_nothing);
     return UNITY_END();
 }
