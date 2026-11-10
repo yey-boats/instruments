@@ -224,6 +224,21 @@ jobs:
       - name: Every firmware env maps to a class and runs the pre-script
         run: python3 -m unittest discover -s tools -p 'test_midl_class.py' -v
 
+  web-security:
+    name: Web security guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: No release env enables the lab auth bypass; no wildcard CORS
+        run: python3 -m unittest discover -s tools -p 'test_web_security.py' -v
+
   sim-build:
     name: Host render sim builds
     runs-on: ubuntu-latest

@@ -1,4 +1,5 @@
 #include "net.h"
+#include "web_auth_policy.h"
 
 #include <Arduino.h>
 #include "storage.h"
@@ -648,7 +649,8 @@ static void post_show_wifi_screen() {
 
 static bool web_auth_required() {
     storage::Namespace p("web", true);
-    return p.get_u8("auth", 0) != 0;
+    return web_auth_policy::enforced(p.get_u8("auth", web_auth_policy::FLAG_DEFAULT),
+                                     p.get_string("pass", "").c_str());
 }
 
 static device_discovery::Info discovery_info() {
