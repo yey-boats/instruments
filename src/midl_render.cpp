@@ -51,6 +51,9 @@ static void copy32(char *dst, const char *src) {
     dst[31] = 0;
 }
 
+static_assert(midl::kinds::ACTION_TARGET_MAX + 1 <= midl::FirmwareLimits::path_len,
+              "action_buf (path_len) must hold a full ACTION_TARGET_MAX target");
+
 // Copy a raw SignalK path into a caller-owned FirmwareLimits::path_len buffer.
 static void copy_path(char *dst, const char *src) {
     constexpr size_t cap = midl::FirmwareLimits::path_len;
@@ -443,8 +446,13 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
         if (!action.isNull()) {
             const char *kind = action["kind"] | "";
             const char *target = action["target"] | "";
-            if (target[0]) {
-                copy32(action_buf, target);
+            // Validate the FULL target before copy32 truncates it (#29 review):
+            // an over-long put/command target is dropped, never truncated
+            // (check_doc rejects it at ingestion with the same rule).
+            bool too_long = (!strcmp(kind, "put") || !strcmp(kind, "command")) &&
+                            strlen(target) > midl::kinds::ACTION_TARGET_MAX;
+            if (target[0] && !too_long) {
+                copy_path(action_buf, target);
                 if (!strcmp(kind, "nav")) {
                     out.target_screen = action_buf;
                 } else if (!strcmp(kind, "command") ||

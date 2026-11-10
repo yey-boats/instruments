@@ -48,7 +48,8 @@ struct FirmwareLimits {
 // count. static_asserts next to each struct (midl_render_apply.cpp, ui_layouts.cpp)
 // hold the configured-count footprint under these caps so an over-large limit
 // fails the BUILD, not the device. Generous headroom; tune if a class needs more.
-constexpr size_t MIDL_ARENA_PSRAM_BUDGET = 96 * 1024;  // whole arena pool (ui::MAX_SCREENS arenas)
+// 112 KB: action targets hold a full SignalK PUT path (path_len), +9 KB at 9 tiles.
+constexpr size_t MIDL_ARENA_PSRAM_BUDGET = 112 * 1024;  // whole arena pool (ui::MAX_SCREENS arenas)
 constexpr size_t MIDL_FREEFORM_STATE_BUDGET = 8 * 1024;  // one per-screen FreeformState
 
 }  // namespace midl

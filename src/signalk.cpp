@@ -4,6 +4,7 @@
 #include "build_config.h"
 #include "device_identity.h"
 #include "manager.h"
+#include "midl_kinds.h"
 #include "net_health.h"
 #include "notifications.h"
 #include "psram_json.h"
@@ -1264,12 +1265,17 @@ int putValue(const char *path, const char *valueJson) {
         net::logf("[sk] PUT: wifi not up");
         return -3;
     }
+    // Percent-encode the path (defence in depth: MIDL `put` targets are
+    // already validated by midl::kinds::put_target_ok). Dots and slashes are
+    // kept: SignalK servers accept either segment separator.
+    char enc[256];
+    if (!midl::kinds::encode_put_path(path, enc, sizeof(enc))) {
+        net::logf("[sk] PUT: path too long");
+        return -5;
+    }
     HTTPClient http;
     String url =
-        String("http://") + s_host + ":" + String(s_port) + "/signalk/v1/api/vessels/self/" + path;
-    // SignalK PUT REST puts dots in path; we accept dot-paths in `path` arg
-    // and send them as-is (the SK server expects them URL-encoded with
-    // slashes between segments, but most servers accept dots too).
+        String("http://") + s_host + ":" + String(s_port) + "/signalk/v1/api/vessels/self/" + enc;
     if (!http.begin(url)) {
         net::logf("[sk] PUT: begin failed");
         return -4;

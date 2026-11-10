@@ -27,9 +27,23 @@ inline constexpr const char *ACTION_KINDS[] = {"nav", "command", "put", nullptr}
 bool source_supported(const char *kind);
 bool action_supported(const char *kind);
 
-// A `put` target must be a SignalK path (dotted, no spaces) so it can never
-// fall through to the console-command funnel.
+// Longest action target the renderer stores (map_element copies it into a
+// midl::FirmwareLimits::path_len buffer, 96 incl. NUL — static_assert'd in
+// midl_render.cpp). Longer put/command targets are REJECTED whole, never
+// truncated: truncation could turn a path into a console command or PUT to a
+// different path.
+inline constexpr size_t ACTION_TARGET_MAX = 95;
+
+// A `put` target must be a SignalK path so it can never fall through to the
+// console-command funnel, and is safe to place in the PUT URL (which carries
+// the device's bearer token): 2+ segments of [A-Za-z0-9_-], separated by
+// single dots, no leading/trailing dot, at most ACTION_TARGET_MAX chars.
 bool put_target_ok(const char *target);
+
+// Percent-encode `path` for the SignalK PUT URL path: keeps unreserved chars
+// [A-Za-z0-9-._~] and '/', encodes everything else as %XX. Returns false
+// (out = "") if path is null or the result does not fit in n.
+bool encode_put_path(const char *path, char *out, size_t n);
 
 // Walk a MIDL document (element bindings, marker dirs, element actions, alarm
 // sources). Returns false on the first unsupported kind and writes a clear,

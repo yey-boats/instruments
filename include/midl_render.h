@@ -43,7 +43,9 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 
 // Pure: fill `out` from one MIDL element JSON. Strings (id,label,unit,action,zoom)
 // are COPIED into caller-owned buffers `id_buf`/`label_buf`/`unit_buf`/
-// `action_buf`/`zoom_buf` (each >=32), and out.id/label/unit +
+// `zoom_buf` (each >=32) and `action_buf` (>= FirmwareLimits::path_len, so a
+// full SignalK PUT path fits; longer put/command targets are dropped, never
+// truncated — see midl::kinds::ACTION_TARGET_MAX), and out.id/label/unit +
 // out.target_screen/out.command + out.zoom_target point at them -- so the caller
 // controls lifetime (the MetricBinding stores non-owning pointers). `value`
 // binding path -> source via path_to_source; style.color -> accent (accepts

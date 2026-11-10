@@ -20,7 +20,7 @@ static char s_style_paths[4][96];
 static MetricBinding mapOne(const char *json, const char *id) {
     JsonDocument doc;
     deserializeJson(doc, json);
-    static char idb[32], lab[32], unit[32], act[32], zoom[32], path[96], dir[96], aval[32];
+    static char idb[32], lab[32], unit[32], act[96], zoom[32], path[96], dir[96], aval[32];
     static midl::render::StyleAlloc style;
     style = midl::render::StyleAlloc{};
     style.markers = s_marker_slots;
@@ -40,7 +40,7 @@ static MetricBinding mapOne(const char *json, const char *id) {
 static MetricBinding mapOneNoPathBufs(const char *json, const char *id) {
     JsonDocument doc;
     deserializeJson(doc, json);
-    static char idb[32], lab[32], unit[32], act[32], zoom[32];
+    static char idb[32], lab[32], unit[32], act[96], zoom[32];
     MetricBinding mb{};
     midl::render::map_element(doc.as<JsonVariantConst>(), id, mb, idb, lab, unit, act, zoom);
     return mb;
@@ -249,6 +249,30 @@ void test_action_put_non_path_target_is_dropped() {
     MetricBinding m2 = mapOne(
         R"({"type":"button","action":{"kind":"put","target":"sk 10.0.0.1","value":true}})", "b");
     TEST_ASSERT_NULL(m2.command);
+}
+
+// Review of #29: the action buffer holds a full SignalK path (path_len), and
+// the FULL target is validated before it is copied. A real autopilot path
+// longer than 31 chars is kept verbatim; an over-long put/command target is
+// dropped, never truncated (truncation must not turn a path into a console
+// command, nor PUT to a shortened path).
+void test_action_long_targets_dropped_not_truncated() {
+    MetricBinding ok = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"steering.autopilot.target.headingMagnetic"}})",
+        "b");
+    TEST_ASSERT_NOT_NULL(ok.command);
+    TEST_ASSERT_EQUAL_STRING("steering.autopilot.target.headingMagnetic", ok.command);
+    MetricBinding m2 = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.b"}})",
+        "b");
+    TEST_ASSERT_NULL(m2.command);
+    MetricBinding m3 = mapOne(
+        R"({"type":"button","action":{"kind":"command","target":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.b"}})",
+        "b");
+    TEST_ASSERT_NULL(m3.command);
+    MetricBinding m4 =
+        mapOne(R"({"type":"button","action":{"kind":"put","target":"../../../x.y"}})", "b");
+    TEST_ASSERT_NULL(m4.command);
 }
 
 void test_action_command_dotted_target_retained_verbatim() {
@@ -806,6 +830,7 @@ int main(int, char **) {
     RUN_TEST(test_action_command_sets_command);
     RUN_TEST(test_action_put_kind_rides_command_slot);
     RUN_TEST(test_action_put_non_path_target_is_dropped);
+    RUN_TEST(test_action_long_targets_dropped_not_truncated);
     RUN_TEST(test_action_command_dotted_target_retained_verbatim);
     RUN_TEST(test_action_absent_leaves_both_null);
     RUN_TEST(test_action_unknown_kind_ignored);
