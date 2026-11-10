@@ -35,6 +35,27 @@ void stamp_version(char *v, size_t cap) {
     snprintf(v, cap, "%s", version_string());
 }
 
+static size_t finish(int n, char *buf, size_t cap) {
+    if (n < 0 || (size_t)n >= cap) {
+        if (cap) buf[0] = '\0';
+        return 0;
+    }
+    return (size_t)n;
+}
+
+size_t control_error_json(const char *reason, char *buf, size_t cap) {
+    if (!buf || cap == 0) return 0;
+    int n = snprintf(buf, cap, "{\"v\":\"%s\",\"ok\":false,\"reason\":\"%s\"}", version_string(),
+                     reason ? reason : "");
+    return finish(n, buf, cap);
+}
+
+size_t control_ready_json(char *buf, size_t cap) {
+    if (!buf || cap == 0) return 0;
+    int n = snprintf(buf, cap, "{\"v\":\"%s\",\"t\":\"ready\"}", version_string());
+    return finish(n, buf, cap);
+}
+
 bool auth_ok(const char *configured_key, const char *presented_key) {
     if (!configured_key || !configured_key[0]) return true;  // open
     if (!presented_key) return false;

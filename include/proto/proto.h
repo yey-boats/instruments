@@ -27,6 +27,13 @@ template <size_t N> inline void stamp_version(char (&v)[N]) {
     stamp_version(v, N);
 }
 
+// Canned BLE Control JSON, stamped with version_string():
+//   control_error_json: {"v":"<ver>","ok":false,"reason":"<reason>"}
+//   control_ready_json: {"v":"<ver>","t":"ready"} (initial RESP value)
+// Return the length written, or 0 if `cap` is too small (buf then holds "").
+size_t control_error_json(const char *reason, char *buf, size_t cap);
+size_t control_ready_json(char *buf, size_t cap);
+
 // Shared-key check. configured_key == "" => open (accept any). Constant-ish compare.
 bool auth_ok(const char *configured_key, const char *presented_key);
 

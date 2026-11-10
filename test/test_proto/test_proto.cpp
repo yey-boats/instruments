@@ -230,6 +230,33 @@ static void test_stamp_version_fills_every_record_kind() {
     TEST_ASSERT_EQUAL_STRING(version_string(), r.v);
 }
 
+// BLE Control canned replies (bad_json / incompatible_version) and the RESP
+// characteristic's initial `ready` value are stamped with our own version too.
+static void test_control_canned_replies_carry_own_version() {
+    char buf[96];
+    JsonDocument d;
+
+    TEST_ASSERT_TRUE(control_error_json("bad_json", buf, sizeof(buf)) > 0);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(d, buf).code());
+    TEST_ASSERT_EQUAL_STRING(version_string(), d["v"] | "");
+    TEST_ASSERT_FALSE(d["ok"] | true);
+    TEST_ASSERT_EQUAL_STRING("bad_json", d["reason"] | "");
+
+    TEST_ASSERT_TRUE(control_error_json("incompatible_version", buf, sizeof(buf)) > 0);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(d, buf).code());
+    TEST_ASSERT_EQUAL_STRING(version_string(), d["v"] | "");
+    TEST_ASSERT_EQUAL_STRING("incompatible_version", d["reason"] | "");
+
+    TEST_ASSERT_TRUE(control_ready_json(buf, sizeof(buf)) > 0);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(d, buf).code());
+    TEST_ASSERT_EQUAL_STRING(version_string(), d["v"] | "");
+    TEST_ASSERT_EQUAL_STRING("ready", d["t"] | "");
+
+    // Truncation is reported, never a half-written JSON accepted as success.
+    char tiny[8];
+    TEST_ASSERT_EQUAL(0, (int)control_ready_json(tiny, sizeof(tiny)));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_version_parse_and_compat);
@@ -246,5 +273,6 @@ int main(int, char **) {
     RUN_TEST(test_control_state_multi_session);
     RUN_TEST(test_version_string_is_own_major_minor);
     RUN_TEST(test_stamp_version_fills_every_record_kind);
+    RUN_TEST(test_control_canned_replies_carry_own_version);
     return UNITY_END();
 }
