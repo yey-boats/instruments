@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 #include "midl_render.h"
+#include "midl_kinds.h"
 #include "layout_renderer.h"  // ui::layout_render::path_to_source
 #include "midl_limits.h"      // midl::FirmwareLimits::path_len
 
@@ -192,7 +193,8 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     // miss the RAW path is RETAINED (audit item 8) for the dynamic PathStore.
     // "const" renders a literal and "local" a device-local metric — NEITHER
     // subscribes anything (source stays None, path stays NULL, so collect_paths
-    // adds no SignalK subscription for them). "computed" is unsupported -> "--".
+    // adds no SignalK subscription for them). "computed" is not implemented: it is
+    // not advertised and midl::kinds::check_doc rejects it at ingestion (#23).
     JsonVariantConst vbind = el["bindings"]["value"];
     const char *vkind = vbind["kind"] | "";
     if (!strcmp(vkind, "const")) {
@@ -431,9 +433,9 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
         }
     }
 
-    // action block (buttons / interactive elements). actionKinds == {nav, command}
-    // per the MIDL manifest. "nav" -> target_screen (reuses the tile-nav path);
-    // "command" -> command (routed through net::dispatchCommand on tap). The target
+    // action block (buttons / interactive elements). actionKinds == {nav, command,
+    // put} per midl::kinds::ACTION_KINDS (the served manifest). "nav" -> target_screen (reuses the
+    // tile-nav path); "command" -> command (routed through net::dispatchCommand on tap). The target
     // string is copied into action_buf so the MetricBinding keeps a non-owning ptr
     // with caller-controlled lifetime, exactly like id/label/unit.
     if (action_buf) {
@@ -445,7 +447,12 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
                 copy32(action_buf, target);
                 if (!strcmp(kind, "nav")) {
                     out.target_screen = action_buf;
-                } else if (!strcmp(kind, "command") || !strcmp(kind, "put")) {
+                } else if (!strcmp(kind, "command") ||
+                           (!strcmp(kind, "put") && midl::kinds::put_target_ok(target))) {
+                    // instruments#23: a "put" whose target is not a SignalK
+                    // path is dropped here (and rejected at ingestion by
+                    // midl::kinds::check_doc) so it can never reach the
+                    // console-command funnel.
                     // "put" (SignalK PUT to a dotted path) rides the command
                     // slot; button_action_cb routes a dotted, space-free
                     // target through the SignalK PUT queue instead of the

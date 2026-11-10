@@ -34,9 +34,11 @@ static void test_firmware_kinds() {
     // const literals; nav, command, and put (SignalK PUT).
     const char *src[] = {"signalk", "local", "const", nullptr};
     const char *act[] = {"nav", "command", "put", nullptr};
-    for (int i = 0; src[i]; ++i) TEST_ASSERT_EQUAL_STRING(src[i], midl::kinds::SOURCES[i]);
+    for (int i = 0; src[i]; ++i)
+        TEST_ASSERT_EQUAL_STRING(src[i], midl::kinds::SOURCES[i]);
     TEST_ASSERT_NULL(midl::kinds::SOURCES[3]);
-    for (int i = 0; act[i]; ++i) TEST_ASSERT_EQUAL_STRING(act[i], midl::kinds::ACTION_KINDS[i]);
+    for (int i = 0; act[i]; ++i)
+        TEST_ASSERT_EQUAL_STRING(act[i], midl::kinds::ACTION_KINDS[i]);
     TEST_ASSERT_NULL(midl::kinds::ACTION_KINDS[3]);
     TEST_ASSERT_FALSE(midl::kinds::source_supported("computed"));
     TEST_ASSERT_FALSE(midl::kinds::source_supported(""));
@@ -80,7 +82,7 @@ static void test_supported_doc_accepted() {
 static void test_computed_binding_rejected_with_path() {
     char err[160] = "";
     const char *doc = R"({"midl":"1.0.0","screens":[{"id":"a","elements":{
-        "vmg":{"type":"single-value","bindings":{"value":{"kind":"computed","expr":"sog*cos(twa)"}}}
+        "vmg":{"type":"single-value","bindings":{"value":{"kind":"computed","expr":"sog * 0.5"}}}
       },"layout":{"element":"vmg"}}]})";
     TEST_ASSERT_FALSE(check(doc, err, sizeof(err)));
     TEST_ASSERT_NOT_NULL(strstr(err, "computed"));
