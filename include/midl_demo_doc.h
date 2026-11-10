@@ -8,7 +8,11 @@
 // screen below is that library doc's `square-480` variant layout verbatim
 // (screen id, element types, bindings, format, style — including gauge/bar
 // `style.zones` and `format.decimals`, which the renderer is gaining support
-// for). Exercises the multi-screen apply_all() render + navigation path
+// for). Exception (instruments#19): the `dash` and `anchor` layouts use the
+// `hero-split` preset instead of the library's nested row[a | col[b, c]] --
+// same geometry, but the preset does not recurse, so the doc stays within
+// round-360's depth 2 (the baked doc is rendered on every class; checked by
+// test/test_midl_demo_doc). Exercises the multi-screen apply_all() render + navigation path
 // without requiring a live SignalK delivery. Used by the `midl-render` console
 // command, the ConfigApplyMidl pump case, and the YEYBOATS_MIDL_ONLY boot.
 //
@@ -25,7 +29,7 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
       "wind":{"type":"windrose","name":"WIND","format":{"unit":"kn","decimals":1},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
       "sog":{"type":"single-value","name":"SOG","format":{"unit":"kn","decimals":1},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
       "hdg":{"type":"compass","name":"HDG","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.headingTrue"}}}},
-      "layout":{"flow":"row","children":[{"element":"wind"},{"flow":"col","children":[{"element":"sog"},{"element":"hdg"}]}]}},
+      "layout":{"preset":"hero-split","slots":["wind","sog","hdg"]}},
     {"id":"nav","title":"Course","elements":{
       "dtw":{"type":"single-value","name":"DTW","format":{"unit":"nm","decimals":1},"bindings":{"value":{"kind":"signalk","path":"navigation.courseGreatCircle.nextPoint.distance"}}},
       "btw":{"type":"single-value","name":"BTW","format":{"unit":"deg","decimals":0},"bindings":{"value":{"kind":"signalk","path":"navigation.courseGreatCircle.nextPoint.bearingTrue"}}},
@@ -54,7 +58,7 @@ inline constexpr const char *SQUARE_480_JSON = R"midl({
       "depth":{"type":"single-value","name":"DEPTH","format":{"unit":"m"},"bindings":{"value":{"kind":"signalk","path":"environment.depth.belowTransducer"}}},
       "heading":{"type":"compass","name":"HEADING","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"},"dir":{"kind":"signalk","path":"navigation.headingTrue"}}},
       "status":{"type":"text","name":"STATE","bindings":{"value":{"kind":"signalk","path":"navigation.state"}}}},
-      "layout":{"flow":"row","children":[{"element":"depth"},{"flow":"col","children":[{"element":"heading"},{"element":"status"}]}]}}
+      "layout":{"preset":"hero-split","slots":["depth","heading","status"]}}
   ]
 })midl";
 // clang-format on

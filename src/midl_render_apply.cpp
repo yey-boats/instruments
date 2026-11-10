@@ -69,7 +69,7 @@ using ui::layouts::TemplateId;
 // capturing any stack variable.
 // ---------------------------------------------------------------------------
 
-static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // spec-derived (9)
+static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // per class (4..9)
 static constexpr size_t STR_CAP = midl::FirmwareLimits::str_len;                 // 32
 static constexpr size_t PATH_CAP = midl::FirmwareLimits::path_len;               // 96
 

@@ -365,5 +365,5 @@ gen-manifest:
 check-catalog:
 	$(MAKE) -C midl check-catalog
 
-embed-manifest:
-	python3 tools/embed_manifest.py square-480
+embed-manifest:  ## Regenerate the per-class MIDL manifest/limits headers (include/midl_gen/)
+	python3 tools/embed_manifest.py

@@ -55,4 +55,10 @@ SolveStatus expand_preset(JsonVariantConst node, Rect area, PlacementSet &out);
 // failure code and leaves `out` partially filled (caller discards on failure).
 SolveStatus solve_screen(JsonVariantConst layout, Rect area, PlacementSet &out);
 
+// Same, but bounded by another class's limits (clamped to this build's), so a
+// doc can be checked against every display class from one host build -- e.g.
+// the baked factory doc must solve on round-360 (depth 2 / 4 tiles).
+SolveStatus solve_screen(JsonVariantConst layout, Rect area, PlacementSet &out, int max_depth,
+                         size_t max_tiles);
+
 }  // namespace midl
