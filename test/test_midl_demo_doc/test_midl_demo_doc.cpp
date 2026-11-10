@@ -40,8 +40,8 @@ static const ClassLimits kClasses[] = {
     CLS(cls_landscape_800x480, 800, 480),
     CLS(cls_landscape_1024x600, 1024, 600),
     CLS(cls_round_360, 360, 360),
-};// clang-format on
-
+};
+// clang-format on
 
 void setUp() {
 }
