@@ -32,6 +32,7 @@ struct ClassLimits {
     int w, h, max_tiles, max_depth;
 };
 
+// clang-format off
 #define CLS(ns, W, H)                                                                              \
     { ns::midl_gen::CLASS_ID, W, H, ns::midl_gen::MAX_TILES, ns::midl_gen::MAX_DEPTH }
 static const ClassLimits kClasses[] = {
@@ -39,7 +40,8 @@ static const ClassLimits kClasses[] = {
     CLS(cls_landscape_800x480, 800, 480),
     CLS(cls_landscape_1024x600, 1024, 600),
     CLS(cls_round_360, 360, 360),
-};
+};// clang-format on
+
 
 void setUp() {
 }
