@@ -37,6 +37,35 @@ firmware artifacts.
 - WiFi credentials are stored in NVS in plaintext.
 - The SignalK WebSocket connection is **unencrypted** (`ws://`, not `wss://`).
 
+## Web API credentials (instruments#21)
+
+The device web API (`/api/*`) uses HTTP Basic Auth. There is **no built-in or
+shared default password** in the firmware:
+
+1. **Factory / setup state - open.** A device with no web password in NVS
+   (`web/pass`) serves the API without auth so first-boot provisioning (setup
+   AP captive page, BLE, on-screen WiFi setup) works. `/api/security` reports
+   `web.auth = "setup-open"`.
+2. **Set up - Basic Auth on by default.** Once a password is provisioned
+   (today: the SignalK manager pushes `webAuth.{username,password}` when it
+   pairs the device), Basic Auth is enforced. The NVS `web/auth` flag now
+   defaults to *on* when absent; `web.auth = "basic"`. Username defaults to
+   `espdisp`.
+3. **Owner opt-out.** Only an explicit `webAuth.enabled=false` disables it
+   (`web.auth = "disabled"`).
+
+Lost password: re-pair from the manager (it re-pushes its credentials), or
+erase NVS / factory-reset over USB. The peer-control `/api/p2p/*` endpoints are
+gated by the control-protocol shared key instead (unchanged).
+
+The web server sends **no CORS headers** (`Access-Control-Allow-Origin` was
+`*`). The on-device UI is same-origin and the manager/layout editor reach the
+device server-side through the plugin, so no browser needs cross-origin access.
+
+The lab-only `YEYBOATS_LAB_OPEN_WEB` auth bypass is refused at compile time in
+any `YEYBOATS_RELEASE_BUILD`, and CI (`tools/test_web_security.py`) asserts no
+release env or workflow defines it.
+
 An OTA password embedded in firmware is still present in the binary. Treat
 public release assets as disclosing that value and rotate the secret if the
 asset has been shared outside the intended deployment group.

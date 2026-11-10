@@ -1,4 +1,5 @@
 #include "manager.h"
+#include "web_auth_policy.h"
 #include "build_config.h"
 
 // Defined exactly once for the whole firmware here, so the shared
@@ -737,9 +738,15 @@ void build_status_body(JsonDocument &doc) {
     JsonObject web_auth = doc["webAuth"].to<JsonObject>();
     {
         storage::Namespace web_prefs("web", true);
-        web_auth["enabled"] = web_prefs.get_u8("auth", 0) != 0;
-        web_auth["username"] = web_prefs.get_string("user", "espdisp");
-        web_auth["passwordSet"] = !web_prefs.get_string("pass", "").empty();
+        // instruments#21: report the EFFECTIVE state (default-on once a
+        // password is provisioned), not the raw NVS flag.
+        std::string pass = web_prefs.get_string("pass", "");
+        web_auth_policy::State st = web_auth_policy::state(
+            web_prefs.get_u8("auth", web_auth_policy::FLAG_DEFAULT), pass.c_str());
+        web_auth["enabled"] = st == web_auth_policy::State::Enforced;
+        web_auth["state"] = web_auth_policy::state_name(st);
+        web_auth["username"] = web_prefs.get_string("user", web_auth_policy::DEFAULT_USER);
+        web_auth["passwordSet"] = !pass.empty();
     }
 
     JsonObject cfg = doc["config"].to<JsonObject>();
