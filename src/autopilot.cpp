@@ -55,13 +55,13 @@ Result sk_set_mode(Mode m) {
     const char *name = mode_name(m);
     if (!name || strcmp(name, "?") == 0) return Result::InvalidPayload;
     String body = String("\"") + name + "\"";
-    return post_sk_put("steering/autopilot/state", body.c_str());
+    return post_sk_put("steering.autopilot.state", body.c_str());
 }
 
 Result sk_adjust(int delta_deg) {
     char buf[16];
     snprintf(buf, sizeof(buf), "%d", delta_deg);
-    return post_sk_put("steering/autopilot/actions/adjustHeading", buf);
+    return post_sk_put("steering.autopilot.actions.adjustHeading", buf);
 }
 
 Result sk_silence() {

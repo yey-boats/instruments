@@ -34,7 +34,7 @@ bool signalk_put_for(const Action &a, char *path_out, size_t path_cap, char *val
     switch (a.type) {
     case ActionType::ApSetState:
         if (path_out && path_cap) {
-            snprintf(path_out, path_cap, "%s", "steering/autopilot/state");
+            snprintf(path_out, path_cap, "%s", "steering.autopilot.state");
         }
         if (value_out && value_cap) {
             snprintf(value_out, value_cap, "\"%s\"", a.arg_str);
@@ -42,7 +42,7 @@ bool signalk_put_for(const Action &a, char *path_out, size_t path_cap, char *val
         return true;
     case ActionType::ApSetTargetRad:
         if (path_out && path_cap) {
-            snprintf(path_out, path_cap, "%s", "steering/autopilot/target/headingTrue");
+            snprintf(path_out, path_cap, "%s", "steering.autopilot.target.headingTrue");
         }
         if (value_out && value_cap) {
             snprintf(value_out, value_cap, "%.4f", a.arg_f);

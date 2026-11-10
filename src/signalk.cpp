@@ -1169,7 +1169,7 @@ bool handleSerialCommand(const String &line) {
             return true;
         }
         String body = String("\"") + state + "\"";
-        int rc = putValue("steering/autopilot/state", body.c_str());
+        int rc = putValue("steering.autopilot.state", body.c_str());
         net::logf("[sk] ap state=%s -> %d", state.c_str(), rc);
         return true;
     }
@@ -1182,7 +1182,7 @@ bool handleSerialCommand(const String &line) {
             net::logf("[sk] usage: sk-ap-adjust <degrees>");
             return true;
         }
-        int rc = putValue("steering/autopilot/actions/adjustHeading", deg.c_str());
+        int rc = putValue("steering.autopilot.actions.adjustHeading", deg.c_str());
         net::logf("[sk] ap adjust=%s deg -> %d", deg.c_str(), rc);
         return true;
     }
@@ -1265,9 +1265,14 @@ int putValue(const char *path, const char *valueJson) {
         net::logf("[sk] PUT: wifi not up");
         return -3;
     }
-    // Percent-encode the path (defence in depth: MIDL `put` targets are
-    // already validated by midl::kinds::put_target_ok). Dots and slashes are
-    // kept: SignalK servers accept either segment separator.
+    // Every PUT path must be a dotted SignalK path (instruments#31): callers
+    // use the dotted form (signalk-server maps URL slashes to dots, so dots
+    // are what it resolves anyway). Then percent-encode as defence in depth;
+    // '/' is encoded too, so nothing can leave /vessels/self/.
+    if (!midl::kinds::put_target_ok(path)) {
+        net::logf("[sk] PUT: rejected non-SignalK path '%.40s'", path);
+        return -6;
+    }
     char enc[256];
     if (!midl::kinds::encode_put_path(path, enc, sizeof(enc))) {
         net::logf("[sk] PUT: path too long");

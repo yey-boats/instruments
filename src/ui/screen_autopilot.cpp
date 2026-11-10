@@ -49,7 +49,7 @@ static const char *s_last_engage = "auto";  // mode to re-engage from STBY
 static void put_heading(double rad) {
     app::Command cmd;
     cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/target/headingTrue", sizeof(cmd.a) - 1);
+    strncpy(cmd.a, "steering.autopilot.target.headingTrue", sizeof(cmd.a) - 1);
     snprintf(cmd.b, sizeof(cmd.b), "%.4f", rad);
     app::post_net(cmd, 50);
     net::logf("[ap] target -> %.0f\xC2\xB0 queued", rad * 180.0 / M_PI);
@@ -58,7 +58,7 @@ static void put_heading(double rad) {
 static void put_state(const char *state) {
     app::Command cmd;
     cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
+    strncpy(cmd.a, "steering.autopilot.state", sizeof(cmd.a) - 1);
     snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
     app::post_net(cmd, 50);
     net::logf("[ap] state -> %s queued", state);
