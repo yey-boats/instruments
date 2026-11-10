@@ -401,7 +401,7 @@ void read_shared_key(char *out, size_t cap) {
 // Build the controller's Attach (id/name/color/key/ttl) from device identity +
 // the NVS-persisted proto color/key. Shared by the IP and BLE switch paths.
 void build_attach(proto::Attach &a) {
-    strncpy(a.v, "1.0", sizeof(a.v) - 1);
+    proto::stamp_version(a.v);
     strncpy(a.controllerId, device_identity::get().device_id, sizeof(a.controllerId) - 1);
     strncpy(a.name, device_identity::get().device_id, sizeof(a.name) - 1);
     char color[16];
@@ -422,7 +422,7 @@ bool ble_switch(const char *ble_addr, const char *view_id) {
     proto::Attach a{};
     build_attach(a);
     proto::Switch sw{};
-    strncpy(sw.v, "1.0", sizeof(sw.v) - 1);
+    proto::stamp_version(sw.v);
     strncpy(sw.viewId, view_id ? view_id : "", sizeof(sw.viewId) - 1);
     return proto_ble::switch_on_peer(ble_addr, a, sw);
 }
@@ -445,7 +445,7 @@ bool ip_switch(const char *base_url, const char *view_id) {
     if (!proto_ip::attach(base, a, ack) || !ack.accepted) return false;
 
     proto::Switch sw{};
-    strncpy(sw.v, "1.0", sizeof(sw.v) - 1);
+    proto::stamp_version(sw.v);
     strncpy(sw.sessionId, ack.sessionId, sizeof(sw.sessionId) - 1);
     strncpy(sw.viewId, view_id ? view_id : "", sizeof(sw.viewId) - 1);
     proto::SwitchAck sa{};

@@ -33,6 +33,7 @@
 #include "input_test.h"
 #include "manager.h"
 #include "beeper.h"
+#include "proto/proto.h"
 #include "autopilot.h"
 #include "device_identity.h"
 #include "device_discovery.h"
@@ -691,7 +692,7 @@ static void refresh_mdns_device_txt(const char *reason) {
     // role = display|controller|both. A controller browsing _yeyboats._tcp reads
     // these to decide it can attach + drive this device over IP. Every yeyboats
     // node is a display that also accepts remote control, so role = "both".
-    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "pv", "2.0");
+    MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "pv", proto::version_string());
     MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "role", "both");
     MDNS.addServiceTxt(device_discovery::MDNS_SERVICE, "tcp", "display",
                        String(info.display_width) + "x" + String(info.display_height));

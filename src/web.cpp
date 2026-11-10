@@ -1808,7 +1808,7 @@ static void handle_p2p_heartbeat() {
     }
     bool ok = proto_target::handle_heartbeat(req.sessionId);
     proto::HeartbeatAck ack;
-    strncpy(ack.v, "1.0", sizeof(ack.v) - 1);
+    proto::stamp_version(ack.v);
     ack.ok = ok;
     ack.ttlMs = proto::kDefaultTtlMs;
     p2p_send_ack(ack);
@@ -1826,7 +1826,7 @@ static void handle_p2p_detach() {
     bool ok = proto_target::handle_detach(req.sessionId);
     JsonDocument out(&yeyboats::psram_json);
     JsonObject o = out.to<JsonObject>();
-    o["v"] = "1.0";
+    o["v"] = proto::version_string();
     o["t"] = "detachAck";
     o["ok"] = ok;
     String payload;

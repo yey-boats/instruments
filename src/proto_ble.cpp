@@ -175,7 +175,7 @@ bool switch_on_peer(const char *addr, const proto::Attach &a, const proto::Switc
     // clears immediately rather than waiting for the TTL reap. Failure here
     // does not change the switch result.
     proto::Detach d{};
-    strncpy(d.v, "1.0", sizeof(d.v) - 1);
+    proto::stamp_version(d.v);
     strncpy(d.sessionId, ack.sessionId, sizeof(d.sessionId) - 1);
     write_control(svc, to_payload(d));
 

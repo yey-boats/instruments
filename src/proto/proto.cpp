@@ -23,6 +23,18 @@ bool version_compatible(const char *peer_v) {
     return M == kProtoMajor;
 }
 
+const char *version_string() {
+    // Built once from the generated constants so a schema bump flows through.
+    static char buf[16] = {0};
+    if (!buf[0]) snprintf(buf, sizeof(buf), "%d.%d", kProtoMajor, kProtoMinor);
+    return buf;
+}
+
+void stamp_version(char *v, size_t cap) {
+    if (!v || cap == 0) return;
+    snprintf(v, cap, "%s", version_string());
+}
+
 bool auth_ok(const char *configured_key, const char *presented_key) {
     if (!configured_key || !configured_key[0]) return true;  // open
     if (!presented_key) return false;
@@ -91,7 +103,7 @@ int SessionTable::active_count() const {
 }
 
 void SessionTable::to_control_state(ControlState &out, const char *currentView) const {
-    snprintf(out.v, sizeof(out.v), "%d.%d", kProtoMajor, kProtoMinor);
+    stamp_version(out.v);
     strncpy(out.currentView, currentView ? currentView : "", sizeof(out.currentView) - 1);
     out.sessions_count = 0;
     for (int i = 0; i < kMaxSessions; ++i) {

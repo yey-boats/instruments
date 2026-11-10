@@ -409,7 +409,7 @@ static String dispatchControl(const std::string &data) {
         proto::from_json(o, req);
         bool ok = proto_target::handle_heartbeat(req.sessionId);
         proto::HeartbeatAck ack;
-        strncpy(ack.v, "1.0", sizeof(ack.v) - 1);
+        proto::stamp_version(ack.v);
         ack.ok = ok;
         ack.ttlMs = proto::kDefaultTtlMs;
         proto::to_json(out.to<JsonObject>(), ack);
@@ -418,12 +418,12 @@ static String dispatchControl(const std::string &data) {
         proto::from_json(o, req);
         bool ok = proto_target::handle_detach(req.sessionId);
         JsonObject ro = out.to<JsonObject>();
-        ro["v"] = "1.0";
+        ro["v"] = proto::version_string();
         ro["t"] = "detachAck";
         ro["ok"] = ok;
     } else {
         JsonObject ro = out.to<JsonObject>();
-        ro["v"] = "1.0";
+        ro["v"] = proto::version_string();
         ro["ok"] = false;
         ro["reason"] = "unknown_type";
     }

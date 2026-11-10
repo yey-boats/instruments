@@ -1,1 +1,1 @@
-{"v":"1.0","deviceId":"mfd-helm","name":"Helm MFD","role":"both","board":"sunton_4848s040","display":"480x480","currentView":"wind","views":[{"id":"wind","title":"Wind"},{"id":"nav","title":"Nav"}],"transports":["ip","ble"],"authRequired":false}
+{"v":"2.0","deviceId":"mfd-helm","name":"Helm MFD","role":"both","board":"sunton_4848s040","display":"480x480","currentView":"wind","views":[{"id":"wind","title":"Wind"},{"id":"nav","title":"Nav"}],"transports":["ip","ble"],"authRequired":false}
