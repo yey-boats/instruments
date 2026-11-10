@@ -34,6 +34,7 @@
 #include "proto/proto.h"
 #include "generated_midl_manifest.h"
 #include "midl_render.h"
+#include "midl_kinds.h"
 #include "midl_demo_doc.h"
 #include "web_auth_policy.h"
 #include <freertos/semphr.h>
@@ -830,6 +831,16 @@ static void handle_midl_config_post() {
     if (screen.isNull()) {
         send_err(400, "no usable screen / missing 'screens' array");
         return;
+    }
+    // instruments#23: refuse kinds this firmware does not implement (e.g. a
+    // `computed` source) instead of silently rendering "--". The accepted set
+    // is exactly what /api/midl/manifest advertises (midl::kinds).
+    {
+        static char kind_err[192];  // web callbacks run serially; keep off the stack
+        if (!midl::kinds::check_doc(doc.as<JsonVariantConst>(), kind_err, sizeof(kind_err))) {
+            send_err(422, kind_err);
+            return;
+        }
     }
     // Queue the apply on the UI task (carries a PSRAM blob; pump frees it).
     int qrc = queue_midl_apply(body.c_str(), len);

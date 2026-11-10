@@ -88,7 +88,7 @@ struct MidlScreenArena {
     char ids[MAX_TILES][STR_CAP];
     char labels[MAX_TILES][STR_CAP];
     char units[MAX_TILES][STR_CAP];
-    char actions[MAX_TILES][STR_CAP];        // button action target (nav/command)
+    char actions[MAX_TILES][PATH_CAP];       // button action target (nav/command/put path)
     char action_values[MAX_TILES][STR_CAP];  // JSON-encoded action.value (PUT payload)
     char zooms[MAX_TILES][STR_CAP];          // per-element zoom screen id (string form)
     char paths[MAX_TILES][PATH_CAP];         // raw SignalK path (dynamic-store fallback)

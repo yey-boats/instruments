@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
     static char ids[MAX_TILES][STR_CAP];
     static char labels[MAX_TILES][STR_CAP];
     static char units[MAX_TILES][STR_CAP];
-    static char actions[MAX_TILES][STR_CAP];
+    static char actions[MAX_TILES][midl::FirmwareLimits::path_len];
     static char zooms[MAX_TILES][STR_CAP];
     static MetricBinding metrics[MAX_TILES];
     static Rect rects[MAX_TILES];

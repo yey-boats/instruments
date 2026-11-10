@@ -82,6 +82,17 @@ Auth reuses the existing device-token header (`X-YeyBoats-Authorization`), not t
 web Basic Auth. The device's manifest at `/api/midl/manifest` is the contract the
 manager validates against before posting (so it never sends an inadmissible doc).
 
+**Source / action kinds (instruments#23).** The MIDL schema is the language and
+allows more than any one target implements (e.g. `computed` sources). The
+manifest's `sources` / `actionKinds` are the firmware's truth, taken from
+`include/midl_kinds.h` by `tools/embed_manifest.py` (today `signalk, local,
+const` and `nav, command, put`), not midl's generic catalog. `POST
+/api/midl/config` rejects a doc using any other kind with HTTP 422 and a
+located message, e.g. `unsupported source kind 'computed' at
+/screens/0/elements/vmg/bindings/value (this device supports: signalk, local,
+const)`. A `put` must target a SignalK path. Full on-device schema validation
+(#20) builds on this.
+
 ## Work required to sync them back (with status)
 
 **Firmware (this repo, branch `feat/midl-firmware-render`):**
