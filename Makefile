@@ -11,6 +11,11 @@ PORT      ?= auto
 DEVICE_IP ?=
 SK_HOST   ?= localhost
 SK_PORT   ?= 3000
+# instruments#30: LAB_OPEN_OTA=1 builds a dev firmware whose ArduinoOTA runs
+# WITHOUT a password when none is set (lab bench only; release envs refuse it
+# at compile time). Default: ArduinoOTA needs a password.
+LAB_OPEN_OTA ?=
+LAB_ENV   := $(if $(filter 1,$(LAB_OPEN_OTA)),PLATFORMIO_BUILD_FLAGS="$$PLATFORMIO_BUILD_FLAGS -D YEYBOATS_LAB_OPEN_OTA=1",)
 # VERSION holds the repo-configured MAJOR.MINOR.0 source of truth. MAJOR.MINOR
 # are authoritative; the third component (BUILD) is owned by CI
 # (github.run_number). Local builds stamp MAJOR.MINOR.0 so a bench binary is
@@ -51,6 +56,7 @@ help:  ## Show this help
 	@printf "  ENV         build env (default: $(ENV))\n"
 	@printf "  PORT        serial port for USB flash (default: auto-detect)\n"
 	@printf "  DEVICE_IP   target IP for OTA flash (required for 'make ota')\n"
+	@printf "  LAB_OPEN_OTA=1 lab-only dev build: ArduinoOTA without a password when none is set\n"
 	@printf "  SK_HOST     SignalK server host for 'make demo' (default: localhost)\n"
 	@printf "  PROJECT_VERSION firmware version MAJOR.MINOR.BUILD (default: $(PROJECT_VERSION); CI sets BUILD=run_number)\n"
 
@@ -62,7 +68,7 @@ setup:  ## First-time setup: copy secrets.h template, verify PlatformIO
 	elif [ ! -f include/secrets.h ]; then \
 	  cp include/secrets.h.example include/secrets.h; \
 	fi
-	@echo "Setup complete. Set YEYBOATS_OTA_PASSWORD to bake in ArduinoOTA auth."
+	@echo "Setup complete. Set YEYBOATS_OTA_PASSWORD to bake in ArduinoOTA auth (dev builds run ArduinoOTA only with a password; LAB_OPEN_OTA=1 for a lab build without one)."
 
 version:  ## Print project version and verify metadata
 	@python3 tools/check_version.py
@@ -75,7 +81,7 @@ version-set:  ## Set project MAJOR.MINOR (use VERSION=0.3; BUILD is CI-owned)
 	python3 tools/set_version.py $(VERSION)
 
 build: setup version-check  ## Build firmware
-	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV)
+	$(LAB_ENV) YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV)
 
 test: version-check  ## Run host-side unit tests
 	$(PIO) test -e native
@@ -96,7 +102,7 @@ sys-test-attended:  ## Open the attended-test checklist
 
 flash: setup  ## Flash via USB (uses PORT, auto-detected if not set)
 	@test -n "$(PORT)" || { echo "No USB serial port found. Set PORT=<path>." >&2; exit 1; }
-	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
+	$(LAB_ENV) YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(ENV) -t upload --upload-port $(PORT)
 
 discover:  ## Discover the device (mDNS, then BLE); prints IP. NAME=<device_id> for exact match.
 	@python3 tools/discover_device.py $(if $(NAME),--name $(NAME),)
@@ -115,7 +121,7 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or fix discovery (see 'make discover')" >&2; exit 1; }
 	@echo "[ota] target=$(OTA_TARGET)"
-	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
+	$(LAB_ENV) YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
 	bash tools/ota_flash.sh $(OTA_TARGET) \
 	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
 	  $(if $(REMOTE),--remote $(REMOTE),)
@@ -134,7 +140,7 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 ota-verify: setup  ## OTA + verify via /api/state. REMOTE=user@host to flash through a relay.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved" >&2; exit 1; }
-	YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
+	$(LAB_ENV) YEYBOATS_VERSION=$(PROJECT_VERSION) $(PIO) run -e $(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))
 	bash tools/ota_flash.sh $(OTA_TARGET) \
 	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
 	  $(if $(REMOTE),--remote $(REMOTE),)

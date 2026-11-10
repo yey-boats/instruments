@@ -147,11 +147,9 @@ jobs:
             echo "esptool.py --chip esp32s3 --port /dev/cu.usbserial-* write_flash 0x0 <target>-merged_firmware.bin"
             echo '```'
             echo ""
-            echo 'Or via authenticated OTA once the device is on the network:'
-            echo ""
-            echo '```sh'
-            echo "YEYBOATS_OTA_PASSWORD='<ota-password>' make ota DEVICE_IP=<device-ip>"
-            echo '```'
+            echo 'After that, update over the network from the SignalK manager plugin'
+            echo '(Firmware -> update job; the device pulls and verifies the image).'
+            echo 'Release firmware has no ArduinoOTA listener (instruments#30).'
             echo ""
             echo "## SignalK plugin"
             echo ""

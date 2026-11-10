@@ -29,9 +29,8 @@ CI firmware builds read `YEYBOATS_OTA_PASSWORD` from GitHub Secrets when it is
 available, and tagged release builds require that secret before producing
 firmware artifacts.
 
-- ArduinoOTA runs **without a password** if `OTA_PASSWORD` is empty. Set
-  `YEYBOATS_OTA_PASSWORD` before `make build`/`make ota`, or configure the
-  GitHub Actions secret `YEYBOATS_OTA_PASSWORD` for CI and release builds.
+- ArduinoOTA (espota, port 3232): see "Firmware updates" below. Release
+  builds do not include it; dev builds run it only with a password.
 - BLE GATT accepts commands with **no pairing** (anyone in BLE range can
   rewrite the WiFi credentials).
 - WiFi credentials are stored in NVS in plaintext.
@@ -55,8 +54,50 @@ shared default password** in the firmware:
    (`web.auth = "disabled"`).
 
 Lost password: re-pair from the manager (it re-pushes its credentials), or
-erase NVS / factory-reset over USB. The peer-control `/api/p2p/*` endpoints are
-gated by the control-protocol shared key instead (unchanged).
+erase NVS / factory-reset over USB.
+
+**Stored as a salted hash (instruments#30).** The password is kept in NVS as a
+PBKDF2-HMAC-SHA256 record (`web/pass_h`: `pbkdf2-sha256$<iterations>$<salt>$<key>`,
+16-byte random salt, 1000 iterations). It is never stored as plaintext. Basic
+Auth decodes the presented credential, derives a key with the stored salt, and
+compares in constant time. On first boot of this firmware, a plaintext
+`web/pass` left by older firmware is hashed and then erased. Downgrading to
+older firmware afterwards leaves that firmware with no password it can read,
+so its API is setup-open until the manager pushes the password again. Basic
+Auth still travels over plain HTTP, so the credential is only as private as
+the LAN.
+
+## Peer control `/api/p2p/*` (instruments#30)
+
+`/api/p2p/*` uses the control-protocol shared key (`ctl key <secret>`, NVS
+`proto/key`), not Basic Auth:
+
+- **Unpaired device** (no web password and no manager registration): an empty
+  key means open. This keeps first setup and local knob-to-display control
+  working with no provisioning.
+- **Paired device** (web password or manager token present): a key is always
+  required. With no key configured, every attach is rejected with
+  `key_required`. Set the same `ctl key <secret>` on the display and on the
+  controller (knob). `DeviceRecord.authRequired` reports this.
+- `GET /api/p2p/device` and `/api/p2p/state` stay readable for discovery.
+  They expose no session ids.
+
+## Firmware updates (instruments#30)
+
+- **Release builds** (`release-*`, `YEYBOATS_RELEASE_BUILD`) compile ArduinoOTA
+  out, so nothing listens on 3232. Updates go through the manager's pull OTA:
+  the device polls `/devices/<id>/firmware/jobs` with its device token,
+  downloads the image, checks its sha256, and flashes the inactive slot. USB
+  flashing also works.
+- **Dev builds** start ArduinoOTA only when a password is set. That is the
+  runtime one (`ota-pass <pw>` over serial/BLE, or the manager's
+  `ota.password`) or the compile-time `OTA_PASSWORD` (`YEYBOATS_OTA_PASSWORD`).
+  With no password, ArduinoOTA stays off. `ota-pass <pw>` starts it without
+  a reboot.
+- **Lab only:** a password-less ArduinoOTA needs an explicit
+  `-D YEYBOATS_LAB_OPEN_OTA=1` (`make ota LAB_OPEN_OTA=1`). No env sets it.
+  `net.cpp` refuses to compile it with `YEYBOATS_RELEASE_BUILD`, and CI
+  (`tools/test_web_security.py`) checks that no env or workflow defines it.
 
 The web server sends **no CORS headers** (`Access-Control-Allow-Origin` was
 `*`). The on-device UI is same-origin and the manager/layout editor reach the

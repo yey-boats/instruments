@@ -29,6 +29,35 @@ static void test_auth() {
     TEST_ASSERT_FALSE(auth_ok("hunter2", nullptr));
 }
 
+// instruments#30: an empty control key means "open" ONLY on an unpaired
+// device (first setup, local knob<->display without any provisioning). Once
+// the device is paired (web password or manager registration present), the
+// key is required and an empty configured key rejects every attach.
+static void test_control_auth_unpaired_empty_key_is_open() {
+    TEST_ASSERT_TRUE(control_auth_ok("", "anything", false));
+    TEST_ASSERT_TRUE(control_auth_ok("", "", false));
+    TEST_ASSERT_TRUE(control_auth_ok(nullptr, nullptr, false));
+    TEST_ASSERT_FALSE(control_auth_required("", false));
+}
+
+static void test_control_auth_paired_requires_key() {
+    TEST_ASSERT_TRUE(control_auth_required("", true));
+    TEST_ASSERT_FALSE(control_auth_ok("", "", true));
+    TEST_ASSERT_FALSE(control_auth_ok("", "anything", true));
+    TEST_ASSERT_FALSE(control_auth_ok(nullptr, nullptr, true));
+    TEST_ASSERT_TRUE(control_auth_ok("hunter2", "hunter2", true));
+    TEST_ASSERT_FALSE(control_auth_ok("hunter2", "", true));
+    TEST_ASSERT_FALSE(control_auth_ok("hunter2", "hunter", true));
+    TEST_ASSERT_FALSE(control_auth_ok("hunter2", "hunter22", true));
+    TEST_ASSERT_FALSE(control_auth_ok("hunter2", nullptr, true));
+}
+
+static void test_control_auth_key_set_always_required() {
+    TEST_ASSERT_TRUE(control_auth_required("k", false));
+    TEST_ASSERT_TRUE(control_auth_ok("k", "k", false));
+    TEST_ASSERT_FALSE(control_auth_ok("k", "x", false));
+}
+
 static void test_attach_fixture_roundtrips() {
     const char *json =
         R"({"v":"2.0","t":"attach","controllerId":"knob-aa01","name":"Helm knob","color":"#00bcd4","key":"hunter2","ttlMs":10000})";
@@ -261,6 +290,9 @@ int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_version_parse_and_compat);
     RUN_TEST(test_auth);
+    RUN_TEST(test_control_auth_unpaired_empty_key_is_open);
+    RUN_TEST(test_control_auth_paired_requires_key);
+    RUN_TEST(test_control_auth_key_set_always_required);
     RUN_TEST(test_attach_fixture_roundtrips);
     RUN_TEST(test_device_record_views_roundtrip);
     RUN_TEST(test_unknown_field_ignored);

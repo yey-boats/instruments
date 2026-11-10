@@ -148,9 +148,11 @@ identical helm repeaters.
    `/firmware/confirm` so the job is marked complete. A failed boot rolls back
    to the previous slot.
 
-> OTA requires the device to be reachable on the network. The device's OTA
-> endpoint is shown in its status (`<host>:3232`). On a flat lab network you
-> can also flash directly: `make ota DEVICE_IP=<ip>`.
+> OTA requires the device to be reachable on the network. Release firmware
+> updates only this way (pull OTA). It has no ArduinoOTA listener on 3232.
+> Dev builds with an OTA password also accept espota on `<host>:3232`
+> (shown in the device status), so on a lab network you can flash directly:
+> `YEYBOATS_OTA_PASSWORD=<pw> make ota DEVICE_IP=<ip>`.
 
 ## 5. Health & troubleshooting
 
