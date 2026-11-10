@@ -18,7 +18,7 @@ struct Peer {
     char device_id[40] = {0};
     char board[24] = {0};
     char display[16] = {0};
-    char pv[8] = {0};     // protocol version TXT ("1.0"); empty if absent
+    char pv[8] = {0};     // protocol version TXT (e.g. "2.0"); empty if absent
     char role[12] = {0};  // "display" | "controller" | "both"; empty if absent
     char ip[16] = {0};    // dotted IPv4
     uint16_t port = 0;

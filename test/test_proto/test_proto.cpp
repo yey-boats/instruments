@@ -1,5 +1,6 @@
 #include <unity.h>
 #include <ArduinoJson.h>
+#include <stdio.h>
 #include <string.h>
 #include "proto/proto.h"
 
@@ -192,6 +193,70 @@ static void test_control_state_multi_session() {
     TEST_ASSERT_TRUE(found222);
 }
 
+// instruments#25: every record/reply/request the firmware emits must carry
+// its own protocol version (kProtoMajor.kProtoMinor), never a stale literal.
+static void test_version_string_is_own_major_minor() {
+    char want[8];
+    snprintf(want, sizeof(want), "%d.%d", kProtoMajor, kProtoMinor);
+    TEST_ASSERT_EQUAL_STRING(want, version_string());
+    TEST_ASSERT_TRUE(version_compatible(version_string()));  // we accept ourselves
+}
+
+static void test_stamp_version_fills_every_record_kind() {
+    DeviceRecord r{};
+    AttachAck aa{};
+    SwitchAck sa{};
+    HeartbeatAck ha{};
+    Attach at{};
+    Switch sw{};
+    Heartbeat hb{};
+    Detach de{};
+    stamp_version(r.v);
+    stamp_version(aa.v);
+    stamp_version(sa.v);
+    stamp_version(ha.v);
+    stamp_version(at.v);
+    stamp_version(sw.v);
+    stamp_version(hb.v);
+    stamp_version(de.v);
+    const char *all[] = {r.v, aa.v, sa.v, ha.v, at.v, sw.v, hb.v, de.v};
+    for (const char *v : all) {
+        TEST_ASSERT_EQUAL_STRING(version_string(), v);
+        TEST_ASSERT_TRUE(version_compatible(v));
+    }
+    // Overwrites a stale stamp in place (records are reused function-statics).
+    strcpy(r.v, "1.0");
+    stamp_version(r.v);
+    TEST_ASSERT_EQUAL_STRING(version_string(), r.v);
+}
+
+// BLE Control canned replies (bad_json / incompatible_version) and the RESP
+// characteristic's initial `ready` value are stamped with our own version too.
+static void test_control_canned_replies_carry_own_version() {
+    char buf[96];
+    JsonDocument d;
+
+    TEST_ASSERT_TRUE(control_error_json("bad_json", buf, sizeof(buf)) > 0);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(d, buf).code());
+    TEST_ASSERT_EQUAL_STRING(version_string(), d["v"] | "");
+    TEST_ASSERT_FALSE(d["ok"] | true);
+    TEST_ASSERT_EQUAL_STRING("bad_json", d["reason"] | "");
+
+    TEST_ASSERT_TRUE(control_error_json("incompatible_version", buf, sizeof(buf)) > 0);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(d, buf).code());
+    TEST_ASSERT_EQUAL_STRING(version_string(), d["v"] | "");
+    TEST_ASSERT_EQUAL_STRING("incompatible_version", d["reason"] | "");
+
+    TEST_ASSERT_TRUE(control_ready_json(buf, sizeof(buf)) > 0);
+    TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(d, buf).code());
+    TEST_ASSERT_EQUAL_STRING(version_string(), d["v"] | "");
+    TEST_ASSERT_EQUAL_STRING("ready", d["t"] | "");
+
+    // Truncation is reported, never a half-written JSON accepted as success.
+    char tiny[8];
+    TEST_ASSERT_EQUAL(0, (int)control_ready_json(tiny, sizeof(tiny)));
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_version_parse_and_compat);
@@ -206,5 +271,8 @@ int main(int, char **) {
     RUN_TEST(test_detach_removes_session);
     RUN_TEST(test_reap_boundary);
     RUN_TEST(test_control_state_multi_session);
+    RUN_TEST(test_version_string_is_own_major_minor);
+    RUN_TEST(test_stamp_version_fills_every_record_kind);
+    RUN_TEST(test_control_canned_replies_carry_own_version);
     return UNITY_END();
 }
