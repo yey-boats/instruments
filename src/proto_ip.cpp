@@ -95,14 +95,14 @@ bool do_switch(const String &base, const proto::Switch &s, proto::SwitchAck &ack
 
 bool heartbeat(const String &base, const char *sessionId) {
     proto::Heartbeat hb{};
-    strncpy(hb.v, "1.0", sizeof(hb.v) - 1);
+    proto::stamp_version(hb.v);
     strncpy(hb.sessionId, sessionId ? sessionId : "", sizeof(hb.sessionId) - 1);
     return http_post_no_ack(base, "/api/p2p/heartbeat", hb);
 }
 
 bool detach(const String &base, const char *sessionId) {
     proto::Detach d{};
-    strncpy(d.v, "1.0", sizeof(d.v) - 1);
+    proto::stamp_version(d.v);
     strncpy(d.sessionId, sessionId ? sessionId : "", sizeof(d.sessionId) - 1);
     return http_post_no_ack(base, "/api/p2p/detach", d);
 }

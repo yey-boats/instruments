@@ -1,1 +1,1 @@
-{"v":"1.0","t":"attachAck","accepted":true,"sessionId":"s-7","ttlMs":10000,"device":{"v":"1.0","deviceId":"mfd-helm","role":"display","currentView":"wind","views":[{"id":"wind","title":"Wind"},{"id":"nav","title":"Nav"}],"transports":["ip","ble"],"authRequired":true}}
+{"v":"2.0","t":"attachAck","accepted":true,"sessionId":"s-7","ttlMs":10000,"device":{"v":"2.0","deviceId":"mfd-helm","role":"display","currentView":"wind","views":[{"id":"wind","title":"Wind"},{"id":"nav","title":"Nav"}],"transports":["ip","ble"],"authRequired":true}}

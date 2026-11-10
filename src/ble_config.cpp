@@ -365,20 +365,27 @@ static String controlStateJson() {
     return out;
 }
 
+// Canned error ack, stamped with our own protocol version (instruments#25).
+static String controlError(const char *reason) {
+    char buf[96];
+    proto::control_error_json(reason, buf, sizeof(buf));
+    return String(buf);
+}
+
 // Dispatch one inbound Control message. Reuses proto_target::handle_* exactly
 // like web.cpp; returns the ack JSON to stash on RESP. Rejects incompatible
 // protocol versions (mirrors the HTTP 400 incompatible_version gate).
 static String dispatchControl(const std::string &data) {
     JsonDocument doc(&yeyboats::psram_json);
     if (deserializeJson(doc, data) != DeserializationError::Ok) {
-        return String("{\"v\":\"1.0\",\"ok\":false,\"reason\":\"bad_json\"}");
+        return controlError("bad_json");
     }
     JsonObjectConst o = doc.as<JsonObjectConst>();
     const char *t = o["t"] | "";
     const char *v = o["v"] | "";
 
     if (!proto::version_compatible(v)) {
-        return String("{\"v\":\"1.0\",\"ok\":false,\"reason\":\"incompatible_version\"}");
+        return controlError("incompatible_version");
     }
 
     JsonDocument out(&yeyboats::psram_json);
@@ -409,7 +416,7 @@ static String dispatchControl(const std::string &data) {
         proto::from_json(o, req);
         bool ok = proto_target::handle_heartbeat(req.sessionId);
         proto::HeartbeatAck ack;
-        strncpy(ack.v, "1.0", sizeof(ack.v) - 1);
+        proto::stamp_version(ack.v);
         ack.ok = ok;
         ack.ttlMs = proto::kDefaultTtlMs;
         proto::to_json(out.to<JsonObject>(), ack);
@@ -418,12 +425,12 @@ static String dispatchControl(const std::string &data) {
         proto::from_json(o, req);
         bool ok = proto_target::handle_detach(req.sessionId);
         JsonObject ro = out.to<JsonObject>();
-        ro["v"] = "1.0";
+        ro["v"] = proto::version_string();
         ro["t"] = "detachAck";
         ro["ok"] = ok;
     } else {
         JsonObject ro = out.to<JsonObject>();
-        ro["v"] = "1.0";
+        ro["v"] = proto::version_string();
         ro["ok"] = false;
         ro["reason"] = "unknown_type";
     }
@@ -504,8 +511,9 @@ static void setupControlService(NimBLEServer *server) {
     s_ctrl_resp =
         svc->createCharacteristic(CTRL_RESP_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     {
-        static const char kInit[] = "{\"v\":\"1.0\",\"t\":\"ready\"}";
-        s_ctrl_resp->setValue((const uint8_t *)kInit, sizeof(kInit) - 1);
+        char init[48];
+        size_t n = proto::control_ready_json(init, sizeof(init));
+        s_ctrl_resp->setValue((const uint8_t *)init, n);
     }
 
     svc->start();

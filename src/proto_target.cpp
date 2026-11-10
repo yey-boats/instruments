@@ -74,7 +74,7 @@ void set_key(const char *key) {
 
 void fill_device_record(proto::DeviceRecord &r) {
     // Fill in place (r is the caller's buffer); no large stack temporaries.
-    strncpy(r.v, "1.0", sizeof(r.v) - 1);
+    proto::stamp_version(r.v);
     strncpy(r.deviceId, net::deviceId().c_str(), sizeof(r.deviceId) - 1);
     strncpy(r.name, net::deviceId().c_str(), sizeof(r.name) - 1);
     strncpy(r.role, "both", sizeof(r.role) - 1);
@@ -107,7 +107,7 @@ void fill_device_record(proto::DeviceRecord &r) {
 }
 
 bool handle_attach(const proto::Attach &a, proto::AttachAck &ack) {
-    strncpy(ack.v, "1.0", sizeof(ack.v) - 1);
+    proto::stamp_version(ack.v);
 
     if (!proto::version_compatible(a.v)) {
         ack.accepted = false;
@@ -147,7 +147,7 @@ bool handle_attach(const proto::Attach &a, proto::AttachAck &ack) {
 }
 
 bool handle_switch(const proto::Switch &s, proto::SwitchAck &ack) {
-    strncpy(ack.v, "1.0", sizeof(ack.v) - 1);
+    proto::stamp_version(ack.v);
 
     // Validate + refresh the session using heartbeat() semantics: it returns
     // false for an unknown sessionId and refreshes lastSeen for a known one.

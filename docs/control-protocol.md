@@ -57,12 +57,12 @@ The core message and record types (informative — the schema is authoritative):
 Example `attach` → `attachAck` exchange (from the fixtures):
 
 ```json
-{"v":"1.0","t":"attach","controllerId":"knob-aa01","name":"Helm knob","color":"#00bcd4","key":"hunter2","ttlMs":10000}
+{"v":"2.0","t":"attach","controllerId":"knob-aa01","name":"Helm knob","color":"#00bcd4","key":"hunter2","ttlMs":10000}
 ```
 
 ```json
-{"v":"1.0","t":"attachAck","accepted":true,"sessionId":"s-7","ttlMs":10000,
- "device":{"v":"1.0","deviceId":"mfd-helm","role":"display","currentView":"wind",
+{"v":"2.0","t":"attachAck","accepted":true,"sessionId":"s-7","ttlMs":10000,
+ "device":{"v":"2.0","deviceId":"mfd-helm","role":"display","currentView":"wind",
    "views":[{"id":"wind","title":"Wind"},{"id":"nav","title":"Nav"}],
    "transports":["ip","ble"],"authRequired":true}}
 ```
@@ -79,7 +79,7 @@ Example `attach` → `attachAck` exchange (from the fixtures):
 - Discovery advertises the protocol version (`pv` in the mDNS TXT record) so a
   controller can filter incompatible targets before attaching.
 
-Current version: **1.0**.
+Current version: **2.0** (`proto::version_string()`; every record, reply, request and the mDNS `pv` are stamped from it). Firmware v0.4.x stamped its own messages `"1.0"` while requiring major 2 inbound (instruments#25).
 
 ## 4. Auth (optional shared key)
 
@@ -144,7 +144,7 @@ three-controller:
 Controllers browse the `_espdisp._tcp` service. Each display registers its own
 service TXT (see `src/net.cpp`) including:
 
-- `pv` = `"1.0"` (protocol version) and `role` = `"both"`,
+- `pv` = `"2.0"` (protocol version, from `proto::version_string()`) and `role` = `"both"`,
 - plus `device_id`, `board`, `firmware`, `version`, `path`.
 
 A controller reads `pv`/`role` from the TXT to filter incompatible targets before
@@ -178,8 +178,8 @@ Example: switch the target to the `nav` view (after attaching):
 ```sh
 curl -s -X POST http://espdisp.local/api/p2p/switch \
   -H 'Content-Type: application/json' \
-  -d '{"v":"1.0","t":"switch","sessionId":"<sid>","viewId":"nav"}'
-# -> {"v":"1.0","t":"switchAck","ok":true,"currentView":"nav"}
+  -d '{"v":"2.0","t":"switch","sessionId":"<sid>","viewId":"nav"}'
+# -> {"v":"2.0","t":"switchAck","ok":true,"currentView":"nav"}
 ```
 
 ## 7. BLE binding (fallback)

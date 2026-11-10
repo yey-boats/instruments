@@ -85,14 +85,14 @@ static void on_peer(const proto_ble::Peer &peer, void *) {
     }
 
     proto::Attach a{};
-    strcpy(a.v, "1.0");
+    proto::stamp_version(a.v);
     strcpy(a.controllerId, "harness-ble");
     strcpy(a.name, "Harness BLE");
     strcpy(a.color, "#e91e63");
     a.ttlMs = 10000;
 
     proto::Switch sw{};
-    strcpy(sw.v, "1.0");
+    proto::stamp_version(sw.v);
     strncpy(sw.viewId, view_id, sizeof(sw.viewId) - 1);
 
     bool ok = proto_ble::switch_on_peer(peer.addr, a, sw);
@@ -121,7 +121,7 @@ static void run_cycle() {
     net::logf("[harness] target=%s views=%d", dev.deviceId, dev.views_count);
 
     proto::Attach a{};
-    strcpy(a.v, "1.0");
+    proto::stamp_version(a.v);
     strcpy(a.controllerId, "harness-1");
     strcpy(a.name, "Harness");
     strcpy(a.color, "#e91e63");
@@ -136,7 +136,7 @@ static void run_cycle() {
 
     for (int i = 0; i < dev.views_count; ++i) {
         proto::Switch sw{};
-        strcpy(sw.v, "1.0");
+        proto::stamp_version(sw.v);
         strncpy(sw.sessionId, ack.sessionId, sizeof(sw.sessionId) - 1);
         strncpy(sw.viewId, dev.views[i].id, sizeof(sw.viewId) - 1);
         proto::SwitchAck sa{};

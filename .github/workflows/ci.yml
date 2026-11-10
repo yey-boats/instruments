@@ -169,6 +169,18 @@ jobs:
       - name: Check generated files are up to date
         run: git diff --exit-code include/proto/records_generated.h proto/js/types.d.ts
 
+      - name: Protocol JS tests (schema, fixtures, version compat)
+        run: cd proto/js && node --test
+
+      # instruments#25: outbound records must be stamped via proto::stamp_version /
+      # proto::version_string (kProtoMajor.kProtoMinor), never a version literal.
+      - name: No hard-coded protocol version stamps in firmware
+        run: |
+          if grep -rnE '\.v, "[0-9]+\.[0-9]+"|\["v"\] = "[0-9]+\.[0-9]+"|"pv", "[0-9]|\\"v\\":\\"[0-9]+\.[0-9]+' src; then
+            echo "::error::stamp protocol versions with proto::stamp_version()/proto::version_string()"
+            exit 1
+          fi
+
   midl-manifest-freshness:
     name: MIDL manifest freshness
     runs-on: ubuntu-latest

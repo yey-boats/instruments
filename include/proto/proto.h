@@ -1,7 +1,9 @@
 #pragma once
 // Hand-written pure protocol logic: version/compat, auth, the target-side
 // session table. No Arduino/LVGL/BLE — host-testable (links in the native env).
+#include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "proto/records_generated.h"
 
 namespace proto {
@@ -13,6 +15,24 @@ constexpr long kDefaultTtlMs = 10000;
 bool parse_version(const char *v, int &major, int &minor);
 // Same-major required; our minor must be >= 0; unknown-minor accepted.
 bool version_compatible(const char *peer_v);
+
+// Our own protocol version, "<kProtoMajor>.<kProtoMinor>" (e.g. "2.0"). Every
+// record, reply and controller request the firmware emits is stamped with this
+// -- never a string literal (instruments#25: v0.4.x stamped "1.0" while
+// requiring major 2 inbound).
+const char *version_string();
+// Stamp a generated record's `v` field (char v[N]) with version_string().
+void stamp_version(char *v, size_t cap);
+template <size_t N> inline void stamp_version(char (&v)[N]) {
+    stamp_version(v, N);
+}
+
+// Canned BLE Control JSON, stamped with version_string():
+//   control_error_json: {"v":"<ver>","ok":false,"reason":"<reason>"}
+//   control_ready_json: {"v":"<ver>","t":"ready"} (initial RESP value)
+// Return the length written, or 0 if `cap` is too small (buf then holds "").
+size_t control_error_json(const char *reason, char *buf, size_t cap);
+size_t control_ready_json(char *buf, size_t cap);
 
 // Shared-key check. configured_key == "" => open (accept any). Constant-ish compare.
 bool auth_ok(const char *configured_key, const char *presented_key);
