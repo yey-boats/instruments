@@ -14,8 +14,15 @@ inline int boundary(int span, int64_t acc, int64_t total) {
     return (int)((int64_t)span * acc / total);
 }
 
-bool push_leaf(const char *id, Rect r, PlacementSet &out) {
-    if (out.count >= FirmwareLimits::max_tiles_per_screen) return false;
+// Per-call bounds (instruments#19): the build's class limits by default, or a
+// tighter class's limits when validating a doc for another class (tests).
+struct Bounds {
+    int max_depth;
+    size_t max_tiles;
+};
+
+bool push_leaf(const char *id, Rect r, const Bounds &b, PlacementSet &out) {
+    if (out.count >= b.max_tiles) return false;
     Placement &p = out.items[out.count++];
     memset(&p, 0, sizeof(p));
     strncpy(p.element, id, sizeof(p.element) - 1);
@@ -23,9 +30,12 @@ bool push_leaf(const char *id, Rect r, PlacementSet &out) {
     return true;
 }
 
-SolveStatus solve_node(JsonVariantConst node, Rect area, int depth, PlacementSet &out);
+SolveStatus solve_node(JsonVariantConst node, Rect area, int depth, const Bounds &b,
+                       PlacementSet &out);
+SolveStatus preset_leaves(JsonVariantConst node, Rect area, const Bounds &b, PlacementSet &out);
 
-SolveStatus solve_split(JsonVariantConst node, Rect area, int depth, PlacementSet &out) {
+SolveStatus solve_split(JsonVariantConst node, Rect area, int depth, const Bounds &b,
+                        PlacementSet &out) {
     JsonArrayConst kids = node["children"].as<JsonArrayConst>();
     if (kids.isNull() || kids.size() == 0) return SOLVE_BAD_NODE;
     bool row = strcmp(node["flow"] | node["dir"] | "row", "row") == 0;
@@ -46,7 +56,7 @@ SolveStatus solve_split(JsonVariantConst node, Rect area, int depth, PlacementSe
         Rect cr = row ? Rect{area.x + prev, area.y, next - prev, area.h}
                       : Rect{area.x, area.y + prev, area.w, next - prev};
         prev = next;
-        SolveStatus s = solve_node(kids[i], cr, depth + 1, out);
+        SolveStatus s = solve_node(kids[i], cr, depth + 1, b, out);
         if (s != SOLVE_OK) return s;
     }
     return SOLVE_OK;
@@ -68,7 +78,8 @@ bool is_grid_spacer(JsonVariantConst node) {
 // the original row-major walk and produces byte-identical rects. Cell edges go
 // through the shared boundary() so a 2-span cell ends exactly where the next
 // 1-span column begins (integer remainder distribution, no gaps/overlap).
-SolveStatus solve_grid(JsonVariantConst node, Rect area, int depth, PlacementSet &out) {
+SolveStatus solve_grid(JsonVariantConst node, Rect area, int depth, const Bounds &b,
+                       PlacementSet &out) {
     int rows = node["rows"] | 0, cols = node["cols"] | 0;
     JsonArrayConst cells = node["cells"].as<JsonArrayConst>();
     if (rows <= 0 || cols <= 0 || cells.isNull()) return SOLVE_BAD_NODE;
@@ -100,32 +111,35 @@ SolveStatus solve_grid(JsonVariantConst node, Rect area, int depth, PlacementSet
         if (is_grid_spacer(child)) continue;  // occupies slots, renders nothing
         int x0 = area.x + boundary(area.w, c, cols), x1 = area.x + boundary(area.w, c + cs, cols);
         int y0 = area.y + boundary(area.h, r, rows), y1 = area.y + boundary(area.h, r + rs, rows);
-        SolveStatus s = solve_node(child, Rect{x0, y0, x1 - x0, y1 - y0}, depth + 1, out);
+        SolveStatus s = solve_node(child, Rect{x0, y0, x1 - x0, y1 - y0}, depth + 1, b, out);
         if (s != SOLVE_OK) return s;
     }
     return SOLVE_OK;
 }
 
-SolveStatus solve_node(JsonVariantConst node, Rect area, int depth, PlacementSet &out) {
-    if (depth > FirmwareLimits::max_depth) return SOLVE_TOO_DEEP;
+SolveStatus solve_node(JsonVariantConst node, Rect area, int depth, const Bounds &b,
+                       PlacementSet &out) {
+    if (depth > b.max_depth) return SOLVE_TOO_DEEP;
     if (node["element"].is<const char *>())
-        return push_leaf(node["element"] | "", area, out) ? SOLVE_OK : SOLVE_TOO_MANY_TILES;
-    if (node["preset"].is<const char *>()) return expand_preset(node, area, out);
-    if (node["children"].is<JsonArrayConst>()) return solve_split(node, area, depth, out);
-    if (node["cells"].is<JsonArrayConst>()) return solve_grid(node, area, depth, out);
+        return push_leaf(node["element"] | "", area, b, out) ? SOLVE_OK : SOLVE_TOO_MANY_TILES;
+    if (node["preset"].is<const char *>()) return preset_leaves(node, area, b, out);
+    if (node["children"].is<JsonArrayConst>()) return solve_split(node, area, depth, b, out);
+    if (node["cells"].is<JsonArrayConst>()) return solve_grid(node, area, depth, b, out);
     return SOLVE_BAD_NODE;
 }
 
-}  // namespace
+Bounds build_bounds() {
+    return Bounds{FirmwareLimits::max_depth, FirmwareLimits::max_tiles_per_screen};
+}
 
-SolveStatus expand_preset(JsonVariantConst node, Rect area, PlacementSet &out) {
+SolveStatus preset_leaves(JsonVariantConst node, Rect area, const Bounds &b, PlacementSet &out) {
     const char *name = node["preset"] | "";
     JsonArrayConst slots = node["slots"].as<JsonArrayConst>();
     if (slots.isNull()) return SOLVE_BAD_NODE;
 
     if (strcmp(name, "full") == 0) {
         if (slots.size() < 1) return SOLVE_BAD_NODE;
-        return push_leaf(slots[0] | "", area, out) ? SOLVE_OK : SOLVE_TOO_MANY_TILES;
+        return push_leaf(slots[0] | "", area, b, out) ? SOLVE_OK : SOLVE_TOO_MANY_TILES;
     }
     if (strcmp(name, "hero-split") == 0) {
         if (slots.size() != 3) return SOLVE_BAD_NODE;
@@ -134,19 +148,37 @@ SolveStatus expand_preset(JsonVariantConst node, Rect area, PlacementSet &out) {
         Rect left{area.x, area.y, mid, area.h};
         Rect right{area.x + mid, area.y, area.w - mid, area.h};
         int rmid = boundary(right.h, 1, 2);
-        if (!push_leaf(slots[0] | "", left, out)) return SOLVE_TOO_MANY_TILES;
-        if (!push_leaf(slots[1] | "", Rect{right.x, right.y, right.w, rmid}, out))
+        if (!push_leaf(slots[0] | "", left, b, out)) return SOLVE_TOO_MANY_TILES;
+        if (!push_leaf(slots[1] | "", Rect{right.x, right.y, right.w, rmid}, b, out))
             return SOLVE_TOO_MANY_TILES;
-        if (!push_leaf(slots[2] | "", Rect{right.x, right.y + rmid, right.w, right.h - rmid}, out))
+        if (!push_leaf(slots[2] | "", Rect{right.x, right.y + rmid, right.w, right.h - rmid}, b,
+                       out))
             return SOLVE_TOO_MANY_TILES;
         return SOLVE_OK;
     }
     return SOLVE_UNKNOWN_PRESET;
 }
 
+}  // namespace
+
+SolveStatus expand_preset(JsonVariantConst node, Rect area, PlacementSet &out) {
+    return preset_leaves(node, area, build_bounds(), out);
+}
+
 SolveStatus solve_screen(JsonVariantConst layout, Rect area, PlacementSet &out) {
     out.count = 0;
-    return solve_node(layout, area, 1, out);
+    return solve_node(layout, area, 1, build_bounds(), out);
+}
+
+SolveStatus solve_screen(JsonVariantConst layout, Rect area, PlacementSet &out, int max_depth,
+                         size_t max_tiles) {
+    out.count = 0;
+    // Never exceed this build's fixed PlacementSet / recursion budget.
+    const Bounds b{max_depth < FirmwareLimits::max_depth ? max_depth : FirmwareLimits::max_depth,
+                   max_tiles < FirmwareLimits::max_tiles_per_screen
+                       ? max_tiles
+                       : FirmwareLimits::max_tiles_per_screen};
+    return solve_node(layout, area, 1, b, out);
 }
 
 }  // namespace midl

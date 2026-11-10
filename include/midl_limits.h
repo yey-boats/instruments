@@ -36,8 +36,8 @@ constexpr int MAX_LAYOUT_DEPTH = midl_gen::MAX_DEPTH;
 // tiles) sizes from here instead.
 struct FirmwareLimits {
     static constexpr size_t max_screens = layout::MAX_SCREENS;           // 8
-    static constexpr size_t max_tiles_per_screen = midl_gen::MAX_TILES;  // spec-derived (9)
-    static constexpr int max_depth = MAX_LAYOUT_DEPTH;                   // spec-derived (3)
+    static constexpr size_t max_tiles_per_screen = midl_gen::MAX_TILES;  // per class (4..9)
+    static constexpr int max_depth = MAX_LAYOUT_DEPTH;                   // per class (2..4)
     static constexpr size_t str_len = layout::STR_LEN;                   // 32 (incl NUL)
     static constexpr size_t path_len = layout::PATH_LEN;                 // 96 (incl NUL)
 };

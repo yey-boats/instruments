@@ -30,7 +30,8 @@ BOARD_CLASS = {
     "WAVESHARE_TOUCH_LCD_7B_1024X600": "landscape-1024x600",
     "WAVESHARE_KNOB_1_8": "round-360",            # round 360x360
     # Round 240x240: no round-240 class exists; round-360 is the only round
-    # class (4 tiles / depth 2), the closest fit.
+    # class (4 tiles / depth 2), the closest fit. Interim until midl#21
+    # (round-240 class): the manifest then advertises 360x360 for a 240 panel.
     "WAVESHARE_TOUCH_LCD_1_28": "round-360",
     "NATIVE_FAKE": "square-480",                  # host tests
 }
@@ -55,10 +56,12 @@ def macro_for(class_id):
     return "YB_MIDL_CLASS_" + re.sub(r"[^A-Z0-9]", "_", class_id.upper())
 
 
-def resolve_class(flags):
+def resolve_class(flags, default=None):
     """Map an env's (flattened) build flags to a MIDL display class id.
 
-    Raises ValueError when the env cannot be mapped.
+    Raises ValueError when the env cannot be mapped. `default` (host sim envs
+    only) is returned when the flags name no board and no size at all; an
+    unmapped board or size still raises.
     """
     boards = _BOARD_RE.findall(flags)
     for b in boards:
@@ -80,6 +83,8 @@ def resolve_class(flags):
             return cls
     if re.search(r"-D\s*YEYBOATS_HARNESS\b", flags):
         return "square-480"  # headless soak harness: no display, never serves the manifest
+    if default is not None:
+        return default
     raise ValueError("no BOARD_ID_* / LCD_W+LCD_H flag to derive a MIDL display class from")
 
 
@@ -99,8 +104,11 @@ if env is not None:
 
     _flags = _flatten(env.GetProjectOption("build_flags", []))
     _flags += " " + os.environ.get("PLATFORMIO_BUILD_FLAGS", "")
+    # Host sims (platform = native) rendering no particular size keep the
+    # square-480 host default; device envs must always resolve.
+    _default = "square-480" if env.GetProjectOption("platform", "") == "native" else None
     try:
-        _cls = resolve_class(_flags)
+        _cls = resolve_class(_flags, default=_default)
     except ValueError as e:
         raise SystemExit("[midl_class] env:%s: %s" % (env["PIOENV"], e))
     env.Append(CPPDEFINES=[macro_for(_cls)])
