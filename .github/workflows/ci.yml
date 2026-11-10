@@ -169,8 +169,36 @@ jobs:
       - name: Check generated files are up to date
         run: git diff --exit-code include/proto/records_generated.h proto/js/types.d.ts
 
+  # One cell per MIDL display class (instruments#19): each firmware env embeds
+  # its own class's manifest/limits (include/midl_gen/<class>/, selected by the
+  # tools/midl_class.py pre: script), so each class's headers must match the
+  # pinned midl schema.
   midl-manifest-freshness:
-    name: MIDL manifest freshness
+    name: MIDL manifest freshness (${{ matrix.class }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        class: [square-480, landscape-800x480, landscape-1024x600, round-360]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Regenerate embedded MIDL capabilities manifest (${{ matrix.class }})
+        run: python3 tools/embed_manifest.py ${{ matrix.class }}
+
+      - name: Check embedded manifest matches the pinned midl schema
+        run: |
+          git add -N include/midl_gen
+          git diff --exit-code include/midl_gen/${{ matrix.class }}
+
+  midl-class-map:
+    name: MIDL display class per env
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -181,11 +209,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Regenerate embedded MIDL capabilities manifest
-        run: python3 tools/embed_manifest.py square-480
-
-      - name: Check embedded manifest matches the pinned midl schema
-        run: git diff --exit-code include/generated_midl_manifest.h include/generated_midl_limits.h
+      - name: Every firmware env maps to a class and runs the pre-script
+        run: python3 -m unittest discover -s tools -p 'test_midl_class.py' -v
 
   sim-build:
     name: Host render sim builds

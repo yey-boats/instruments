@@ -2,7 +2,8 @@
 
 // Single source of truth for the firmware-facing MIDL projection bounds.
 // These mirror the layout POD limits (include/layout.h) and the values the
-// square-480 capability manifest advertises. Plan 6's parser/solver and the
+// build's display-class capability manifest advertises (per env, chosen by
+// tools/midl_class.py; host builds use square-480). Plan 6's parser/solver and the
 // host guard tests both read them from here so a POD change and a manifest
 // change cannot silently diverge.
 
