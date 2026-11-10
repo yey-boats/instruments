@@ -35,6 +35,7 @@
 #include "generated_midl_manifest.h"
 #include "midl_render.h"
 #include "midl_demo_doc.h"
+#include "web_auth_policy.h"
 #include <freertos/semphr.h>
 
 // Gesture diagnostics live in main.cpp (top-level - not in any namespace).
@@ -86,7 +87,6 @@ static void send_captive_page(const char *why) {
 // ---- helpers -----------------------------------------------------------
 
 static void send_json(int code, const String &body) {
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(code, "application/json", body);
 }
@@ -163,28 +163,39 @@ static bool heap_ok(HeapWeight weight) {
     return false;
 }
 
-static bool api_auth_required() {
+// instruments#21: Basic Auth is on by default once a web password is
+// provisioned; see include/web_auth_policy.h for the full credential story.
+static web_auth_policy::State api_auth_state() {
     storage::Namespace p("web", true);
-    return p.get_u8("auth", 0) != 0;
+    return web_auth_policy::state(p.get_u8("auth", web_auth_policy::FLAG_DEFAULT),
+                                  p.get_string("pass", "").c_str());
 }
+
+static bool api_auth_required() {
+    return api_auth_state() == web_auth_policy::State::Enforced;
+}
+
+#if defined(YEYBOATS_LAB_OPEN_WEB) && defined(YEYBOATS_RELEASE_BUILD)
+#error "YEYBOATS_LAB_OPEN_WEB is lab-only and must never be compiled into a release build"
+#endif
 
 static bool require_api_auth() {
 #ifdef YEYBOATS_LAB_OPEN_WEB
     // ---- LAB-ONLY, TEMPORARY: web API auth bypass ------------------------
     // Compiled in ONLY when the build explicitly defines YEYBOATS_LAB_OPEN_WEB
     // (e.g. PLATFORMIO_BUILD_FLAGS="-D YEYBOATS_LAB_OPEN_WEB=1"). Production
-    // builds never define it, so this branch compiles out and normal Basic
-    // Auth applies. Used to capture headless /api/screenshot.png on a bench
-    // device whose web password is unknown. Re-secure by reflashing a normal
-    // build (the NVS web/{auth,user,pass} are left untouched).
+    // builds never define it (release-* envs hard-fail above, and CI checks
+    // tools/test_web_security.py), so this branch compiles out and normal
+    // Basic Auth applies. Used to capture headless /api/screenshot.png on a
+    // bench device whose web password is unknown. Re-secure by reflashing a
+    // normal build (the NVS web/{auth,user,pass} are left untouched).
     // See docs/lab/temporary-web-auth-bypass.md. DO NOT SHIP.
     return true;
 #else
     if (!api_auth_required()) return true;
     storage::Namespace p("web", true);
-    String user = String(p.get_string("user", "espdisp").c_str());
+    String user = String(p.get_string("user", web_auth_policy::DEFAULT_USER).c_str());
     String pass = String(p.get_string("pass", "").c_str());
-    if (user.length() == 0 || pass.length() == 0) return true;
     if (server.authenticate(user.c_str(), pass.c_str())) return true;
     server.requestAuthentication(BASIC_AUTH, "espdisp", "auth required");
     return false;
@@ -262,6 +273,7 @@ static void build_state_doc(JsonDocument &doc) {
     {
         JsonObject web_auth = doc["webAuth"].to<JsonObject>();
         web_auth["enabled"] = api_auth_required();
+        web_auth["state"] = web_auth_policy::state_name(api_auth_state());
     }
 
     {
@@ -675,7 +687,6 @@ static void handle_commands_html() {
 // No heap allocation: the const char* pointer is passed directly to send().
 
 static void handle_midl_manifest() {
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", midl_manifest::JSON);
 }
@@ -841,7 +852,6 @@ static void handle_midl_config_get() {
         send_err(404, "no current doc");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", body);
 }
@@ -892,7 +902,6 @@ static void handle_layout_get() {
         server.send(404, "text/plain", "no layout loaded");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", body);
 }
 
@@ -952,7 +961,6 @@ static void handle_dashboard_config_get_yaml() {
         server.send(404, "text/plain", "no dashboard config loaded");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/yaml", body);
 }
@@ -966,8 +974,9 @@ static void handle_security() {
     JsonDocument doc(&yeyboats::psram_json);
     JsonObject web = doc["web"].to<JsonObject>();
     web["bind"] = net::wifiUp() ? "station-ip" : "setup-ap";
-    web["auth"] = api_auth_required() ? "basic" : "none-on-device";
+    web["auth"] = web_auth_policy::state_name(api_auth_state());
     web["basic_auth_enabled"] = api_auth_required();
+    web["cors"] = "same-origin-only";
     web["intended_network"] = "trusted LAN or temporary setup AP";
     web["secrets_echoed"] = false;
     JsonArray webWrite = web["write_endpoints"].to<JsonArray>();
@@ -1101,7 +1110,6 @@ static void handle_wifi_forget() {
 
 static void handle_wifi_saved_get() {
     if (!require_api_auth()) return;
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.send(200, "application/json", wifi_store::to_json(false));
 }
 
@@ -1265,7 +1273,6 @@ static void handle_screenshot_png() {
         server.send(504, "text/plain", "snapshot timeout");
         return;
     }
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     // Use the String(uint8_t*, len) constructor which preserves NULs
     // and bundles everything into a single server.send() call. That's
@@ -1317,7 +1324,6 @@ static void handle_screenshot() {
     // 460 kB through Arduino-ESP32 WebServer's chunked path (see the
     // E2E test in tools/test-screenshot.sh) but a 503/timeout is
     // safer than the prior wedged-WiFi state.
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.setContentLength(len);
     server.send(200, "image/bmp", "");
@@ -1746,7 +1752,6 @@ template <typename Ack> static void p2p_send_ack(const Ack &ack) {
     proto::to_json(out.to<JsonObject>(), ack);
     String payload;
     serializeJson(out, payload);
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", payload);
 }
@@ -1761,7 +1766,6 @@ static void handle_p2p_device() {
     proto::to_json(out.to<JsonObject>(), r);
     String payload;
     serializeJson(out, payload);
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", payload);
 }
@@ -1831,7 +1835,6 @@ static void handle_p2p_detach() {
     o["ok"] = ok;
     String payload;
     serializeJson(out, payload);
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", payload);
 }
@@ -1845,7 +1848,6 @@ static void handle_p2p_state() {
     proto::to_json(out.to<JsonObject>(), cs);
     String payload;
     serializeJson(out, payload);
-    server.sendHeader("Access-Control-Allow-Origin", "*");
     server.sendHeader("Cache-Control", "no-store");
     server.send(200, "application/json", payload);
 }
@@ -1909,9 +1911,10 @@ static void bind_routes() {
             return;
         }
         if (server.method() == HTTP_OPTIONS) {
-            server.sendHeader("Access-Control-Allow-Origin", "*");
-            server.sendHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
-            server.sendHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
+            // instruments#21: no CORS grant. The device UI is same-origin and
+            // the manager/editor reach the device server-side (plugin proxy),
+            // so a cross-origin preflight is answered without Allow-* headers
+            // and the browser refuses the actual request.
             server.send(204);
             return;
         }

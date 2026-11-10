@@ -23,7 +23,9 @@ way to open the API without knowing or changing that password.
 #endif
 ```
 
-It is **off by default** — production envs do not define `YEYBOATS_LAB_OPEN_WEB`,
+It is **off by default** — production envs do not define `YEYBOATS_LAB_OPEN_WEB`
+(a `release-*` env that does fails to compile, and CI's `tools/test_web_security.py`
+asserts no release env or workflow defines it),
 so the branch compiles out entirely and Basic Auth is unchanged. It only affects
 HTTP web-API auth; it does **not** touch the device-token (manager) path, OTA
 (separate password), or BLE/serial.
