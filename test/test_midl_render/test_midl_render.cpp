@@ -239,6 +239,18 @@ void test_action_put_kind_rides_command_slot() {
     TEST_ASSERT_NULL(m.target_screen);
 }
 
+void test_action_put_non_path_target_is_dropped() {
+    // instruments#23: "put" writes a SignalK path. A non-path target must NOT
+    // ride the command slot, or the tap handler would run it through the
+    // console-command funnel (e.g. "wifi-forget").
+    MetricBinding m = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"wifi-forget","value":true}})", "b");
+    TEST_ASSERT_NULL(m.command);
+    MetricBinding m2 = mapOne(
+        R"({"type":"button","action":{"kind":"put","target":"sk 10.0.0.1","value":true}})", "b");
+    TEST_ASSERT_NULL(m2.command);
+}
+
 void test_action_command_dotted_target_retained_verbatim() {
     // The demo doc authors kind "command" with a dotted SignalK path — the
     // mapper must retain it untouched (the PUT-vs-console split happens in
@@ -793,6 +805,7 @@ int main(int, char **) {
     RUN_TEST(test_action_nav_sets_target_screen);
     RUN_TEST(test_action_command_sets_command);
     RUN_TEST(test_action_put_kind_rides_command_slot);
+    RUN_TEST(test_action_put_non_path_target_is_dropped);
     RUN_TEST(test_action_command_dotted_target_retained_verbatim);
     RUN_TEST(test_action_absent_leaves_both_null);
     RUN_TEST(test_action_unknown_kind_ignored);
