@@ -13,6 +13,7 @@
 #include "ui_markers.h"
 #include "ui_compass.h"  // ui::numeric_tile for the full-screen wind dial's AWS/AWA/TWS/TWA band
 #include "signalk.h"
+#include "midl_kinds.h"  // button_route: PUT vs console for a button action (#31)
 #include "ui_screens.h"
 #include "board_pins.h"
 #include "app_events.h"
@@ -809,14 +810,16 @@ static void button_action_cb(lv_event_t *e) {
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
     if (!m) return;
     if (m->command && m->command[0]) {
-        // MIDL dialect split: a dotted, space-free target is a SignalK PATH
-        // (e.g. the Race screen's "steering.autopilot.tack"), not a console
-        // command — issue a SignalK PUT through the net-worker queue (the
-        // same mechanism autopilot.cpp/knob_menu use; sk::putValue accepts
-        // dotted paths). The space guard keeps console commands that carry
-        // dotted ARGUMENTS ("sk 192.168.1.5") on the dispatch funnel, and
-        // action.kind "put" is mapped onto this slot by map_element.
-        if (strchr(m->command, '.') && !strchr(m->command, ' ')) {
+        // MIDL dialect split (instruments#31): the command slot carries both
+        // `command` and `put` targets. Only a valid SignalK path
+        // (midl::kinds::put_target_ok: dot-separated [A-Za-z0-9_-] segments,
+        // e.g. the Race screen's "steering.autopilot.tack") is issued as a
+        // SignalK PUT through the net-worker queue (the same mechanism
+        // autopilot.cpp/knob_menu use). Everything else — console commands,
+        // including ones with dotted arguments ("sk 192.168.1.5") and dotted
+        // non-paths like "../../x.y" — goes to the dispatch funnel and never
+        // reaches the bearer-token PUT URL.
+        if (midl::kinds::button_route(m->command) == midl::kinds::ButtonRoute::SignalKPut) {
             // Payload: the authored action.value (JSON-encoded by map_element:
             // number/bool/string) when present, else `true` — the SignalK
             // action-trigger convention (tack/gybe/silence).
@@ -2842,7 +2845,7 @@ namespace aphud {
 static void put_state(const char *state) {
     app::Command cmd;
     cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
+    strncpy(cmd.a, "steering.autopilot.state", sizeof(cmd.a) - 1);
     snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
     app::post_net(cmd, 50);
     net::logf("[aphud] state -> %s queued", state);
@@ -3399,7 +3402,7 @@ static void on_home(lv_event_t *e) {
 static void put_state(const char *state) {
     app::Command cmd;
     cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
+    strncpy(cmd.a, "steering.autopilot.state", sizeof(cmd.a) - 1);
     snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
     app::post_net(cmd, 50);
     net::logf("[windsteer] state -> %s queued", state);

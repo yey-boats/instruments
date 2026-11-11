@@ -225,7 +225,7 @@ static void test_signalk_put_for_state() {
     char value[64] = {0xF};
     bool put = signalk_put_for(a, path, sizeof(path), value, sizeof(value));
     TEST_ASSERT_TRUE(put);
-    TEST_ASSERT_EQUAL_STRING("steering/autopilot/state", path);
+    TEST_ASSERT_EQUAL_STRING("steering.autopilot.state", path);
     TEST_ASSERT_EQUAL_STRING("\"auto\"", value);
 }
 
@@ -237,7 +237,7 @@ static void test_signalk_put_for_target_format() {
     char value[64] = {0};
     bool put = signalk_put_for(a, path, sizeof(path), value, sizeof(value));
     TEST_ASSERT_TRUE(put);
-    TEST_ASSERT_EQUAL_STRING("steering/autopilot/target/headingTrue", path);
+    TEST_ASSERT_EQUAL_STRING("steering.autopilot.target.headingTrue", path);
     TEST_ASSERT_EQUAL_STRING("1.5708", value);  // %.4f of 1.5708
 }
 
@@ -288,7 +288,7 @@ static void assert_state_put(const Action &a, const char *expect_state) {
     char path[64], value[64];
     TEST_ASSERT_EQUAL_INT((int)ActionType::ApSetState, (int)a.type);
     TEST_ASSERT_TRUE(signalk_put_for(a, path, sizeof(path), value, sizeof(value)));
-    TEST_ASSERT_EQUAL_STRING("steering/autopilot/state", path);
+    TEST_ASSERT_EQUAL_STRING("steering.autopilot.state", path);
     char vbuf[32];
     snprintf(vbuf, sizeof(vbuf), "\"%s\"", expect_state);
     TEST_ASSERT_EQUAL_STRING(vbuf, value);
@@ -300,7 +300,7 @@ static void assert_target_put(const Action &a, double expect_rad) {
     TEST_ASSERT_EQUAL_INT((int)ActionType::ApSetTargetRad, (int)a.type);
     TEST_ASSERT_DOUBLE_WITHIN(1e-6, expect_rad, a.arg_f);
     TEST_ASSERT_TRUE(signalk_put_for(a, path, sizeof(path), value, sizeof(value)));
-    TEST_ASSERT_EQUAL_STRING("steering/autopilot/target/headingTrue", path);
+    TEST_ASSERT_EQUAL_STRING("steering.autopilot.target.headingTrue", path);
     char vbuf[32];
     snprintf(vbuf, sizeof(vbuf), "%.4f", expect_rad);
     TEST_ASSERT_EQUAL_STRING(vbuf, value);

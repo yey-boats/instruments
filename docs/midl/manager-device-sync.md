@@ -93,6 +93,28 @@ located message, e.g. `unsupported source kind 'computed' at
 const)`. A `put` must target a SignalK path. Full on-device schema validation
 (#20) builds on this.
 
+**Allowed SignalK path charset for `put` (instruments#29, #31).** A SignalK
+PUT target is 2 or more segments of `[A-Za-z0-9_-]` joined by single dots, at
+most 95 characters (`midl::kinds::put_target_ok`). Examples:
+`steering.autopilot.tack`, `electrical.switches.bank-1.state`,
+`steering.autopilot.target.headingMagnetic`. Rejected: slashes
+(`steering/autopilot/state`), empty, leading or trailing segments (`a..b`,
+`.a`, `a.`), `?`, `#`, `%`, whitespace, `:`, and non-ASCII, so instance names
+such as `urn:mrn:...` or `Möwe` cannot be PUT targets. Write the dotted form.
+`signalk-server` maps URL slashes to dots, so the dotted form resolves to the
+same handler.
+
+The same rule applies on the device side:
+
+- A `put` action with any other target gets a 422 from `POST /api/midl/config`.
+- A button's `command` target goes to SignalK PUT only if it passes the same
+  check (`midl::kinds::button_route`). Any other target, for example
+  `../../x.y`, stays on the console-command funnel and never reaches the
+  bearer-token PUT URL.
+- `sk::putValue` refuses any path that is not a valid SignalK path, which
+  covers firmware-internal callers too. It percent-encodes everything except
+  `[A-Za-z0-9-._~]`, and that includes `/`.
+
 ## Work required to sync them back (with status)
 
 **Firmware (this repo, branch `feat/midl-firmware-render`):**
