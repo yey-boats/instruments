@@ -538,6 +538,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_drift_cap, 60);
+    ui::style_hud_backing(lbl_drift_cap);
     lv_obj_set_pos(lbl_drift_cap, CX - 30, CY - 26);
     lv_obj_add_flag(lbl_drift_cap, LV_OBJ_FLAG_HIDDEN);
 
@@ -547,6 +548,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_tide_speed, 60);
+    ui::style_hud_backing(lbl_tide_speed);
     lv_obj_set_pos(lbl_tide_speed, CX - 30, CY - 10);
 
     // Wind indices (T white, A amber). T below A in z-order so amber wins when

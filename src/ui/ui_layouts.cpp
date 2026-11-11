@@ -893,6 +893,23 @@ static void fit_value_font(lv_obj_t *label, const char *txt, int max_w) {
     lv_obj_set_style_text_font(label, ladder[3], 0);
 }
 
+// Build-time hero font for a value drawn INSIDE a dial ring: the largest
+// ladder font whose worst-case `sample` (e.g. "888", "88.8") fits `max_w`.
+// Sized once against the widest plausible text so the hero doesn't change size
+// as the value changes. The old diameter thresholds picked the 64 px font for
+// any ring >= 135 px, and on a 480x480 quad tile (ring 140 px) "056" / "12.4"
+// ran over the ring and its E/W cardinals.
+static const lv_font_t *ring_hero_font(const char *sample, int max_w) {
+    static const lv_font_t *const ladder[] = {&font_xl_64, &lv_font_montserrat_48,
+                                              &lv_font_montserrat_38, &lv_font_montserrat_28};
+    for (const lv_font_t *f : ladder) {
+        lv_point_t sz;
+        lv_text_get_size(&sz, sample, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w) return f;
+    }
+    return &lv_font_montserrat_28;
+}
+
 // Hero-scale a value label well beyond the 64px ceiling of the enabled fonts,
 // using lv_obj_set_style_transform_scale (256 == 1.0x) on font_xl_64. The target
 // rendered glyph height is `hero_h` px (the goal: ~60% of a 480px screen ≈ 288px,
@@ -1546,10 +1563,9 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // Center heading - the dominant element. With the direction marker now
     // outside the ring, the centre number can fill the dial: big tiles get the
     // 64px hero font, stepping down on smaller rings.
-    const lv_font_t *vfont = &lv_font_montserrat_38;
-    if (dia >= 110) vfont = &lv_font_montserrat_48;
-    if (dia >= 135) vfont = &font_xl_64;
-    if (dia < 90) vfont = &lv_font_montserrat_28;
+    // Fit between the E/W cardinals: each takes ~12 px plus its 2 px inset, and
+    // we keep 8 px of air on either side.
+    const lv_font_t *vfont = ring_hero_font("888", dia - 2 * 22);
 
     // Vignette disc behind the centre number: a soft panel-coloured pad so the
     // wide HDG digits (e.g. "359") read on top of, not into, the W/E cardinals
@@ -1605,7 +1621,12 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // sits left of each montserrat_14 label in theme.fg_dim. Kept tight in the
     // tile's lower-left corner so it doesn't crowd the dial. Only drawn when the
     // tile is tall enough that the rows clear the ring.
-    if (h >= 150) {
+    // ...and only when the rows (glyph + "HDG"/"COG"/"CTS", ~46 px wide) clear
+    // the ring's left edge. On a 480x480 quad tile the 140 px ring leaves ~43 px,
+    // so the legend printed across the dial; the colours/shapes are also
+    // explained by the CTS readout below the ring, so dropping it is fine.
+    const int ring_left = mcx - dia / 2;  // content-box coords, same as gx below
+    if (h >= 150 && ring_left >= 4 + 14 + 32 + 4) {
         struct LegendItem {
             ui::Glyph glyph;
             bool filled;
@@ -2624,6 +2645,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h) {
     lv_obj_set_style_text_color(st->lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(st->lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_drift_cap, 60);
+    ui::style_hud_backing(st->lbl_drift_cap);
     lv_obj_set_pos(st->lbl_drift_cap, CX - 30, CY + 60);
     lv_obj_add_flag(st->lbl_drift_cap, LV_OBJ_FLAG_HIDDEN);
 
@@ -2633,6 +2655,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h) {
     lv_obj_set_style_text_color(st->lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(st->lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_tide_speed, 60);
+    ui::style_hud_backing(st->lbl_tide_speed);
     lv_obj_set_pos(st->lbl_tide_speed, CX - 30, CY + 76);
 
     // Wind indices: T (true) cyan below A (apparent) amber in z-order.
@@ -3963,10 +3986,9 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
 
     // Wind speed (AWS) is the hero number, sized to dominate the ring (the
     // marker is now outside, so the number can fill the dial).
-    const lv_font_t *vfont = &lv_font_montserrat_38;
-    if (dia >= 110) vfont = &lv_font_montserrat_48;
-    if (dia >= 135) vfont = &font_xl_64;
-    if (dia < 90) vfont = &lv_font_montserrat_28;
+    // Fit inside the ring with air for its border and the orbiting wind heads
+    // (the chord narrows away from the centre line, so stay well under `dia`).
+    const lv_font_t *vfont = ring_hero_font("88.8", dia * 84 / 100);
     t.value = lv_label_create(ring);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
