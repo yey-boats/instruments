@@ -1,4 +1,5 @@
 #include "midl_solve.h"
+#include "midl_validate.h"
 
 #include <stdint.h>
 #include <string.h>
@@ -87,6 +88,7 @@ SolveStatus solve_grid(JsonVariantConst node, Rect area, int depth, const Bounds
     // solver stack even at max nesting depth. Larger grids are rejected (a
     // 64-slot grid already dwarfs max_tiles_per_screen).
     constexpr int kMaxSlots = 64;
+    static_assert(kMaxSlots == midl::validate::GRID_SLOTS_MAX, "validator grid limit");
     const int total_slots = rows * cols;
     if (total_slots > kMaxSlots) return SOLVE_BAD_NODE;
     bool occupied[kMaxSlots] = {};
