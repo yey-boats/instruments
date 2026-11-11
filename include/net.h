@@ -100,9 +100,16 @@ void saveWifi(const String &ssid, const String &pass);
 void joinWifi(const String &ssid, const String &pass);
 
 // Persist a manager-pushed OTA password to NVS (same key as the `ota-pass`
-// console command) and apply it immediately. Empty string clears to the
-// compile-time default. Does NOT log the password value.
+// console command). If ArduinoOTA was off for lack of a password it starts
+// now; a running ArduinoOTA keeps its password until reboot (the library only
+// takes one before begin()). Does NOT log the password value.
 void setOtaPassword(const char *pw);
+
+// instruments#30: ArduinoOTA state for status reports. Mode name is
+// "disabled" | "password" | "lab-open" (include/ota_policy.h); running is
+// true once ArduinoOTA.begin() ran this boot.
+const char *arduinoOtaMode();
+bool arduinoOtaRunning();
 
 // User-configurable device identity (BLE name, mDNS host, OTA host).
 // Default = espdisp-<wifi-sta-mac>; legacy OTA_HOSTNAME values migrate to it.

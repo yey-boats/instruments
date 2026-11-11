@@ -37,6 +37,9 @@
 #include "midl_kinds.h"
 #include "midl_demo_doc.h"
 #include "web_auth_policy.h"
+#include "web_pw.h"
+#include "web_pw_store.h"
+#include <mbedtls/base64.h>
 #include <freertos/semphr.h>
 
 // Gesture diagnostics live in main.cpp (top-level - not in any namespace).
@@ -169,7 +172,38 @@ static bool heap_ok(HeapWeight weight) {
 static web_auth_policy::State api_auth_state() {
     storage::Namespace p("web", true);
     return web_auth_policy::state(p.get_u8("auth", web_auth_policy::FLAG_DEFAULT),
-                                  p.get_string("pass", "").c_str());
+                                  web_pw_store::is_set() ? "set" : "");
+}
+
+// instruments#30: Basic Auth against the salted NVS record. WebServer's
+// authenticate() needs the plaintext, which the device no longer stores, so
+// decode the header here: user compared constant-time, password verified via
+// web_pw_store (PBKDF2 + constant-time compare). Runs on the web task only;
+// the decode buffer is function-static (handlers run serially).
+static bool basic_auth_ok() {
+    if (!server.hasHeader("Authorization")) return false;
+    String h = server.header("Authorization");
+    if (!h.startsWith("Basic ")) return false;
+    String b64 = h.substring(6);
+    b64.trim();
+    static unsigned char decoded[192];
+    size_t len = 0;
+    if (b64.length() == 0 || b64.length() > 4 * (sizeof(decoded) / 3)) return false;
+    if (mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &len,
+                              (const unsigned char *)b64.c_str(), b64.length()) != 0)
+        return false;
+    const char *user, *pass;
+    size_t user_len, pass_len;
+    bool ok = false;
+    if (web_pw::split_basic((const char *)decoded, len, &user, &user_len, &pass, &pass_len)) {
+        storage::Namespace p("web", true);
+        std::string want = p.get_string("user", web_auth_policy::DEFAULT_USER);
+        bool user_ok = web_pw::ct_equal(want.data(), want.size(), user, user_len);
+        bool pass_ok = web_pw_store::verify(pass, pass_len);
+        ok = user_ok && pass_ok;
+    }
+    memset(decoded, 0, sizeof(decoded));
+    return ok;
 }
 
 static bool api_auth_required() {
@@ -194,10 +228,7 @@ static bool require_api_auth() {
     return true;
 #else
     if (!api_auth_required()) return true;
-    storage::Namespace p("web", true);
-    String user = String(p.get_string("user", web_auth_policy::DEFAULT_USER).c_str());
-    String pass = String(p.get_string("pass", "").c_str());
-    if (server.authenticate(user.c_str(), pass.c_str())) return true;
+    if (basic_auth_ok()) return true;
     server.requestAuthentication(BASIC_AUTH, "espdisp", "auth required");
     return false;
 #endif
@@ -2006,6 +2037,7 @@ static void web_task(void *) {
 
 void setup() {
     if (started) return;
+    web_pw_store::migrate();  // instruments#30: plaintext NVS password -> salted hash
     proto_target::setup();
     bind_routes();
     BaseType_t r = xTaskCreatePinnedToCore(web_task, "web", 8192, nullptr, 1 /* low prio */,

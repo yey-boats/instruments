@@ -1,5 +1,6 @@
 #include "manager.h"
 #include "web_auth_policy.h"
+#include "web_pw_store.h"
 #include "build_config.h"
 
 // Defined exactly once for the whole firmware here, so the shared
@@ -614,12 +615,13 @@ void build_status_body(JsonDocument &doc) {
     net_o["hostname"] = hostname;
     net_o["domain"] = "local";
     net_o["fqdn"] = hostname + ".local";
-    net_o["ota_address"] = hostname + ".local:3232";
+    const bool arduino_ota = net::arduinoOtaRunning();
+    if (arduino_ota) net_o["ota_address"] = hostname + ".local:3232";
     JsonObject mdns = net_o["mdns"].to<JsonObject>();
     mdns["enabled"] = true;
     JsonArray services = mdns["services"].to<JsonArray>();
     services.add("_espdisp._tcp");
-    services.add("_arduino._tcp");
+    if (arduino_ota) services.add("_arduino._tcp");
 
     JsonObject sk_o = doc["sk"].to<JsonObject>();
     String sk_state = sk::connectionStatus();
@@ -721,11 +723,16 @@ void build_status_body(JsonDocument &doc) {
     n2k_o["lastRxMs"] = n2k.last_rx_ms;
 
     JsonObject ota = doc["ota"].to<JsonObject>();
+    // instruments#30: report the real update paths. Release builds have no
+    // ArduinoOTA; dev builds run it only with a password (or a lab build).
     ota["enabled"] = true;
-    ota["mode"] = "arduino-ota";
-    ota["address"] = hostname + ".local";
-    ota["port"] = 3232;
-    ota["passwordSet"] = false;
+    ota["mode"] = arduino_ota ? "arduino-ota" : "pull";
+    ota["arduinoOta"] = net::arduinoOtaMode();
+    if (arduino_ota) {
+        ota["address"] = hostname + ".local";
+        ota["port"] = 3232;
+    }
+    ota["passwordSet"] = strcmp(net::arduinoOtaMode(), "password") == 0;
     ota["pullInFlight"] = s_ota_in_flight;
     ota["pendingConfirm"] = s_ota_confirm_pending;
     // Spec 17 §6 OTA policy snapshot so the plugin can see what the
@@ -740,13 +747,13 @@ void build_status_body(JsonDocument &doc) {
         storage::Namespace web_prefs("web", true);
         // instruments#21: report the EFFECTIVE state (default-on once a
         // password is provisioned), not the raw NVS flag.
-        std::string pass = web_prefs.get_string("pass", "");
+        bool pass_set = web_pw_store::is_set();
         web_auth_policy::State st = web_auth_policy::state(
-            web_prefs.get_u8("auth", web_auth_policy::FLAG_DEFAULT), pass.c_str());
+            web_prefs.get_u8("auth", web_auth_policy::FLAG_DEFAULT), pass_set ? "set" : "");
         web_auth["enabled"] = st == web_auth_policy::State::Enforced;
         web_auth["state"] = web_auth_policy::state_name(st);
         web_auth["username"] = web_prefs.get_string("user", web_auth_policy::DEFAULT_USER);
-        web_auth["passwordSet"] = !pass.empty();
+        web_auth["passwordSet"] = pass_set;
     }
 
     JsonObject cfg = doc["config"].to<JsonObject>();
@@ -1167,9 +1174,15 @@ bool apply_config(JsonDocument &cfg) {
             if (web_auth["password"].is<const char *>()) {
                 const char *pass = web_auth["password"].as<const char *>();
                 if (strlen(pass) > 0 && strlen(pass) <= 63) {
-                    p.put_string("pass", pass);
-                    changed = true;
-                    net::logf("[mgr] applied webAuth.password (len=%u)", (unsigned)strlen(pass));
+                    // instruments#30: stored as a salted PBKDF2 record, never plaintext.
+                    if (web_pw_store::set_password(pass)) {
+                        changed = true;
+                        net::logf("[mgr] applied webAuth.password (len=%u)",
+                                  (unsigned)strlen(pass));
+                    } else {
+                        record_error("[mgr] webAuth.password: store failed");
+                        ok = false;
+                    }
                 } else {
                     record_error("[mgr] reject webAuth.password (invalid length)");
                     ok = false;
@@ -2321,10 +2334,13 @@ void setup() {
     esp_ota_img_states_t st;
     if (running && esp_ota_get_state_partition(running, &st) == ESP_OK) {
         if (st == ESP_OTA_IMG_PENDING_VERIFY) {
-            esp_ota_mark_app_valid_cancel_rollback();
+            esp_err_t mv = esp_ota_mark_app_valid_cancel_rollback();
             s_ota_confirm_pending = true;
             net::logf("[mgr] post-OTA boot: marked partition valid; "
                       "/firmware/confirm pending");
+            // instruments#30: no rollback is possible any more, so the
+            // legacy plaintext web password kept for it can go now.
+            if (mv == ESP_OK) web_pw_store::image_confirmed();
         }
     }
     net::logf("[mgr] %s endpoint=%s token=%s", s_endpoint.length() ? "configured" : "idle",

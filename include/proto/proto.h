@@ -34,7 +34,7 @@ template <size_t N> inline void stamp_version(char (&v)[N]) {
 size_t control_error_json(const char *reason, char *buf, size_t cap);
 size_t control_ready_json(char *buf, size_t cap);
 
-// Shared-key check. configured_key == "" => open (accept any). Constant-ish compare.
+// Shared-key check. configured_key == "" => open (accept any). Constant-time compare.
 bool auth_ok(const char *configured_key, const char *presented_key);
 
 // Target-side session table (pure; the firmware feeds it now-millis).

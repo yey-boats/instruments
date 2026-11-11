@@ -4,6 +4,9 @@
   lab-only YEYBOATS_LAB_OPEN_WEB auth bypass, and no workflow may inject it
   through PLATFORMIO_BUILD_FLAGS. web.cpp additionally #errors if the flag
   meets YEYBOATS_RELEASE_BUILD, which covers ad-hoc env-var injection.
+- instruments#30: the same guards for the lab-only YEYBOATS_LAB_OPEN_OTA flag
+  (password-less ArduinoOTA on a dev build). net.cpp #errors if it meets
+  YEYBOATS_RELEASE_BUILD, and release builds compile ArduinoOTA out entirely.
 - The device web server never sends a wildcard CORS header. Nothing needs
   cross-origin browser access: the manager talks to the device server-side
   (Node) and the layout editor fetches previews through the plugin proxy.
@@ -24,6 +27,7 @@ sys.path.insert(0, TOOLS)
 from test_midl_class import ENVS  # noqa: E402  (shared platformio.ini resolver)
 
 LAB_FLAG = "YEYBOATS_LAB_OPEN_WEB"
+LAB_FLAGS = (LAB_FLAG, "YEYBOATS_LAB_OPEN_OTA")
 
 
 def read(path):
@@ -40,8 +44,16 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
             if not name.startswith("release-"):
                 continue
             with self.subTest(env=name):
-                self.assertNotIn(LAB_FLAG, e["flags"])
+                for flag in LAB_FLAGS:
+                    self.assertNotIn(flag, e["flags"])
                 self.assertIn("YEYBOATS_RELEASE_BUILD", e["flags"])
+
+    def test_no_env_defines_lab_open_ota(self):
+        # Lab-open OTA is opt-in per build (PLATFORMIO_BUILD_FLAGS or
+        # `make ... LAB_OPEN_OTA=1`), never baked into any env, dev included.
+        for name, e in ENVS.items():
+            with self.subTest(env=name):
+                self.assertNotIn("YEYBOATS_LAB_OPEN_OTA", e["flags"])
 
     def test_no_workflow_injects_lab_open_web(self):
         for wf in glob.glob(os.path.join(ROOT, ".github", "workflows", "*.yml")):
@@ -53,7 +65,8 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
                         # The guard step itself names the flag in a grep.
                         if "check_release_flags" in line or "test_web_security" in line:
                             continue
-                        self.assertNotIn(LAB_FLAG, line)
+                        for flag in LAB_FLAGS:
+                            self.assertNotIn(flag, line)
 
     def test_web_cpp_refuses_lab_flag_in_release_build(self):
         src = read("src/web.cpp")
@@ -62,6 +75,50 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
             r"#if\s+defined\(YEYBOATS_LAB_OPEN_WEB\)\s*&&\s*defined\(YEYBOATS_RELEASE_BUILD\)"
             r"\s*\n\s*#error",
         )
+
+
+class TestArduinoOtaNeverInRelease(unittest.TestCase):
+    def test_net_cpp_refuses_lab_ota_flag_in_release_build(self):
+        src = read("src/net.cpp")
+        self.assertRegex(
+            src,
+            r"#if\s+defined\(YEYBOATS_LAB_OPEN_OTA\)\s*&&\s*defined\(YEYBOATS_RELEASE_BUILD\)"
+            r"\s*\n\s*#error",
+        )
+
+    def test_release_build_compiles_arduino_ota_out(self):
+        # Every ArduinoOTA use in net.cpp sits under YEYBOATS_ARDUINO_OTA,
+        # which ota_policy.h defines to 0 for release builds.
+        hdr = read("include/ota_policy.h")
+        self.assertRegex(
+            hdr,
+            r"#if\s+defined\(YEYBOATS_RELEASE_BUILD\)\s*\n\s*#define\s+YEYBOATS_ARDUINO_OTA\s+0",
+        )
+        src = read("src/net.cpp")
+        self.assertRegex(src, r"#if\s+YEYBOATS_ARDUINO_OTA\s*\n\s*#include\s+<ArduinoOTA\.h>")
+        for n, line in enumerate(src.splitlines(), 1):
+            stripped = line.strip()
+            if "ArduinoOTA." in line and not stripped.startswith("//"):
+                with self.subTest(line=n):
+                    self.assertTrue(self._guarded(src, n), f"net.cpp:{n} uses ArduinoOTA unguarded")
+
+    @staticmethod
+    def _guarded(src, lineno):
+        """True if line `lineno` sits inside an `#if YEYBOATS_ARDUINO_OTA` block."""
+        stack = []
+        for n, line in enumerate(src.splitlines(), 1):
+            s = line.strip()
+            if s.startswith("#if"):
+                stack.append("YEYBOATS_ARDUINO_OTA" in s and "!" not in s)
+            elif s.startswith("#else") or s.startswith("#elif"):
+                if stack:
+                    stack[-1] = False
+            elif s.startswith("#endif"):
+                if stack:
+                    stack.pop()
+            if n == lineno:
+                return any(stack)
+        return False
 
 
 class TestNoWildcardCors(unittest.TestCase):

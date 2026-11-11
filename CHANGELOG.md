@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+- ArduinoOTA (port 3232) is compiled out of release builds and runs on dev
+  builds only with a password (instruments#30).
+- The web password is stored as a salted PBKDF2-HMAC-SHA256 record instead of
+  plaintext (instruments#30). **After a manual downgrade below this version,
+  the manager must re-push the device config (password)**; until then the
+  older firmware's API is setup-open. Rollbacks by the bootloader are safe.
+
 ### Added
 - Waveshare Tier 1 PlatformIO profiles for Touch LCD 4, 4.3, 4.3B, 5
   800x480, 5 1024x600, 7 800x480, and 7B 1024x600.

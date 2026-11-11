@@ -1,11 +1,15 @@
 #include "net.h"
 #include "web_auth_policy.h"
+#include "web_pw_store.h"
 
 #include <Arduino.h>
 #include "storage.h"
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include "ota_policy.h"
+#if YEYBOATS_ARDUINO_OTA
 #include <ArduinoOTA.h>
+#endif
 #include <ESPmDNS.h>
 // BLE (NimBLE-Arduino) is compiled out under YEYBOATS_DISABLE_BLE for the
 // esp-idf 5.x toolchain where the 1.4 library is absent.
@@ -40,6 +44,10 @@
 #include "device_discovery.h"
 #include "build_config.h"
 #include "ota_pass.h"
+
+#if defined(YEYBOATS_LAB_OPEN_OTA) && defined(YEYBOATS_RELEASE_BUILD)
+#error "YEYBOATS_LAB_OPEN_OTA is lab-only and must never be compiled into a release build"
+#endif
 
 namespace net {
 
@@ -442,6 +450,18 @@ static void bleSetup() {
 
 // ---- WiFi / OTA ----
 
+// instruments#30: the ArduinoOTA mode this boot would run with right now.
+// `nvs_out` (optional) receives the NVS runtime password.
+static ota_policy::Mode ota_mode_now(std::string *nvs_out = nullptr) {
+    storage::Namespace prefs("net", true);
+    std::string nvs = prefs.get_string("ota_pass", "");
+    ota_policy::Mode m = ota_policy::mode(ota_policy::kReleaseBuild, ota_policy::kLabOpenFlag,
+                                          ota_pass_effective(nvs.c_str(), OTA_PASSWORD));
+    if (nvs_out) *nvs_out = nvs;
+    return m;
+}
+
+#if YEYBOATS_ARDUINO_OTA
 static TaskHandle_t s_ota_task = nullptr;
 
 // Drains ArduinoOTA on its own core-0 task. Previously this lived in
@@ -477,12 +497,22 @@ static const char *ota_error_name(ota_error_t e) {
 }
 
 static void otaSetup() {
+    // instruments#30: see include/ota_policy.h. Runtime OTA password (NVS)
+    // wins over the compile-time default; no password => ArduinoOTA stays
+    // off unless this is a lab build (YEYBOATS_LAB_OPEN_OTA).
+    std::string ota_nvs;
+    ota_policy::Mode mode = ota_mode_now(&ota_nvs);
+    if (mode == ota_policy::Mode::Disabled) {
+        logf_at(LOG_WARN, "[ota] ArduinoOTA off: no OTA password (set one with `ota-pass <pw>`, "
+                          "or flash a lab build with LAB_OPEN_OTA=1)");
+        return;
+    }
     ArduinoOTA.setHostname(s_device_id.c_str());
-    // Runtime OTA password (NVS) wins over the compile-time default.
-    storage::Namespace prefs("net", true);
-    std::string ota_nvs = prefs.get_string("ota_pass", "");
-    const char *ota_pw = ota_pass_effective(ota_nvs.c_str(), OTA_PASSWORD);
-    if (strlen(ota_pw) > 0) ArduinoOTA.setPassword(ota_pw);
+    if (mode == ota_policy::Mode::Password) {
+        ArduinoOTA.setPassword(ota_pass_effective(ota_nvs.c_str(), OTA_PASSWORD));
+    } else {
+        logf_at(LOG_WARN, "[ota] LAB BUILD: ArduinoOTA on 3232 has NO password (lab only)");
+    }
     // All OTA lifecycle events log at WARN so they pass the default
     // UDP filter and land in the lab logger - critical for diagnosing
     // failed flashes (the previous build only printf'd to UART, which
@@ -524,8 +554,16 @@ static void otaSetup() {
     if (!s_ota_task) {
         xTaskCreatePinnedToCore(ota_task, "ota", 4096, nullptr, 2, &s_ota_task, 0);
     }
-    logf_at(LOG_WARN, "[ota] ready at %s.local task_pinned=core0", s_device_id.c_str());
+    logf_at(LOG_WARN, "[ota] ready at %s.local (%s) task_pinned=core0", s_device_id.c_str(),
+            ota_policy::mode_name(mode));
 }
+#else
+// Release build: ArduinoOTA is compiled out (include/ota_policy.h). Updates
+// come through the manager's pull OTA (manager.cpp) or USB.
+static void otaSetup() {
+    logf_at(LOG_WARN, "[ota] ArduinoOTA compiled out (release); updates via manager pull OTA");
+}
+#endif  // YEYBOATS_ARDUINO_OTA
 
 // Try one network with a 10s timeout. Returns true on association.
 static bool try_join(const char *ssid, const char *pass) {
@@ -650,7 +688,7 @@ static void post_show_wifi_screen() {
 static bool web_auth_required() {
     storage::Namespace p("web", true);
     return web_auth_policy::enforced(p.get_u8("auth", web_auth_policy::FLAG_DEFAULT),
-                                     p.get_string("pass", "").c_str());
+                                     web_pw_store::is_set() ? "set" : "");
 }
 
 static device_discovery::Info discovery_info() {
@@ -804,7 +842,9 @@ static void wifi_link_up(const char *reason) {
         if (MDNS.begin(s_device_id.c_str())) {
             s_mdns_started = true;
             s_mdns_services_registered = false;
-            MDNS.addService("arduino", "tcp", 3232);
+            // instruments#30: only advertise espota when ArduinoOTA will run.
+            if (ota_mode_now() != ota_policy::Mode::Disabled)
+                MDNS.addService("arduino", "tcp", 3232);
             refresh_mdns_device_txt(reason);
             printf("[mdns] host %s.local (espdisp + arduino)\n", s_device_id.c_str());
         }
@@ -1087,6 +1127,12 @@ bool wifiUp() {
 bool otaInProgress() {
     return s_ota_in_progress;
 }
+const char *arduinoOtaMode() {
+    return ota_policy::mode_name(ota_mode_now());
+}
+bool arduinoOtaRunning() {
+    return ota_started;
+}
 String ipString() {
     return ap_mode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
 }
@@ -1126,10 +1172,27 @@ void saveWifi(const String &ssid, const String &pass) {
 
 void setOtaPassword(const char *pw) {
     if (!pw) pw = "";
-    storage::Namespace prefs("net", false);
-    prefs.put_string("ota_pass", pw);
-    ArduinoOTA.setPassword(strlen(pw) ? pw : OTA_PASSWORD);
-    logf("[ota] password applied from config (len %u)", (unsigned)strlen(pw));
+    {
+        storage::Namespace prefs("net", false);
+        prefs.put_string("ota_pass", pw);
+    }
+#if YEYBOATS_ARDUINO_OTA
+    // ArduinoOTA takes its password once, before begin(). If OTA was off for
+    // lack of a password, start it now; a running OTA keeps its old password
+    // until reboot.
+    if (!ota_started && wifiUp()) {
+        otaSetup();
+        if (ota_started && s_mdns_started) MDNS.addService("arduino", "tcp", 3232);
+        logf("[ota] password stored (len %u); ArduinoOTA %s", (unsigned)strlen(pw),
+             ota_started ? "started" : "still off");
+    } else {
+        logf("[ota] password stored (len %u); effective %s", (unsigned)strlen(pw),
+             ota_started ? "after reboot" : "when WiFi is up");
+    }
+#else
+    logf("[ota] password stored (len %u); ArduinoOTA is compiled out of release builds",
+         (unsigned)strlen(pw));
+#endif
 }
 
 static void append_log_locked(const char *line, int n, uint8_t level) {
@@ -1433,22 +1496,27 @@ bool handleSerialCommand(const String &line) {
     if (line.startsWith("ota-pass ")) {
         String pw = line.substring(9);
         pw.trim();
+        if (pw.length() == 0) {
+            logf("usage: ota-pass <password>   (ota-pass-clear to remove)");
+            return true;
+        }
         setOtaPassword(pw.c_str());
-        printf("[ota] password set (len %u); effective next OTA\n", (unsigned)pw.length());
         return true;
     }
     if (line == "ota-pass-clear") {
         storage::Namespace prefs("net", false);
         prefs.put_string("ota_pass", "");
-        printf("[ota] password cleared; reverts to compile-time default\n");
+        printf("[ota] password cleared; reverts to compile-time default (ArduinoOTA off "
+               "after reboot if that is empty)\n");
         return true;
     }
     if (line == "ota-pass") {
-        storage::Namespace prefs("net", true);
-        std::string cur = prefs.get_string("ota_pass", "");
+        std::string cur;
+        ota_policy::Mode mode = ota_mode_now(&cur);
         bool set = (cur.c_str()[0] != 0) || strlen(OTA_PASSWORD) > 0;
-        printf("[ota] password %s (runtime %s)\n", set ? "set" : "unset",
-               cur.c_str()[0] ? "yes" : "no");
+        printf("[ota] password %s (runtime %s), mode %s, running %s\n", set ? "set" : "unset",
+               cur.c_str()[0] ? "yes" : "no", ota_policy::mode_name(mode),
+               ota_started ? "yes" : "no");
         return true;
     }
     if (line == "wifi-list") {

@@ -56,10 +56,23 @@ size_t control_ready_json(char *buf, size_t cap) {
     return finish(n, buf, cap);
 }
 
+// Compare without an early exit on the first differing byte. The length of
+// the configured key still leaks through timing; its content does not.
+static bool key_equal(const char *configured, const char *presented) {
+    size_t n = strlen(configured);
+    size_t m = strnlen(presented, n + 1);
+    unsigned char diff = (unsigned char)(n != m);
+    for (size_t i = 0; i < n; ++i) {
+        unsigned char p = i < m ? (unsigned char)presented[i] : 0;
+        diff |= (unsigned char)configured[i] ^ p;
+    }
+    return diff == 0;
+}
+
 bool auth_ok(const char *configured_key, const char *presented_key) {
     if (!configured_key || !configured_key[0]) return true;  // open
     if (!presented_key) return false;
-    return strcmp(configured_key, presented_key) == 0;
+    return key_equal(configured_key, presented_key);
 }
 
 void SessionTable::clear() {
