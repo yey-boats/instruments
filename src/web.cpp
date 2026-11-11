@@ -35,6 +35,7 @@
 #include "generated_midl_manifest.h"
 #include "midl_render.h"
 #include "midl_kinds.h"
+#include "midl_validate.h"
 #include "midl_demo_doc.h"
 #include "web_auth_policy.h"
 #include "web_pw.h"
@@ -827,6 +828,17 @@ static void send_err(int code, const char *msg) {
     send_json(code, doc);
 }
 
+// The embedded capability manifest (midl_manifest::JSON), parsed once into
+// PSRAM on first use. Web callbacks run serially, so the lazy init is safe.
+static JsonVariantConst embedded_manifest() {
+    static JsonDocument *m = nullptr;
+    if (!m) {
+        m = new JsonDocument(&yeyboats::psram_json);
+        if (deserializeJson(*m, midl_manifest::JSON)) m->clear();
+    }
+    return m->as<JsonVariantConst>();
+}
+
 static void handle_midl_config_post() {
     if (!require_api_auth()) return;
     if (!server.hasArg("plain")) {
@@ -863,13 +875,21 @@ static void handle_midl_config_post() {
         send_err(400, "no usable screen / missing 'screens' array");
         return;
     }
-    // instruments#23: refuse kinds this firmware does not implement (e.g. a
-    // `computed` source) instead of silently rendering "--". The accepted set
-    // is exactly what /api/midl/manifest advertises (midl::kinds).
+    // instruments#20: full on-device MIDL validation against the embedded
+    // capability manifest (the same pipeline as midl's TS/Python validators:
+    // structure, meaning, version, class limits, element kinds, bindings,
+    // actions) plus this firmware's storage limits. instruments#23's kind
+    // check is part of it. Rejects with 422 and the JSON pointer of the first
+    // problem, e.g. {"ok":false,"error":"too many tiles: 5 > 4","path":"/screens/0/layout"}.
     {
-        static char kind_err[192];  // web callbacks run serially; keep off the stack
-        if (!midl::kinds::check_doc(doc.as<JsonVariantConst>(), kind_err, sizeof(kind_err))) {
-            send_err(422, kind_err);
+        static midl::validate::Issue issue;  // web callbacks run serially; keep off the stack
+        if (!midl::validate::admit(doc.as<JsonVariantConst>(), embedded_manifest(),
+                                   midl_manifest::CLASS_ID, issue)) {
+            JsonDocument out(&yeyboats::psram_json);
+            out["ok"] = false;
+            out["error"] = issue.message;
+            out["path"] = issue.path;
+            send_json(422, out);
             return;
         }
     }

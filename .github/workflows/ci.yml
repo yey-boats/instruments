@@ -209,6 +209,26 @@ jobs:
           git add -N include/midl_gen
           git diff --exit-code include/midl_gen/${{ matrix.class }}
 
+  # instruments#20: the native on-device validator test runs midl's
+  # conformance corpus from a JSON export; it must match the pinned submodule.
+  midl-conformance-freshness:
+    name: MIDL conformance fixture freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Check test/fixtures/yb-midl/conformance/cases.json matches the pinned midl corpus
+        run: python3 tools/gen_midl_conformance.py --check
+
   midl-class-map:
     name: MIDL display class per env
     runs-on: ubuntu-latest

@@ -38,7 +38,8 @@
 #include "midl_solve.h"  // midl::solve_screen, PlacementSet, SolveStatus, SOLVE_OK
 #include "ui_layouts.h"  // ui::layouts::create_freeform, update_freeform, ScreenVariantSpec, Rect
 #include "ui_screens.h"  // ui::Screen, register_screen, replace_screen, MAX_SCREENS
-#include "signalk.h"     // boat::current_view, boat::View, sk::dynamicStore
+#include "midl_validate.h"         // MAX_SCREENS admitted by POST /api/midl/config
+#include "signalk.h"               // boat::current_view, boat::View, sk::dynamicStore
 #include "widget_data_resolver.h"  // widget_data::resolve_numeric (dynamic-path fallback)
 #include "net.h"                   // net::logf
 
@@ -71,7 +72,9 @@ using ui::layouts::TemplateId;
 
 static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // per class (4..9)
 static constexpr size_t STR_CAP = midl::FirmwareLimits::str_len;                 // 32
-static constexpr size_t PATH_CAP = midl::FirmwareLimits::path_len;               // 96
+static_assert(ui::MAX_SCREENS == midl::validate::MAX_SCREENS,
+              "on-device validation admits exactly as many screens as there are slots");
+static constexpr size_t PATH_CAP = midl::FirmwareLimits::path_len;  // 96
 
 // Per-SCREEN pools for the dial-fidelity artifacts (markers + sectors +
 // dynamic marker/sector paths). Shared across the screen's tiles (not
