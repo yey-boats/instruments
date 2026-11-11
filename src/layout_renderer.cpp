@@ -1,4 +1,5 @@
 #include "layout_renderer.h"
+#include "psram_static.h"
 #include "ui_layouts.h"  // lv_obj_t* builders + full LVGL types
 
 #include "layout_loader.h"
@@ -93,7 +94,11 @@ struct RendererSlot {
     bool in_use;
 };
 
-static RendererSlot s_slots[layout::MAX_SCREENS];
+// ~8.5 KB: PSRAM, not internal .bss (instruments#41, include/psram_static.h).
+static RendererSlot *slots() {
+    static RendererSlot *s = yeyboats::psram_new<RendererSlot>(layout::MAX_SCREENS);
+    return s;
+}
 
 // Owning state for a built layout screen: keeps the spec + bindings
 // alive for the screen's lifetime and gives the refresh callback a
@@ -157,7 +162,7 @@ size_t apply() {
             if (ls.tiles[t].widget[0]) editor_shape = true;
         if (!editor_shape) continue;
 
-        RendererSlot &slot = s_slots[i];
+        RendererSlot &slot = slots()[i];
         strncpy(slot.screen_id, ls.id, sizeof(slot.screen_id) - 1);
         slot.screen_id[sizeof(slot.screen_id) - 1] = 0;
         strncpy(slot.screen_title, ls.title[0] ? ls.title : ls.id, sizeof(slot.screen_title) - 1);

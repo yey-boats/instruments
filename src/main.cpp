@@ -10,6 +10,7 @@
 #endif
 
 #include "board_pins.h"
+#include "psram_static.h"
 #include "net.h"
 #include "signalk.h"
 #ifdef RENDER_DOUBLE_BUFFER
@@ -1786,7 +1787,8 @@ extern volatile uint32_t g_last_swipe_ms;
 // ~5 KB SubscriptionSet on the loopTask stack would overflow it (CLAUDE.md
 // large-struct-on-stack trap).
 static void on_screen_change_collect_paths(const char * /*id*/, ui::CollectPathsFn collect) {
-    static sk::SubscriptionSet s_screen_paths;  // UI-task-local, not on the stack
+    // UI-task-local, not on the stack; ~5 KB so PSRAM (instruments#41).
+    static sk::SubscriptionSet &s_screen_paths = *yeyboats::psram_new<sk::SubscriptionSet>();
     s_screen_paths.clear();
     if (collect) {
         // Introspectable screen: subscribe exactly what it shows (+ baseline,

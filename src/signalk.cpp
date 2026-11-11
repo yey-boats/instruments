@@ -1,4 +1,5 @@
 #include "signalk.h"
+#include "psram_static.h"
 #include "ais_store.h"
 #include "board.h"
 #include "build_config.h"
@@ -337,13 +338,15 @@ static void send_unsubscribe_all() {
 // Returns true when the desired state is fully applied (clear the dirty flag),
 // false when a reduction was deferred for stability (keep retrying).
 static bool apply_subscription_diff() {
-    static SubscriptionSet toAdd;     // SK-task-local, never on the stack
-    static SubscriptionSet toRemove;  // (see CLAUDE.md large-struct trap)
+    // SK-task-local, never on the stack (CLAUDE.md large-struct trap) and
+    // ~5 KB each, so PSRAM rather than internal .bss (instruments#41).
+    static SubscriptionSet &toAdd = *yeyboats::psram_new<SubscriptionSet>();
+    static SubscriptionSet &toRemove = *yeyboats::psram_new<SubscriptionSet>();
     SubscriptionSet &active = g_active();
 
     // Snapshot the desired set under the mutex into a SK-task-private copy so we
     // don't hold s_sub_mtx across ws.sendTXT.
-    static SubscriptionSet desired;
+    static SubscriptionSet &desired = *yeyboats::psram_new<SubscriptionSet>();
     if (s_sub_mtx) xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
     desired = g_desired();  // SubscriptionSet copy is a POD assign (~5 KB)
     if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);

@@ -1,4 +1,5 @@
 #include "web.h"
+#include "psram_static.h"
 
 #include <Arduino.h>
 #include <WebServer.h>
@@ -1822,7 +1823,7 @@ static void handle_p2p_device() {
     JsonDocument out(&yeyboats::psram_json);
     // DeviceRecord is ~1.5 KB; keep it off the web task stack. Handlers run
     // serially on the single WebServer task, so a function-static is race-free.
-    static proto::DeviceRecord r;
+    static proto::DeviceRecord &r = *yeyboats::psram_new<proto::DeviceRecord>();
     memset(&r, 0, sizeof(r));
     proto_target::fill_device_record(r);
     proto::to_json(out.to<JsonObject>(), r);
@@ -1843,7 +1844,7 @@ static void handle_p2p_attach() {
     }
     // AttachAck embeds a DeviceRecord (~1.5 KB) — static to keep it off the web
     // task stack (serial handler execution makes the static safe).
-    static proto::AttachAck ack;
+    static proto::AttachAck &ack = *yeyboats::psram_new<proto::AttachAck>();
     memset(&ack, 0, sizeof(ack));
     proto_target::handle_attach(req, ack);
     p2p_send_ack(ack);
@@ -1904,7 +1905,7 @@ static void handle_p2p_detach() {
 static void handle_p2p_state() {
     JsonDocument out(&yeyboats::psram_json);
     // ControlState is ~2 KB (Session[16]); static keeps it off the web stack.
-    static proto::ControlState cs;
+    static proto::ControlState &cs = *yeyboats::psram_new<proto::ControlState>();
     memset(&cs, 0, sizeof(cs));
     proto_target::fill_state(cs);
     proto::to_json(out.to<JsonObject>(), cs);
