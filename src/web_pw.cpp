@@ -124,9 +124,102 @@ bool split_basic(const char *decoded, size_t len, const char **user, size_t *use
     return true;
 }
 
-Migration migration(const char *plaintext, const char *record) {
-    if (!plaintext || !plaintext[0]) return Migration::None;
-    return is_record(record) ? Migration::DropPlaintext : Migration::HashPlaintext;
+namespace {
+
+void wipe(std::string &s) {
+    if (!s.empty()) memset(&s[0], 0, s.size());
+}
+
+bool record_verifies(const std::string &rec, const char *pw, size_t len, Kdf kdf) {
+    return is_record(rec.c_str()) && verify(rec.c_str(), pw, len, kdf);
+}
+
+bool write_record(Kv &kv, const char *pw, const uint8_t salt[SALT_LEN], Kdf kdf) {
+    char rec[RECORD_MAX];
+    if (!make_record(pw, salt, ITERATIONS, kdf, rec, sizeof(rec))) return false;
+    return kv.put(KEY_RECORD, rec);
+}
+
+}  // namespace
+
+bool reconcile(Kv &kv, bool image_pending, const uint8_t salt[SALT_LEN], Kdf kdf) {
+    std::string plain = kv.get(KEY_PLAIN);
+    if (plain.empty()) return true;
+    bool ok = true;
+    if (!record_verifies(kv.get(KEY_RECORD), plain.data(), plain.size(), kdf))
+        ok = write_record(kv, plain.c_str(), salt, kdf);
+    // Rollback window: the previous image only reads the plaintext.
+    if (ok && !image_pending) kv.remove(KEY_PLAIN);
+    wipe(plain);
+    return ok;
+}
+
+bool set_password(Kv &kv, const char *pw, bool image_pending, const uint8_t salt[SALT_LEN],
+                  Kdf kdf) {
+    if (!pw || !pw[0]) return false;
+    size_t len = strlen(pw);
+    bool rec_ok = record_verifies(kv.get(KEY_RECORD), pw, len, kdf);
+    if (!rec_ok && !write_record(kv, pw, salt, kdf)) return false;
+    if (image_pending) {
+        std::string plain = kv.get(KEY_PLAIN);
+        bool same = ct_equal(plain.data(), plain.size(), pw, len);
+        wipe(plain);
+        return same || kv.put(KEY_PLAIN, pw);
+    }
+    kv.remove(KEY_PLAIN);
+    return true;
+}
+
+bool is_set(Kv &kv) {
+    if (is_record(kv.get(KEY_RECORD).c_str())) return true;
+    std::string plain = kv.get(KEY_PLAIN);
+    bool set = !plain.empty();
+    wipe(plain);
+    return set;
+}
+
+bool verify(Kv &kv, const char *pw, size_t pw_len, Kdf kdf) {
+    if (!pw || pw_len == 0) return false;
+    std::string rec = kv.get(KEY_RECORD);
+    if (is_record(rec.c_str())) return verify(rec.c_str(), pw, pw_len, kdf);
+    std::string plain = kv.get(KEY_PLAIN);
+    bool ok = !plain.empty() && ct_equal(plain.data(), plain.size(), pw, pw_len);
+    wipe(plain);
+    return ok;
+}
+
+bool VerifyCache::hit(const uint8_t t[TAG_LEN], uint32_t now_ms) const {
+    bool fresh = valid && (uint32_t)(now_ms - at_ms) < CACHE_TTL_MS;
+    bool same = ct_equal(tag, TAG_LEN, t, TAG_LEN);
+    return fresh && same;
+}
+
+void VerifyCache::store(const uint8_t t[TAG_LEN], uint32_t now_ms) {
+    memcpy(tag, t, TAG_LEN);
+    at_ms = now_ms;
+    valid = true;
+}
+
+void VerifyCache::clear() {
+    memset(tag, 0, TAG_LEN);
+    at_ms = 0;
+    valid = false;
+}
+
+bool verify_cached(Kv &kv, const char *pw, size_t pw_len, Kdf kdf, Tagger tagger,
+                   VerifyCache &cache, uint32_t now_ms) {
+    if (!pw || pw_len == 0) return false;
+    std::string rec = kv.get(KEY_RECORD);
+    uint8_t t[TAG_LEN];
+    bool tagged = tagger && tagger(rec.c_str(), pw, pw_len, t);
+    if (tagged && cache.hit(t, now_ms)) {
+        memset(t, 0, sizeof(t));
+        return true;
+    }
+    bool ok = verify(kv, pw, pw_len, kdf);
+    if (ok && tagged) cache.store(t, now_ms);
+    memset(t, 0, sizeof(t));
+    return ok;
 }
 
 }  // namespace web_pw

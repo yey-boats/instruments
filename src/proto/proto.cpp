@@ -75,17 +75,6 @@ bool auth_ok(const char *configured_key, const char *presented_key) {
     return key_equal(configured_key, presented_key);
 }
 
-bool control_auth_required(const char *configured_key, bool paired) {
-    return paired || (configured_key && configured_key[0]);
-}
-
-bool control_auth_ok(const char *configured_key, const char *presented_key, bool paired) {
-    if (!control_auth_required(configured_key, paired)) return true;
-    // Paired with no key configured: nothing can match.
-    if (!configured_key || !configured_key[0]) return false;
-    return auth_ok(configured_key, presented_key);
-}
-
 void SessionTable::clear() {
     for (int i = 0; i < kMaxSessions; ++i)
         used[i] = false;

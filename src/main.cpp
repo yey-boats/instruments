@@ -2206,7 +2206,7 @@ static bool handleMainCommand(const String &line) {
                 p.remove("key");
             }
             proto_target::set_key("");
-            net::logf("[ctl] key cleared (control open only while unpaired)");
+            net::logf("[ctl] key cleared (control open)");
             return true;
         }
         {

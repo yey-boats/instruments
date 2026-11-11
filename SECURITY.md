@@ -57,30 +57,44 @@ Lost password: re-pair from the manager (it re-pushes its credentials), or
 erase NVS / factory-reset over USB.
 
 **Stored as a salted hash (instruments#30).** The password is kept in NVS as a
-PBKDF2-HMAC-SHA256 record (`web/pass_h`: `pbkdf2-sha256$<iterations>$<salt>$<key>`,
-16-byte random salt, 1000 iterations). It is never stored as plaintext. Basic
-Auth decodes the presented credential, derives a key with the stored salt, and
-compares in constant time. On first boot of this firmware, a plaintext
-`web/pass` left by older firmware is hashed and then erased. Downgrading to
-older firmware afterwards leaves that firmware with no password it can read,
-so its API is setup-open until the manager pushes the password again. Basic
-Auth still travels over plain HTTP, so the credential is only as private as
-the LAN.
+PBKDF2-HMAC-SHA256 record (`web/pass_h`: `pbkdf2-sha256$<iterations>$<salt>$<key>`).
+Basic Auth decodes the presented credential, derives a key with the stored
+salt, and compares in constant time. Basic Auth still travels over plain HTTP,
+so the credential is only as private as the LAN.
 
-## Peer control `/api/p2p/*` (instruments#30)
+| Parameter | Value |
+|---|---|
+| KDF | PBKDF2-HMAC-SHA256 (mbedtls, ESP32-S3 HW SHA) |
+| Iterations | 1000 (stored per record, so it can be raised later) |
+| Salt | 16 bytes, `esp_fill_random`, new on every password change |
+| Derived key | 32 bytes |
+| Cost per derive | ~20-30 ms estimated on ESP32-S3 at 240 MHz (~4000 SHA-256 compressions); the device logs the measured `pbkdf2-sha256 x1000 took N ms` on its first derive |
+| Verify cache | the last successful credential, as an HMAC-SHA256 tag (per-boot random key) over record + password, in RAM only, 30 s TTL; constant-time compare; cleared on any password change; failures never cached |
+
+So a client polling the API pays one PBKDF2 derive per 30 s, and every wrong
+guess still pays a full derive.
+
+**Migration and rollback.** On the first boot of this firmware, a plaintext
+`web/pass` left by older firmware is hashed into `web/pass_h`. While the new
+image is still `PENDING_VERIFY` the plaintext is kept, so a bootloader rollback
+to the old firmware still finds its password. A password set in that window is
+written to both keys. Once `manager::setup` marks the image valid
+(`esp_ota_mark_app_valid_cancel_rollback`), the plaintext is erased. If the
+record cannot be written, the plaintext stays and still authenticates (fails
+closed).
+
+**Manual downgrade.** Flashing firmware older than this change after the
+plaintext has been erased leaves that firmware with no password it can read,
+so its API is setup-open until the manager pushes the config (password) again.
+After any manual downgrade below this version, re-push the device config from
+the manager.
+
+## Peer control `/api/p2p/*`
 
 `/api/p2p/*` uses the control-protocol shared key (`ctl key <secret>`, NVS
-`proto/key`), not Basic Auth:
-
-- **Unpaired device** (no web password and no manager registration): an empty
-  key means open. This keeps first setup and local knob-to-display control
-  working with no provisioning.
-- **Paired device** (web password or manager token present): a key is always
-  required. With no key configured, every attach is rejected with
-  `key_required`. Set the same `ctl key <secret>` on the display and on the
-  controller (knob). `DeviceRecord.authRequired` reports this.
-- `GET /api/p2p/device` and `/api/p2p/state` stay readable for discovery.
-  They expose no session ids.
+`proto/key`), not Basic Auth. An empty key still means open; the key compare
+is now constant-time. Requiring the key once a device is paired needs the
+manager to deliver keys first and is tracked in instruments#36.
 
 ## Firmware updates (instruments#30)
 

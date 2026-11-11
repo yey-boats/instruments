@@ -5,12 +5,10 @@
 #include <string.h>
 
 #include "app_events.h"
-#include "manager.h"
 #include "board.h"
 #include "net.h"
 #include "storage.h"
 #include "ui_screens.h"
-#include "web_pw_store.h"
 
 namespace proto_target {
 
@@ -24,8 +22,7 @@ constexpr const char *NS = "proto";
 proto::SessionTable s_table;
 SemaphoreHandle_t s_mtx = nullptr;
 
-// Shared key (NVS "proto"/"key"). Empty => open ONLY while the device is
-// unpaired (instruments#30, see is_paired / proto::control_auth_ok).
+// Shared key (NVS "proto"/"key"). Empty => open (control unauthenticated).
 char s_key[48] = {0};
 
 // Last view a controller switched us to. Seeds from ui::current_id() lazily;
@@ -37,14 +34,6 @@ void lock() {
 }
 void unlock() {
     if (s_mtx) xSemaphoreGive(s_mtx);
-}
-
-// instruments#30: "paired" = set up by an owner/manager: a web password is
-// provisioned or the device holds a manager registration token. From then
-// on an empty control key no longer means open. Both reads are RAM-cached
-// (safe on the NimBLE host task's small stack).
-bool is_paired() {
-    return web_pw_store::is_set() || manager::is_provisioned();
 }
 
 // Best-effort "currentView" for outbound records: prefer what the UI is
@@ -114,7 +103,7 @@ void fill_device_record(proto::DeviceRecord &r) {
     strncpy(r.transports[r.transports_count++], "ip", 23);
     strncpy(r.transports[r.transports_count++], "ble", 23);
 
-    r.authRequired = proto::control_auth_required(s_key, is_paired());
+    r.authRequired = (s_key[0] != 0);
 }
 
 bool handle_attach(const proto::Attach &a, proto::AttachAck &ack) {
@@ -132,13 +121,9 @@ bool handle_attach(const proto::Attach &a, proto::AttachAck &ack) {
     strncpy(key_snapshot, s_key, sizeof(key_snapshot) - 1);
     key_snapshot[sizeof(key_snapshot) - 1] = '\0';
     unlock();
-    bool paired = is_paired();
-    if (!proto::control_auth_ok(key_snapshot, a.key, paired)) {
+    if (!proto::auth_ok(key_snapshot, a.key)) {
         ack.accepted = false;
-        // Paired with no key set: tell the operator what to do (`ctl key`).
-        const char *reason = (paired && !key_snapshot[0]) ? "key_required" : "unauthorized";
-        strncpy(ack.reason, reason, sizeof(ack.reason) - 1);
-        net::logf("[ctl] attach from '%.32s' rejected: %s", a.controllerId, reason);
+        strncpy(ack.reason, "unauthorized", sizeof(ack.reason) - 1);
         return false;
     }
 

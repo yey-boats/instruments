@@ -37,14 +37,6 @@ size_t control_ready_json(char *buf, size_t cap);
 // Shared-key check. configured_key == "" => open (accept any). Constant-time compare.
 bool auth_ok(const char *configured_key, const char *presented_key);
 
-// instruments#30: the control-protocol gate the target actually applies.
-// `paired` = the device has been set up (web password or manager
-// registration present). An empty configured key is open ONLY while unpaired
-// (first setup / local knob<->display with no provisioning); once paired, a
-// key is required, so an empty one rejects every attach until `ctl key` is set.
-bool control_auth_required(const char *configured_key, bool paired);
-bool control_auth_ok(const char *configured_key, const char *presented_key, bool paired);
-
 // Target-side session table (pure; the firmware feeds it now-millis).
 struct SessionTable {
     Session sessions[kMaxSessions];

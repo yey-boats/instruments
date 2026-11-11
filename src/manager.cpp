@@ -2334,10 +2334,13 @@ void setup() {
     esp_ota_img_states_t st;
     if (running && esp_ota_get_state_partition(running, &st) == ESP_OK) {
         if (st == ESP_OTA_IMG_PENDING_VERIFY) {
-            esp_ota_mark_app_valid_cancel_rollback();
+            esp_err_t mv = esp_ota_mark_app_valid_cancel_rollback();
             s_ota_confirm_pending = true;
             net::logf("[mgr] post-OTA boot: marked partition valid; "
                       "/firmware/confirm pending");
+            // instruments#30: no rollback is possible any more, so the
+            // legacy plaintext web password kept for it can go now.
+            if (mv == ESP_OK) web_pw_store::image_confirmed();
         }
     }
     net::logf("[mgr] %s endpoint=%s token=%s", s_endpoint.length() ? "configured" : "idle",

@@ -151,6 +151,10 @@ jobs:
             echo '(Firmware -> update job; the device pulls and verifies the image).'
             echo 'Release firmware has no ArduinoOTA listener (instruments#30).'
             echo ""
+            echo '> **Downgrade note:** the web password is now stored hashed. After a manual'
+            echo '> downgrade below this version, re-push the device config (password) from the'
+            echo '> manager; until then the older firmware API is setup-open. See SECURITY.md.'
+            echo ""
             echo "## SignalK plugin"
             echo ""
             echo "The SignalK manager plugin is released separately from the"
