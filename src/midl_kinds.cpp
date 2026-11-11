@@ -56,7 +56,7 @@ bool encode_put_path(const char *path, char *out, size_t n) {
     size_t o = 0;
     for (const unsigned char *p = (const unsigned char *)path; *p; ++p) {
         unsigned char c = *p;
-        bool keep = seg_char((char)c) || c == '.' || c == '~' || c == '/';
+        bool keep = seg_char((char)c) || c == '.' || c == '~';
         size_t need = keep ? 1 : 3;
         if (o + need >= n) {
             out[0] = 0;
@@ -72,6 +72,11 @@ bool encode_put_path(const char *path, char *out, size_t n) {
     }
     out[o] = 0;
     return true;
+}
+
+ButtonRoute button_route(const char *target) {
+    if (!target || !target[0]) return ButtonRoute::None;
+    return put_target_ok(target) ? ButtonRoute::SignalKPut : ButtonRoute::Console;
 }
 
 static void join(const char *const *list, char *out, size_t n) {

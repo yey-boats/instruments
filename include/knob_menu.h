@@ -65,9 +65,9 @@ const char *level_name(Level l);
 // Fills the SignalK PUT path + JSON value for an autopilot Action. This is the
 // single source of truth for the SignalK contract — both the device dispatch
 // (knob_ui.cpp) and the host tests format PUTs through it.
-//   ApSetState     -> path "steering/autopilot/state",
+//   ApSetState     -> path "steering.autopilot.state",
 //                     value "\"<arg_str>\"" (JSON-quoted, e.g. "auto")
-//   ApSetTargetRad -> path "steering/autopilot/target/headingTrue",
+//   ApSetTargetRad -> path "steering.autopilot.target.headingTrue",
 //                     value "%.4f" of arg_f (radians)
 //   else (NoAction / SwitchView) -> returns false, leaves outputs empty
 //                                    (null-terminated path_out[0]/value_out[0]).

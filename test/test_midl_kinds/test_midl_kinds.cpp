@@ -193,12 +193,38 @@ static void test_put_url_path_encoding() {
     char out[64];
     TEST_ASSERT_TRUE(midl::kinds::encode_put_path("steering.autopilot.tack", out, sizeof(out)));
     TEST_ASSERT_EQUAL_STRING("steering.autopilot.tack", out);
+    // instruments#31: '/' is encoded too (SignalK paths never contain it), so a
+    // target cannot climb out of /signalk/v1/api/vessels/self/.
     TEST_ASSERT_TRUE(midl::kinds::encode_put_path("steering/autopilot/state", out, sizeof(out)));
-    TEST_ASSERT_EQUAL_STRING("steering/autopilot/state", out);
+    TEST_ASSERT_EQUAL_STRING("steering%2Fautopilot%2Fstate", out);
+    TEST_ASSERT_TRUE(midl::kinds::encode_put_path("../../x.y", out, sizeof(out)));
+    TEST_ASSERT_EQUAL_STRING("..%2F..%2Fx.y", out);
     TEST_ASSERT_TRUE(midl::kinds::encode_put_path("a.b?x#y z%", out, sizeof(out)));
     TEST_ASSERT_EQUAL_STRING("a.b%3Fx%23y%20z%25", out);
     TEST_ASSERT_FALSE(midl::kinds::encode_put_path("abcdefgh", out, 8));
     TEST_ASSERT_FALSE(midl::kinds::encode_put_path(nullptr, out, sizeof(out)));
+}
+
+// instruments#31: a button's command slot carries both `command` and `put`
+// targets. Only a valid SignalK path may take the PUT branch (bearer-token
+// URL); everything else stays on the console-command funnel.
+static void test_button_route() {
+    using midl::kinds::button_route;
+    using midl::kinds::ButtonRoute;
+    TEST_ASSERT_EQUAL(ButtonRoute::SignalKPut, button_route("steering.autopilot.tack"));
+    TEST_ASSERT_EQUAL(ButtonRoute::SignalKPut,
+                      button_route("steering.autopilot.target.headingMagnetic"));
+    TEST_ASSERT_EQUAL(ButtonRoute::Console, button_route("theme dark"));
+    TEST_ASSERT_EQUAL(ButtonRoute::Console, button_route("sk 192.168.1.5"));
+    TEST_ASSERT_EQUAL(ButtonRoute::Console, button_route("demo"));
+    // Dotted and space-free, but not a SignalK path: never a PUT.
+    const char *bad[] = {"../../x.y", "a.b?x", "a.b#c",  "a..b",   ".a.b",
+                         "a.b.",      "a.b/c", "a.b%2F", "a.b\tc", "x:y.z"};
+    for (const char *b : bad) {
+        TEST_ASSERT_EQUAL_MESSAGE(ButtonRoute::Console, button_route(b), b);
+    }
+    TEST_ASSERT_EQUAL(ButtonRoute::None, button_route(""));
+    TEST_ASSERT_EQUAL(ButtonRoute::None, button_route(nullptr));
 }
 
 int main(int, char **) {
@@ -216,5 +242,6 @@ int main(int, char **) {
     RUN_TEST(test_long_put_target_rejected);
     RUN_TEST(test_long_command_target_rejected);
     RUN_TEST(test_put_url_path_encoding);
+    RUN_TEST(test_button_route);
     return UNITY_END();
 }

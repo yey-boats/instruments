@@ -39,7 +39,7 @@ static lv_obj_t *tile_aws, *tile_awa, *tile_tws, *tile_twa;
 static void put_state(const char *state) {
     app::Command cmd;
     cmd.type = app::CommandType::SignalKPut;
-    strncpy(cmd.a, "steering/autopilot/state", sizeof(cmd.a) - 1);
+    strncpy(cmd.a, "steering.autopilot.state", sizeof(cmd.a) - 1);
     snprintf(cmd.b, sizeof(cmd.b), "\"%s\"", state);
     app::post_net(cmd, 50);
     net::logf("[wind] state -> %s queued", state);

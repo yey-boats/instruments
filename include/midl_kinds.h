@@ -41,9 +41,20 @@ inline constexpr size_t ACTION_TARGET_MAX = 95;
 bool put_target_ok(const char *target);
 
 // Percent-encode `path` for the SignalK PUT URL path: keeps unreserved chars
-// [A-Za-z0-9-._~] and '/', encodes everything else as %XX. Returns false
+// [A-Za-z0-9-._~], encodes everything else as %XX — including '/', which a
+// SignalK path never contains (segments are dot-separated), so a path cannot
+// climb out of /signalk/v1/api/vessels/self/ (instruments#31). Returns false
 // (out = "") if path is null or the result does not fit in n.
 bool encode_put_path(const char *path, char *out, size_t n);
+
+// Where a MIDL button's command slot goes on tap (instruments#31). The slot
+// carries both `command` and `put` action targets; only a target that passes
+// put_target_ok is a SignalK PUT (the bearer-token URL). Anything else,
+// including dotted, space-free strings such as "../../x.y", stays on the
+// console-command funnel (net::dispatchCommand), which `command` already
+// reaches. None for a null/empty target.
+enum class ButtonRoute { None, SignalKPut, Console };
+ButtonRoute button_route(const char *target);
 
 // Walk a MIDL document (element bindings, marker dirs, element actions, alarm
 // sources). Returns false on the first unsupported kind and writes a clear,
