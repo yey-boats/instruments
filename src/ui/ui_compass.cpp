@@ -176,7 +176,11 @@ void compass_layout_labels(const Compass &cp, double hdg_deg) {
             rel -= 360.0;
         while (rel < -180.0)
             rel += 360.0;
-        if (rel > 96.0 || rel < -96.0) {
+        // Only labels that sit fully on the band: past ~80 deg they hang off its
+        // flat ends, and their dark ink half-vanishes on the dark background.
+        // Also skip the one under the lubber: the HDG/COG/CTS markers cluster
+        // there and the hero already shows the exact heading.
+        if (rel > 80.0 || rel < -80.0 || (rel < 12.0 && rel > -12.0)) {
             lv_obj_add_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
@@ -287,8 +291,10 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
         int tx = cx + (int)(fr[i] * half);
         bool mid = (i == 2);
         lv_obj_t *t = lv_obj_create(root);
-        lv_obj_set_size(t, 2, mid ? 14 : 8);
-        lv_obj_set_pos(t, tx - 1, base_y - (mid ? 10 : 6));
+        // The centre tick is wider rather than taller: rising above the axis it
+        // ran through the readout centred in the label row.
+        lv_obj_set_size(t, mid ? 3 : 2, 8);
+        lv_obj_set_pos(t, tx - 1, base_y - 6);
         lv_obj_set_style_bg_color(t, lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_style_bg_opa(t, LV_OPA_COVER, 0);
         no_chrome(t);
@@ -317,17 +323,9 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_set_style_text_color(stbd, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(stbd, LV_ALIGN_TOP_RIGHT, 0, label_row_y);
 
-    // Numeric readout centered in the top label row between the end captions, so
-    // the operator can read the magnitude, not just which side the needle is on.
-    // Caller fills it via set_text_if_changed in the refresh path.
-    lv_obj_t *val = lv_label_create(root);
-    lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(val, lv_color_hex(theme.fg), 0);
-    lv_obj_align(val, LV_ALIGN_TOP_MID, 0, label_row_y);
-    xs.value = val;
-
-    // Deviation needle, centered (zero) at build time.
+    // Deviation needle, centered (zero) at build time. Created before the
+    // readout so the readout (on its backing) stays legible when the needle
+    // passes under it near zero.
     lv_obj_t *needle = lv_obj_create(root);
     lv_obj_set_size(needle, 3, h - 6);
     lv_obj_set_pos(needle, cx - 1, 3);
@@ -336,6 +334,18 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
     no_chrome(needle);
     lv_obj_set_style_radius(needle, 1, 0);
     xs.needle = needle;
+
+    // Numeric readout centered in the top label row between the end captions, so
+    // the operator can read the magnitude, not just which side the needle is on.
+    // Caller fills it via set_text_if_changed in the refresh path.
+    lv_obj_t *val = lv_label_create(root);
+    lv_label_set_text(val, "--");
+    lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(val, lv_color_hex(theme.fg), 0);
+    ui::style_hud_backing(val);
+    lv_obj_set_style_pad_hor(val, 4, 0);
+    lv_obj_align(val, LV_ALIGN_TOP_MID, 0, label_row_y);
+    xs.value = val;
 
     return xs;
 }

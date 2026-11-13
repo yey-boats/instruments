@@ -300,11 +300,20 @@ lv_obj_t *build(lv_obj_t *parent) {
         int n = 4;
         int sq = (LCD_W - gap * (n + 1)) / n;
         int ty = LCD_H - sq - gap - course_h - course_pad;  // raised to clear the row
-        tile_aws = ui::numeric_tile(s_root, gap, ty, sq, sq, "AWS", "kn", tv, theme.warn);
-        tile_awa = ui::numeric_tile(s_root, gap * 2 + sq, ty, sq, sq, "AWA", "", tv, theme.fg);
+        // ...and never above the XTE strip's bottom: raised into it, the tiles
+        // covered the strip's tick numbers (only the "0" peeked through a gap).
+        // Shorten the tiles instead.
+        int th = sq;
+        const int strip_bottom = xte_y + xte_h + 2;
+        if (ty < strip_bottom) {
+            th -= strip_bottom - ty;
+            ty = strip_bottom;
+        }
+        tile_aws = ui::numeric_tile(s_root, gap, ty, sq, th, "AWS", "kn", tv, theme.warn);
+        tile_awa = ui::numeric_tile(s_root, gap * 2 + sq, ty, sq, th, "AWA", "", tv, theme.fg);
         tile_tws =
-            ui::numeric_tile(s_root, gap * 3 + sq * 2, ty, sq, sq, "TWS", "kn", tv, theme.fg);
-        tile_twa = ui::numeric_tile(s_root, gap * 4 + sq * 3, ty, sq, sq, "TWA", "", tv, theme.fg);
+            ui::numeric_tile(s_root, gap * 3 + sq * 2, ty, sq, th, "TWS", "kn", tv, theme.fg);
+        tile_twa = ui::numeric_tile(s_root, gap * 4 + sq * 3, ty, sq, th, "TWA", "", tv, theme.fg);
     } else {
         int sq = cox - gap * 2;
         int ty = (LCD_H - 2 * sq - gap) / 2;
