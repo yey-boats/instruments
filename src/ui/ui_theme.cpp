@@ -7,13 +7,15 @@ namespace ui {
 // Default = night theme, "glass cockpit" language (Garmin GPSMAP school):
 // cool near-black ground, bordered cells with a subtle vertical gradient for
 // depth, semantic side colors. Field order must match struct Palette exactly.
-//                bg        panel     panel_bot panel_edge badge     fg
-//                fg_dim    accent    warn      alarm     good      port
-//                starboard grid
+// Order: bg, panel, panel_bot, panel_edge, badge, fg, fg_dim, accent, warn,
+//        alarm, good, port, starboard, grid, arc_band, tide, stale.
 Palette theme = {
-    0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd, 0x4fc3f7,
-    0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c, 0xf2f6fb,
+    0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd, 0x4fc3f7, 0xffb84d,
+    0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c, 0xf2f6fb, 0x288cff, 0x4a5666,
 };
+
+// The positional initialisers below list exactly 17 colours.
+static_assert(sizeof(Palette) == 17 * sizeof(uint32_t), "update every Palette initialiser");
 
 // Canonical name of the active palette; kept in lockstep by the use_*()
 // setters so console/web/state endpoints can report the live theme.
@@ -21,8 +23,8 @@ static const char *s_theme_id = "night";
 
 void use_night() {
     theme = {
-        0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd, 0x4fc3f7,
-        0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c, 0xf2f6fb,
+        0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd, 0x4fc3f7, 0xffb84d,
+        0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c, 0xf2f6fb, 0x288cff, 0x4a5666,
     };
     s_theme_id = "night";
 }
@@ -31,8 +33,8 @@ void use_day() {
     // Sun-readable glass cockpit: bright panels with a faint gradient, dark
     // text, saturated semantic colors. Same chrome structure as night.
     theme = {
-        0xeef1f4, 0xffffff, 0xeef2f6, 0xc7d2da, 0xe7edf2, 0x14211d, 0x5a6b78, 0x0277bd,
-        0xb56f00, 0xc62828, 0x1b7a4b, 0xc62828, 0x1b7a4b, 0x9fb0bd, 0xdfe7ee,
+        0xeef1f4, 0xffffff, 0xeef2f6, 0xc7d2da, 0xe7edf2, 0x14211d, 0x5a6b78, 0x0277bd, 0xb56f00,
+        0xc62828, 0x1b7a4b, 0xc62828, 0x1b7a4b, 0x9fb0bd, 0xdfe7ee, 0x0a5fc0, 0x9aa7b4,
     };
     s_theme_id = "day";
 }
@@ -43,8 +45,8 @@ void use_high_contrast() {
     // THEMES["high-contrast"] + WIDGETS_HC: accent #00d0ff, warn #ffd000,
     // alarm #ff3030, good #00ff88, ticks #888888, HUD band #ffffff).
     theme = {
-        0x000000, 0x0a0a0a, 0x000000, 0xffffff, 0x141414, 0xffffff, 0xbdbdbd, 0x00d0ff,
-        0xffd000, 0xff3030, 0x00ff88, 0xff3030, 0x00ff88, 0x888888, 0xffffff,
+        0x000000, 0x0a0a0a, 0x000000, 0xffffff, 0x141414, 0xffffff, 0xbdbdbd, 0x00d0ff, 0xffd000,
+        0xff3030, 0x00ff88, 0xff3030, 0x00ff88, 0x888888, 0xffffff, 0x3aa0ff, 0x666666,
     };
     s_theme_id = "high-contrast";
 }
@@ -55,8 +57,8 @@ void use_red_night() {
     // adaptation. No greens/blues anywhere — "good"/starboard fall back to
     // amber tones, alarm stays the brightest pure red.
     theme = {
-        0x000000, 0x140302, 0x0a0100, 0x4a1410, 0x1f0705, 0xff4b3e, 0xa63527, 0xff7a29,
-        0xffa028, 0xff1a1a, 0xe0921e, 0xff5252, 0xd9a441, 0x3c100c, 0xff8a75,
+        0x000000, 0x140302, 0x0a0100, 0x4a1410, 0x1f0705, 0xff4b3e, 0xa63527, 0xff7a29, 0xffa028,
+        0xff1a1a, 0xe0921e, 0xff5252, 0xd9a441, 0x3c100c, 0xff8a75, 0xc03a30, 0x5c211c,
     };
     s_theme_id = "red-night";
 }
@@ -66,8 +68,8 @@ void use_classic() {
     // accent, oxblood/racing-green semantic colors. Light-theme structure
     // (panels brighter than ground) like use_day().
     theme = {
-        0xe8e1cf, 0xf7f1e3, 0xe9e1cc, 0xb9ab8c, 0xe4dbc4, 0x2e2a24, 0x6f6454, 0x9a741b,
-        0xb56f00, 0x9e2f28, 0x3e6b41, 0x9e2f28, 0x3e6b41, 0x9b8d70, 0xefe8d6,
+        0xe8e1cf, 0xf7f1e3, 0xe9e1cc, 0xb9ab8c, 0xe4dbc4, 0x2e2a24, 0x6f6454, 0x9a741b, 0xb56f00,
+        0x9e2f28, 0x3e6b41, 0x9e2f28, 0x3e6b41, 0x9b8d70, 0xefe8d6, 0x35566b, 0xa89878,
     };
     s_theme_id = "classic";
 }

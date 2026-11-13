@@ -24,6 +24,11 @@ struct Palette {
     uint32_t starboard;   // green side (starboard wind)
     uint32_t grid;        // axis / compass tick color
     uint32_t arc_band;    // near-white gauge band (reference compass rail)
+    // MIDL colour tokens with no firmware chrome slot of their own (#45):
+    // `tide` (current/tide vectors) and `stale` (aged data), values from the
+    // matching midl/web/src/theme.ts palette.
+    uint32_t tide;
+    uint32_t stale;
 };
 
 // Glass-cockpit chrome metrics (consolidated; no inline magic numbers in

@@ -35,6 +35,150 @@ static MetricBinding mapOne(const char *json, const char *id) {
     return mb;
 }
 
+// ---- style.color parity with midl#29 / the midl#28 colour allowlist (#45) ----
+using ui::layouts::ZoneColor;
+
+static MetricBinding mapColor(const char *color_json) {
+    static char buf[256];
+    snprintf(buf, sizeof(buf),
+             R"({"type":"gauge","style":{"color":%s},
+                 "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+             color_json);
+    return mapOne(buf, "c");
+}
+
+void test_style_color_named_tokens() {
+    struct {
+        const char *tok;
+        ZoneColor want;
+    } cases[] = {
+        {"\"panel\"", ZoneColor::Panel},     {"\"panel2\"", ZoneColor::Panel2},
+        {"\"edge\"", ZoneColor::Edge},       {"\"fg\"", ZoneColor::Fg},
+        {"\"dim\"", ZoneColor::Dim},         {"\"accent\"", ZoneColor::Accent},
+        {"\"accent2\"", ZoneColor::Accent2}, {"\"good\"", ZoneColor::Good},
+        {"\"warn\"", ZoneColor::Warn},       {"\"bad\"", ZoneColor::Alarm},
+        {"\"alarm\"", ZoneColor::Alarm},     {"\"danger\"", ZoneColor::Alarm},
+        {"\"port\"", ZoneColor::Port},       {"\"starboard\"", ZoneColor::Starboard},
+        {"\"tide\"", ZoneColor::Tide},       {"\"stale\"", ZoneColor::Stale},
+        {"\"bg\"", ZoneColor::Bg},
+    };
+    for (auto &c : cases) {
+        MetricBinding m = mapColor(c.tok);
+        TEST_ASSERT_EQUAL_MESSAGE((int)c.want, (int)m.style_color, c.tok);
+    }
+}
+
+void test_style_color_black_is_a_colour_not_unset() {
+    MetricBinding m = mapColor("\"#000000\"");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0x000000u, m.accent);
+    ui::layouts::ColorTokens t{};
+    t.accent = 0x4fc3f7;
+    TEST_ASSERT_EQUAL_HEX32(0x000000u, ui::layouts::style_rgb(m, t.accent, t));
+}
+
+void test_style_color_short_and_alpha_hex() {
+    MetricBinding m = mapColor("\"#aBc\"");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0xAABBCCu, m.accent);
+    m = mapColor("\"#11223380\"");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0x112233u, m.accent);
+}
+
+void test_style_color_invalid_is_unset() {
+    const char *bad[] = {"\"#12345\"",    "\"#gggggg\"", "\"red\"", "\"warn \"",
+                         "\"#ff0000;x\"", "\"\"",        "true",    "\"Warn\""};
+    for (const char *b : bad) {
+        MetricBinding m = mapColor(b);
+        TEST_ASSERT_EQUAL_MESSAGE((int)ZoneColor::Default, (int)m.style_color, b);
+        TEST_ASSERT_EQUAL_HEX32_MESSAGE(0u, m.accent, b);
+    }
+}
+
+void test_style_color_absent_is_unset() {
+    MetricBinding m = mapOne(R"({"type":"gauge",
+        "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+                             "n");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Default, (int)m.style_color);
+}
+
+void test_zone_and_marker_colours_take_full_allowlist() {
+    MetricBinding m = mapOne(
+        R"({"type":"gauge","style":{"range":[0,10],
+            "zones":[{"lt":3,"color":"tide"},{"lt":6,"color":"#0f0"},{"lt":11,"color":"dim"}]},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
+        "z");
+    TEST_ASSERT_EQUAL_UINT8(3, m.zone_count);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Tide, (int)m.zones[0].color);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.zones[1].color);
+    TEST_ASSERT_EQUAL_HEX32(0x00FF00u, m.zones[1].rgb);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Dim, (int)m.zones[2].color);
+}
+
+// Precedence (web resolveOptionalColor + gaugeSvg): zone colour > style.color >
+// theme default; an unset style.color keeps a legacy built-in accent literal.
+void test_style_rgb_precedence() {
+    ui::layouts::ColorTokens t{};
+    t.accent = 0x111111;
+    t.warn = 0x222222;
+    t.tide = 0x333333;
+    t.good = 0x444444;
+    MetricBinding m{};
+    TEST_ASSERT_EQUAL_HEX32(0x111111u, ui::layouts::style_rgb(m, t.accent, t));  // theme default
+    m.accent = 0xabcdef;  // legacy built-in table literal
+    TEST_ASSERT_EQUAL_HEX32(0xabcdefu, ui::layouts::style_rgb(m, t.accent, t));
+    m = mapColor("\"tide\"");
+    TEST_ASSERT_EQUAL_HEX32(0x333333u, ui::layouts::style_rgb(m, t.warn, t));
+    // zone colour wins over style.color
+    ui::layouts::MetricZone z{5.0f, 0, ZoneColor::Good};
+    TEST_ASSERT_EQUAL_HEX32(
+        0x444444u,
+        ui::layouts::token_rgb(z.color, z.rgb, ui::layouts::style_rgb(m, t.accent, t), t));
+    // an unknown zone token falls back to style.color, not the theme default
+    ui::layouts::MetricZone zd{5.0f, 0, ZoneColor::Default};
+    TEST_ASSERT_EQUAL_HEX32(
+        0x333333u,
+        ui::layouts::token_rgb(zd.color, zd.rgb, ui::layouts::style_rgb(m, t.accent, t), t));
+}
+
+// Legacy layouts bake accent=0x57c7d8 with no authored colour: widget parts
+// that only follow an AUTHORED style.color must keep their theme default.
+void test_authored_rgb_ignores_legacy_accent() {
+    ui::layouts::ColorTokens t{};
+    t.warn = 0x222222;
+    t.tide = 0x333333;
+    MetricBinding m{};
+    m.accent = 0x57c7d8;
+    TEST_ASSERT_EQUAL_HEX32(0x222222u, ui::layouts::authored_rgb(m, t.warn, t));
+    TEST_ASSERT_EQUAL_HEX32(0x57c7d8u, ui::layouts::style_rgb(m, t.warn, t));  // hero text
+    m = mapColor("\"tide\"");
+    TEST_ASSERT_EQUAL_HEX32(0x333333u, ui::layouts::authored_rgb(m, t.warn, t));
+    m = mapColor("\"#000\"");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0x000000u, ui::layouts::authored_rgb(m, t.warn, t));
+}
+
+void test_style_color_integer_zero_is_unset() {
+    MetricBinding m = mapColor("0");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Default, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.accent);
+}
+
+void test_marker_and_sector_colours_take_full_allowlist() {
+    MetricBinding m = mapOne(
+        R"({"type":"compass",
+            "markers":[{"glyph":"diamond","color":"tide","dir":{"kind":"const","value":10}}],
+            "style":{"sectors":[{"from":0,"to":30,"color":"#0f0"}]},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}})",
+        "ms");
+    TEST_ASSERT_EQUAL_UINT8(1, m.marker_count);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Tide, (int)m.markers[0].color);
+    TEST_ASSERT_EQUAL_UINT8(1, m.sector_count);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.sectors[0].color);
+    TEST_ASSERT_EQUAL_HEX32(0x00FF00u, m.sectors[0].rgb);
+}
+
 // Legacy 8-arg call (no path buffers) — mirrors sim_midl.cpp; dynamic paths
 // must degrade to NULL (source None -> "--"), never dangle.
 static MetricBinding mapOneNoPathBufs(const char *json, const char *id) {
@@ -179,6 +323,7 @@ void test_accent_integer() {
             "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
         "sog_intcolor");
     TEST_ASSERT_EQUAL_HEX32(255u, m.accent);
+    TEST_ASSERT_EQUAL((int)ui::layouts::ZoneColor::Literal, (int)m.style_color);
 }
 
 // A gauge bound to the rudder with an explicit format.range + precision should
@@ -809,6 +954,16 @@ int main(int, char **) {
     RUN_TEST(test_map_compass_label_fallback_to_id);
     RUN_TEST(test_accent_hex_string);
     RUN_TEST(test_accent_integer);
+    RUN_TEST(test_style_color_named_tokens);
+    RUN_TEST(test_style_color_black_is_a_colour_not_unset);
+    RUN_TEST(test_style_color_short_and_alpha_hex);
+    RUN_TEST(test_style_color_invalid_is_unset);
+    RUN_TEST(test_style_color_absent_is_unset);
+    RUN_TEST(test_zone_and_marker_colours_take_full_allowlist);
+    RUN_TEST(test_style_rgb_precedence);
+    RUN_TEST(test_authored_rgb_ignores_legacy_accent);
+    RUN_TEST(test_style_color_integer_zero_is_unset);
+    RUN_TEST(test_marker_and_sector_colours_take_full_allowlist);
     RUN_TEST(test_format_range_and_precision);
     RUN_TEST(test_format_absent_defaults);
     RUN_TEST(test_format_decimals_alias);

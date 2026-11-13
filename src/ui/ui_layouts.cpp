@@ -12,6 +12,7 @@
 #include "ui_fonts.h"
 #include "ui_markers.h"
 #include "ui_compass.h"  // ui::numeric_tile for the full-screen wind dial's AWS/AWA/TWS/TWA band
+#include "ui_geom.h"     // compass legend overlap test (pure, host-tested)
 #include "signalk.h"
 #include "midl_kinds.h"  // button_route: PUT vs console for a button action (#31)
 #include "ui_screens.h"
@@ -342,29 +343,41 @@ static double binding_dir_deg(const MetricBinding &m, const boat::View &d) {
     return NAN;
 }
 
-// Resolve an authored colour token against the LIVE theme palette (so
-// day/night flips keep working); Default falls back to the caller's colour.
-// Shared by style.zones, markers[] and style.sectors (one token encoding).
+// Every MIDL colour token's value in the LIVE theme palette (so day/night flips
+// keep working). panel2 is the raised badge fill. The firmware Palette has no
+// accent2 slot: it maps to the firmware's own green (`good`), which is close to
+// but not always equal to the web accent2.
+static ColorTokens live_tokens() {
+    ColorTokens t;
+    t.panel = theme.panel;
+    t.panel2 = theme.badge;
+    t.edge = theme.panel_edge;
+    t.fg = theme.fg;
+    t.dim = theme.fg_dim;
+    t.accent = theme.accent;
+    t.accent2 = theme.good;
+    t.good = theme.good;
+    t.warn = theme.warn;
+    t.alarm = theme.alarm;
+    t.port = theme.port;
+    t.starboard = theme.starboard;
+    t.tide = theme.tide;
+    t.stale = theme.stale;
+    t.bg = theme.bg;
+    return t;
+}
+
+// Resolve an authored colour token against the live theme; Default falls back
+// to the caller's colour. Shared by style.zones, markers[] and style.sectors.
 static uint32_t token_rgb(ZoneColor c, uint32_t literal, uint32_t fallback) {
-    switch (c) {
-    case ZoneColor::Literal:
-        return literal;
-    case ZoneColor::Accent:
-        return theme.accent;
-    case ZoneColor::Warn:
-        return theme.warn;
-    case ZoneColor::Alarm:
-        return theme.alarm;
-    case ZoneColor::Good:
-        return theme.good;
-    case ZoneColor::Port:
-        return theme.port;
-    case ZoneColor::Starboard:
-        return theme.starboard;
-    case ZoneColor::Default:
-    default:
-        return fallback;
-    }
+    return ui::layouts::token_rgb(c, literal, fallback, live_tokens());
+}
+
+// The element's style.color (#45, web resolveOptionalColor), else `fallback`.
+// Only an authored colour counts; a legacy baked `accent` does not (see
+// authored_rgb). Hero text uses value_color(), which still honours it.
+static uint32_t elem_rgb(const MetricBinding &m, uint32_t fallback) {
+    return authored_rgb(m, fallback, live_tokens());
 }
 
 static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
@@ -988,9 +1001,20 @@ static void fit_gauge_center_font(lv_obj_t *label, const char *txt, int dia) {
 // Hero-value color: honor the element's authored style.color (MetricBinding.accent,
 // 0xRRGGBB) when set, else the theme accent. Restores the per-tile semantic colors
 // the glass-cockpit design intends (warn XTE, good depth, etc.); MIDL docs set it
-// via style.color → map_element → m.accent. accent==0 keeps the legacy theme color.
+// via style.color → map_element → m.style_color (+ m.accent for a literal). With no
+// authored colour, a non-zero legacy accent is still honoured, else the theme accent.
 static inline uint32_t value_color(const MetricBinding &m) {
-    return m.accent ? m.accent : theme.accent;
+    // style_rgb, not elem_rgb: hero text also honours a legacy baked accent.
+    return style_rgb(m, theme.accent, live_tokens());
+}
+
+// Label ink on a filled engaged badge of colour `bg`. The theme default
+// (`good`) keeps the original near-black ink in every theme; an authored
+// style.color gets near-black on a light fill, white on a dark one.
+static uint32_t badge_ink(uint32_t bg) {
+    if (bg == theme.good) return 0x05101c;
+    uint32_t r = (bg >> 16) & 0xFF, g = (bg >> 8) & 0xFF, b = bg & 0xFF;
+    return (r * 299 + g * 587 + b * 114) / 1000 >= 96 ? 0x05101c : 0xffffff;
 }
 
 // Blend `fg` over `bg` at pct% (0..100). Used to derive theme-relative tint
@@ -1354,9 +1378,8 @@ static void add_hull(lv_obj_t *parent, int cx, int cy, int s) {
 // of the dial center, decentering the orbiting glyphs. Compute the matching
 // content-area center so the marker ring is concentric with the dial.
 static inline void dial_center(int w, int h, int &cx, int &cy) {
-    const int inset = chrome::panel_border + chrome::panel_pad;
-    cx = (w - 2 * inset) / 2;
-    cy = (h - 2 * inset) / 2 + 4;  // matches the dial's LV_ALIGN_CENTER, 0, +4
+    // matches the dial's LV_ALIGN_CENTER, 0, +4 (ui::geom, host-tested)
+    ui::geom::dial_center(w, h, chrome::panel_border + chrome::panel_pad, cx, cy);
 }
 
 // ---------------------------------------------------------------------------
@@ -1483,14 +1506,15 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // Ring size: reserve top 24 px for chrome caption + marker, bottom
     // 22 px for CTS label. Diameter = min(w,h) - 56 keeps the heading
     // text from colliding with cardinals at 14 px.
-    int dia = (w < h ? w : h) - 56;
-    if (dia < 72) dia = 72;
+    int dia = ui::geom::dial_ring_dia(w, h, 72);
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
     lv_obj_set_style_bg_color(ring, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(ring, lv_color_hex(theme.accent), 0);
+    // style.color replaces the ring and heading pointer (web dial.ts opts.color);
+    // markers, sectors and the dir pointer keep their own colours.
+    lv_obj_set_style_border_color(ring, lv_color_hex(elem_rgb(m, theme.accent)), 0);
     lv_obj_set_style_border_width(ring, 2, 0);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(ring, 0, 0);
@@ -1514,8 +1538,8 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // (build_marker_ring contract); update feeds the matching value.
     uint32_t diamond_color = binding_has_dir(m) ? theme.warn : theme.alarm;
     ui::MarkerSpec inner_markers[2] = {
-        {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG
-        {NAN, ui::Glyph::Diamond, true, diamond_color},  // CTS or bindings.dir
+        {NAN, ui::Glyph::Triangle, true, elem_rgb(m, theme.accent)},  // HDG (style.color)
+        {NAN, ui::Glyph::Diamond, true, diamond_color},               // CTS or bindings.dir
     };
     t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - 6, inner_markers, 2,
                                       /*occlude_lower=*/false);
@@ -1620,35 +1644,36 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // matches the rim glyph exactly). A 16px glyph canvas scaled into a small box
     // sits left of each montserrat_14 label in theme.fg_dim. Kept tight in the
     // tile's lower-left corner so it doesn't crowd the dial. Only drawn when the
-    // tile is tall enough that the rows clear the ring.
-    // ...and only when the rows (glyph + "HDG"/"COG"/"CTS", ~46 px wide) clear
-    // the ring's left edge. On a 480x480 quad tile the 140 px ring leaves ~43 px,
-    // so the legend printed across the dial; the colours/shapes are also
-    // explained by the CTS readout below the ring, so dropping it is fine.
-    const int ring_left = mcx - dia / 2;  // content-box coords, same as gx below
-    if (h >= 150 && ring_left >= 4 + 14 + 32 + 4) {
+    // rows really clear the ring, its orbiting marker glyphs and the CTS line
+    // (ui::geom::compass_legend_fits). On a 480x480 quad tile they would print
+    // across the dial, so it is dropped there; on a tall tile it sits below the
+    // ring. The colours/shapes are also explained by the CTS readout.
+    const int content_w = w - 2 * (chrome::panel_border + chrome::panel_pad);
+    const int content_h = h - 2 * (chrome::panel_border + chrome::panel_pad);
+    if (ui::geom::compass_legend_fits(content_w, content_h, mcx, mcy, dia)) {
         struct LegendItem {
             ui::Glyph glyph;
             bool filled;
             uint32_t color;
             const char *txt;
         };
-        static const LegendItem kLegend[3] = {
-            {ui::Glyph::Triangle, true, theme.accent, "HDG"},
+        // Per call, not static: follows style.color (the HDG pointer) and the
+        // live theme after a switch.
+        const LegendItem kLegend[3] = {
+            {ui::Glyph::Triangle, true, elem_rgb(m, theme.accent), "HDG"},
             {ui::Glyph::Triangle, false, theme.good, "COG"},
             {ui::Glyph::Diamond, true, theme.alarm, "CTS"},
         };
-        const int row_h = 16;
-        const int gx = 4;  // left inset within content box
-        int gy = h - 2 * (chrome::panel_border + chrome::panel_pad) - 3 * row_h - 2;
-        if (gy < 0) gy = 0;
+        const int row_h = ui::geom::kLegendRowH;
+        const int gx = ui::geom::kLegendInset;  // left inset within content box
+        const int gy = ui::geom::compass_legend_top(content_h);
         for (int i = 0; i < 3; ++i) {
             lv_obj_t *g =
                 ui::draw_glyph(t.root, kLegend[i].glyph, kLegend[i].filled, kLegend[i].color);
             // draw_glyph returns a 28x28 canvas; scale 50% about its center so the
             // visible glyph fills ~14px while the object box stays 28px. The box
             // top-left is pinned at (gx-7, row-7) so the scaled-down content centers
-            // at (gx+7, row+1), i.e. a 14px swatch starting at the left inset.
+            // at (gx+7, row+7), i.e. a 14px swatch (row..row+14) at the left inset.
             lv_obj_set_style_transform_pivot_x(g, 14, 0);
             lv_obj_set_style_transform_pivot_y(g, 14, 0);
             lv_obj_set_style_transform_scale(g, 128, 0);  // 50% (256 = 100%)
@@ -1689,7 +1714,8 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_obj_set_style_arc_color(arc, lv_color_hex(theme.grid), LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(theme.accent), LV_PART_INDICATOR);
+    // Fill follows the hero text: zone colour (update) > style.color > accent.
+    lv_obj_set_style_arc_color(arc, lv_color_hex(elem_rgb(m, theme.accent)), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
     t.aux = arc;
@@ -1752,7 +1778,7 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
             lv_obj_align(band, LV_ALIGN_CENTER, 0, 4);
             lv_arc_set_bg_angles(band, a0, a1);
             lv_arc_set_angles(band, a0, a1);
-            uint32_t zc = zone_rgb(m.zones[zi], theme.accent);
+            uint32_t zc = zone_rgb(m.zones[zi], elem_rgb(m, theme.accent));
             lv_obj_set_style_arc_color(band, lv_color_hex(zc), LV_PART_MAIN);
             lv_obj_set_style_arc_color(band, lv_color_hex(zc), LV_PART_INDICATOR);
             lv_obj_set_style_arc_width(band, 4, LV_PART_MAIN);
@@ -2557,7 +2583,8 @@ static int16_t deg_to_lvgl(double deg) {
 
 // Build the dial into `parent` (the tile root) filling its w x h content area.
 // Returns a PSRAM WindDialState* (also attached to the dial root's user_data).
-static WindDialState *build(lv_obj_t *parent, int w, int h) {
+// `hero_rgb`: the AWS hero colour (element style.color, else theme.warn).
+static WindDialState *build(lv_obj_t *parent, int w, int h, uint32_t hero_rgb) {
     WindDialState *st =
         (WindDialState *)heap_caps_calloc(1, sizeof(WindDialState), MALLOC_CAP_SPIRAM);
     if (!st) {
@@ -2684,7 +2711,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h) {
     st->lbl_aws_value = lv_label_create(r);
     lv_label_set_text(st->lbl_aws_value, "--");
     lv_obj_set_style_text_font(st->lbl_aws_value, &font_xl_64, 0);
-    lv_obj_set_style_text_color(st->lbl_aws_value, lv_color_hex(theme.warn), 0);
+    lv_obj_set_style_text_color(st->lbl_aws_value, lv_color_hex(hero_rgb), 0);
     lv_obj_set_style_text_align(st->lbl_aws_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_aws_value, 200);
     lv_obj_set_pos(st->lbl_aws_value, CX - 100, CY - 30);
@@ -2850,6 +2877,7 @@ struct ApHudState {
     // Dirty caches (mirror screen_autopilot.cpp's file-statics).
     char last_mode[16];
     uint32_t last_mode_color;
+    uint32_t engaged_rgb;  // engaged badge colour (style.color, else theme.good)
     char last_hdg[16];
     char last_cogsog[48];
     char last_depth[12];
@@ -2904,12 +2932,14 @@ static void on_home(lv_event_t *e) {
 
 // Build the HUD into `parent` (the tile root) filling its w x h content area.
 // Returns a PSRAM ApHudState* (also attached to the HUD root's user_data).
-static ApHudState *build(lv_obj_t *parent, int w, int h) {
+// `engaged_rgb`: the engaged mode badge colour (style.color, else theme.good).
+static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     ApHudState *st = (ApHudState *)heap_caps_calloc(1, sizeof(ApHudState), MALLOC_CAP_SPIRAM);
     if (!st) {
         net::logf("[layout] ap hud alloc failed");
         return nullptr;
     }
+    st->engaged_rgb = engaged_rgb;
     // Sentinel-init the dirty caches (calloc gives 0; force "unset").
     st->last_mode[0] = (char)0xFF;
     st->last_mode_color = 0xFFFFFFFF;
@@ -3164,14 +3194,14 @@ static void update(ApHudState *st, const boat::View &d) {
     // cache field.
     uint32_t prev_mode_color = st->last_mode_color;
     ui::set_text_color_if_changed(st->lbl_mode, &st->last_mode_color,
-                                  engaged ? 0x05101c : theme.fg_dim);
+                                  engaged ? badge_ink(st->engaged_rgb) : theme.fg_dim);
     if (st->last_mode_color != prev_mode_color) {
         lv_obj_t *badge = lv_obj_get_parent(st->lbl_mode);
         if (badge) {
             lv_obj_set_style_bg_opa(badge, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-            lv_obj_set_style_bg_color(badge, lv_color_hex(theme.good), 0);
-            lv_obj_set_style_border_color(badge,
-                                          lv_color_hex(engaged ? theme.good : theme.panel_edge), 0);
+            lv_obj_set_style_bg_color(badge, lv_color_hex(st->engaged_rgb), 0);
+            lv_obj_set_style_border_color(
+                badge, lv_color_hex(engaged ? st->engaged_rgb : theme.panel_edge), 0);
         }
     }
 
@@ -3349,6 +3379,7 @@ struct WindSteerState {
     // Dirty caches.
     char last_mode[16];
     uint32_t last_mode_color;
+    uint32_t engaged_rgb;  // engaged badge colour (style.color, else theme.good)
     char last_hdg[16];
     char last_sub[40];
     char last_sog[12];
@@ -3451,13 +3482,15 @@ static void on_engage_short(lv_event_t *e) {
 // Build the wind-steering composite into `parent` (the tile root) filling its
 // w x h content area. Returns a PSRAM WindSteerState* (also attached to the root
 // user_data). Mirrors aphud::build's band budget exactly.
-static WindSteerState *build(lv_obj_t *parent, int w, int h) {
+// `engaged_rgb`: the engaged mode badge colour (style.color, else theme.good).
+static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     WindSteerState *st =
         (WindSteerState *)heap_caps_calloc(1, sizeof(WindSteerState), MALLOC_CAP_SPIRAM);
     if (!st) {
         net::logf("[layout] windsteer alloc failed");
         return nullptr;
     }
+    st->engaged_rgb = engaged_rgb;
     // Sentinel-init the dirty caches (calloc gives 0; force "unset").
     st->last_mode[0] = (char)0xFF;
     st->last_mode_color = 0xFFFFFFFF;
@@ -3718,14 +3751,14 @@ static void update(WindSteerState *st, const boat::View &d) {
         }
         uint32_t prev_mode_color = st->last_mode_color;
         ui::set_text_color_if_changed(st->lbl_mode, &st->last_mode_color,
-                                      engaged ? 0x05101c : theme.fg_dim);
+                                      engaged ? badge_ink(st->engaged_rgb) : theme.fg_dim);
         if (st->last_mode_color != prev_mode_color) {
             lv_obj_t *badge = lv_obj_get_parent(st->lbl_mode);
             if (badge) {
                 lv_obj_set_style_bg_opa(badge, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
-                lv_obj_set_style_bg_color(badge, lv_color_hex(theme.good), 0);
+                lv_obj_set_style_bg_color(badge, lv_color_hex(st->engaged_rgb), 0);
                 lv_obj_set_style_border_color(
-                    badge, lv_color_hex(engaged ? theme.good : theme.panel_edge), 0);
+                    badge, lv_color_hex(engaged ? st->engaged_rgb : theme.panel_edge), 0);
             }
         }
     }
@@ -3955,7 +3988,10 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
     lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(ring, lv_color_hex(theme.warn), 0);
+    // style.color replaces the ring and hero (web dial.ts opts.color); the wind
+    // heads, sectors and authored markers keep their own colours.
+    const uint32_t rose_rgb = elem_rgb(m, theme.warn);
+    lv_obj_set_style_border_color(ring, lv_color_hex(rose_rgb), 0);
     lv_obj_set_style_border_width(ring, 2, 0);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(ring, 0, 0);
@@ -3997,7 +4033,7 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     t.value = lv_label_create(ring);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
-    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.warn), 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(rose_rgb), 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, m.unit && m.unit[0] ? -8 : 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
@@ -4019,7 +4055,7 @@ static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding &m, int w,
     // whose user_data is the WindDialState the update path retrieves; the
     // last_aux_pct == -2 sentinel marks "full dial" (stand-in leaves it -1).
     if (windrose_is_fullscreen(w, h)) {
-        WindDialState *st = winddial::build(t.root, w, h);
+        WindDialState *st = winddial::build(t.root, w, h, elem_rgb(m, theme.warn));
         if (st) {
             t.aux = st->root;
             t.last_aux_pct = -2;
@@ -4038,7 +4074,7 @@ static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding &m, int w,
 // marker branch in update).
 static void paint_wind_steer_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     if (windsteer_is_fullscreen(w, h)) {
-        WindSteerState *st = windsteer::build(t.root, w, h);
+        WindSteerState *st = windsteer::build(t.root, w, h, elem_rgb(m, theme.good));
         if (st) {
             t.aux = st->root;
             t.last_aux_pct = -2;
@@ -4134,13 +4170,15 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int w, in
 // green on cream, etc. (the old hardcoded 0x143b2a forest fill leaked the
 // original dark palette into every theme). Shared by the painter (initial
 // standby look) and both update paths (quad-grid + freeform) on state flips.
-static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged) {
+// `m`'s style.color replaces the engaged colour (web autopilotSvg); standby stays dim.
+static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged, const MetricBinding &m) {
     if (!pill || !value) return;
     if (engaged) {
+        const uint32_t on = elem_rgb(m, theme.good);
         lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(pill, lv_color_hex(mix_rgb(theme.good, theme.panel, 30)), 0);
-        lv_obj_set_style_border_color(pill, lv_color_hex(theme.good), 0);
-        lv_obj_set_style_text_color(value, lv_color_hex(theme.good), 0);
+        lv_obj_set_style_bg_color(pill, lv_color_hex(mix_rgb(on, theme.panel, 30)), 0);
+        lv_obj_set_style_border_color(pill, lv_color_hex(on), 0);
+        lv_obj_set_style_text_color(value, lv_color_hex(on), 0);
     } else {
         lv_obj_set_style_bg_opa(pill, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_color(pill, lv_color_hex(theme.panel_edge), 0);
@@ -4150,7 +4188,7 @@ static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged) {
 
 // Autopilot widget: state pill (filled `good` tint when engaged, hollow when
 // standby) + target text + 4 nudge buttons row. Mirrors editor .wpreview .ap.
-static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
+static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     // Full-screen autopilot leaf → the high-fidelity HUD (semicircular heading-up
     // compass, HDG/COG/CTS/AP-target marker ring, XTE strip, numeric tiles). The
     // HUD reads boat::View directly (no MIDL binding). t.aux holds the HUD root,
@@ -4158,7 +4196,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     // last_aux_pct == -2 sentinel marks "full HUD" (stand-in leaves it -1). Nudge
     // buttons are authored as sibling button leaves, NOT drawn here.
     if (autopilot_is_fullscreen(w, h)) {
-        ApHudState *st = aphud::build(t.root, w, h);
+        ApHudState *st = aphud::build(t.root, w, h, elem_rgb(m, theme.good));
         if (st) {
             t.aux = st->root;
             t.last_aux_pct = -2;
@@ -4184,7 +4222,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     lv_obj_set_style_text_font(t.value, &lv_font_montserrat_20, 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
-    style_ap_pill(pill, t.value, false);
+    style_ap_pill(pill, t.value, false, m);
 
     // Target text below the pill.
     t.secondary = lv_label_create(t.root);
@@ -4224,6 +4262,7 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
     t.idx = -1;
     t.kind = m.kind;
     t.last_aux_pct = -1;
+    t.last_zone_rgb = 0xFFFFFFFF;  // unset: a first zone colour of 0x000000 must apply
     strncpy(t.last_value, "\xFF", sizeof(t.last_value));
     strncpy(t.last_secondary, "\xFF", sizeof(t.last_secondary));
     for (int i = 0; i < 4; ++i)
@@ -4418,7 +4457,7 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
                 int want = engaged ? 1 : 0;
                 if (t.last_aux_pct != want) {
                     t.last_aux_pct = want;
-                    style_ap_pill(t.aux2, t.value, engaged);
+                    style_ap_pill(t.aux2, t.value, engaged, m);
                 }
             }
             if (t.secondary) {
@@ -6048,7 +6087,7 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 int want = engaged ? 1 : 0;
                 if (t.last_aux_pct != want) {
                     t.last_aux_pct = want;
-                    style_ap_pill(t.aux2, t.value, engaged);
+                    style_ap_pill(t.aux2, t.value, engaged, m);
                 }
             }
             if (t.secondary) {
@@ -6315,6 +6354,9 @@ static void back_cb(lv_event_t *) {
 // honoring them verbatim painted cyan/green heroes in every theme (a night
 // vision violation in red-night, off-palette in classic).
 static uint32_t hero_rgb(const ui::layouts::MetricBinding &m) {
+    // An authored style.color (token or literal, #000000 included) always wins.
+    if (m.style_color != ui::layouts::ZoneColor::Default)
+        return ui::layouts::style_rgb(m, ui::theme.accent, ui::layouts::live_tokens());
     switch (m.accent) {
     case 0:
     case 0x57c7d8:  // legacy dark-palette accent literal

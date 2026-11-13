@@ -46,7 +46,7 @@
 #include "build_config.h"
 #include "ota_pass.h"
 
-#if defined(YEYBOATS_LAB_OPEN_OTA) && defined(YEYBOATS_RELEASE_BUILD)
+#if defined(YEYBOATS_LAB_OPEN_OTA) && YEYBOATS_RELEASE_BUILD
 #error "YEYBOATS_LAB_OPEN_OTA is lab-only and must never be compiled into a release build"
 #endif
 

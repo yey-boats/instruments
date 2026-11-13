@@ -46,7 +46,8 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
             with self.subTest(env=name):
                 for flag in LAB_FLAGS:
                     self.assertNotIn(flag, e["flags"])
-                self.assertIn("YEYBOATS_RELEASE_BUILD", e["flags"])
+                # Guards test the VALUE (#56): =0 or =yes would build as dev.
+                self.assertRegex(str(e["flags"]), r"YEYBOATS_RELEASE_BUILD=1\b")
 
     def test_no_env_defines_lab_open_ota(self):
         # Lab-open OTA is opt-in per build (PLATFORMIO_BUILD_FLAGS or
@@ -72,7 +73,7 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
         src = read("src/web.cpp")
         self.assertRegex(
             src,
-            r"#if\s+defined\(YEYBOATS_LAB_OPEN_WEB\)\s*&&\s*defined\(YEYBOATS_RELEASE_BUILD\)"
+            r"#if\s+defined\(YEYBOATS_LAB_OPEN_WEB\)\s*&&\s*YEYBOATS_RELEASE_BUILD\b"
             r"\s*\n\s*#error",
         )
 
@@ -82,7 +83,7 @@ class TestArduinoOtaNeverInRelease(unittest.TestCase):
         src = read("src/net.cpp")
         self.assertRegex(
             src,
-            r"#if\s+defined\(YEYBOATS_LAB_OPEN_OTA\)\s*&&\s*defined\(YEYBOATS_RELEASE_BUILD\)"
+            r"#if\s+defined\(YEYBOATS_LAB_OPEN_OTA\)\s*&&\s*YEYBOATS_RELEASE_BUILD\b"
             r"\s*\n\s*#error",
         )
 
@@ -92,7 +93,7 @@ class TestArduinoOtaNeverInRelease(unittest.TestCase):
         hdr = read("include/ota_policy.h")
         self.assertRegex(
             hdr,
-            r"#if\s+defined\(YEYBOATS_RELEASE_BUILD\)\s*\n\s*#define\s+YEYBOATS_ARDUINO_OTA\s+0",
+            r"#if\s+YEYBOATS_RELEASE_BUILD\s*\n\s*#define\s+YEYBOATS_ARDUINO_OTA\s+0",
         )
         src = read("src/net.cpp")
         self.assertRegex(src, r"#if\s+YEYBOATS_ARDUINO_OTA\s*\n\s*#include\s+<ArduinoOTA\.h>")
@@ -119,6 +120,33 @@ class TestArduinoOtaNeverInRelease(unittest.TestCase):
             if n == lineno:
                 return any(stack)
         return False
+
+
+class TestReleaseFlagIsTestedByValue(unittest.TestCase):
+    """build_config.h always defines YEYBOATS_RELEASE_BUILD (0 for dev builds),
+    so `defined(YEYBOATS_RELEASE_BUILD)` is true in any file that includes it
+    first. That made every LAB_OPEN_OTA / LAB_OPEN_WEB build hit the release
+    #error, and left the ArduinoOTA decision depending on include order.
+    Guards must test the value: `#if YEYBOATS_RELEASE_BUILD`."""
+
+    def test_no_guard_tests_release_flag_with_defined(self):
+        files = []
+        for top in ("src", "include", "lib", "test"):
+            for ext in ("*.c", "*.cpp", "*.h", "*.hpp"):
+                files += glob.glob(os.path.join(ROOT, top, "**", ext), recursive=True)
+        self.assertTrue(files)
+        for path in files:
+            with open(path, encoding="utf-8") as f:
+                for n, line in enumerate(f, 1):
+                    if path.endswith(os.path.join("include", "build_config.h")):
+                        continue  # the one place that supplies the default
+                    if re.search(r"defined\s*\(\s*YEYBOATS_RELEASE_BUILD\s*\)|#\s*ifn?def\s+YEYBOATS_RELEASE_BUILD\b", line):
+                        with self.subTest(file=os.path.relpath(path, ROOT), line=n):
+                            self.fail(f"{os.path.relpath(path, ROOT)}:{n} tests YEYBOATS_RELEASE_BUILD with defined()")
+
+    def test_ota_policy_reads_the_flag_from_build_config(self):
+        hdr = read("include/ota_policy.h")
+        self.assertIn('#include "build_config.h"', hdr)
 
 
 class TestNoWildcardCors(unittest.TestCase):

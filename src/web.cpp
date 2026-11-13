@@ -11,6 +11,7 @@
 #include <math.h>
 
 #include "net.h"
+#include "build_config.h"  // YEYBOATS_RELEASE_BUILD default, tested by value below (#56)
 #include "signalk.h"
 #include "layout_loader.h"
 #include "ui_screens.h"
@@ -212,7 +213,7 @@ static bool api_auth_required() {
     return api_auth_state() == web_auth_policy::State::Enforced;
 }
 
-#if defined(YEYBOATS_LAB_OPEN_WEB) && defined(YEYBOATS_RELEASE_BUILD)
+#if defined(YEYBOATS_LAB_OPEN_WEB) && YEYBOATS_RELEASE_BUILD
 #error "YEYBOATS_LAB_OPEN_WEB is lab-only and must never be compiled into a release build"
 #endif
 
