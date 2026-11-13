@@ -8,6 +8,7 @@
 #include "midl_limits.h"      // midl::FirmwareLimits::path_len
 
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 namespace midl::render {
@@ -74,29 +75,51 @@ static const char *alloc_style_path(StyleAlloc *sa, const char *src) {
     return dst;
 }
 
-// Parse "#rrggbb" into rgb; returns true on a well-formed literal.
+// Parse a MIDL hex colour literal (#rgb, #rrggbb or #rrggbbaa, the midl#28
+// allowlist) into 0xRRGGBB; the alpha byte is dropped. False on anything else.
 static bool parse_hex_color(const char *cs, uint32_t &rgb) {
-    if (!cs || cs[0] != '#' || strlen(cs) != 7) return false;
-    char *end = nullptr;
-    unsigned long v = strtoul(cs + 1, &end, 16);
-    if (end != cs + 7) return false;
-    rgb = (uint32_t)v;
+    if (!cs || cs[0] != '#') return false;
+    size_t n = strlen(cs + 1);
+    if (n != 3 && n != 6 && n != 8) return false;
+    for (size_t i = 1; i <= n; ++i)
+        if (!isxdigit((unsigned char)cs[i])) return false;
+    char hex[7];
+    if (n == 3) {
+        for (int i = 0; i < 3; ++i)
+            hex[2 * i] = hex[2 * i + 1] = cs[1 + i];
+    } else {
+        memcpy(hex, cs + 1, 6);
+    }
+    hex[6] = 0;
+    rgb = (uint32_t)strtoul(hex, nullptr, 16);
     return true;
 }
 
-// Map a MIDL zone/marker colour string (theme token or "#rrggbb") to the
+// Map a MIDL colour string (style.color, zone/marker/sector colour) to the
 // palette-independent ZoneColor encoding the painter resolves at draw time.
+// Only the midl#28 allowlist is accepted (schemas/yb-midl-config.schema.json
+// $defs.color: hex literal or an exact, case-sensitive token name); anything
+// else is Default so the painter keeps its own colour.
 static ZoneColor parse_zone_color(const char *cs, uint32_t &rgb) {
     rgb = 0;
     if (!cs || !cs[0]) return ZoneColor::Default;
     if (cs[0] == '#') return parse_hex_color(cs, rgb) ? ZoneColor::Literal : ZoneColor::Default;
-    if (!strcmp(cs, "accent")) return ZoneColor::Accent;
-    if (!strcmp(cs, "warn")) return ZoneColor::Warn;
-    if (!strcmp(cs, "alarm") || !strcmp(cs, "bad") || !strcmp(cs, "danger"))
-        return ZoneColor::Alarm;
-    if (!strcmp(cs, "good")) return ZoneColor::Good;
-    if (!strcmp(cs, "port")) return ZoneColor::Port;
-    if (!strcmp(cs, "starboard")) return ZoneColor::Starboard;
+    static const struct {
+        const char *name;
+        ZoneColor color;
+    } kTokens[] = {
+        {"accent", ZoneColor::Accent}, {"warn", ZoneColor::Warn},
+        {"alarm", ZoneColor::Alarm},   {"bad", ZoneColor::Alarm},
+        {"danger", ZoneColor::Alarm},  {"good", ZoneColor::Good},
+        {"port", ZoneColor::Port},     {"starboard", ZoneColor::Starboard},
+        {"panel", ZoneColor::Panel},   {"panel2", ZoneColor::Panel2},
+        {"edge", ZoneColor::Edge},     {"fg", ZoneColor::Fg},
+        {"dim", ZoneColor::Dim},       {"accent2", ZoneColor::Accent2},
+        {"tide", ZoneColor::Tide},     {"stale", ZoneColor::Stale},
+        {"bg", ZoneColor::Bg},
+    };
+    for (const auto &t : kTokens)
+        if (!strcmp(cs, t.name)) return t.color;
     return ZoneColor::Default;
 }
 
@@ -380,16 +403,19 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
             }
         }
     }
-    // style.color may be "#rrggbb" hex string (MIDL editor) or an integer; default 0
-    // (painter uses theme default).
+    // style.color: an allowlisted hex literal or theme token (midl#28), kept as
+    // a token so the painter resolves it against the live theme. A literal's
+    // rgb lives in `accent` (#000000 is black, not "unset"); a legacy integer
+    // is a literal too. Absent/invalid -> Default (painter's theme default).
     out.accent = 0;
+    out.style_color = ZoneColor::Default;
     JsonVariantConst col = el["style"]["color"];
     if (col.is<unsigned>()) {
-        out.accent = col.as<unsigned>();
+        // Legacy integer form (not in the schema): 0 keeps its old "unset" meaning.
+        out.accent = col.as<unsigned>() & 0xFFFFFFu;
+        if (out.accent != 0) out.style_color = ZoneColor::Literal;
     } else if (col.is<const char *>()) {
-        // Accept only "#" followed by exactly 6 hex digits; reject malformed strings.
-        uint32_t rgb = 0;
-        if (parse_hex_color(col.as<const char *>(), rgb)) out.accent = rgb;
+        out.style_color = parse_zone_color(col.as<const char *>(), out.accent);
     }
     // Per-element `zoom` (tap-to-fullscreen). Three shapes:
     //   absent      -> DEFAULT: every value/instrument tile is zoomable to its

@@ -15,7 +15,7 @@
 //                                title ("wind","course","engine","power",
 //                                "race","anchor")
 // SIM_THEME selects the palette (see sim/sim_theme.h). SIM_MIDL_DOC=<file.json>
-// renders that MIDL document instead of the baked demo doc (layout repros).
+// renders that MIDL document instead of the baked demo doc.
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -125,7 +125,7 @@ int main(int argc, char **argv) {
                            LV_DISPLAY_RENDER_MODE_DIRECT);
     lv_display_set_flush_cb(disp, flush_cb);
 
-    // --- Parse the baked MIDL demo document ---
+    // --- Parse the baked MIDL demo document (or SIM_MIDL_DOC) ---
     JsonDocument midl_doc;
     DeserializationError jerr;
     if (const char *doc_path = getenv("SIM_MIDL_DOC")) {
@@ -135,10 +135,15 @@ int main(int argc, char **argv) {
             return 1;
         }
         static char doc_buf[64 * 1024];
-        size_t nread = fread(doc_buf, 1, sizeof(doc_buf) - 1, df);
+        size_t doc_len = fread(doc_buf, 1, sizeof(doc_buf) - 1, df);
         fclose(df);
-        doc_buf[nread] = '\0';
-        jerr = deserializeJson(midl_doc, (const char *)doc_buf);
+        if (doc_len == sizeof(doc_buf) - 1) {
+            fprintf(stderr, "SIM_MIDL_DOC '%s' is too large (max %zu bytes)\n", doc_path,
+                    sizeof(doc_buf) - 2);
+            return 1;
+        }
+        doc_buf[doc_len] = 0;
+        jerr = deserializeJson(midl_doc, doc_buf, doc_len);
     } else {
         jerr = deserializeJson(midl_doc, midl::demo::SQUARE_480_JSON);
     }

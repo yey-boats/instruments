@@ -2661,6 +2661,66 @@
    }
   },
   {
+   "name": "valid-command-target-max-length",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "b": {
+        "type": "button",
+        "action": {
+         "kind": "command",
+         "target": "ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+       }
+      },
+      "layout": {
+       "element": "b"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "paths": []
+   }
+  },
+  {
+   "name": "invalid-command-target-too-long",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "b": {
+        "type": "button",
+        "action": {
+         "kind": "command",
+         "target": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+       }
+      },
+      "layout": {
+       "element": "b"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/elements/b/action/target"
+    ]
+   }
+  },
+  {
    "name": "valid-put-action-on-numeric",
    "targetClass": "landscape-800x480",
    "manifestOverrides": {},
@@ -4930,6 +4990,25 @@
           }
          ]
         }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "depth",
+           "colSpan": 2
+          },
+          {
+           "element": "heading"
+          },
+          {
+           "element": "status"
+          }
+         ]
+        }
        }
       ]
      }
@@ -5042,6 +5121,25 @@
              "element": "status"
             }
            ]
+          }
+         ]
+        }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "depth",
+           "colSpan": 2
+          },
+          {
+           "element": "heading"
+          },
+          {
+           "element": "status"
           }
          ]
         }
@@ -5160,6 +5258,25 @@
           }
          ]
         }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "depth",
+           "colSpan": 2
+          },
+          {
+           "element": "heading"
+          },
+          {
+           "element": "status"
+          }
+         ]
+        }
        }
       ]
      }
@@ -5275,16 +5392,33 @@
           }
          ]
         }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "depth",
+           "colSpan": 2
+          },
+          {
+           "element": "heading"
+          },
+          {
+           "element": "status"
+          }
+         ]
+        }
        }
       ]
      }
     ]
    },
    "expected": {
-    "ok": false,
-    "paths": [
-     "/screens/0/layout"
-    ]
+    "ok": true,
+    "paths": []
    }
   },
   {
@@ -7892,6 +8026,25 @@
           }
          ]
         }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "wind",
+           "colSpan": 2
+          },
+          {
+           "element": "sog"
+          },
+          {
+           "element": "hdg"
+          }
+         ]
+        }
        }
       ]
      }
@@ -8016,6 +8169,25 @@
              "element": "hdg"
             }
            ]
+          }
+         ]
+        }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "wind",
+           "colSpan": 2
+          },
+          {
+           "element": "sog"
+          },
+          {
+           "element": "hdg"
           }
          ]
         }
@@ -8146,6 +8318,25 @@
           }
          ]
         }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "wind",
+           "colSpan": 2
+          },
+          {
+           "element": "sog"
+          },
+          {
+           "element": "hdg"
+          }
+         ]
+        }
        }
       ]
      }
@@ -8273,16 +8464,33 @@
           }
          ]
         }
+       },
+       {
+        "class": "round-360",
+        "layout": {
+         "rows": 2,
+         "cols": 2,
+         "cells": [
+          {
+           "element": "wind",
+           "colSpan": 2
+          },
+          {
+           "element": "sog"
+          },
+          {
+           "element": "hdg"
+          }
+         ]
+        }
        }
       ]
      }
     ]
    },
    "expected": {
-    "ok": false,
-    "paths": [
-     "/screens/0/layout"
-    ]
+    "ok": true,
+    "paths": []
    }
   },
   {
@@ -8391,6 +8599,92 @@
   },
   {
    "name": "fixture-invalid-too-many-tiles",
+   "targetClass": "round-360",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "dash",
+      "elements": {
+       "a": {
+        "type": "single-value",
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "a"
+         }
+        }
+       },
+       "b": {
+        "type": "single-value",
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "b"
+         }
+        }
+       },
+       "c": {
+        "type": "single-value",
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "c"
+         }
+        }
+       },
+       "d": {
+        "type": "single-value",
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "d"
+         }
+        }
+       },
+       "e": {
+        "type": "single-value",
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "e"
+         }
+        }
+       }
+      },
+      "layout": {
+       "flow": "col",
+       "children": [
+        {
+         "element": "a"
+        },
+        {
+         "element": "b"
+        },
+        {
+         "element": "c"
+        },
+        {
+         "element": "d"
+        },
+        {
+         "element": "e"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/layout"
+    ]
+   }
+  },
+  {
+   "name": "fixture-too-many-tiles-admissible-square-480",
    "targetClass": "square-480",
    "manifestOverrides": {},
    "doc": {
@@ -8475,6 +8769,60 @@
   },
   {
    "name": "fixture-invalid-unknown-element",
+   "targetClass": "square-480",
+   "manifestOverrides": {
+    "classes": [
+     {
+      "id": "square-480",
+      "width": 480,
+      "height": 480,
+      "maxTiles": 9,
+      "maxDepth": 3,
+      "presets": [
+       "full",
+       "hero-split"
+      ],
+      "elements": [
+       "single-value",
+       "text",
+       "gauge",
+       "bar",
+       "compass"
+      ]
+     }
+    ]
+   },
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "dash",
+      "elements": {
+       "w": {
+        "type": "windrose",
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.wind.speedApparent"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "w"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/elements/w/type"
+    ]
+   }
+  },
+  {
+   "name": "fixture-unknown-element-admissible-square-480",
    "targetClass": "square-480",
    "manifestOverrides": {},
    "doc": {
