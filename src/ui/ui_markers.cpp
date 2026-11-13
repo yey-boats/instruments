@@ -4,6 +4,7 @@
 #include <math.h>
 
 #include "ui_dirty.h"
+#include "ui_geom.h"
 
 namespace ui {
 
@@ -14,6 +15,7 @@ static constexpr int MARGIN = 32;  // holder extends this far past the rim
 // the old MARGIN=18 / -12px overhang decapitated the outer 12 px of every
 // glyph (visible as cut triangles at the dial rim).
 static constexpr int GLYPH_OVERHANG = 20;
+static_assert(GLYPH_OVERHANG == ui::geom::kMarkerOverhang, "ui_geom legend clearance");
 // Radial step per close-angle stagger level (see ui::marker_stagger_levels):
 // markers within ~8 deg of each other slide inward in these increments so
 // each stays identifiable instead of stacking into one blob.

@@ -78,7 +78,7 @@ static bool is_cardinal(int i) {
 
 Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
     Compass cp = {};
-    int r = w / 2 - 8;
+    int r = w / 2 - 8;  // keep in lockstep with ui::geom::steer_compass_h
     int cx = w / 2;
     int cy = r;  // flat (diameter) edge sits at y = r
     cp.cx = cx;
@@ -183,8 +183,13 @@ void compass_layout_labels(const Compass &cp, double hdg_deg) {
         // there and the hero already shows the exact heading. A hidden label
         // needs a few degrees of margin to come back (ui::geom hysteresis), so
         // a heading held near 012 deg cannot make it flicker.
-        const bool was_visible = !lv_obj_has_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN);
-        if (!ui::geom::band_numeral_visible(rel, was_visible)) {
+        // user_data marks a label laid out at least once (built hidden).
+        using ui::geom::BandLabel;
+        const BandLabel prev = !lv_obj_get_user_data(cp.nums[i])                 ? BandLabel::New
+                               : lv_obj_has_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN) ? BandLabel::Hidden
+                                                                                 : BandLabel::Shown;
+        lv_obj_set_user_data(cp.nums[i], (void *)1);
+        if (!ui::geom::band_numeral_visible(rel, prev)) {
             lv_obj_add_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }

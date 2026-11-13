@@ -39,9 +39,21 @@ constexpr int kLegendInset = 4;      // gx: left inset of the swatches
 constexpr int kLegendRowH = 16;      // one row: 14 px swatch + montserrat_14 label
 constexpr int kLegendW = 14 + 32;    // swatch + "HDG"/"COG"/"CTS" label
 constexpr int kLegendTopClear = 24;  // keep below the tile's caption row
-constexpr int kMarkerOverhang = 20;  // marker glyphs reach this far past the ring
+constexpr int kMarkerOverhang = 20;  // = ui_markers.cpp GLYPH_OVERHANG (static_assert there)
 constexpr int kCtsHalfW = 48;        // half-width of the "CTS 123°" line under the ring
-constexpr int kCtsH = 18;            // its height incl. the 2 px gap to the ring
+constexpr int kCtsH = 20;            // its height incl. the 2 px gap to the ring
+
+// Round dial geometry shared by the compass and wind-rose tiles: ring diameter
+// min(w, h) - 56 (floor `min_dia`), centred in the content box and nudged 4 px
+// down (the ring's LV_ALIGN_CENTER, 0, +4). `inset` = border + pad.
+inline int dial_ring_dia(int w, int h, int min_dia) {
+    int dia = (w < h ? w : h) - 56;
+    return dia < min_dia ? min_dia : dia;
+}
+inline void dial_center(int w, int h, int inset, int &cx, int &cy) {
+    cx = (w - 2 * inset) / 2;
+    cy = (h - 2 * inset) / 2 + 4;
+}
 
 // Top row y of the legend in a content box `content_h` tall.
 inline int compass_legend_top(int content_h) {
@@ -53,9 +65,8 @@ inline int compass_legend_top(int content_h) {
 // tracks the ring's bottom. (mcx, mcy) is the ring centre, `dia` its diameter.
 inline bool compass_legend_fits(int content_w, int content_h, int mcx, int mcy, int dia) {
     const int gy = compass_legend_top(content_h);
-    // Swatches are 14 px centred one px below each row's top, so the first one
-    // starts 6 px above gy.
-    const Box legend = {kLegendInset, gy - 6, kLegendInset + kLegendW, gy + 3 * kLegendRowH};
+    // Each row is a 14 px swatch (row..row+14) beside a 16 px label.
+    const Box legend = {kLegendInset, gy, kLegendInset + kLegendW, gy + 3 * kLegendRowH};
     if (legend.y0 < kLegendTopClear || legend.x1 > content_w) return false;
     if (!box_clears_disc(legend, mcx, mcy, dia / 2, kMarkerOverhang)) return false;
     const int ring_bottom = mcy + dia / 2;
@@ -69,15 +80,18 @@ inline bool compass_legend_fits(int content_w, int content_h, int mcx, int mcy, 
 // the lubber (|rel| >= 12 deg), where the HDG/COG/CTS markers cluster. A numeral
 // that is currently hidden must clear each limit by kBandHysteresisDeg before it
 // reappears, so a heading held near a limit (e.g. ~012 deg) cannot make it
-// flicker on every refresh.
+// flicker on every refresh. A numeral not laid out yet (after a build or theme
+// switch) uses the plain limits, so the first frame does not depend on history.
 constexpr double kBandEdgeDeg = 80.0;
 constexpr double kBandLubberDeg = 12.0;
 constexpr double kBandHysteresisDeg = 3.0;
 
+enum class BandLabel { New, Shown, Hidden };
+
 // `rel` = numeral bearing - heading, in [-180, 180]. Returns the new visibility.
-inline bool band_numeral_visible(double rel, bool was_visible) {
+inline bool band_numeral_visible(double rel, BandLabel prev) {
     const double a = fabs(rel);
-    const double slack = was_visible ? 0.0 : kBandHysteresisDeg;
+    const double slack = prev == BandLabel::Hidden ? kBandHysteresisDeg : 0.0;
     return a <= kBandEdgeDeg - slack && a >= kBandLubberDeg + slack;
 }
 
@@ -87,7 +101,10 @@ inline bool band_numeral_visible(double rel, bool was_visible) {
 // course-adjust row. The compass is as wide as the panel allows; on short
 // panels it shrinks until the tiles keep kSteerMinTileH, and when even the
 // smallest compass leaves no room the tiles are dropped (and the compass sized
-// so the XTE strip still clears the course row).
+// so the XTE strip still clears the course row). Note: 240x240 lands on that
+// last path with a compass too small for the hero inside its band (the screen
+// stays free of overlapping rows and negative sizes, but a dedicated small-panel
+// layout is still needed there).
 constexpr int kSteerTopBarH = 56;
 constexpr int kSteerXteGap = 4;  // compass bottom -> XTE strip
 constexpr int kSteerXteH = 44;
@@ -95,7 +112,7 @@ constexpr int kSteerStripPad = 2;  // XTE strip bottom -> tiles
 constexpr int kSteerGap = 8;
 constexpr int kSteerCourseH = 36;
 constexpr int kSteerCoursePad = 6;
-constexpr int kSteerMinTileH = 64;      // caption + a 28 px value
+constexpr int kSteerMinTileH = 68;      // 8 px pads + caption + a 28 px value
 constexpr int kSteerMinCompassW = 120;  // below this the band is unreadable
 
 struct SteerSquareLayout {
@@ -104,7 +121,8 @@ struct SteerSquareLayout {
     int tile_w, tile_h, tile_y;
 };
 
-// Height ui::build_compass gives a compass `w` wide (r + 24, r = w/2 - 8).
+// Height ui::build_compass gives a compass `w` wide (r + 24, r = w/2 - 8);
+// keep in lockstep with build_compass in ui_compass.cpp.
 inline int steer_compass_h(int w) {
     return (w / 2 - 8) + 24;
 }

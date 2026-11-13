@@ -1355,9 +1355,8 @@ static void add_hull(lv_obj_t *parent, int cx, int cy, int s) {
 // of the dial center, decentering the orbiting glyphs. Compute the matching
 // content-area center so the marker ring is concentric with the dial.
 static inline void dial_center(int w, int h, int &cx, int &cy) {
-    const int inset = chrome::panel_border + chrome::panel_pad;
-    cx = (w - 2 * inset) / 2;
-    cy = (h - 2 * inset) / 2 + 4;  // matches the dial's LV_ALIGN_CENTER, 0, +4
+    // matches the dial's LV_ALIGN_CENTER, 0, +4 (ui::geom, host-tested)
+    ui::geom::dial_center(w, h, chrome::panel_border + chrome::panel_pad, cx, cy);
 }
 
 // ---------------------------------------------------------------------------
@@ -1484,8 +1483,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // Ring size: reserve top 24 px for chrome caption + marker, bottom
     // 22 px for CTS label. Diameter = min(w,h) - 56 keeps the heading
     // text from colliding with cardinals at 14 px.
-    int dia = (w < h ? w : h) - 56;
-    if (dia < 72) dia = 72;
+    int dia = ui::geom::dial_ring_dia(w, h, 72);
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
@@ -1648,7 +1646,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
             // draw_glyph returns a 28x28 canvas; scale 50% about its center so the
             // visible glyph fills ~14px while the object box stays 28px. The box
             // top-left is pinned at (gx-7, row-7) so the scaled-down content centers
-            // at (gx+7, row+1), i.e. a 14px swatch starting at the left inset.
+            // at (gx+7, row+7), i.e. a 14px swatch (row..row+14) at the left inset.
             lv_obj_set_style_transform_pivot_x(g, 14, 0);
             lv_obj_set_style_transform_pivot_y(g, 14, 0);
             lv_obj_set_style_transform_scale(g, 128, 0);  // 50% (256 = 100%)

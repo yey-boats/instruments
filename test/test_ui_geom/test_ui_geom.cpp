@@ -13,8 +13,8 @@ void setUp() {
 void tearDown() {
 }
 
-// Round compass tile geometry, as paint_compass_body computes it for a w x h
-// tile: 11 px chrome inset, ring centre per dial_center(), dia = min - 56.
+// Round compass tile geometry through the same helpers paint_compass_body uses
+// (chrome inset 11 = panel_border 1 + panel_pad 10).
 struct Tile {
     int cw, ch, mcx, mcy, dia;
 };
@@ -23,10 +23,8 @@ static Tile compass_tile(int w, int h) {
     Tile t;
     t.cw = w - 2 * inset;
     t.ch = h - 2 * inset;
-    t.mcx = t.cw / 2;
-    t.mcy = t.ch / 2 + 4;
-    t.dia = (w < h ? w : h) - 56;
-    if (t.dia < 72) t.dia = 72;
+    dial_center(w, h, inset, t.mcx, t.mcy);
+    t.dia = dial_ring_dia(w, h, 72);
     return t;
 }
 static bool legend_fits(int w, int h) {
@@ -58,7 +56,8 @@ static void test_legend_kept_on_tall_tile() {
 
 // Too short for three rows below the caption.
 static void test_legend_dropped_on_short_tile() {
-    TEST_ASSERT_FALSE(legend_fits(400, 100));
+    TEST_ASSERT_FALSE(legend_fits(400, 90));
+    TEST_ASSERT_TRUE(legend_fits(400, 100));  // rows just fit under the caption
 }
 
 // The legend must not collide with the CTS line that tracks the ring bottom.
@@ -69,26 +68,36 @@ static void test_legend_avoids_cts_line() {
     const int gy = compass_legend_top(ch);
     const int dia = 72;
     const int mcx = kLegendInset + kLegendW + kCtsHalfW - 1;
-    const int mcy = gy - 59;
-    const Box legend = {kLegendInset, gy - 6, kLegendInset + kLegendW, gy + 3 * kLegendRowH};
+    const int mcy = gy - 55;
+    const Box legend = {kLegendInset, gy, kLegendInset + kLegendW, gy + 3 * kLegendRowH};
     TEST_ASSERT_TRUE(box_clears_disc(legend, mcx, mcy, dia / 2, kMarkerOverhang));
     TEST_ASSERT_FALSE(compass_legend_fits(300, ch, mcx, mcy, dia));
 }
 
 static void test_band_visible_limits_when_shown() {
-    TEST_ASSERT_TRUE(band_numeral_visible(12.0, true));
-    TEST_ASSERT_FALSE(band_numeral_visible(11.9, true));
-    TEST_ASSERT_TRUE(band_numeral_visible(-80.0, true));
-    TEST_ASSERT_FALSE(band_numeral_visible(80.1, true));
-    TEST_ASSERT_TRUE(band_numeral_visible(45.0, true));
+    TEST_ASSERT_TRUE(band_numeral_visible(12.0, BandLabel::Shown));
+    TEST_ASSERT_FALSE(band_numeral_visible(11.9, BandLabel::Shown));
+    TEST_ASSERT_TRUE(band_numeral_visible(-80.0, BandLabel::Shown));
+    TEST_ASSERT_FALSE(band_numeral_visible(80.1, BandLabel::Shown));
+    TEST_ASSERT_TRUE(band_numeral_visible(45.0, BandLabel::Shown));
 }
 
 static void test_band_hidden_needs_hysteresis_to_return() {
-    TEST_ASSERT_FALSE(band_numeral_visible(13.0, false));
-    TEST_ASSERT_FALSE(band_numeral_visible(-14.9, false));
-    TEST_ASSERT_TRUE(band_numeral_visible(15.0, false));
-    TEST_ASSERT_FALSE(band_numeral_visible(78.0, false));
-    TEST_ASSERT_TRUE(band_numeral_visible(-77.0, false));
+    TEST_ASSERT_FALSE(band_numeral_visible(13.0, BandLabel::Hidden));
+    TEST_ASSERT_FALSE(band_numeral_visible(-14.9, BandLabel::Hidden));
+    TEST_ASSERT_TRUE(band_numeral_visible(15.0, BandLabel::Hidden));
+    TEST_ASSERT_FALSE(band_numeral_visible(78.0, BandLabel::Hidden));
+    TEST_ASSERT_TRUE(band_numeral_visible(-77.0, BandLabel::Hidden));
+}
+
+// First layout (after a build or theme switch): plain limits, no slack, so a
+// steady heading shows the same numerals every time the screen is built.
+static void test_band_first_layout_uses_plain_limits() {
+    TEST_ASSERT_TRUE(band_numeral_visible(13.0, BandLabel::New));
+    TEST_ASSERT_TRUE(band_numeral_visible(-77.0, BandLabel::New));
+    TEST_ASSERT_TRUE(band_numeral_visible(79.0, BandLabel::New));
+    TEST_ASSERT_FALSE(band_numeral_visible(11.0, BandLabel::New));
+    TEST_ASSERT_FALSE(band_numeral_visible(81.0, BandLabel::New));
 }
 
 // Heading held about 012 deg with +-1 deg of yaw: the "0" numeral (rel = -hdg)
@@ -98,7 +107,7 @@ static void test_band_no_flicker_near_lubber() {
     bool vis = true;
     int toggles = 0;
     for (double h : hdgs) {
-        bool v = band_numeral_visible(-h, vis);
+        bool v = band_numeral_visible(-h, vis ? BandLabel::Shown : BandLabel::Hidden);
         if (v != vis) toggles++;
         vis = v;
     }
@@ -112,7 +121,9 @@ static void check_steer_invariants(int w, int h) {
     TEST_ASSERT_GREATER_THAN_INT(0, L.compass_w);
     TEST_ASSERT_LESS_OR_EQUAL_INT(course_top, steer_strip_bottom(L.compass_w));
     if (L.tiles) {
-        TEST_ASSERT_GREATER_OR_EQUAL_INT(kSteerMinTileH, L.tile_h);
+        // At least kSteerMinTileH, unless the tiles are narrower (then square).
+        const int want = L.tile_w < kSteerMinTileH ? L.tile_w : kSteerMinTileH;
+        TEST_ASSERT_GREATER_OR_EQUAL_INT(want, L.tile_h);
         TEST_ASSERT_LESS_OR_EQUAL_INT(L.tile_w, L.tile_h);
         TEST_ASSERT_GREATER_OR_EQUAL_INT(steer_strip_bottom(L.compass_w), L.tile_y);
         TEST_ASSERT_LESS_OR_EQUAL_INT(course_top - kSteerGap, L.tile_y + L.tile_h);
@@ -142,13 +153,19 @@ static void test_steer_360_keeps_usable_tiles() {
 // running under the course row.
 static void test_steer_240_never_negative() {
     SteerSquareLayout L = wind_steer_square_layout(240, 240);
-    TEST_ASSERT_TRUE(!L.tiles || L.tile_h >= kSteerMinTileH);
+    TEST_ASSERT_FALSE(L.tiles);
+    // Largest compass whose XTE strip ends at the course row (y 198).
+    TEST_ASSERT_EQUAL_INT(152, L.compass_w);
+    TEST_ASSERT_EQUAL_INT(198, steer_strip_bottom(L.compass_w));
     check_steer_invariants(240, 240);
 }
 
 static void test_steer_sweep() {
     for (int s = 200; s <= 720; s += 8)
         check_steer_invariants(s, s);
+    // Portrait panels too (the non-wide branch covers them).
+    for (int h = 360; h <= 800; h += 40)
+        check_steer_invariants(320, h);
 }
 
 int main() {
@@ -160,6 +177,7 @@ int main() {
     RUN_TEST(test_legend_avoids_cts_line);
     RUN_TEST(test_band_visible_limits_when_shown);
     RUN_TEST(test_band_hidden_needs_hysteresis_to_return);
+    RUN_TEST(test_band_first_layout_uses_plain_limits);
     RUN_TEST(test_band_no_flicker_near_lubber);
     RUN_TEST(test_steer_480_unchanged);
     RUN_TEST(test_steer_360_keeps_usable_tiles);

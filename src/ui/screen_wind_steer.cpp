@@ -219,7 +219,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_mode, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_mode, LV_ALIGN_TOP_MID, 0, 14);
 
-    // --- compass --- (identical geometry to the autopilot screen)
+    // --- compass --- (the autopilot screen's geometry on 480x480 and wide panels)
     // Square panels: the compass shrinks on short panels so the tile row keeps
     // a usable height, or the tiles are dropped (ui::geom, host-tested).
     const ui::geom::SteerSquareLayout sl = ui::geom::wind_steer_square_layout(LCD_W, LCD_H);
@@ -261,30 +261,47 @@ lv_obj_t *build(lv_obj_t *parent) {
                                          ws_markers, 4, /*occlude_lower=*/true);
 
     // --- centre readouts (over the dial face) --- HDG + wind sub-line ---
-    // Hero: the largest font whose worst-case "359.9°" fits the band's inner
-    // hole (radius r - 62: 10 px rail + 52 px band) and whose line fits between
-    // the caption and the wind sub-line (r/2 - 6 px). A compass shrunk for a
-    // small square panel needs a smaller one; 480x480 keeps font_xl_64.
-    static const lv_font_t *const hero_ladder[] = {&font_xl_64, &lv_font_montserrat_48,
-                                                   &lv_font_montserrat_38, &lv_font_montserrat_28,
-                                                   &lv_font_montserrat_20};
-    const int hole_w = 2 * (s_cp.r - 62);
-    const lv_font_t *hero_font = hero_ladder[4];
-    for (const lv_font_t *f : hero_ladder) {
-        lv_point_t sz;
-        lv_text_get_size(&sz, "359.9\xC2\xB0", f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (sz.x <= hole_w && lv_font_get_line_height(f) <= s_cp.r / 2 - 6) {
-            hero_font = f;
-            break;
+    // Hero + caption. Full-size compass (480x480, wide panels): the reference
+    // placement, hero top r/2 - 2 above the centre with the "HDG" caption above
+    // it, in font_xl_64. A compass shrunk for a small square panel has a small
+    // inner hole (radius r - 62: 10 px rail + 52 px band), so the hero sits just
+    // above the wind sub-line, in the largest ladder font whose worst-case
+    // "359.9°" fits the hole's chord at its top edge; the caption only stays
+    // when it also fits inside the hole.
+    const lv_font_t *hero_font = &font_xl_64;
+    int hero_top = scy - s_cp.r / 2 + 2;
+    int cap_y = scy - s_cp.r / 2 - 30;
+    bool show_cap = true;
+    if (!wide && sl.compass_w < LCD_W - 32) {
+        static const lv_font_t *const ladder[] = {&lv_font_montserrat_48, &lv_font_montserrat_38,
+                                                  &lv_font_montserrat_28, &lv_font_montserrat_20};
+        const int hole_r = s_cp.r - 62;
+        auto chord = [hole_r](int d) -> int {  // hole width d px above the centre
+            if (d >= hole_r) return 0;
+            return (int)(2.0 * sqrt((double)hole_r * hole_r - (double)d * d));
+        };
+        hero_font = ladder[3];
+        for (const lv_font_t *f : ladder) {
+            lv_point_t sz;
+            lv_text_get_size(&sz, "359.9\xC2\xB0", f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+            if (sz.x <= chord(4 + lv_font_get_line_height(f) + 2)) {
+                hero_font = f;
+                break;
+            }
         }
+        const int d_top = 4 + lv_font_get_line_height(hero_font) + 2;
+        hero_top = scy - d_top;
+        cap_y = hero_top - 22;
+        show_cap = chord(d_top + 22) >= 44;  // "HDG" at 20 px is ~44 px wide
     }
-    // The wind sub-line spans the hole too; drop to 14 px when 20 px overflows.
+    // The wind sub-line straddles the compass diameter: drop to 14 px when the
+    // real refresh text ("TWA %s  |  TWD %s", worst case) is wider than the dial.
     const lv_font_t *sub_font = &lv_font_montserrat_20;
     {
         lv_point_t sz;
-        lv_text_get_size(&sz, "TWA 180\xC2\xB0S | TWD 359\xC2\xB0", sub_font, 0, 0, LV_COORD_MAX,
+        lv_text_get_size(&sz, "TWA 180\xC2\xB0S  |  TWD 359\xC2\xB0", sub_font, 0, 0, LV_COORD_MAX,
                          LV_TEXT_FLAG_NONE);
-        if (sz.x > hole_w + 40) sub_font = &lv_font_montserrat_14;
+        if (sz.x > 2 * s_cp.r - 16) sub_font = &lv_font_montserrat_14;
     }
 
     lv_obj_t *cap = lv_label_create(s_root);
@@ -293,7 +310,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(cap, 120);
-    lv_obj_set_pos(cap, scx - 60, scy - s_cp.r / 2 - 30);
+    lv_obj_set_pos(cap, scx - 60, cap_y);
+    if (!show_cap) lv_obj_add_flag(cap, LV_OBJ_FLAG_HIDDEN);
 
     lbl_hdg_value = lv_label_create(s_root);
     lv_label_set_text(lbl_hdg_value, "--\xC2\xB0");
@@ -301,7 +319,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_hdg_value, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_hdg_value, 240);
-    lv_obj_set_pos(lbl_hdg_value, scx - 120, scy - s_cp.r / 2 + 2);
+    lv_obj_set_pos(lbl_hdg_value, scx - 120, hero_top);
 
     lbl_sub = lv_label_create(s_root);
     lv_label_set_text(lbl_sub, "TWA --\xC2\xB0 | TWD --\xC2\xB0");
