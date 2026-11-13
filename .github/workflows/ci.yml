@@ -259,6 +259,9 @@ jobs:
       - name: No release env enables the lab auth bypass; no wildcard CORS
         run: python3 -m unittest discover -s tools -p 'test_web_security.py' -v
 
+      - name: ota_flash.sh verifies through web Basic Auth; clear bleak error
+        run: python3 -m unittest discover -s tools -p 'test_ota_flash.py' -v
+
   sim-build:
     name: Host render sim builds
     runs-on: ubuntu-latest

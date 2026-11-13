@@ -16,6 +16,21 @@
 #
 # Set YEYBOATS_OTA_PASSWORD or OTA_PASSWORD to pass ArduinoOTA auth.
 #
+# Web credentials: a provisioned device enforces Basic Auth on /api/state
+# (instruments#21/#30). Set YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USER
+# when the user is not the default `espdisp`) so the verify step can read
+# device.build. They go to curl on stdin (--config -), never on a command
+# line, including through --remote. Without them an auth-enforcing device
+# answers 401 and the script stops with an error that says so.
+#
+# Dependencies: python3, curl, ping, strings. The BLE `wifi-reconnect`
+# fallback (used only when the device does not rejoin WiFi on its own)
+# also needs the `bleak` package on THIS host: `pip install bleak`.
+# Without it the fallback is skipped with an error naming the package.
+#
+# Boot wait: YEYBOATS_OTA_BOOT_SOFT (default 30 s, then BLE kick) and
+# YEYBOATS_OTA_BOOT_HARD (default 120 s total).
+#
 # If --remote is given, scp the binary + espota.py to that host and
 # run there (used to flash a device on a network only reachable from
 # the lab box).
@@ -30,8 +45,10 @@ PORT=3232
 # soft reset until something kicks the supplicant. A BLE-driven
 # `wifi-reconnect` reliably recovers it. We give the device 30 s to come
 # back unaided; if it doesn't, we BLE-kick once and wait the rest.
-TIMEOUT_BOOT_SOFT=30
-TIMEOUT_BOOT_HARD=120
+TIMEOUT_BOOT_SOFT="${YEYBOATS_OTA_BOOT_SOFT:-30}"
+TIMEOUT_BOOT_HARD="${YEYBOATS_OTA_BOOT_HARD:-120}"
+WEB_USER="${YEYBOATS_WEB_USER:-espdisp}"
+WEB_PASS="${YEYBOATS_WEB_PASSWORD:-}"
 
 DEVICE_IP=""
 FW=""
@@ -110,12 +127,26 @@ run_espota() {
     fi
 }
 
+# curl config line carrying the web credentials, fed on stdin so the
+# password never appears in argv (here or on the --remote host). Inside a
+# double-quoted curl config value only backslash and double quote need
+# escaping.
+curl_auth_config() {
+    if [ -z "${WEB_PASS}" ]; then return; fi
+    local v="${WEB_USER}:${WEB_PASS}"
+    v="${v//\\/\\\\}"
+    v="${v//\"/\\\"}"
+    printf 'user = "%s"\n' "${v}"
+}
+
+# Prints the /api/state body, then the HTTP status code on the last line
+# ("000" when nothing answered).
 curl_state() {
-    local cmd="curl -sf --max-time 5 http://${DEVICE_IP}/api/state"
+    local cmd="curl -s --max-time 5 --config - -w '\n%{http_code}' http://${DEVICE_IP}/api/state"
     if [ -n "${REMOTE}" ]; then
-        ssh "${REMOTE}" "${cmd}"
+        curl_auth_config | ssh "${REMOTE}" "${cmd}"
     else
-        eval "${cmd}"
+        curl_auth_config | eval "${cmd}"
     fi
 }
 
@@ -140,6 +171,10 @@ while [ "$(date +%s)" -lt "${deadline}" ]; do
 done
 if ! ping_dev; then
     log "device still down after ${TIMEOUT_BOOT_SOFT}s - attempting BLE wifi-reconnect"
+    if ! python3 -c 'import bleak' >/dev/null 2>&1; then
+        BLE_MISSING=1
+        printf '[ota] error: BLE fallback skipped: python package bleak is not installed (pip install bleak)\n' >&2
+    else
     python3 - <<'PY' 2>&1 || true
 import asyncio
 from bleak import BleakClient, BleakScanner
@@ -159,6 +194,7 @@ async def main():
         print(f"ble error: {e}")
 asyncio.run(main())
 PY
+    fi
     deadline=$(( $(date +%s) + (TIMEOUT_BOOT_HARD - TIMEOUT_BOOT_SOFT) ))
     while [ "$(date +%s)" -lt "${deadline}" ]; do
         if ping_dev; then break; fi
@@ -166,15 +202,35 @@ PY
     done
 fi
 if ! ping_dev; then
+    if [ -n "${BLE_MISSING:-}" ]; then
+        fail "device did not come back online within ${TIMEOUT_BOOT_HARD}s (BLE wifi-reconnect skipped: pip install bleak)"
+    fi
     fail "device did not come back online within ${TIMEOUT_BOOT_HARD}s (even after BLE wifi-reconnect)"
 fi
 
 # --- verify build marker ---
 # Give the web stack a moment after WiFi rejoin before hammering it.
 sleep 2
-state="$(curl_state || true)"
-if [ -z "${state}" ]; then
-    fail "device pingable but /api/state did not respond"
+# Retry a few times: the web task can still be starting, or answer 503
+# from its low-heap breaker right after boot.
+code="000"
+for _ in 1 2 3; do
+    resp="$(curl_state || true)"
+    code="${resp##*$'\n'}"
+    state="${resp%$'\n'*}"
+    case "${code}" in
+        200|401) break;;
+    esac
+    sleep 2
+done
+if [ "${code}" = "401" ]; then
+    if [ -z "${WEB_PASS}" ]; then
+        fail "/api/state answered 401: web Basic Auth is on. Set YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USER if not 'espdisp') to verify the flash"
+    fi
+    fail "/api/state answered 401: the device rejected user '${WEB_USER}' and YEYBOATS_WEB_PASSWORD"
+fi
+if [ "${code}" != "200" ] || [ -z "${state}" ]; then
+    fail "device pingable but /api/state did not respond (HTTP ${code})"
 fi
 running="$(printf '%s' "${state}" | python3 -c 'import sys, json
 try: print(json.load(sys.stdin).get("device",{}).get("build",""))

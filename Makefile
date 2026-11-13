@@ -139,6 +139,10 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 # against device.build in /api/state. Pass REMOTE=user@host to flash
 # through a relay (used when this host can't reach the device subnet,
 # e.g. via compulab on the yey-net AP).
+# A device with web Basic Auth on (the default once a web password is set)
+# answers 401 on /api/state: export YEYBOATS_WEB_PASSWORD (and
+# YEYBOATS_WEB_USER if not `espdisp`). The BLE wifi-reconnect fallback
+# needs `pip install bleak` on this host.
 ota-verify: setup  ## OTA + verify via /api/state. REMOTE=user@host to flash through a relay.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved" >&2; exit 1; }
