@@ -211,7 +211,7 @@ static bool api_auth_required() {
     return api_auth_state() == web_auth_policy::State::Enforced;
 }
 
-#if defined(YEYBOATS_LAB_OPEN_WEB) && defined(YEYBOATS_RELEASE_BUILD)
+#if defined(YEYBOATS_LAB_OPEN_WEB) && YEYBOATS_RELEASE_BUILD
 #error "YEYBOATS_LAB_OPEN_WEB is lab-only and must never be compiled into a release build"
 #endif
 

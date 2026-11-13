@@ -19,7 +19,12 @@
 //
 // Pure (no Arduino) so the decision is host-tested in test/test_ota_pass.
 
-#if defined(YEYBOATS_RELEASE_BUILD)
+// build_config.h always defines YEYBOATS_RELEASE_BUILD (0 for dev builds), so
+// it is tested by VALUE: `defined()` would be true for every build that
+// included build_config.h first.
+#include "build_config.h"
+
+#if YEYBOATS_RELEASE_BUILD
 #define YEYBOATS_ARDUINO_OTA 0
 #else
 #define YEYBOATS_ARDUINO_OTA 1
@@ -53,7 +58,7 @@ inline const char *mode_name(Mode m) {
 
 // The compile-time inputs for mode(), for the current build.
 inline constexpr bool kReleaseBuild =
-#if defined(YEYBOATS_RELEASE_BUILD)
+#if YEYBOATS_RELEASE_BUILD
     true;
 #else
     false;
