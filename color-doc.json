@@ -1,0 +1,14 @@
+{"midl":"1.0.0","class":"square-480","screens":[
+ {"id":"dials","title":"Dials","elements":{
+  "g":{"type":"gauge","name":"SOG tide","format":{"unit":"kn","decimals":1},"style":{"color":"tide","range":[0,10]},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
+  "c":{"type":"compass","name":"HDG #f0f","style":{"color":"#f0f"},"bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}},
+  "w":{"type":"windrose","name":"AWS good","format":{"unit":"kn","decimals":1},"style":{"color":"good"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}},
+  "t":{"type":"text","name":"TEXT warn","style":{"color":"warn"},"bindings":{"value":{"kind":"const","value":"WARN TOKEN"}}}},
+  "layout":{"rows":2,"cols":2,"cells":[{"element":"g"},{"element":"c"},{"element":"w"},{"element":"t"}]}},
+ {"id":"more","title":"More","elements":{
+  "ap":{"type":"autopilot","name":"AP port","style":{"color":"port"},"bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}},
+  "z":{"type":"gauge","name":"ZONE>color","format":{"unit":"kn","decimals":1},"style":{"color":"tide","range":[0,10],"zones":[{"lt":3,"color":"warn"},{"lt":11,"color":"bad"}]},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
+  "k":{"type":"single-value","name":"#000000","format":{"unit":"kn","decimals":1},"style":{"color":"#000000"},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
+  "x":{"type":"gauge","name":"bad->default","format":{"unit":"kn","decimals":1},"style":{"color":"red","range":[0,10]},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}}},
+  "layout":{"rows":2,"cols":2,"cells":[{"element":"ap"},{"element":"z"},{"element":"k"},{"element":"x"}]}}
+]}
