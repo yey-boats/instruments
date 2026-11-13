@@ -1,0 +1,10 @@
+{"midl":"1.0.0","class":"square-480","screens":[
+ {"id":"wfull","title":"WFull","elements":{"w":{"type":"windrose","name":"AWS","format":{"unit":"kn","decimals":1},"style":{"color":"tide"},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"},"dir":{"kind":"signalk","path":"environment.wind.angleApparent"}}}},"layout":{"element":"w"}},
+ {"id":"apfull","title":"APFull","elements":{"ap":{"type":"autopilot","name":"AP","style":{"color":"port"},"bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}}},"layout":{"element":"ap"}},
+ {"id":"legacy","title":"Legacy","elements":{
+  "g":{"type":"gauge","name":"G","format":{"unit":"kn","decimals":1},"style":{"range":[0,10]},"bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}},
+  "c":{"type":"compass","name":"C","bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}},
+  "w":{"type":"windrose","name":"W","format":{"unit":"kn","decimals":1},"bindings":{"value":{"kind":"signalk","path":"environment.wind.speedApparent"}}},
+  "ap":{"type":"autopilot","name":"AP","bindings":{"value":{"kind":"signalk","path":"steering.autopilot.state"}}}},
+  "layout":{"rows":2,"cols":2,"cells":[{"element":"g"},{"element":"c"},{"element":"w"},{"element":"ap"}]}}
+]}
