@@ -2251,6 +2251,7 @@ struct WindDialState {
     int8_t last_tide_zero_hidden;
     int8_t last_wp_hidden;
     int8_t last_drift_cap_hidden;
+    int8_t last_tide_speed_hidden;  // speed label has a HUD backing: hide it with no current
 };
 
 namespace winddial {
@@ -2581,6 +2582,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h) {
     st->last_tide_zero_hidden = -1;
     st->last_wp_hidden = -1;
     st->last_drift_cap_hidden = -1;
+    st->last_tide_speed_hidden = -1;
 
     // Geometry: reserve a bottom tile band; centre the rose in the area above it.
     // Derived from the tile's local (w, h), NOT LCD_W/LCD_H, so the dial is
@@ -2656,6 +2658,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h) {
     lv_obj_set_style_text_align(st->lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_tide_speed, 60);
     ui::style_hud_backing(st->lbl_tide_speed);
+    lv_obj_add_flag(st->lbl_tide_speed, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_pos(st->lbl_tide_speed, CX - 30, CY + 76);
 
     // Wind indices: T (true) cyan below A (apparent) amber in z-order.
@@ -2784,12 +2787,14 @@ static void update(WindDialState *st, const boat::View &d) {
         snprintf(buf, sizeof(buf), "%.1fkn", mps_to_kn(d.currentDrift));
         ui::set_text_if_changed(st->lbl_tide_speed, st->last_tide, sizeof(st->last_tide), buf);
         ui::set_hidden_if_changed(st->lbl_drift_cap, &st->last_drift_cap_hidden, false);
+        ui::set_hidden_if_changed(st->lbl_tide_speed, &st->last_tide_speed_hidden, false);
     } else {
         ui::set_hidden_if_changed(st->tide_arrow, &st->last_tide_hidden, true);
         ui::set_hidden_if_changed(st->tide_zero, &st->last_tide_zero_hidden, !have_current);
         ui::set_text_if_changed(st->lbl_tide_speed, st->last_tide, sizeof(st->last_tide),
                                 have_current ? "0.0kn" : "");
         ui::set_hidden_if_changed(st->lbl_drift_cap, &st->last_drift_cap_hidden, !have_current);
+        ui::set_hidden_if_changed(st->lbl_tide_speed, &st->last_tide_speed_hidden, !have_current);
     }
 
     // --- waypoint pip ---
