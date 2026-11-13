@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ui_geom.h"
 #include "ui_theme.h"
 
 // Reference glass-cockpit primitives: a semicircular heading compass, rounded
@@ -77,7 +78,7 @@ static bool is_cardinal(int i) {
 
 Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
     Compass cp = {};
-    int r = w / 2 - 8;
+    int r = w / 2 - 8;  // keep in lockstep with ui::geom::steer_compass_h
     int cx = w / 2;
     int cy = r;  // flat (diameter) edge sits at y = r
     cp.cx = cx;
@@ -179,8 +180,16 @@ void compass_layout_labels(const Compass &cp, double hdg_deg) {
         // Only labels that sit fully on the band: past ~80 deg they hang off its
         // flat ends, and their dark ink half-vanishes on the dark background.
         // Also skip the one under the lubber: the HDG/COG/CTS markers cluster
-        // there and the hero already shows the exact heading.
-        if (rel > 80.0 || rel < -80.0 || (rel < 12.0 && rel > -12.0)) {
+        // there and the hero already shows the exact heading. A hidden label
+        // needs a few degrees of margin to come back (ui::geom hysteresis), so
+        // a heading held near 012 deg cannot make it flicker.
+        // user_data marks a label laid out at least once (built hidden).
+        using ui::geom::BandLabel;
+        const BandLabel prev = !lv_obj_get_user_data(cp.nums[i])                 ? BandLabel::New
+                               : lv_obj_has_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN) ? BandLabel::Hidden
+                                                                                 : BandLabel::Shown;
+        lv_obj_set_user_data(cp.nums[i], (void *)1);
+        if (!ui::geom::band_numeral_visible(rel, prev)) {
             lv_obj_add_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
@@ -343,6 +352,9 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(theme.fg), 0);
     ui::style_hud_backing(val);
+    // The strip has no panel of its own: back the readout with the ground it
+    // sits on, not theme.panel (a lighter pill in the day theme).
+    lv_obj_set_style_bg_color(val, lv_color_hex(theme.bg), 0);
     lv_obj_set_style_pad_hor(val, 4, 0);
     lv_obj_align(val, LV_ALIGN_TOP_MID, 0, label_row_y);
     xs.value = val;
