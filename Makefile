@@ -56,6 +56,8 @@ help:  ## Show this help
 	@printf "  ENV         build env (default: $(ENV))\n"
 	@printf "  PORT        serial port for USB flash (default: auto-detect)\n"
 	@printf "  DEVICE_IP   target IP for OTA flash (required for 'make ota')\n"
+	@printf "  REMOTE      user@host: OTA relay and server-* target (no default; OTA flashes directly)\n"
+	@printf "  LAB_REMOTE  lab box for lab-logger-*/lab-up when REMOTE is unset (default: $(LAB_REMOTE))\n"
 	@printf "  LAB_OPEN_OTA=1 lab-only dev build: ArduinoOTA without a password when none is set\n"
 	@printf "  SK_HOST     SignalK server host for 'make demo' (default: localhost)\n"
 	@printf "  PROJECT_VERSION firmware version MAJOR.MINOR.BUILD (default: $(PROJECT_VERSION); CI sets BUILD=run_number)\n"
@@ -117,7 +119,7 @@ discover-json:  ## Same as discover but prints full JSON record.
 # firmware.bin (including any baked-in WiFi PSK). For unattended/lab use,
 # pin DEVICE_IP=<addr> or pass NAME=<device_id> for an exact-match lookup
 # that errors on ambiguity.
-ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes discovery.
+ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes discovery. REMOTE=user@host relays.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved: pass DEVICE_IP=<ip> or fix discovery (see 'make discover')" >&2; exit 1; }
 	@echo "[ota] target=$(OTA_TARGET)"
@@ -202,16 +204,18 @@ lab-logger-deploy:  ## Install UDP log listener + logrotate on the lab box (REMO
 	@bash tools/lab-logger/deploy.sh $(LAB_HOST)
 
 lab-logger-status:  ## Show systemd status + last 20 log lines on the lab box
+	@test -n "$(LAB_HOST)" || { echo "REMOTE/LAB_REMOTE not set" >&2; exit 1; }
 	@ssh $(LAB_HOST) 'sudo -n systemctl --no-pager --full status yeydisp-loglistener 2>/dev/null || sudo -S systemctl --no-pager --full status yeydisp-loglistener; echo ---; sudo -n tail -n 20 /var/log/yeydisp/device.log 2>/dev/null || true'
 
 lab-logger-tail:  ## Stream live logs from the lab box
+	@test -n "$(LAB_HOST)" || { echo "REMOTE/LAB_REMOTE not set" >&2; exit 1; }
 	@ssh -t $(LAB_HOST) 'sudo -n tail -F /var/log/yeydisp/device.log'
 
 # One-shot orchestrator: build debug FW, flash via OTA, deploy lab-logger,
 # show recent logs. Each step is idempotent and unattended (provided
 # REMOTE_SUDO_PASS is set the first time, see lab-logger-deploy). The OTA
 # step relays only when REMOTE is passed; the logger steps target LAB_HOST.
-lab-up:  ## Build debug FW + OTA flash (verified) + deploy lab-logger
+lab-up:  ## Build debug FW + OTA flash (verified) + deploy lab-logger. REMOTE=user@host to relay the OTA.
 	@$(MAKE) ota-verify ENV=esp32-4848s040-debug $(if $(DEVICE_IP),DEVICE_IP=$(DEVICE_IP),) $(if $(NAME),NAME=$(NAME),) $(if $(REMOTE),REMOTE=$(REMOTE),)
 	@$(MAKE) lab-logger-deploy LAB_REMOTE=$(LAB_HOST)
 	@echo "[lab-up] done. Recent logs:"
@@ -254,11 +258,11 @@ server-setup:  ## Provision/re-provision REMOTE nav-server (Docker, SK, AP, logg
 	@bash tools/server-setup/deploy.sh $(REMOTE) $(SETUP_FLAGS)
 
 server-sk-only:  ## Re-deploy SK config/plugins and restart the SK service on REMOTE
-	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@test -n "$(REMOTE)" || { echo "REMOTE not set (e.g. REMOTE=compulab@192.168.2.11)" >&2; exit 1; }
 	@bash tools/server-setup/deploy.sh $(REMOTE) --sk-only
 
 server-status:  ## Show service status (SK + AP + logger) on REMOTE
-	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@test -n "$(REMOTE)" || { echo "REMOTE not set (e.g. REMOTE=compulab@192.168.2.11)" >&2; exit 1; }
 	@ssh $(REMOTE) '\
 	  echo "=== yeydisp-signalk ==="; \
 	  sudo -n systemctl --no-pager status yeydisp-signalk 2>/dev/null | head -10; \
@@ -270,7 +274,7 @@ server-status:  ## Show service status (SK + AP + logger) on REMOTE
 	  sudo -n tail -n 20 /var/log/yeydisp/device.log 2>/dev/null || echo "(no log yet)"'
 
 server-teardown:  ## Stop all lab services on REMOTE (SK + AP + logger) – non-destructive
-	@test -n "$(REMOTE)" || { echo "REMOTE not set" >&2; exit 1; }
+	@test -n "$(REMOTE)" || { echo "REMOTE not set (e.g. REMOTE=compulab@192.168.2.11)" >&2; exit 1; }
 	@ssh $(REMOTE) '\
 	  sudo -n systemctl stop yeydisp-signalk yeydisp-lab-ap yeydisp-loglistener 2>/dev/null; \
 	  echo "stopped"'
