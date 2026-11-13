@@ -36,8 +36,8 @@ static lv_obj_t *lbl_depth, *lbl_temp, *lbl_sog, *lbl_twa;
 
 // Depth-history sparkline (bottom card). The ring buffer must be a module
 // static (not a stack local) per the firmware memory traps; lv_coord_t[60] is
-// ~240 B and lives in .bss. s_hist_n is unused for chart bookkeeping but kept
-// to track whether we have any samples (for the initial Y autoscale).
+// ~240 B and lives in .bss. s_hist_n is 0 until the first sample, which seeds
+// all HIST_N slots (and the chart) flat; after that it stays HIST_N.
 static lv_obj_t *s_chart = nullptr;
 static lv_chart_series_t *s_series = nullptr;
 static const int HIST_N = 60;
@@ -280,7 +280,7 @@ void refresh() {
                 for (int i = 0; i < HIST_N; i++)
                     s_hist[i] = v;
                 s_hist_n = HIST_N;
-                lv_chart_set_all_value(s_chart, s_series, v);
+                lv_chart_set_all_values(s_chart, s_series, v);
             } else {
                 s_hist[s_hist_idx] = v;
                 lv_chart_set_next_value(s_chart, s_series, v);

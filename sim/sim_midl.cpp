@@ -14,7 +14,8 @@
 //                                id ("dash","nav",...) or case-insensitive
 //                                title ("wind","course","engine","power",
 //                                "race","anchor")
-// SIM_THEME selects the palette (see sim/sim_theme.h).
+// SIM_THEME selects the palette (see sim/sim_theme.h). SIM_MIDL_DOC=<file.json>
+// renders that MIDL document instead of the baked demo doc (layout repros).
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
@@ -126,7 +127,21 @@ int main(int argc, char **argv) {
 
     // --- Parse the baked MIDL demo document ---
     JsonDocument midl_doc;
-    DeserializationError jerr = deserializeJson(midl_doc, midl::demo::SQUARE_480_JSON);
+    DeserializationError jerr;
+    if (const char *doc_path = getenv("SIM_MIDL_DOC")) {
+        FILE *df = fopen(doc_path, "rb");
+        if (!df) {
+            fprintf(stderr, "cannot open SIM_MIDL_DOC '%s'\n", doc_path);
+            return 1;
+        }
+        static char doc_buf[64 * 1024];
+        size_t nread = fread(doc_buf, 1, sizeof(doc_buf) - 1, df);
+        fclose(df);
+        doc_buf[nread] = '\0';
+        jerr = deserializeJson(midl_doc, (const char *)doc_buf);
+    } else {
+        jerr = deserializeJson(midl_doc, midl::demo::SQUARE_480_JSON);
+    }
     if (jerr) {
         fprintf(stderr, "deserializeJson failed: %s\n", jerr.c_str());
         return 1;

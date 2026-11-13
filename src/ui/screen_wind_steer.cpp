@@ -5,6 +5,7 @@
 #include "ui_data.h"
 #include "ui_dirty.h"
 #include "ui_fonts.h"
+#include "ui_geom.h"
 #include "signalk.h"
 #include "net.h"
 #include "autopilot.h"
@@ -219,8 +220,11 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_align(lbl_mode, LV_ALIGN_TOP_MID, 0, 14);
 
     // --- compass --- (identical geometry to the autopilot screen)
-    int top_bar_h = 56;
-    int cw = wide ? (LCD_H - 36) : (LCD_W - 32);
+    // Square panels: the compass shrinks on short panels so the tile row keeps
+    // a usable height, or the tiles are dropped (ui::geom, host-tested).
+    const ui::geom::SteerSquareLayout sl = ui::geom::wind_steer_square_layout(LCD_W, LCD_H);
+    int top_bar_h = ui::geom::kSteerTopBarH;
+    int cw = wide ? (LCD_H - 36) : sl.compass_w;
     int cox = (LCD_W - cw) / 2;
     int coy = top_bar_h;
     s_cp = ui::build_compass(s_root, cox, coy, cw);
@@ -257,6 +261,32 @@ lv_obj_t *build(lv_obj_t *parent) {
                                          ws_markers, 4, /*occlude_lower=*/true);
 
     // --- centre readouts (over the dial face) --- HDG + wind sub-line ---
+    // Hero: the largest font whose worst-case "359.9°" fits the band's inner
+    // hole (radius r - 62: 10 px rail + 52 px band) and whose line fits between
+    // the caption and the wind sub-line (r/2 - 6 px). A compass shrunk for a
+    // small square panel needs a smaller one; 480x480 keeps font_xl_64.
+    static const lv_font_t *const hero_ladder[] = {&font_xl_64, &lv_font_montserrat_48,
+                                                   &lv_font_montserrat_38, &lv_font_montserrat_28,
+                                                   &lv_font_montserrat_20};
+    const int hole_w = 2 * (s_cp.r - 62);
+    const lv_font_t *hero_font = hero_ladder[4];
+    for (const lv_font_t *f : hero_ladder) {
+        lv_point_t sz;
+        lv_text_get_size(&sz, "359.9\xC2\xB0", f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= hole_w && lv_font_get_line_height(f) <= s_cp.r / 2 - 6) {
+            hero_font = f;
+            break;
+        }
+    }
+    // The wind sub-line spans the hole too; drop to 14 px when 20 px overflows.
+    const lv_font_t *sub_font = &lv_font_montserrat_20;
+    {
+        lv_point_t sz;
+        lv_text_get_size(&sz, "TWA 180\xC2\xB0S | TWD 359\xC2\xB0", sub_font, 0, 0, LV_COORD_MAX,
+                         LV_TEXT_FLAG_NONE);
+        if (sz.x > hole_w + 40) sub_font = &lv_font_montserrat_14;
+    }
+
     lv_obj_t *cap = lv_label_create(s_root);
     lv_label_set_text(cap, "HDG");
     lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
@@ -267,7 +297,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_hdg_value = lv_label_create(s_root);
     lv_label_set_text(lbl_hdg_value, "--\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg_value, &font_xl_64, 0);
+    lv_obj_set_style_text_font(lbl_hdg_value, hero_font, 0);
     lv_obj_set_style_text_color(lbl_hdg_value, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_hdg_value, 240);
@@ -275,15 +305,15 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_sub = lv_label_create(s_root);
     lv_label_set_text(lbl_sub, "TWA --\xC2\xB0 | TWD --\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_sub, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_sub, sub_font, 0);
     lv_obj_set_style_text_color(lbl_sub, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(lbl_sub, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_sub, LCD_W);
     lv_obj_set_pos(lbl_sub, scx - LCD_W / 2, scy - 4);
 
     // --- XTE strip below the compass --- (same as AP)
-    int xte_h = 44;
-    int xte_y = coy + s_cp.h + 4;
+    int xte_h = ui::geom::kSteerXteH;
+    int xte_y = coy + s_cp.h + ui::geom::kSteerXteGap;
     int xte_x = wide ? cox : 16;
     int xte_w = wide ? cw : (LCD_W - 32);
     s_xte = ui::build_xte_strip(s_root, xte_x, xte_y, xte_w, xte_h);
@@ -292,28 +322,25 @@ lv_obj_t *build(lv_obj_t *parent) {
     // Reserve a bottom strip for the course-adjust / tack-gybe row so it never
     // covers the tiles. On the square panel the four tiles shrink to clear it; on
     // the wide panel the side columns already leave the bottom-center free.
-    const int course_h = 36;
-    const int course_pad = 6;
+    const int course_h = ui::geom::kSteerCourseH;
+    const int course_pad = ui::geom::kSteerCoursePad;
     const lv_font_t *tv = &lv_font_montserrat_38;
-    int gap = 8;
+    int gap = ui::geom::kSteerGap;
     if (!wide) {
-        int n = 4;
-        int sq = (LCD_W - gap * (n + 1)) / n;
-        int ty = LCD_H - sq - gap - course_h - course_pad;  // raised to clear the row
-        // ...and never above the XTE strip's bottom: raised into it, the tiles
-        // covered the strip's tick numbers (only the "0" peeked through a gap).
-        // Shorten the tiles instead.
-        int th = sq;
-        const int strip_bottom = xte_y + xte_h + 2;
-        if (ty < strip_bottom) {
-            th -= strip_bottom - ty;
-            ty = strip_bottom;
+        // Tiles sit under the XTE strip (never over its tick numbers) and above
+        // the course row; short tiles take a smaller value font. With no room
+        // at all (240x240) the row is dropped and refresh skips the null tiles.
+        tile_aws = tile_awa = tile_tws = tile_twa = nullptr;
+        if (sl.tiles) {
+            const int sq = sl.tile_w, th = sl.tile_h, ty = sl.tile_y;
+            if (th < 80) tv = &lv_font_montserrat_28;
+            tile_aws = ui::numeric_tile(s_root, gap, ty, sq, th, "AWS", "kn", tv, theme.warn);
+            tile_awa = ui::numeric_tile(s_root, gap * 2 + sq, ty, sq, th, "AWA", "", tv, theme.fg);
+            tile_tws =
+                ui::numeric_tile(s_root, gap * 3 + sq * 2, ty, sq, th, "TWS", "kn", tv, theme.fg);
+            tile_twa =
+                ui::numeric_tile(s_root, gap * 4 + sq * 3, ty, sq, th, "TWA", "", tv, theme.fg);
         }
-        tile_aws = ui::numeric_tile(s_root, gap, ty, sq, th, "AWS", "kn", tv, theme.warn);
-        tile_awa = ui::numeric_tile(s_root, gap * 2 + sq, ty, sq, th, "AWA", "", tv, theme.fg);
-        tile_tws =
-            ui::numeric_tile(s_root, gap * 3 + sq * 2, ty, sq, th, "TWS", "kn", tv, theme.fg);
-        tile_twa = ui::numeric_tile(s_root, gap * 4 + sq * 3, ty, sq, th, "TWA", "", tv, theme.fg);
     } else {
         int sq = cox - gap * 2;
         int ty = (LCD_H - 2 * sq - gap) / 2;

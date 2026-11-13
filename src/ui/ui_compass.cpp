@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "ui_geom.h"
 #include "ui_theme.h"
 
 // Reference glass-cockpit primitives: a semicircular heading compass, rounded
@@ -179,8 +180,11 @@ void compass_layout_labels(const Compass &cp, double hdg_deg) {
         // Only labels that sit fully on the band: past ~80 deg they hang off its
         // flat ends, and their dark ink half-vanishes on the dark background.
         // Also skip the one under the lubber: the HDG/COG/CTS markers cluster
-        // there and the hero already shows the exact heading.
-        if (rel > 80.0 || rel < -80.0 || (rel < 12.0 && rel > -12.0)) {
+        // there and the hero already shows the exact heading. A hidden label
+        // needs a few degrees of margin to come back (ui::geom hysteresis), so
+        // a heading held near 012 deg cannot make it flicker.
+        const bool was_visible = !lv_obj_has_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN);
+        if (!ui::geom::band_numeral_visible(rel, was_visible)) {
             lv_obj_add_flag(cp.nums[i], LV_OBJ_FLAG_HIDDEN);
             continue;
         }
@@ -343,6 +347,9 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
     lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(theme.fg), 0);
     ui::style_hud_backing(val);
+    // The strip has no panel of its own: back the readout with the ground it
+    // sits on, not theme.panel (a lighter pill in the day theme).
+    lv_obj_set_style_bg_color(val, lv_color_hex(theme.bg), 0);
     lv_obj_set_style_pad_hor(val, 4, 0);
     lv_obj_align(val, LV_ALIGN_TOP_MID, 0, label_row_y);
     xs.value = val;
