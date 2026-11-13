@@ -411,8 +411,9 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     out.style_color = ZoneColor::Default;
     JsonVariantConst col = el["style"]["color"];
     if (col.is<unsigned>()) {
+        // Legacy integer form (not in the schema): 0 keeps its old "unset" meaning.
         out.accent = col.as<unsigned>() & 0xFFFFFFu;
-        out.style_color = ZoneColor::Literal;
+        if (col.as<unsigned>() != 0) out.style_color = ZoneColor::Literal;
     } else if (col.is<const char *>()) {
         out.style_color = parse_zone_color(col.as<const char *>(), out.accent);
     }

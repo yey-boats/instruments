@@ -137,6 +137,11 @@ int main(int argc, char **argv) {
         static char doc_buf[64 * 1024];
         size_t doc_len = fread(doc_buf, 1, sizeof(doc_buf) - 1, df);
         fclose(df);
+        if (doc_len == sizeof(doc_buf) - 1) {
+            fprintf(stderr, "SIM_MIDL_DOC '%s' is too large (max %zu bytes)\n", doc_path,
+                    sizeof(doc_buf) - 2);
+            return 1;
+        }
         doc_buf[doc_len] = 0;
         jerr = deserializeJson(midl_doc, doc_buf, doc_len);
     } else {

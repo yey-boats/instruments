@@ -369,6 +369,16 @@ inline uint32_t style_rgb(const MetricBinding &m, uint32_t fallback, const Color
     return m.accent ? m.accent : fallback;
 }
 
+// Only an AUTHORED style.color, else `fallback`. Ignores a legacy non-zero
+// `accent` (built-in tables and the editor-shape layout renderer bake the old
+// dark-palette 0x57c7d8 there), so the widget parts that never read `accent`
+// before #45 (gauge arc, dial rings and pointers, wind hero, engaged autopilot)
+// keep their theme colour on legacy layouts. Hero text keeps style_rgb().
+inline uint32_t authored_rgb(const MetricBinding &m, uint32_t fallback, const ColorTokens &t) {
+    if (m.style_color == ZoneColor::Default) return fallback;
+    return token_rgb(m.style_color, m.accent, fallback, t);
+}
+
 struct ScreenVariantSpec {
     const char *screen_id;
     const char *title;

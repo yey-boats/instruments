@@ -142,6 +142,43 @@ void test_style_rgb_precedence() {
         ui::layouts::token_rgb(zd.color, zd.rgb, ui::layouts::style_rgb(m, t.accent, t), t));
 }
 
+// Legacy layouts bake accent=0x57c7d8 with no authored colour: widget parts
+// that only follow an AUTHORED style.color must keep their theme default.
+void test_authored_rgb_ignores_legacy_accent() {
+    ui::layouts::ColorTokens t{};
+    t.warn = 0x222222;
+    t.tide = 0x333333;
+    MetricBinding m{};
+    m.accent = 0x57c7d8;
+    TEST_ASSERT_EQUAL_HEX32(0x222222u, ui::layouts::authored_rgb(m, t.warn, t));
+    TEST_ASSERT_EQUAL_HEX32(0x57c7d8u, ui::layouts::style_rgb(m, t.warn, t));  // hero text
+    m = mapColor("\"tide\"");
+    TEST_ASSERT_EQUAL_HEX32(0x333333u, ui::layouts::authored_rgb(m, t.warn, t));
+    m = mapColor("\"#000\"");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0x000000u, ui::layouts::authored_rgb(m, t.warn, t));
+}
+
+void test_style_color_integer_zero_is_unset() {
+    MetricBinding m = mapColor("0");
+    TEST_ASSERT_EQUAL((int)ZoneColor::Default, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0u, m.accent);
+}
+
+void test_marker_and_sector_colours_take_full_allowlist() {
+    MetricBinding m = mapOne(
+        R"({"type":"compass",
+            "markers":[{"glyph":"diamond","color":"tide","dir":{"kind":"const","value":10}}],
+            "style":{"sectors":[{"from":0,"to":30,"color":"#0f0"}]},
+            "bindings":{"value":{"kind":"signalk","path":"navigation.headingTrue"}}})",
+        "ms");
+    TEST_ASSERT_EQUAL_UINT8(1, m.marker_count);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Tide, (int)m.markers[0].color);
+    TEST_ASSERT_EQUAL_UINT8(1, m.sector_count);
+    TEST_ASSERT_EQUAL((int)ZoneColor::Literal, (int)m.sectors[0].color);
+    TEST_ASSERT_EQUAL_HEX32(0x00FF00u, m.sectors[0].rgb);
+}
+
 // Legacy 8-arg call (no path buffers) — mirrors sim_midl.cpp; dynamic paths
 // must degrade to NULL (source None -> "--"), never dangle.
 static MetricBinding mapOneNoPathBufs(const char *json, const char *id) {
@@ -923,6 +960,9 @@ int main(int, char **) {
     RUN_TEST(test_style_color_absent_is_unset);
     RUN_TEST(test_zone_and_marker_colours_take_full_allowlist);
     RUN_TEST(test_style_rgb_precedence);
+    RUN_TEST(test_authored_rgb_ignores_legacy_accent);
+    RUN_TEST(test_style_color_integer_zero_is_unset);
+    RUN_TEST(test_marker_and_sector_colours_take_full_allowlist);
     RUN_TEST(test_format_range_and_precision);
     RUN_TEST(test_format_absent_defaults);
     RUN_TEST(test_format_decimals_alias);
