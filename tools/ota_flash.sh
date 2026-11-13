@@ -17,8 +17,8 @@
 # Set YEYBOATS_OTA_PASSWORD or OTA_PASSWORD to pass ArduinoOTA auth.
 #
 # Web credentials: a provisioned device enforces Basic Auth on /api/state
-# (instruments#21/#30). Set YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USER
-# when the user is not the default `espdisp`) so the verify step can read
+# (instruments#21/#30). Set YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USERNAME,
+# as used by tests/system, when the user is not the default `espdisp`) so the verify step can read
 # device.build. They go to curl on stdin (--config -), never on a command
 # line, including through --remote. Without them an auth-enforcing device
 # answers 401 and the script stops with an error that says so.
@@ -47,7 +47,12 @@ PORT=3232
 # back unaided; if it doesn't, we BLE-kick once and wait the rest.
 TIMEOUT_BOOT_SOFT="${YEYBOATS_OTA_BOOT_SOFT:-30}"
 TIMEOUT_BOOT_HARD="${YEYBOATS_OTA_BOOT_HARD:-120}"
-WEB_USER="${YEYBOATS_WEB_USER:-espdisp}"
+for _t in "${TIMEOUT_BOOT_SOFT}" "${TIMEOUT_BOOT_HARD}"; do
+    case "${_t}" in
+        ''|*[!0-9]*) echo "YEYBOATS_OTA_BOOT_SOFT/HARD must be whole seconds, got '${_t}'" >&2; exit 2;;
+    esac
+done
+WEB_USER="${YEYBOATS_WEB_USERNAME:-${YEYBOATS_WEB_USER:-espdisp}}"
 WEB_PASS="${YEYBOATS_WEB_PASSWORD:-}"
 
 DEVICE_IP=""
@@ -134,9 +139,8 @@ run_espota() {
 curl_auth_config() {
     if [ -z "${WEB_PASS}" ]; then return; fi
     local v="${WEB_USER}:${WEB_PASS}"
-    v="${v//\\/\\\\}"
-    v="${v//\"/\\\"}"
-    printf 'user = "%s"\n' "${v}"
+    # Escape backslash and double quote with sed (portable to bash 3.2).
+    printf 'user = "%s"\n' "$(printf '%s' "${v}" | sed 's/[\\"]/\\&/g')"
 }
 
 # Prints the /api/state body, then the HTTP status code on the last line
@@ -213,11 +217,16 @@ fi
 sleep 2
 # Retry a few times: the web task can still be starting, or answer 503
 # from its low-heap breaker right after boot.
+NL=$'\n'
 code="000"
 for _ in 1 2 3; do
     resp="$(curl_state || true)"
-    code="${resp##*$'\n'}"
-    state="${resp%$'\n'*}"
+    code="${resp##*"${NL}"}"
+    state="${resp%"${NL}"*}"
+    case "${code}" in
+        [0-9][0-9][0-9]) ;;
+        *) code="000"; state="";;  # nothing at all came back (e.g. ssh failed)
+    esac
     case "${code}" in
         200|401) break;;
     esac
@@ -225,12 +234,15 @@ for _ in 1 2 3; do
 done
 if [ "${code}" = "401" ]; then
     if [ -z "${WEB_PASS}" ]; then
-        fail "/api/state answered 401: web Basic Auth is on. Set YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USER if not 'espdisp') to verify the flash"
+        fail "/api/state answered 401: web Basic Auth is on. Set YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USERNAME if not 'espdisp') to verify the flash. The flash itself may have succeeded; it is unverified"
     fi
-    fail "/api/state answered 401: the device rejected user '${WEB_USER}' and YEYBOATS_WEB_PASSWORD"
+    fail "/api/state answered 401: the device rejected user '${WEB_USER}' and YEYBOATS_WEB_PASSWORD. The flash itself may have succeeded; it is unverified"
 fi
-if [ "${code}" != "200" ] || [ -z "${state}" ]; then
-    fail "device pingable but /api/state did not respond (HTTP ${code})"
+if [ "${code}" != "200" ]; then
+    fail "device pingable but /api/state answered HTTP ${code}"
+fi
+if [ -z "${state}" ]; then
+    fail "device pingable but /api/state answered 200 with an empty body"
 fi
 running="$(printf '%s' "${state}" | python3 -c 'import sys, json
 try: print(json.load(sys.stdin).get("device",{}).get("build",""))

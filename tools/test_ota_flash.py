@@ -27,10 +27,16 @@ USER, PASSWORD = "espdisp", "s3cret \"pa\\ss\": with colon"
 class _Device(BaseHTTPRequestHandler):
     require_auth = True
     seen_auth = []
+    busy = 0  # answer 503 (heap breaker) this many times first
 
     def do_GET(self):  # noqa: N802 (http.server API)
         if self.path != "/api/state":
             self.send_response(404)
+            self.end_headers()
+            return
+        if type(self).busy > 0:
+            type(self).busy -= 1
+            self.send_response(503)
             self.end_headers()
             return
         got = self.headers.get("Authorization", "")
@@ -58,6 +64,7 @@ class OtaFlashTest(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         _Device.seen_auth = []
         _Device.require_auth = True
+        _Device.busy = 0
         self.srv = HTTPServer(("127.0.0.1", 0), _Device)
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         port = self.srv.server_address[1]
@@ -83,9 +90,12 @@ class OtaFlashTest(unittest.TestCase):
 
         self.env = dict(os.environ)
         self.env["PATH"] = bindir + os.pathsep + self.env["PATH"]
-        for k in ("YEYBOATS_WEB_USER", "YEYBOATS_WEB_PASSWORD",
-                  "YEYBOATS_OTA_PASSWORD", "OTA_PASSWORD"):
+        for k in ("YEYBOATS_WEB_USER", "YEYBOATS_WEB_USERNAME",
+                  "YEYBOATS_WEB_PASSWORD", "YEYBOATS_OTA_PASSWORD", "OTA_PASSWORD",
+                  "http_proxy", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
             self.env.pop(k, None)
+        self.env["NO_PROXY"] = self.env["no_proxy"] = "127.0.0.1"
+        self.bindir = bindir
 
     def tearDown(self):
         self.srv.shutdown()
@@ -122,6 +132,40 @@ class OtaFlashTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         with open(log) as f:
             self.assertNotIn("s3cret", f.read())
+
+    def test_username_variable_matches_system_tests(self):
+        self.env["YEYBOATS_WEB_USERNAME"] = "someone"
+        self.env["YEYBOATS_WEB_PASSWORD"] = PASSWORD
+        r = self._run()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("rejected user 'someone'", r.stderr)
+
+    def test_wrong_password_is_reported(self):
+        self.env["YEYBOATS_WEB_PASSWORD"] = "nope"
+        r = self._run()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("rejected user 'espdisp'", r.stderr)
+        self.assertIn("may have succeeded", r.stderr)
+        self.assertNotIn("nope", r.stdout + r.stderr)
+
+    def test_retries_heap_breaker_503(self):
+        _Device.busy = 2
+        self.env["YEYBOATS_WEB_PASSWORD"] = PASSWORD
+        r = self._run()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_remote_relay_keeps_password_off_argv(self):
+        log = os.path.join(self.tmp, "ssh.log")
+        # ssh shim: log argv, run the remote command locally with our stdin.
+        self._shim(self.bindir, "ssh", f'printf "%s\\n" "$*" >> {log}\nshift\nexec bash -c "$*"\n')
+        self._shim(self.bindir, "scp", "exit 0\n")
+        self.env["YEYBOATS_WEB_PASSWORD"] = PASSWORD
+        r = self._run("--remote", "relay@example.invalid")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with open(log) as f:
+            argv = f.read()
+        self.assertIn("/api/state", argv)
+        self.assertNotIn("s3cret", argv)
 
     def test_401_without_credentials_is_a_clear_error(self):
         r = self._run()
