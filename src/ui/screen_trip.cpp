@@ -21,7 +21,6 @@ static lv_obj_t *s_root = nullptr;
 static lv_obj_t *lbl_dist, *lbl_dist_unit;
 static lv_obj_t *lbl_time, *lbl_avg, *lbl_max;
 static lv_obj_t *lbl_sog_now;
-static lv_obj_t *lbl_tip;
 
 static double s_dist_m = 0;        // accumulated distance, meters
 static uint32_t s_underway_s = 0;  // accumulated seconds with sog > threshold
@@ -108,8 +107,9 @@ lv_obj_t *build(lv_obj_t *parent) {
     // taller panels.
     const int top_y = 40;
     const int band_gap = 8;
-    const int tip_h = 22;  // "console: trip-reset" footer line
-    const int content_h = LCD_H - top_y - tip_h - 4 /*bottom margin*/ - 2 * band_gap;
+    // No footer: the old "console: trip-reset" hint was developer text on a
+    // helm display (the command still works over serial/BLE).
+    const int content_h = LCD_H - top_y - 4 /*bottom margin*/ - 2 * band_gap;
     const int hero_h = content_h * 200 / 360;
     const int stat_h = content_h * 100 / 360;
     const int strip_h = content_h - hero_h - stat_h;
@@ -184,12 +184,6 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_font(lbl_sog_now, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl_sog_now, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_sog_now, LV_ALIGN_CENTER, 0, 0);
-
-    lbl_tip = lv_label_create(s_root);
-    lv_label_set_text(lbl_tip, "console: trip-reset");
-    lv_obj_set_style_text_font(lbl_tip, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(lbl_tip, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_tip, LV_ALIGN_BOTTOM_MID, 0, -4);
 
     load_from_nvs();
     return s_root;

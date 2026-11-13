@@ -464,6 +464,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_drift_cap, 60);
+    ui::style_hud_backing(lbl_drift_cap);
     lv_obj_set_pos(lbl_drift_cap, CX - 30, CY + 8);
     lv_obj_add_flag(lbl_drift_cap, LV_OBJ_FLAG_HIDDEN);
 
@@ -473,6 +474,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_tide_speed, 60);
+    ui::style_hud_backing(lbl_tide_speed);
+    lv_obj_add_flag(lbl_tide_speed, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_pos(lbl_tide_speed, CX - 30, CY + 24);
 
     // Wind indices (T white, A amber). T below A in z-order so amber wins when
@@ -542,6 +545,9 @@ static int8_t s_last_tide_hidden = -1;
 static int8_t s_last_tide_zero_hidden = -1;
 static int8_t s_last_wp_hidden = -1;
 static int8_t s_last_drift_cap_hidden = -1;
+// The speed label carries a HUD backing, so hide it too when there is no
+// current: an empty label would still paint a blank pill over the hull.
+static int8_t s_last_tide_speed_hidden = -1;
 
 using ui::set_hidden_if_changed;
 using ui::set_rot_if_changed;
@@ -626,6 +632,7 @@ void refresh() {
         snprintf(buf, sizeof(buf), "%.1fkn", mps_to_kn(d.currentDrift));
         set_text_if_changed(lbl_tide_speed, s_last_tide, sizeof(s_last_tide), buf);
         set_hidden_if_changed(lbl_drift_cap, &s_last_drift_cap_hidden, false);
+        set_hidden_if_changed(lbl_tide_speed, &s_last_tide_speed_hidden, false);
     } else {
         set_hidden_if_changed(tide_arrow, &s_last_tide_hidden, true);
         set_hidden_if_changed(tide_zero, &s_last_tide_zero_hidden, !have_current);
@@ -633,6 +640,7 @@ void refresh() {
                             have_current ? "0.0kn" : "");
         // Show the DRIFT caption only when there is current data to label.
         set_hidden_if_changed(lbl_drift_cap, &s_last_drift_cap_hidden, !have_current);
+        set_hidden_if_changed(lbl_tide_speed, &s_last_tide_speed_hidden, !have_current);
     }
 
     // --- waypoint pip ---

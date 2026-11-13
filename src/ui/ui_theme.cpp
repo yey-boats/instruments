@@ -138,6 +138,12 @@ void style_caption(lv_obj_t *o) {
     lv_obj_set_style_text_color(o, c(theme.fg_dim), 0);
 }
 
+void style_hud_backing(lv_obj_t *o) {
+    lv_obj_set_style_bg_color(o, c(theme.panel), 0);
+    lv_obj_set_style_bg_opa(o, LV_OPA_80, 0);
+    lv_obj_set_style_radius(o, 4, 0);
+}
+
 void style_value(lv_obj_t *o, const lv_font_t *font, uint32_t color) {
     lv_obj_set_style_text_font(o, font, 0);
     lv_obj_set_style_text_color(o, c(color), 0);

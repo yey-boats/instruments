@@ -87,6 +87,9 @@ void style_screen(lv_obj_t *o);
 void style_panel(lv_obj_t *o, uint32_t accent = 0);
 void style_caption(lv_obj_t *o);
 void style_value(lv_obj_t *o, const lv_font_t *font, uint32_t color);
+// Panel-coloured backing for a small readout drawn over dial artwork (e.g. the
+// DRIFT caption/speed over the hull glyph), so it stays legible.
+void style_hud_backing(lv_obj_t *o);
 lv_obj_t *panel_accent(lv_obj_t *parent, uint32_t color);
 
 }  // namespace ui

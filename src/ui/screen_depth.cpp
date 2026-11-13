@@ -43,6 +43,8 @@ static lv_chart_series_t *s_series = nullptr;
 static const int HIST_N = 60;
 static lv_coord_t s_hist[HIST_N];
 static int s_hist_n = 0;
+static int s_hist_idx = 0;  // next ring slot to overwrite
+static const uint32_t HIST_STEP_MS = 5000;
 static uint32_t s_hist_last_ms = 0;
 
 static const ui::layouts::MetricBinding s_tiles[] = {
@@ -224,6 +226,10 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_height(s_chart, 0, LV_PART_INDICATOR);
     lv_obj_set_style_line_color(s_chart, lv_color_hex(theme.grid), LV_PART_MAIN);
     s_series = lv_chart_add_series(s_chart, lv_color_hex(theme.accent), LV_CHART_AXIS_PRIMARY_Y);
+    // A rebuilt chart (theme switch) starts empty: reseed on the next sample.
+    s_hist_n = 0;
+    s_hist_idx = 0;
+    s_hist_last_ms = 0;
 
     ui::set_screen_collect_paths(s_spec.screen_id, collect_paths);
     return s_root;
@@ -259,24 +265,40 @@ void refresh() {
         lv_obj_set_style_transform_scale(lbl_depth, scale, 0);
     }
 
-    // History sparkline: push depth-below-keel (in cm to keep integer
-    // resolution) once per second, then autoscale Y from the ring buffer.
+    // History sparkline: depth-below-keel every HIST_STEP_MS (60 x 5 s = the
+    // last 5 minutes), in cm for integer resolution. Plotted NEGATED so deeper
+    // water draws lower, like a sounder's seabed trace. The first sample seeds
+    // the whole line (a flat trace instead of a stub growing in from the
+    // right), and the autoscale span never drops below 5 m, so normal swell
+    // and a sloping bottom read as gentle slopes, not full-height cliffs.
     if (s_chart && s_series && !isnan(d.depthKeel)) {
         uint32_t now = millis();
-        if (s_hist_last_ms == 0 || now - s_hist_last_ms >= 1000) {
+        if (s_hist_last_ms == 0 || now - s_hist_last_ms >= HIST_STEP_MS) {
             s_hist_last_ms = now;
-            lv_coord_t v = (lv_coord_t)(d.depthKeel * 100.0);  // meters -> cm
-            s_hist[s_hist_n % HIST_N] = v;
-            if (s_hist_n < HIST_N) s_hist_n++;
-            lv_chart_set_next_value(s_chart, s_series, v);
+            lv_coord_t v = -(lv_coord_t)(d.depthKeel * 100.0);  // m -> cm, down = deeper
+            if (s_hist_n == 0) {
+                for (int i = 0; i < HIST_N; i++)
+                    s_hist[i] = v;
+                s_hist_n = HIST_N;
+                lv_chart_set_all_value(s_chart, s_series, v);
+            } else {
+                s_hist[s_hist_idx] = v;
+                lv_chart_set_next_value(s_chart, s_series, v);
+            }
+            s_hist_idx = (s_hist_idx + 1) % HIST_N;
 
             lv_coord_t lo = s_hist[0], hi = s_hist[0];
             for (int i = 1; i < s_hist_n; i++) {
                 if (s_hist[i] < lo) lo = s_hist[i];
                 if (s_hist[i] > hi) hi = s_hist[i];
             }
-            if (hi - lo < 50) hi = lo + 50;  // floor span at 0.5 m
-            lv_coord_t pad = (hi - lo) / 10 + 5;
+            const lv_coord_t min_span = 500;  // 5 m
+            if (hi - lo < min_span) {
+                lv_coord_t mid = (lo + hi) / 2;
+                lo = mid - min_span / 2;
+                hi = mid + min_span / 2;
+            }
+            lv_coord_t pad = (hi - lo) / 10;
             lv_chart_set_range(s_chart, LV_CHART_AXIS_PRIMARY_Y, lo - pad, hi + pad);
         }
     }
