@@ -121,16 +121,79 @@ enum class WidgetKind : uint8_t {
 // `lt` is in DISPLAY units. The colour is either a literal 0xRRGGBB or a theme
 // token the painter resolves against the live ui::theme palette (so day/night
 // flips keep working); Default means "painter fallback colour".
+// The token set is the midl#28 colour allowlist (midl schemas/
+// yb-midl-config.schema.json $defs.color): a #rgb/#rrggbb/#rrggbbaa literal or
+// one of the named tokens below. Anything else is Default.
 enum class ZoneColor : uint8_t {
-    Default = 0,  // unknown token -> painter's per-kind fallback
-    Literal,      // rgb field holds the authored #rrggbb
+    Default = 0,  // absent / not on the allowlist -> painter's per-kind fallback
+    Literal,      // rgb field holds the authored literal (alpha dropped)
     Accent,
     Warn,
     Alarm,  // web tokens "alarm" / "bad" / "danger"
     Good,
     Port,
     Starboard,
+    // Rest of the midl#28 allowlist (#45).
+    Panel,
+    Panel2,
+    Edge,
+    Fg,
+    Dim,
+    Accent2,
+    Tide,
+    Stale,
+    Bg,
 };
+
+// Concrete values for every named colour token, filled from the live theme by
+// the painter (ui_layouts.cpp live_tokens()). A plain struct so the token
+// resolution below stays host-testable without LVGL.
+struct ColorTokens {
+    uint32_t panel, panel2, edge, fg, dim, accent, accent2, good, warn, alarm, port, starboard,
+        tide, stale, bg;
+};
+
+// Resolve a colour token: Literal -> `literal`, a named token -> its theme
+// value, Default -> `fallback` (the caller's next colour in precedence).
+inline uint32_t token_rgb(ZoneColor c, uint32_t literal, uint32_t fallback, const ColorTokens &t) {
+    switch (c) {
+    case ZoneColor::Literal:
+        return literal;
+    case ZoneColor::Accent:
+        return t.accent;
+    case ZoneColor::Warn:
+        return t.warn;
+    case ZoneColor::Alarm:
+        return t.alarm;
+    case ZoneColor::Good:
+        return t.good;
+    case ZoneColor::Port:
+        return t.port;
+    case ZoneColor::Starboard:
+        return t.starboard;
+    case ZoneColor::Panel:
+        return t.panel;
+    case ZoneColor::Panel2:
+        return t.panel2;
+    case ZoneColor::Edge:
+        return t.edge;
+    case ZoneColor::Fg:
+        return t.fg;
+    case ZoneColor::Dim:
+        return t.dim;
+    case ZoneColor::Accent2:
+        return t.accent2;
+    case ZoneColor::Tide:
+        return t.tide;
+    case ZoneColor::Stale:
+        return t.stale;
+    case ZoneColor::Bg:
+        return t.bg;
+    case ZoneColor::Default:
+    default:
+        return fallback;
+    }
+}
 
 struct MetricZone {
     float lt;         // upper bound (exclusive) of this band, display units
@@ -291,7 +354,20 @@ struct MetricBinding {
     // action.value — JSON-encoded PUT payload ("true"/"42"/"\"s\""); NULL keeps
     // the legacy fixed-`true` SignalK action-trigger convention.
     const char *action_value;
+    // style.color as a token (#45). Default = not authored: the painter uses
+    // `accent` when non-zero (legacy built-in tables), else its theme default.
+    // Literal = an authored hex literal held in `accent` (so #000000 is black,
+    // not "unset"). A named token resolves against the live theme at paint time.
+    ZoneColor style_color;
 };
+
+// The element's own colour (style.color), else `fallback` (the painter's theme
+// default). Precedence with zones: callers pass this as the fallback of
+// token_rgb(zone...), so zone colour > style.color > theme default.
+inline uint32_t style_rgb(const MetricBinding &m, uint32_t fallback, const ColorTokens &t) {
+    if (m.style_color != ZoneColor::Default) return token_rgb(m.style_color, m.accent, fallback, t);
+    return m.accent ? m.accent : fallback;
+}
 
 struct ScreenVariantSpec {
     const char *screen_id;

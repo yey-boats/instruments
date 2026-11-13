@@ -342,29 +342,38 @@ static double binding_dir_deg(const MetricBinding &m, const boat::View &d) {
     return NAN;
 }
 
-// Resolve an authored colour token against the LIVE theme palette (so
-// day/night flips keep working); Default falls back to the caller's colour.
-// Shared by style.zones, markers[] and style.sectors (one token encoding).
+// Every MIDL colour token's value in the LIVE theme palette (so day/night flips
+// keep working). panel2 is the raised badge fill and accent2 the secondary
+// (good) hue, as in midl/web/src/theme.ts.
+static ColorTokens live_tokens() {
+    ColorTokens t;
+    t.panel = theme.panel;
+    t.panel2 = theme.badge;
+    t.edge = theme.panel_edge;
+    t.fg = theme.fg;
+    t.dim = theme.fg_dim;
+    t.accent = theme.accent;
+    t.accent2 = theme.good;
+    t.good = theme.good;
+    t.warn = theme.warn;
+    t.alarm = theme.alarm;
+    t.port = theme.port;
+    t.starboard = theme.starboard;
+    t.tide = theme.tide;
+    t.stale = theme.stale;
+    t.bg = theme.bg;
+    return t;
+}
+
+// Resolve an authored colour token against the live theme; Default falls back
+// to the caller's colour. Shared by style.zones, markers[] and style.sectors.
 static uint32_t token_rgb(ZoneColor c, uint32_t literal, uint32_t fallback) {
-    switch (c) {
-    case ZoneColor::Literal:
-        return literal;
-    case ZoneColor::Accent:
-        return theme.accent;
-    case ZoneColor::Warn:
-        return theme.warn;
-    case ZoneColor::Alarm:
-        return theme.alarm;
-    case ZoneColor::Good:
-        return theme.good;
-    case ZoneColor::Port:
-        return theme.port;
-    case ZoneColor::Starboard:
-        return theme.starboard;
-    case ZoneColor::Default:
-    default:
-        return fallback;
-    }
+    return ui::layouts::token_rgb(c, literal, fallback, live_tokens());
+}
+
+// The element's style.color (#45, web resolveOptionalColor), else `fallback`.
+static uint32_t elem_rgb(const MetricBinding &m, uint32_t fallback) {
+    return style_rgb(m, fallback, live_tokens());
 }
 
 static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
@@ -990,7 +999,7 @@ static void fit_gauge_center_font(lv_obj_t *label, const char *txt, int dia) {
 // the glass-cockpit design intends (warn XTE, good depth, etc.); MIDL docs set it
 // via style.color → map_element → m.accent. accent==0 keeps the legacy theme color.
 static inline uint32_t value_color(const MetricBinding &m) {
-    return m.accent ? m.accent : theme.accent;
+    return elem_rgb(m, theme.accent);
 }
 
 // Blend `fg` over `bg` at pct% (0..100). Used to derive theme-relative tint
@@ -1490,7 +1499,9 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
     lv_obj_set_style_bg_color(ring, lv_color_hex(theme.panel), 0);
     lv_obj_set_style_bg_opa(ring, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(ring, lv_color_hex(theme.accent), 0);
+    // style.color replaces the ring and heading pointer (web dial.ts opts.color);
+    // markers, sectors and the dir pointer keep their own colours.
+    lv_obj_set_style_border_color(ring, lv_color_hex(value_color(m)), 0);
     lv_obj_set_style_border_width(ring, 2, 0);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(ring, 0, 0);
@@ -1514,8 +1525,8 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // (build_marker_ring contract); update feeds the matching value.
     uint32_t diamond_color = binding_has_dir(m) ? theme.warn : theme.alarm;
     ui::MarkerSpec inner_markers[2] = {
-        {NAN, ui::Glyph::Triangle, true, theme.accent},  // HDG
-        {NAN, ui::Glyph::Diamond, true, diamond_color},  // CTS or bindings.dir
+        {NAN, ui::Glyph::Triangle, true, value_color(m)},  // HDG (style.color)
+        {NAN, ui::Glyph::Diamond, true, diamond_color},    // CTS or bindings.dir
     };
     t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - 6, inner_markers, 2,
                                       /*occlude_lower=*/false);
@@ -1689,7 +1700,8 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_obj_set_style_arc_color(arc, lv_color_hex(theme.grid), LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(theme.accent), LV_PART_INDICATOR);
+    // Fill follows the hero text: zone colour (update) > style.color > accent.
+    lv_obj_set_style_arc_color(arc, lv_color_hex(value_color(m)), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_rounded(arc, true, LV_PART_INDICATOR);
     t.aux = arc;
@@ -3955,7 +3967,10 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
     lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(ring, lv_color_hex(theme.warn), 0);
+    // style.color replaces the ring and hero (web dial.ts opts.color); the wind
+    // heads, sectors and authored markers keep their own colours.
+    const uint32_t rose_rgb = elem_rgb(m, theme.warn);
+    lv_obj_set_style_border_color(ring, lv_color_hex(rose_rgb), 0);
     lv_obj_set_style_border_width(ring, 2, 0);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(ring, 0, 0);
@@ -3997,7 +4012,7 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     t.value = lv_label_create(ring);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
-    lv_obj_set_style_text_color(t.value, lv_color_hex(theme.warn), 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(rose_rgb), 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, m.unit && m.unit[0] ? -8 : 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
 
@@ -4134,13 +4149,15 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int w, in
 // green on cream, etc. (the old hardcoded 0x143b2a forest fill leaked the
 // original dark palette into every theme). Shared by the painter (initial
 // standby look) and both update paths (quad-grid + freeform) on state flips.
-static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged) {
+// `m`'s style.color replaces the engaged colour (web autopilotSvg); standby stays dim.
+static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged, const MetricBinding &m) {
     if (!pill || !value) return;
     if (engaged) {
+        const uint32_t on = elem_rgb(m, theme.good);
         lv_obj_set_style_bg_opa(pill, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(pill, lv_color_hex(mix_rgb(theme.good, theme.panel, 30)), 0);
-        lv_obj_set_style_border_color(pill, lv_color_hex(theme.good), 0);
-        lv_obj_set_style_text_color(value, lv_color_hex(theme.good), 0);
+        lv_obj_set_style_bg_color(pill, lv_color_hex(mix_rgb(on, theme.panel, 30)), 0);
+        lv_obj_set_style_border_color(pill, lv_color_hex(on), 0);
+        lv_obj_set_style_text_color(value, lv_color_hex(on), 0);
     } else {
         lv_obj_set_style_bg_opa(pill, LV_OPA_TRANSP, 0);
         lv_obj_set_style_border_color(pill, lv_color_hex(theme.panel_edge), 0);
@@ -4150,7 +4167,7 @@ static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged) {
 
 // Autopilot widget: state pill (filled `good` tint when engaged, hollow when
 // standby) + target text + 4 nudge buttons row. Mirrors editor .wpreview .ap.
-static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, int w, int h) {
+static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     // Full-screen autopilot leaf → the high-fidelity HUD (semicircular heading-up
     // compass, HDG/COG/CTS/AP-target marker ring, XTE strip, numeric tiles). The
     // HUD reads boat::View directly (no MIDL binding). t.aux holds the HUD root,
@@ -4184,7 +4201,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding & /*m*/, i
     lv_obj_set_style_text_font(t.value, &lv_font_montserrat_20, 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
-    style_ap_pill(pill, t.value, false);
+    style_ap_pill(pill, t.value, false, m);
 
     // Target text below the pill.
     t.secondary = lv_label_create(t.root);
@@ -4418,7 +4435,7 @@ static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
                 int want = engaged ? 1 : 0;
                 if (t.last_aux_pct != want) {
                     t.last_aux_pct = want;
-                    style_ap_pill(t.aux2, t.value, engaged);
+                    style_ap_pill(t.aux2, t.value, engaged, m);
                 }
             }
             if (t.secondary) {
@@ -6048,7 +6065,7 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 int want = engaged ? 1 : 0;
                 if (t.last_aux_pct != want) {
                     t.last_aux_pct = want;
-                    style_ap_pill(t.aux2, t.value, engaged);
+                    style_ap_pill(t.aux2, t.value, engaged, m);
                 }
             }
             if (t.secondary) {
@@ -6315,6 +6332,9 @@ static void back_cb(lv_event_t *) {
 // honoring them verbatim painted cyan/green heroes in every theme (a night
 // vision violation in red-night, off-palette in classic).
 static uint32_t hero_rgb(const ui::layouts::MetricBinding &m) {
+    // An authored style.color (token or literal, #000000 included) always wins.
+    if (m.style_color != ui::layouts::ZoneColor::Default)
+        return ui::layouts::style_rgb(m, ui::theme.accent, ui::layouts::live_tokens());
     switch (m.accent) {
     case 0:
     case 0x57c7d8:  // legacy dark-palette accent literal
