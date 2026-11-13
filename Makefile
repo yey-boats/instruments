@@ -128,17 +128,20 @@ ota: setup  ## Flash via WiFi. DEVICE_IP=<ip> pins; NAME=<device_id> scopes disc
 	  .pio/build/$(if $(filter %-debug,$(ENV)),esp32-4848s040-debug,$(ENV))/firmware.bin \
 	  $(if $(REMOTE),--remote $(REMOTE),)
 
-# ota-verify: the same flash, but post-verifies via /api/state.device.build
-# instead of trusting espota.py's exit code. espota.py reports
-# "Error Uploading" whenever the device reboots before sending its final
-# ACK (which is most successful flashes), so the bare `make ota` target
-# has a 100% false-failure rate even when the new FW is on the device.
-# This target wraps espota in tools/ota_flash.sh, ignores its exit code,
+# ota-verify: the same flash as `ota` without discovery fallbacks;
+# post-verifies via /api/state.device.build instead of trusting espota.py's
+# exit code. espota.py reports "Error Uploading" whenever the device reboots
+# before sending its final ACK (which is most successful flashes).
+# tools/ota_flash.sh wraps espota, ignores its exit code,
 # waits for the device to reboot, and confirms the new firmware is
 # actually running by matching __DATE__ __TIME__ baked into the .bin
 # against device.build in /api/state. Pass REMOTE=user@host to flash
 # through a relay (used when this host can't reach the device subnet,
 # e.g. via compulab on the yey-net AP).
+# Both `ota` and `ota-verify` run tools/ota_flash.sh. A device with web
+# Basic Auth on (the default once a web password is set) answers 401 on
+# /api/state: export YEYBOATS_WEB_PASSWORD (and YEYBOATS_WEB_USERNAME if
+# not `espdisp`). The BLE wifi-reconnect fallback needs `pip install bleak`.
 ota-verify: setup  ## OTA + verify via /api/state. REMOTE=user@host to flash through a relay.
 	$(eval OTA_TARGET := $(if $(DEVICE_IP),$(DEVICE_IP),$(shell python3 tools/discover_device.py $(if $(NAME),--name $(NAME),))))
 	@test -n "$(OTA_TARGET)" || { echo "OTA target not resolved" >&2; exit 1; }

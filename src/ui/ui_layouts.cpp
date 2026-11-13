@@ -12,6 +12,7 @@
 #include "ui_fonts.h"
 #include "ui_markers.h"
 #include "ui_compass.h"  // ui::numeric_tile for the full-screen wind dial's AWS/AWA/TWS/TWA band
+#include "ui_geom.h"     // compass legend overlap test (pure, host-tested)
 #include "signalk.h"
 #include "midl_kinds.h"  // button_route: PUT vs console for a button action (#31)
 #include "ui_screens.h"
@@ -1377,9 +1378,8 @@ static void add_hull(lv_obj_t *parent, int cx, int cy, int s) {
 // of the dial center, decentering the orbiting glyphs. Compute the matching
 // content-area center so the marker ring is concentric with the dial.
 static inline void dial_center(int w, int h, int &cx, int &cy) {
-    const int inset = chrome::panel_border + chrome::panel_pad;
-    cx = (w - 2 * inset) / 2;
-    cy = (h - 2 * inset) / 2 + 4;  // matches the dial's LV_ALIGN_CENTER, 0, +4
+    // matches the dial's LV_ALIGN_CENTER, 0, +4 (ui::geom, host-tested)
+    ui::geom::dial_center(w, h, chrome::panel_border + chrome::panel_pad, cx, cy);
 }
 
 // ---------------------------------------------------------------------------
@@ -1506,8 +1506,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // Ring size: reserve top 24 px for chrome caption + marker, bottom
     // 22 px for CTS label. Diameter = min(w,h) - 56 keeps the heading
     // text from colliding with cardinals at 14 px.
-    int dia = (w < h ? w : h) - 56;
-    if (dia < 72) dia = 72;
+    int dia = ui::geom::dial_ring_dia(w, h, 72);
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
@@ -1645,13 +1644,13 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // matches the rim glyph exactly). A 16px glyph canvas scaled into a small box
     // sits left of each montserrat_14 label in theme.fg_dim. Kept tight in the
     // tile's lower-left corner so it doesn't crowd the dial. Only drawn when the
-    // tile is tall enough that the rows clear the ring.
-    // ...and only when the rows (glyph + "HDG"/"COG"/"CTS", ~46 px wide) clear
-    // the ring's left edge. On a 480x480 quad tile the 140 px ring leaves ~43 px,
-    // so the legend printed across the dial; the colours/shapes are also
-    // explained by the CTS readout below the ring, so dropping it is fine.
-    const int ring_left = mcx - dia / 2;  // content-box coords, same as gx below
-    if (h >= 150 && ring_left >= 4 + 14 + 32 + 4) {
+    // rows really clear the ring, its orbiting marker glyphs and the CTS line
+    // (ui::geom::compass_legend_fits). On a 480x480 quad tile they would print
+    // across the dial, so it is dropped there; on a tall tile it sits below the
+    // ring. The colours/shapes are also explained by the CTS readout.
+    const int content_w = w - 2 * (chrome::panel_border + chrome::panel_pad);
+    const int content_h = h - 2 * (chrome::panel_border + chrome::panel_pad);
+    if (ui::geom::compass_legend_fits(content_w, content_h, mcx, mcy, dia)) {
         struct LegendItem {
             ui::Glyph glyph;
             bool filled;
@@ -1665,17 +1664,16 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
             {ui::Glyph::Triangle, false, theme.good, "COG"},
             {ui::Glyph::Diamond, true, theme.alarm, "CTS"},
         };
-        const int row_h = 16;
-        const int gx = 4;  // left inset within content box
-        int gy = h - 2 * (chrome::panel_border + chrome::panel_pad) - 3 * row_h - 2;
-        if (gy < 0) gy = 0;
+        const int row_h = ui::geom::kLegendRowH;
+        const int gx = ui::geom::kLegendInset;  // left inset within content box
+        const int gy = ui::geom::compass_legend_top(content_h);
         for (int i = 0; i < 3; ++i) {
             lv_obj_t *g =
                 ui::draw_glyph(t.root, kLegend[i].glyph, kLegend[i].filled, kLegend[i].color);
             // draw_glyph returns a 28x28 canvas; scale 50% about its center so the
             // visible glyph fills ~14px while the object box stays 28px. The box
             // top-left is pinned at (gx-7, row-7) so the scaled-down content centers
-            // at (gx+7, row+1), i.e. a 14px swatch starting at the left inset.
+            // at (gx+7, row+7), i.e. a 14px swatch (row..row+14) at the left inset.
             lv_obj_set_style_transform_pivot_x(g, 14, 0);
             lv_obj_set_style_transform_pivot_y(g, 14, 0);
             lv_obj_set_style_transform_scale(g, 128, 0);  // 50% (256 = 100%)
