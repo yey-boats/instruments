@@ -13,6 +13,7 @@
 #include "ui_markers.h"
 #include "ui_compass.h"  // ui::numeric_tile for the full-screen wind dial's AWS/AWA/TWS/TWA band
 #include "ui_geom.h"     // compass legend overlap test (pure, host-tested)
+#include "round_safe.h"  // round-panel content placement (#50, pure, host-tested)
 #include "signalk.h"
 #include "midl_kinds.h"  // button_route: PUT vs console for a button action (#31)
 #include "ui_screens.h"
@@ -83,6 +84,9 @@ struct QuadGridTile {
     int sector_last_s[MAX_DIAL_SECTORS];
     int sector_last_e[MAX_DIAL_SECTORS];
     int8_t sector_last_hidden[MAX_DIAL_SECTORS];
+    // Round-safe content width (#50): the width the painters laid out in when
+    // the content moved into the round-safe rect; 0 = the full tile width.
+    int body_w;
 };
 
 struct QuadGridState {
@@ -4256,8 +4260,36 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
     }
 }
 
-static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
-                               const MetricBinding &m) {
+// Round panels (#50): MIDL display classes round-* keep tile content inside the
+// visible circle (midl round-safe.ts). The panel background still fills the cell.
+#if defined(YB_MIDL_CLASS_ROUND_360) || defined(YB_MIDL_CLASS_ROUND_240)
+static constexpr bool kRoundPanel = true;
+#else
+static constexpr bool kRoundPanel = false;
+#endif
+
+// Transparent stand-in for the tile panel at a round-safe rect: same border +
+// pad metrics as style_panel, so the painters lay out exactly as they would in
+// a panel of that size. `cx`/`cy` are cell-local outer coordinates.
+static lv_obj_t *make_content_box(lv_obj_t *panel, int cx, int cy, int w, int h) {
+    const int inset = chrome::panel_border + chrome::panel_pad;
+    lv_obj_t *o = lv_obj_create(panel);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_pos(o, cx - inset, cy - inset);  // children sit in the panel's content box
+    lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(o, chrome::panel_border, 0);
+    lv_obj_set_style_border_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_radius(o, 0, 0);
+    lv_obj_set_style_pad_all(o, chrome::panel_pad, 0);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(o, LV_OBJ_FLAG_EVENT_BUBBLE);
+    return o;
+}
+
+// `disc` (round panels only, else null): the visible circle in screen coords.
+static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h, const MetricBinding &m,
+                               const ui::round_safe::Disc *disc = nullptr) {
     QuadGridTile t = {};
     t.idx = -1;
     t.kind = m.kind;
@@ -4300,16 +4332,60 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
     // the accent bubble (paint_button_body), so a chrome cap would duplicate it —
     // skip it for Button tiles. The full-screen dial draws its own labels, so skip
     // the cap there too. t.cap stays null; update paths never touch it.
-    if (m.kind != WidgetKind::Button && !fullscreen_dial) {
+    // Round panel (#50): caption and content move into the part of the cell
+    // inside the visible circle (round-safe rect; dials into the fitted circle).
+    // The full-screen composites draw their own round-aware faces and keep the
+    // whole cell. Painters lay out in `body` (a transparent stand-in panel at the
+    // safe rect) and see its size as (w, h); t.root stays the cell panel so the
+    // click / zoom handlers and update paths are unchanged.
+    const bool has_cap = m.kind != WidgetKind::Button && !fullscreen_dial;
+    int cap_x = 10, cap_y = 2;  // caption position, cell content-box coords
+    lv_obj_t *body = nullptr;
+    if (disc && !fullscreen_dial) {
+        // Ring-shaped painters fit a circle; the arc gauge is one too on the
+        // device (an lv_arc ring), unlike the web's flat gauge.
+        const bool dial = m.kind == WidgetKind::Compass || m.kind == WidgetKind::WindRose ||
+                          m.kind == WidgetKind::Gauge;
+        const size_t cap_len = (has_cap && m.label) ? strlen(m.label) : 0;
+        const ui::round_safe::TilePlan plan =
+            ui::round_safe::plan_tile({x, y, w, h}, *disc, dial, cap_len);
+        cap_x += plan.cap.x - x;
+        cap_y += plan.cap.y - y;
+        ui::round_safe::IRect b = plan.body;
+        if (dial && !plan.hidden) {
+            // The ring painters draw dia = min(w, h) - 56 centred 4 px low,
+            // reserving a caption row the fitted circle already keeps clear.
+            // Size their box so the ring (plus marker/arc overhang) fills the
+            // fitted circle instead of shrinking to its floor size.
+            const int margin = (m.kind == WidgetKind::Gauge) ? 6 : 12;
+            const int side = b.w - 2 * margin + 56;
+            const int cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+            b = {cx - side / 2, cy - side / 2 - 4, side, side};
+        }
+        body = make_content_box(t.root, b.x - x, b.y - y, b.w, b.h);
+        // A cell (almost) entirely under the bezel keeps its panel and nothing
+        // else; the painters still build (hidden) so the update paths have
+        // their widgets.
+        if (plan.hidden) lv_obj_add_flag(body, LV_OBJ_FLAG_HIDDEN);
+        w = b.w;
+        h = b.h;
+        t.body_w = w;
+    }
+
+    if (has_cap) {
         t.cap = lv_label_create(t.root);
         lv_label_set_text(t.cap, m.label ? m.label : "");
         lv_obj_set_style_text_font(t.cap, &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(t.cap, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_set_pos(t.cap, 10, 2);
+        lv_obj_set_pos(t.cap, cap_x, cap_y);
         lv_obj_clear_flag(t.cap, LV_OBJ_FLAG_CLICKABLE);
+        if (body && lv_obj_has_flag(body, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_add_flag(t.cap, LV_OBJ_FLAG_HIDDEN);
     }
 
     // --- Body: dispatched per widget kind ---
+    lv_obj_t *const panel_root = t.root;
+    if (body) t.root = body;
     switch (m.kind) {
     case WidgetKind::Compass:
         paint_compass_body(t, m, w, h);
@@ -4346,6 +4422,7 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
         paint_numeric_body(t, m, w, h);
         break;
     }
+    t.root = panel_root;
 
     // Button elements with an action (nav or command) make the WHOLE tile the
     // tap target via button_action_cb. The inner bubble has CLICKABLE cleared in
@@ -6023,11 +6100,15 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
     if (n > FREEFORM_MAX_TILES) n = FREEFORM_MAX_TILES;
     st->count = n;
 
+    // Round display classes (#50): content stays inside the visible circle.
+    ui::round_safe::Disc disc = ui::round_safe::viewport_disc({0, 0, (double)LCD_W, (double)LCD_H});
+    const ui::round_safe::Disc *round_disc = kRoundPanel ? &disc : nullptr;
+
     for (int i = 0; i < n; ++i) {
         const Rect &r = rects[i];
-        st->tiles[i].tile = build_tile(root, r.x, r.y, r.w, r.h, spec.metrics[i]);
+        st->tiles[i].tile = build_tile(root, r.x, r.y, r.w, r.h, spec.metrics[i], round_disc);
         st->tiles[i].tile.idx = i;
-        st->tiles[i].tile_w = r.w;
+        st->tiles[i].tile_w = st->tiles[i].tile.body_w ? st->tiles[i].tile.body_w : r.w;
 
         // Tap-to-zoom: mirror the QuadGrid interactive-tile logic.
         const MetricBinding &mb = spec.metrics[i];
