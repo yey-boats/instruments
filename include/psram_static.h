@@ -20,7 +20,9 @@
 // Never use this for buffers touched from an ISR or while the flash cache
 // is disabled, or for DMA buffers; those must stay in internal RAM.
 
+#include <assert.h>
 #include <esp_heap_caps.h>
+#include <esp_rom_sys.h>
 #include <stdlib.h>
 
 #include <new>
@@ -28,9 +30,16 @@
 namespace yeyboats {
 
 template <typename T> T *psram_new(size_t count = 1) {
+    assert(count > 0);
     void *mem = heap_caps_calloc(count, sizeof(T), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!mem) mem = heap_caps_calloc(count, sizeof(T), MALLOC_CAP_8BIT);  // no PSRAM: limp on
-    if (!mem) abort();  // a static could not fail; don't hand back null
+    if (!mem) {
+        // A static could not fail; don't hand back null. Raw ROM printf, not
+        // logf: logf may be what is initializing log_ring() right now.
+        esp_rom_printf("psram_new: %u x %u bytes failed, aborting\n", (unsigned)count,
+                       (unsigned)sizeof(T));
+        abort();
+    }
     T *p = static_cast<T *>(mem);
     for (size_t i = 0; i < count; ++i)
         new (p + i) T();

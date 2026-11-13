@@ -83,7 +83,7 @@ jobs:
       # app buffers belong in PSRAM (include/psram_static.h).
       - name: Check static internal DRAM budget
         if: matrix.env == 'esp32-4848s040'
-        run: python3 tools/check_dram_budget.py .pio/build/${{ matrix.env }}/firmware.elf
+        run: make dram-check ENV=${{ matrix.env }}
 
       - name: Create merged firmware image
         run: |

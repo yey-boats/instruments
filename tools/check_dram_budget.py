@@ -14,7 +14,9 @@ Usage:
     tools/check_dram_budget.py .pio/build/esp32-4848s040/firmware.elf [--max-bytes N]
 
 On failure it prints the largest internal-DRAM objects so the offender is
-obvious. Pure Python (no toolchain needed), ELF32 little-endian only.
+obvious. Not counted: .iram0.text, which on the S3 comes from the same
+internal SRAM pool, so IRAM growth also eats into the heap headroom.
+Pure Python (no toolchain needed), ELF32 little-endian only.
 """
 
 import argparse
@@ -23,7 +25,7 @@ import sys
 
 # Raise this only with a reason in the commit message; prefer moving the
 # new buffer to PSRAM instead.
-DEFAULT_MAX_BYTES = 88 * 1024
+DEFAULT_MAX_BYTES = 80 * 1024  # ~78.3 KB at instruments#41
 
 DRAM_SECTIONS = (".dram0.data", ".dram0.bss")
 # ESP32-S3 internal SRAM, data-bus view.

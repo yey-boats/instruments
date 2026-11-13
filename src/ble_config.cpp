@@ -394,7 +394,7 @@ static String dispatchControl(const std::string &data) {
     if (strcmp(t, "attach") == 0) {
         // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the small
         // NimBLE host-task stack. Static scratch (GATT callbacks are serial).
-        static proto::Attach req;
+        static proto::Attach req;  // ~340 B: small enough for internal .bss
         static proto::AttachAck &ack = *yeyboats::psram_new<proto::AttachAck>();
         memset(&req, 0, sizeof(req));
         memset(&ack, 0, sizeof(ack));

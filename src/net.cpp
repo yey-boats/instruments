@@ -504,9 +504,12 @@ static const char *ota_error_name(ota_error_t e) {
 // Internal (non-PSRAM) heap is what the WiFi/lwIP RX path draws on during a
 // transfer; esp_get_free_heap_size() includes ~7.5 MB of PSRAM and hid the
 // starvation behind instruments#41. Log the internal numbers instead.
-#define OTA_INT_HEAP_ARGS                                                                          \
-    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),                      \
-        (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+static unsigned int_heap_free() {
+    return (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+static unsigned int_heap_largest() {
+    return (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
 
 static void otaSetup() {
     // instruments#30: see include/ota_policy.h. Runtime OTA password (NVS)
@@ -532,11 +535,13 @@ static void otaSetup() {
     ArduinoOTA.onStart([]() {
         s_ota_in_progress = true;
         logf_at(LOG_WARN, "[ota] start cmd=%s int_free=%u int_largest=%u",
-                ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs", OTA_INT_HEAP_ARGS);
+                ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs", int_heap_free(),
+                int_heap_largest());
     });
     ArduinoOTA.onEnd([]() {
         s_ota_in_progress = false;
-        logf_at(LOG_WARN, "[ota] end int_free=%u int_largest=%u", OTA_INT_HEAP_ARGS);
+        logf_at(LOG_WARN, "[ota] end int_free=%u int_largest=%u", int_heap_free(),
+                int_heap_largest());
     });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
         // 10% milestones at WARN so we know how far the upload got
@@ -547,14 +552,14 @@ static void otaSetup() {
         unsigned int decile = pct / 10;
         if (decile != last_decile) {
             logf_at(LOG_WARN, "[ota] %u%% (%u/%u) int_free=%u int_largest=%u", pct, p, t,
-                    OTA_INT_HEAP_ARGS);
+                    int_heap_free(), int_heap_largest());
             last_decile = decile;
         }
     });
     ArduinoOTA.onError([](ota_error_t e) {
         s_ota_in_progress = false;
         logf_at(LOG_WARN, "[ota] error %d (%s) int_free=%u int_largest=%u", (int)e,
-                ota_error_name(e), OTA_INT_HEAP_ARGS);
+                ota_error_name(e), int_heap_free(), int_heap_largest());
     });
     ArduinoOTA.begin();
     ota_started = true;
