@@ -105,7 +105,12 @@ IRect inner_pixels(const Rect &r) {
     return {x0, y0, x1 > x0 ? x1 - x0 : 0, y1 > y0 ? y1 - y0 : 0};
 }
 
-TilePlan plan_tile(const IRect &cell, const Disc &d, bool dial, size_t caption_len) {
+IRect caption_box(const IRect &cap, size_t caption_len) {
+    if (!caption_len) return {cap.x, cap.y, 0, 0};
+    return {cap.x, cap.y, kCaptionLeft + (int)caption_len * kCaptionGlyphW, kCaptionBand + 2};
+}
+
+TilePlan plan_tile(const IRect &cell, const Disc &d, Dial dial, size_t caption_len) {
     TilePlan p = {};
     const Rect c = {(double)cell.x, (double)cell.y, (double)cell.w, (double)cell.h};
     const Rect safe = safe_rect(c, d);
@@ -116,18 +121,31 @@ TilePlan plan_tile(const IRect &cell, const Disc &d, bool dial, size_t caption_l
         p.hidden = true;
         return p;
     }
-    if (dial) {
-        // Round dials fit as circles (a full-screen dial keeps its size), clear
-        // of the chrome caption when the tile has one.
-        const Rect cap_box = {safe.x, safe.y,
-                              (double)(kCaptionLeft + (int)caption_len * kCaptionGlyphW),
-                              (double)(kCaptionBand + 2)};
-        const Rect inset = {c.x + 2, c.y + 2, dmax(0, c.w - 4), dmax(0, c.h - 4)};
-        p.body = inner_pixels(fit_circle(inset, d, caption_len ? &cap_box : nullptr));
-        // Keep it square after pixel snapping.
-        const int s = p.body.w < p.body.h ? p.body.w : p.body.h;
-        p.body.w = p.body.h = s;
+    if (dial == Dial::None) return p;
+
+    // Round dials fit as circles (a full-screen dial keeps its size), clear
+    // of the chrome caption when the tile has one.
+    // (The pixel-snapped caption box: the one the caption label really uses.)
+    const IRect ib = caption_box(p.cap, caption_len);
+    const Rect cap_box = {(double)ib.x, (double)ib.y, (double)ib.w, (double)ib.h};
+    const Rect inset = {c.x + 2, c.y + 2, dmax(0, c.w - 4), dmax(0, c.h - 4)};
+    p.circle = inner_pixels(fit_circle(inset, d, caption_len ? &cap_box : nullptr));
+    // Keep it square after pixel snapping.
+    const int s = p.circle.w < p.circle.h ? p.circle.w : p.circle.h;
+    p.circle.w = p.circle.h = s;
+
+    const int ring = s - 2 * dial_overhang(dial);
+    if (ring < dial_min_ring(dial)) {
+        // Too small for the ring painter: value-only in the safe rect.
+        p.value_only = true;
+        return p;
     }
+    // The painter box that makes the ring painter draw exactly `ring`,
+    // concentric with the fitted circle.
+    p.ring_dia = ring;
+    const int side = ring + kDialReserve;
+    const int cx = p.circle.x + s / 2, cy = p.circle.y + s / 2;
+    p.body = {cx - side / 2, cy - side / 2 - kDialDrop, side, side};
     return p;
 }
 

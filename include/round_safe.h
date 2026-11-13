@@ -65,19 +65,53 @@ struct IRect {
     int x, y, w, h;
 };
 
+// Ring-shaped painters (ui_layouts.cpp): the compass and wind-rose tiles and
+// the device's arc gauge (an lv_arc ring, unlike the web's flat gauge).
+enum class Dial : unsigned char { None, Compass, WindRose, Gauge };
+
+// The ring painters draw dia = min(w, h) - kDialReserve, centred kDialDrop px
+// below their box centre (ui::geom::dial_ring_dia / dial_center).
+constexpr int kDialReserve = 56;
+constexpr int kDialDrop = 4;
+
+// How far a ring painter draws beyond its ring on a round panel: the orbiting
+// marker glyphs (pulled 6 px inward there, so their tips reach ring + 11/12 px)
+// and the gauge's zone band (ring + 7 px).
+constexpr int dial_overhang(Dial k) {
+    return k == Dial::Gauge ? 8 : 12;
+}
+// Smallest ring each painter lays out cleanly (its own floor size). A fitted
+// circle that cannot hold it gets the value-only fallback instead of a ring
+// that would spill out of the circle into the neighbouring cells.
+constexpr int dial_min_ring(Dial k) {
+    return k == Dial::Gauge ? 88 : k == Dial::WindRose ? 80 : k == Dial::Compass ? 72 : 0;
+}
+
 struct TilePlan {
-    bool hidden;  // cell (almost) entirely under the bezel: panel only
-    IRect cap;    // caption / content rect (safe rect), screen coordinates
-    IRect body;   // painter rect: == cap, or the fitted dial square
+    bool hidden;   // cell (almost) entirely under the bezel: panel only
+    IRect cap;     // caption / content rect (safe rect), screen coordinates
+    IRect body;    // painter box: == cap, or the ring painter's box (see ring_dia)
+    IRect circle;  // dials: square circumscribing the fitted circle (else zero)
+    // > 0: draw the ring at this diameter, concentric with `circle`; ring +
+    //      overhang stays inside the circle. `body` is the painter box that
+    //      centres it (it is larger than the circle; only the ring is drawn).
+    // 0:   not a dial, or the circle is too small for a ring: value-only
+    //      content in `cap` (value_only tells the two apart).
+    int ring_dia;
+    bool value_only;
 };
 
 // Shrink a fractional rect to the integer pixel rect inside it.
 IRect inner_pixels(const Rect &r);
 
+// The chrome caption's box for a caption of `caption_len` characters placed at
+// the top-left of safe rect `cap` (the box a fitted dial has to stay clear of).
+IRect caption_box(const IRect &cap, size_t caption_len);
+
 // Plan one tile's content on a round panel with visible disc `d`. `dial`
-// selects the fitted circle (compass / windrose); `caption_len` is the
-// caption's character count (0 = no caption, nothing to avoid).
-TilePlan plan_tile(const IRect &cell, const Disc &d, bool dial, size_t caption_len);
+// selects the fitted circle; `caption_len` is the caption's character count
+// (0 = no caption, nothing to avoid).
+TilePlan plan_tile(const IRect &cell, const Disc &d, Dial dial, size_t caption_len);
 
 }  // namespace round_safe
 }  // namespace ui

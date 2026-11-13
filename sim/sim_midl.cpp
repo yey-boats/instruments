@@ -113,6 +113,50 @@ static bool iequals(const char *a, const char *b) {
     return *a == *b;
 }
 
+#if defined(YB_MIDL_CLASS_ROUND_360) || defined(YB_MIDL_CLASS_ROUND_240)
+// Round panels (instruments#50): every visible text label, arc and bar of a
+// tile must stay inside its own cell (nothing spills into a neighbour) and
+// inside the panel's circle (nothing under the bezel). Walks the tile subtree;
+// hidden subtrees and empty labels are skipped. Returns the violation count.
+static int check_round_content(lv_obj_t *o, const lv_area_t &cell, const char *screen, uint32_t tile,
+                               bool is_root) {
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return 0;
+    int bad = 0;
+    const bool label = lv_obj_check_type(o, &lv_label_class);
+    const bool leaf = (label && lv_label_get_text(o)[0]) || lv_obj_check_type(o, &lv_arc_class) ||
+                      lv_obj_check_type(o, &lv_bar_class);
+    if (leaf && !is_root) {
+        lv_area_t a;
+        lv_obj_get_coords(o, &a);
+        const char *what = label ? lv_label_get_text(o) : "arc/bar";
+        if (a.x1 < cell.x1 || a.y1 < cell.y1 || a.x2 > cell.x2 || a.y2 > cell.y2) {
+            fprintf(stderr, "ROUND: screen %s tile %u '%s' (%d,%d)-(%d,%d) leaves its cell\n", screen,
+                    tile, what, a.x1, a.y1, a.x2, a.y2);
+            ++bad;
+        }
+        // Text must be readable: all four corners inside the circle. (An arc's
+        // bounding box has empty corners; its cell check above is enough.)
+        if (label) {
+            const double cx = LCD_W / 2.0, cy = LCD_H / 2.0, r = (LCD_W < LCD_H ? LCD_W : LCD_H) / 2.0;
+            const int xs[2] = {a.x1, a.x2}, ys[2] = {a.y1, a.y2};
+            bool out = false;
+            for (int x : xs)
+                for (int y : ys)
+                    if ((x - cx) * (x - cx) + (y - cy) * (y - cy) > r * r) out = true;
+            if (out) {
+                fprintf(stderr, "ROUND: screen %s tile %u '%s' (%d,%d)-(%d,%d) is under the bezel\n",
+                        screen, tile, what, a.x1, a.y1, a.x2, a.y2);
+                ++bad;
+            }
+        }
+    }
+    uint32_t n = lv_obj_get_child_count(o);
+    for (uint32_t i = 0; i < n; ++i)
+        bad += check_round_content(lv_obj_get_child(o, i), cell, screen, tile, false);
+    return bad;
+}
+#endif
+
 int main(int argc, char **argv) {
     const char *sel = (argc > 2) ? argv[1] : nullptr;
     const char *out = (argc > 2) ? argv[2] : (argc > 1 ? argv[1] : "midl.bmp");
@@ -297,6 +341,10 @@ int main(int argc, char **argv) {
                 rc = 1;
             }
         }
+#if defined(YB_MIDL_CLASS_ROUND_360) || defined(YB_MIDL_CLASS_ROUND_240)
+    for (uint32_t i = 0; i < childc && i < 16; ++i)
+        if (check_round_content(lv_obj_get_child(root, i), a[i], screen_id, i, true)) rc = 1;
+#endif
     if (rc == 0)
         printf("screen '%s' (%s) layout ok (%u tiles, no overlap, in bounds, non-blank) %dx%d\n",
                screen_id, screen_title, na, LCD_W, LCD_H);
