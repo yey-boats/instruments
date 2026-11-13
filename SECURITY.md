@@ -110,7 +110,7 @@ manager to deliver keys first and is tracked in instruments#36.
   a reboot.
 - **Lab only:** a password-less ArduinoOTA needs an explicit
   `-D YEYBOATS_LAB_OPEN_OTA=1` (`make ota LAB_OPEN_OTA=1`). No env sets it.
-  `net.cpp` refuses to compile it with `YEYBOATS_RELEASE_BUILD`, and CI
+  `net.cpp` refuses to compile it with `YEYBOATS_RELEASE_BUILD=1`, and CI
   (`tools/test_web_security.py`) checks that no env or workflow defines it.
 
 The web server sends **no CORS headers** (`Access-Control-Allow-Origin` was
@@ -118,7 +118,7 @@ The web server sends **no CORS headers** (`Access-Control-Allow-Origin` was
 device server-side through the plugin, so no browser needs cross-origin access.
 
 The lab-only `YEYBOATS_LAB_OPEN_WEB` auth bypass is refused at compile time in
-any `YEYBOATS_RELEASE_BUILD`, and CI (`tools/test_web_security.py`) asserts no
+any `YEYBOATS_RELEASE_BUILD=1` build, and CI (`tools/test_web_security.py`) asserts no
 release env or workflow defines it.
 
 An OTA password embedded in firmware is still present in the binary. Treat
