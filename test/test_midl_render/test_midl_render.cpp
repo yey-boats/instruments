@@ -323,6 +323,7 @@ void test_accent_integer() {
             "bindings":{"value":{"kind":"signalk","path":"navigation.speedOverGround"}}})",
         "sog_intcolor");
     TEST_ASSERT_EQUAL_HEX32(255u, m.accent);
+    TEST_ASSERT_EQUAL((int)ui::layouts::ZoneColor::Literal, (int)m.style_color);
 }
 
 // A gauge bound to the rudder with an explicit format.range + precision should

@@ -14,6 +14,9 @@ Palette theme = {
     0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c, 0xf2f6fb, 0x288cff, 0x4a5666,
 };
 
+// The positional initialisers below list exactly 17 colours.
+static_assert(sizeof(Palette) == 17 * sizeof(uint32_t), "update every Palette initialiser");
+
 // Canonical name of the active palette; kept in lockstep by the use_*()
 // setters so console/web/state endpoints can report the live theme.
 static const char *s_theme_id = "night";

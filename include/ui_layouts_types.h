@@ -263,11 +263,15 @@ struct DialSector {
 };
 
 struct MetricBinding {
-    const char *id;             // "wind", "depth", ... stable id for API addressing
-    const char *label;          // "WIND" displayed caption
-    const char *unit;           // "kn", "m", "deg" - shown next to primary value
-    MetricSource source;        // primary value
-    uint32_t accent;            // small color rail (0xRRGGBB)
+    const char *id;       // "wind", "depth", ... stable id for API addressing
+    const char *label;    // "WIND" displayed caption
+    const char *unit;     // "kn", "m", "deg" - shown next to primary value
+    MetricSource source;  // primary value
+    // Colour (0xRRGGBB). Legacy tables bake a colour here WITHOUT authoring
+    // one (style_color == Default). Painter rule: hero text may honour it
+    // (style_rgb); every other part uses authored_rgb so legacy screens keep
+    // their theme colours.
+    uint32_t accent;
     const char *target_screen;  // tap target (NULL = no nav action)
     // Optional secondary rows. extras_count <= 4. Leave at 0 for the
     // classic Hero/secondary tile (back-compat with the first quad_grid

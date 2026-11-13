@@ -344,8 +344,8 @@ static double binding_dir_deg(const MetricBinding &m, const boat::View &d) {
 
 // Every MIDL colour token's value in the LIVE theme palette (so day/night flips
 // keep working). panel2 is the raised badge fill. The firmware Palette has no
-// accent2 slot: it maps to `good`, which equals the web accent2 in night, day
-// and high-contrast and approximates it in red-night and classic.
+// accent2 slot: it maps to the firmware's own green (`good`), which is close to
+// but not always equal to the web accent2.
 static ColorTokens live_tokens() {
     ColorTokens t;
     t.panel = theme.panel;
@@ -1000,10 +1000,20 @@ static void fit_gauge_center_font(lv_obj_t *label, const char *txt, int dia) {
 // Hero-value color: honor the element's authored style.color (MetricBinding.accent,
 // 0xRRGGBB) when set, else the theme accent. Restores the per-tile semantic colors
 // the glass-cockpit design intends (warn XTE, good depth, etc.); MIDL docs set it
-// via style.color → map_element → m.accent. accent==0 keeps the legacy theme color.
+// via style.color → map_element → m.style_color (+ m.accent for a literal). With no
+// authored colour, a non-zero legacy accent is still honoured, else the theme accent.
 static inline uint32_t value_color(const MetricBinding &m) {
     // style_rgb, not elem_rgb: hero text also honours a legacy baked accent.
     return style_rgb(m, theme.accent, live_tokens());
+}
+
+// Label ink on a filled engaged badge of colour `bg`. The theme default
+// (`good`) keeps the original near-black ink in every theme; an authored
+// style.color gets near-black on a light fill, white on a dark one.
+static uint32_t badge_ink(uint32_t bg) {
+    if (bg == theme.good) return 0x05101c;
+    uint32_t r = (bg >> 16) & 0xFF, g = (bg >> 8) & 0xFF, b = bg & 0xFF;
+    return (r * 299 + g * 587 + b * 114) / 1000 >= 96 ? 0x05101c : 0xffffff;
 }
 
 // Blend `fg` over `bg` at pct% (0..100). Used to derive theme-relative tint
@@ -1648,8 +1658,10 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
             uint32_t color;
             const char *txt;
         };
-        static const LegendItem kLegend[3] = {
-            {ui::Glyph::Triangle, true, theme.accent, "HDG"},
+        // Per call, not static: follows style.color (the HDG pointer) and the
+        // live theme after a switch.
+        const LegendItem kLegend[3] = {
+            {ui::Glyph::Triangle, true, elem_rgb(m, theme.accent), "HDG"},
             {ui::Glyph::Triangle, false, theme.good, "COG"},
             {ui::Glyph::Diamond, true, theme.alarm, "CTS"},
         };
@@ -3184,7 +3196,7 @@ static void update(ApHudState *st, const boat::View &d) {
     // cache field.
     uint32_t prev_mode_color = st->last_mode_color;
     ui::set_text_color_if_changed(st->lbl_mode, &st->last_mode_color,
-                                  engaged ? 0x05101c : theme.fg_dim);
+                                  engaged ? badge_ink(st->engaged_rgb) : theme.fg_dim);
     if (st->last_mode_color != prev_mode_color) {
         lv_obj_t *badge = lv_obj_get_parent(st->lbl_mode);
         if (badge) {
@@ -3741,7 +3753,7 @@ static void update(WindSteerState *st, const boat::View &d) {
         }
         uint32_t prev_mode_color = st->last_mode_color;
         ui::set_text_color_if_changed(st->lbl_mode, &st->last_mode_color,
-                                      engaged ? 0x05101c : theme.fg_dim);
+                                      engaged ? badge_ink(st->engaged_rgb) : theme.fg_dim);
         if (st->last_mode_color != prev_mode_color) {
             lv_obj_t *badge = lv_obj_get_parent(st->lbl_mode);
             if (badge) {

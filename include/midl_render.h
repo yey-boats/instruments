@@ -48,8 +48,9 @@ ui::layouts::WidgetKind token_to_kind(const char *type);
 // truncated — see midl::kinds::ACTION_TARGET_MAX), and out.id/label/unit +
 // out.target_screen/out.command + out.zoom_target point at them -- so the caller
 // controls lifetime (the MetricBinding stores non-owning pointers). `value`
-// binding path -> source via path_to_source; style.color -> accent (accepts
-// "#rrggbb" hex or integer). A MIDL `action` block maps by kind: "nav" ->
+// binding path -> source via path_to_source; style.color -> style_color (+ accent
+// for a literal; accepts the midl#28 allowlist: #rgb/#rrggbb/#rrggbbaa or a
+// named theme token, plus a legacy integer). A MIDL `action` block maps by kind: "nav" ->
 // out.target_screen, "command" -> out.command (both copied into action_buf; only
 // one is set).
 //
