@@ -46,7 +46,8 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
             with self.subTest(env=name):
                 for flag in LAB_FLAGS:
                     self.assertNotIn(flag, e["flags"])
-                self.assertIn("YEYBOATS_RELEASE_BUILD", e["flags"])
+                # Guards test the VALUE (#56): =0 or =yes would build as dev.
+                self.assertRegex(str(e["flags"]), r"YEYBOATS_RELEASE_BUILD=1\b")
 
     def test_no_env_defines_lab_open_ota(self):
         # Lab-open OTA is opt-in per build (PLATFORMIO_BUILD_FLAGS or
@@ -129,13 +130,17 @@ class TestReleaseFlagIsTestedByValue(unittest.TestCase):
     Guards must test the value: `#if YEYBOATS_RELEASE_BUILD`."""
 
     def test_no_guard_tests_release_flag_with_defined(self):
-        files = glob.glob(os.path.join(ROOT, "src", "**", "*.cpp"), recursive=True)
-        files += glob.glob(os.path.join(ROOT, "include", "**", "*.h"), recursive=True)
+        files = []
+        for top in ("src", "include", "lib", "test"):
+            for ext in ("*.c", "*.cpp", "*.h", "*.hpp"):
+                files += glob.glob(os.path.join(ROOT, top, "**", ext), recursive=True)
         self.assertTrue(files)
         for path in files:
             with open(path, encoding="utf-8") as f:
                 for n, line in enumerate(f, 1):
-                    if re.search(r"defined\s*\(\s*YEYBOATS_RELEASE_BUILD\s*\)", line):
+                    if path.endswith(os.path.join("include", "build_config.h")):
+                        continue  # the one place that supplies the default
+                    if re.search(r"defined\s*\(\s*YEYBOATS_RELEASE_BUILD\s*\)|#\s*ifn?def\s+YEYBOATS_RELEASE_BUILD\b", line):
                         with self.subTest(file=os.path.relpath(path, ROOT), line=n):
                             self.fail(f"{os.path.relpath(path, ROOT)}:{n} tests YEYBOATS_RELEASE_BUILD with defined()")
 

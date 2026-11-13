@@ -10,6 +10,7 @@
 #include <math.h>
 
 #include "net.h"
+#include "build_config.h"  // YEYBOATS_RELEASE_BUILD default, tested by value below (#56)
 #include "signalk.h"
 #include "layout_loader.h"
 #include "ui_screens.h"
