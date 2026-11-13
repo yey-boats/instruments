@@ -13,6 +13,7 @@
 #include "ui_markers.h"
 #include "ui_compass.h"  // ui::numeric_tile for the full-screen wind dial's AWS/AWA/TWS/TWA band
 #include "ui_geom.h"     // compass legend overlap test (pure, host-tested)
+#include "round_safe.h"  // round-panel content placement (#50, pure, host-tested)
 #include "signalk.h"
 #include "midl_kinds.h"  // button_route: PUT vs console for a button action (#31)
 #include "ui_screens.h"
@@ -83,6 +84,19 @@ struct QuadGridTile {
     int sector_last_s[MAX_DIAL_SECTORS];
     int sector_last_e[MAX_DIAL_SECTORS];
     int8_t sector_last_hidden[MAX_DIAL_SECTORS];
+    // Round-safe content width (#50): the width the painters laid out in when
+    // the content moved into the round-safe rect; 0 = the full tile width.
+    int body_w;
+    // Round-fit dial (#50), set by build_tile before the painter runs:
+    //   > 0  draw the ring at exactly this diameter (no floor size) and keep
+    //        ring + markers/zone band inside the fitted circle;
+    //   < 0  the fitted circle is too small for a ring: value-only fallback;
+    //   0    not on a round panel / not a dial (legacy sizing).
+    // The value-only fallback also serves a numeric tile whose round-safe rect
+    // is too short for paint_numeric_body; fit_w x fit_h is then the value
+    // label's budget, which the update path re-fits its font to.
+    int fit_dia;
+    int fit_w, fit_h;
 };
 
 struct QuadGridState {
@@ -1032,8 +1046,16 @@ static uint32_t mix_rgb(uint32_t fg, uint32_t bg, int pct) {
     return out;
 }
 
+static const lv_font_t *compact_font(const char *sample, int max_w, int max_h);
+static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w, int h,
+                                  const char *sample);
+
 static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     bool has_extras = (m.extras_count > 0);
+    if (t.fit_dia < 0) {  // round-safe rect too short for the layout below (#50)
+        paint_value_only_body(t, m, w, h, "88.8");
+        return;
+    }
 
     // Fullscreen-self zoom: the tile fills the whole 480x480 panel (w>=400 &&
     // h>=400). Render the hero value MUCH larger than the 64px font ceiling by
@@ -1496,17 +1518,132 @@ static void update_compass_band(QuadGridTile &t, const MetricBinding &m, const b
                        st->sector_last_hidden);
 }
 
+// Round-fit (#50): the largest font of a compact ladder (down to 14 px, below
+// the hero ladders' 28 px floor) whose `sample` fits max_w x max_h.
+static const lv_font_t *compact_font(const char *sample, int max_w, int max_h) {
+    static const lv_font_t *const ladder[] = {&lv_font_montserrat_48, &lv_font_montserrat_38,
+                                              &lv_font_montserrat_28, &lv_font_montserrat_20,
+                                              &lv_font_montserrat_14};
+    for (const lv_font_t *f : ladder) {
+        lv_point_t sz;
+        lv_text_get_size(&sz, sample, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+        if (sz.x <= max_w && sz.y <= max_h) return f;
+    }
+    return &lv_font_montserrat_14;
+}
+
+// True when the gauge centre text carries its unit glued to the number ("77%",
+// "12°") rather than as a separate word.
+static inline bool unit_is_glued(const char *u) {
+    return u && (u[0] == '%' || u[0] == '\xC2');
+}
+
+// Widest text a round-fit gauge's value label can show; sizes its font once at
+// build. Mirrors update_gauge_bar with a word unit left out (it gets its own
+// label there) and a glued one kept.
+static void gauge_value_sample(const MetricBinding &m, char *out, size_t cap) {
+    if (m.range_min == m.range_max) {
+        snprintf(out, cap, "100%%");
+        return;
+    }
+    const int dp = m.precision >= 0 ? m.precision : 0;
+    char lo[24], hi[24];
+    snprintf(lo, sizeof(lo), "%.*f", dp, (double)m.range_min);
+    snprintf(hi, sizeof(hi), "%.*f", dp, (double)m.range_max);
+    const char *num = strlen(lo) > strlen(hi) ? lo : hi;
+    snprintf(out, cap, "%s%s", num, m.side ? "P" : unit_is_glued(m.unit) ? m.unit : "");
+}
+
+// Round-fit fallback (#50) for the ring painters: the fitted circle cannot hold
+// the ring at its minimum size, so the tile shows just the value (and the unit
+// when there is room) under the caption, inside the round-safe rect. Only
+// t.value / t.unit are created; the update paths skip the missing ring,
+// markers and secondary line (all null / empty).
+static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w, int h,
+                                  const char *sample) {
+    const int inset = chrome::panel_border + chrome::panel_pad;
+    // Caption row at the top of the content box (label at y = 2).
+    const int cap_h =
+        t.cap ? lv_font_get_line_height(lv_obj_get_style_text_font(t.cap, LV_PART_MAIN)) + 4 : 0;
+    const int cw = w - 2 * inset;
+    int ch = h - 2 * inset - cap_h;
+    // Same height steps as the numeric tiles next to it (paint_numeric_body).
+    const int step_h = h < 110 ? 34 : h < 150 ? 46 : 58;
+    if (ch > step_h) ch = step_h;
+    // A glued unit is part of the value text; a word unit rides beside it.
+    const bool word_unit = m.unit && m.unit[0] &&
+                           !(t.kind == WidgetKind::Gauge &&
+                             (unit_is_glued(m.unit) || m.side || m.range_min == m.range_max));
+    int unit_w = 0;
+    if (word_unit) {
+        lv_point_t usz;
+        lv_text_get_size(&usz, m.unit, &lv_font_montserrat_14, 0, 0, LV_COORD_MAX,
+                         LV_TEXT_FLAG_NONE);
+        unit_w = usz.x + 4;
+    }
+    // Prefer a readable value over the unit: drop the unit before going below
+    // 20 px.
+    const lv_font_t *vfont = compact_font(sample, cw - unit_w, ch);
+    bool show_unit = word_unit;
+    t.fit_w = cw - unit_w;
+    t.fit_h = ch;
+    if (word_unit &&
+        lv_font_get_line_height(vfont) < lv_font_get_line_height(&lv_font_montserrat_20)) {
+        vfont = compact_font(sample, cw, ch);
+        show_unit = false;
+        t.fit_w = cw;
+    }
+
+    lv_obj_t *row = lv_obj_create(t.root);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_style_pad_column(row, 4, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_align(row, LV_ALIGN_CENTER, 0, cap_h / 2);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+
+    t.value = lv_label_create(row);
+    lv_label_set_text(t.value, "--");
+    lv_obj_set_style_text_font(t.value, vfont, 0);
+    lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
+    lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+    if (show_unit) {
+        t.unit = lv_label_create(row);
+        lv_label_set_text(t.unit, m.unit);
+        lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
+    }
+}
+
 // Compass widget: round bezel with accent border, heading number in the
 // center, small "▲" marker at top, CTS label at bottom. Mirrors editor
 // .wpreview .compass.
 static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    if (t.fit_dia < 0) {
+        paint_value_only_body(t, m, w, h, "888");
+        return;
+    }
     // style.shape "band" -> the semicircular rolling heading band; falls back
     // to this round dial when the tile is too small / PSRAM is exhausted.
     if (m.shape == DialShape::Band && paint_compass_band_body(t, m, w, h)) return;
     // Ring size: reserve top 24 px for chrome caption + marker, bottom
     // 22 px for CTS label. Diameter = min(w,h) - 56 keeps the heading
     // text from colliding with cardinals at 14 px.
-    int dia = ui::geom::dial_ring_dia(w, h, 72);
+    // Round-fit (#50): the ring is sized to the fitted circle, and the face
+    // sheds detail as it shrinks. The markers ride 6 px further in so their
+    // tips stay inside the circle (round_safe::dial_overhang).
+    const bool fit = t.fit_dia > 0;
+    const int mk_in = fit ? 6 : 0;
+    int dia = fit ? t.fit_dia : ui::geom::dial_ring_dia(w, h, 72);
+    // Below these ring sizes the E/S/W cardinals and the inner "HDG" caption
+    // no longer clear the heading number.
+    const bool fit_north_only = fit && dia < 110;
+    const bool fit_no_hcap = fit && dia < 130;
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
@@ -1541,12 +1678,12 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
         {NAN, ui::Glyph::Triangle, true, elem_rgb(m, theme.accent)},  // HDG (style.color)
         {NAN, ui::Glyph::Diamond, true, diamond_color},               // CTS or bindings.dir
     };
-    t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - 6, inner_markers, 2,
+    t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - 6 - mk_in, inner_markers, 2,
                                       /*occlude_lower=*/false);
     ui::MarkerSpec cog_markers[1] = {
         {NAN, ui::Glyph::Triangle, false, theme.good},  // COG (hollow)
     };
-    t.markers_cog = ui::build_marker_ring(t.root, mcx, mcy, dia / 2, cog_markers, 1,
+    t.markers_cog = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - mk_in, cog_markers, 1,
                                           /*occlude_lower=*/false);
 
     // style.sectors: colored arcs just inside the bezel (web roundHud draws
@@ -1563,7 +1700,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // (tide/current) on an inner ring just outside the centre vignette. Built
     // after the built-in rings so custom glyphs read on top; the hero/vignette
     // created below still paint over the very centre.
-    t.markers_auth = build_authored_ring(t.root, m, mcx, mcy, dia / 2, (dia / 2) * 62 / 100,
+    t.markers_auth = build_authored_ring(t.root, m, mcx, mcy, dia / 2 - mk_in, (dia / 2) * 62 / 100,
                                          /*occlude_lower=*/false);
 
     // N/E/S/W cardinals: padded in from the ring border so they don't
@@ -1576,6 +1713,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     static const int xs[4] = {0, -2, 0, 2};
     static const int ys[4] = {4, 0, -4, 0};
     for (int i = 0; i < 4; ++i) {
+        if (fit_north_only && i != 0) continue;
         lv_obj_t *c = lv_label_create(ring);
         lv_label_set_text(c, cardinals[i]);
         lv_obj_set_style_text_font(c, &lv_font_montserrat_14, 0);
@@ -1590,6 +1728,10 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // Fit between the E/W cardinals: each takes ~12 px plus its 2 px inset, and
     // we keep 8 px of air on either side.
     const lv_font_t *vfont = ring_hero_font("888", dia - 2 * 22);
+    // Round-fit: with E/W gone the number may use the width between the inner
+    // markers' orbit, and it centres on the ring when "HDG" is dropped.
+    if (fit_north_only) vfont = compact_font("888", dia - 2 * 12, dia / 2);
+    const int vy = fit_no_hcap ? (fit_north_only ? 4 : 0) : 6;
 
     // Vignette disc behind the centre number: a soft panel-coloured pad so the
     // wide HDG digits (e.g. "359") read on top of, not into, the W/E cardinals
@@ -1598,6 +1740,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     {
         int disc = dia * 0.56;
         if (disc < 56) disc = 56;
+        if (fit && disc > dia - 8) disc = dia - 8;
         lv_obj_t *vig = lv_obj_create(ring);
         lv_obj_set_size(vig, disc, disc);
         lv_obj_align(vig, LV_ALIGN_CENTER, 0, 0);
@@ -1615,8 +1758,12 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
     // Nudge the number down a touch so the "HDG" caption rides above it (web ref).
-    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 6);
+    lv_obj_align(t.value, LV_ALIGN_CENTER, 0, vy);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+    // Round-fit: the CTS line and the legend sit outside the ring, i.e. outside
+    // the fitted circle (under the bezel or on the caption), so they are left
+    // out; so is the inner "HDG" caption on a small ring.
+    if (fit_no_hcap) return;
 
     // Small dim "HDG" caption directly above the big heading number, matching the
     // web compass. Positioned at a fixed offset above the ring centre (the value
@@ -1629,6 +1776,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(hcap, LV_ALIGN_CENTER, 0, 6 - vh / 2 - 8);
     lv_obj_clear_flag(hcap, LV_OBJ_FLAG_CLICKABLE);
+    if (fit) return;
 
     // CTS line tracks the ring's bottom (label-tracks-number geometry).
     t.secondary = lv_label_create(t.root);
@@ -1701,8 +1849,21 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
 // label-less 0–100 tick ring byte-for-byte.
 static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     const bool ranged = (m.range_min != m.range_max);
+    // Round-fit (#50): value-only when the fitted circle cannot hold the ring;
+    // else the ring is sized to the circle, the tick labels show only on a
+    // ring large enough to keep them clear of the value, and the unit moves
+    // from the value text to the arc's open bottom.
+    const bool fit = t.fit_dia != 0;
+    char sample[32] = "";
+    if (fit) gauge_value_sample(m, sample, sizeof(sample));
+    if (t.fit_dia < 0) {
+        paint_value_only_body(t, m, w, h, sample);
+        return;
+    }
     int dia = (w < h ? w : h) - 56;
     if (dia < 88) dia = 88;
+    if (fit) dia = t.fit_dia;
+    const bool tick_labels = ranged && (!fit || dia >= 150);
     lv_obj_t *arc = lv_arc_create(t.root);
     lv_obj_set_size(arc, dia, dia);
     lv_obj_align(arc, LV_ALIGN_CENTER, 0, 4);
@@ -1740,7 +1901,7 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
         int hi = (int)lroundf(m.range_max);
         if (hi <= lo) hi = lo + 1;  // defensive: keep a valid increasing range
         lv_scale_set_range(scale, lo, hi);
-        lv_scale_set_label_show(scale, true);
+        lv_scale_set_label_show(scale, tick_labels);
         lv_obj_set_style_text_font(scale, &lv_font_montserrat_14, LV_PART_MAIN);
         lv_obj_set_style_text_color(scale, lv_color_hex(theme.fg_dim), LV_PART_MAIN);
     } else {
@@ -1801,6 +1962,27 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 4);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+    if (fit) {
+        // Value sized once to the ring's inner width (update_gauge_bar does not
+        // re-fit a round-fit gauge), nudged up to leave the open bottom to the unit.
+        const bool word_unit = ranged && m.unit && m.unit[0] && !unit_is_glued(m.unit) && !m.side;
+        const int inner = dia - 2 * 10 - (tick_labels ? 56 : 10);
+        const lv_font_t *vf = compact_font(sample, inner, dia / 2);
+        lv_obj_set_style_text_font(t.value, vf, 0);
+        lv_obj_align(t.value, LV_ALIGN_CENTER, 0, word_unit ? 0 : 4);
+        if (word_unit) {
+            t.unit = lv_label_create(t.root);
+            lv_label_set_text(t.unit, m.unit);
+            lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
+            // In the arc's open bottom; a large ring keeps it under the value.
+            if (dia >= 150)
+                lv_obj_align(t.unit, LV_ALIGN_CENTER, 0, lv_font_get_line_height(vf) / 2 + 8);
+            else
+                lv_obj_align(t.unit, LV_ALIGN_CENTER, 0, 4 + dia / 2 - 12);
+            lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
+        }
+    }
 }
 
 // True when a gauge's range straddles zero (e.g. rudder [-35,35]) — its fill
@@ -1964,10 +2146,12 @@ static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat
             // regular space: the bundled Montserrat fonts have no glyph
             // for U+2009 THIN SPACE (or U+2007/U+00A0), which rendered
             // as a tofu box between value and unit.
+            // A round-fit gauge (#50) shows a word unit in its own label (or
+            // drops it when there is no room), so the value text omits it.
+            const bool has_unit =
+                m.unit && m.unit[0] && !(t.fit_dia != 0 && !unit_is_glued(m.unit));
             snprintf(buf, sizeof(buf), "%.*f%s%s", dp, scalar,
-                     (m.unit && m.unit[0]) ? ((m.unit[0] == '%' || m.unit[0] == '\xC2') ? "" : " ")
-                                           : "",
-                     (m.unit && m.unit[0]) ? m.unit : "");
+                     has_unit ? (unit_is_glued(m.unit) ? "" : " ") : "", has_unit ? m.unit : "");
         }
     } else if (isnan(frac)) {
         snprintf(buf, sizeof(buf), "--");
@@ -1975,7 +2159,7 @@ static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat
         snprintf(buf, sizeof(buf), "%d%%", pct);
     }
     if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), buf) &&
-        t.kind == WidgetKind::Gauge && t.aux) {
+        t.kind == WidgetKind::Gauge && t.aux && t.fit_dia == 0) {
         // Re-fit the centre label on every text change: a ranged value+unit
         // string ("1800 rpm") can outgrow the dial at the painter's default
         // font size and collide with the neighbouring tile.
@@ -3982,8 +4166,17 @@ static inline bool windsteer_is_fullscreen(int w, int h) {
 // non-fullscreen windsteer fallback (a windsteer leaf below the dial threshold
 // renders this same compact rose). Drives via the WindRose marker-update branch.
 static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+    // Round-fit (#50): value-only when the fitted circle cannot hold the ring;
+    // else the ring is sized to the circle and the wind heads ride 6 px
+    // further in so their tips stay inside it (round_safe::dial_overhang).
+    if (t.fit_dia < 0) {
+        paint_value_only_body(t, m, w, h, "88.8");
+        return;
+    }
+    const int mk_in = t.fit_dia > 0 ? 6 : 0;
     int dia = (w < h ? w : h) - 56;
     if (dia < 80) dia = 80;
+    if (t.fit_dia > 0) dia = t.fit_dia;
     lv_obj_t *ring = lv_obj_create(t.root);
     lv_obj_set_size(ring, dia, dia);
     lv_obj_align(ring, LV_ALIGN_CENTER, 0, 4);
@@ -4009,7 +4202,7 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     };
     int mcx, mcy;
     dial_center(w, h, mcx, mcy);
-    t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2, wind_markers, 2,
+    t.markers = ui::build_marker_ring(t.root, mcx, mcy, dia / 2 - mk_in, wind_markers, 2,
                                       /*occlude_lower=*/false);
 
     // style.sectors: bow-relative arcs just inside the warn ring (close-hauled
@@ -4022,7 +4215,7 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     if (m.hull) add_hull(ring, dia / 2, dia / 2, dia / 2 - 10);
 
     // Authored MIDL markers[]: rim at the ring radius, vector markers inside.
-    t.markers_auth = build_authored_ring(t.root, m, mcx, mcy, dia / 2, (dia / 2) * 62 / 100,
+    t.markers_auth = build_authored_ring(t.root, m, mcx, mcy, dia / 2 - mk_in, (dia / 2) * 62 / 100,
                                          /*occlude_lower=*/false);
 
     // Wind speed (AWS) is the hero number, sized to dominate the ring (the
@@ -4030,6 +4223,8 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     // Fit inside the ring with air for its border and the orbiting wind heads
     // (the chord narrows away from the centre line, so stay well under `dia`).
     const lv_font_t *vfont = ring_hero_font("88.8", dia * 84 / 100);
+    // Round-fit: the wind heads now orbit over the ring's inner edge.
+    if (mk_in) vfont = compact_font("88.8", dia - 2 * 12, dia / 2);
     t.value = lv_label_create(ring);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
@@ -4256,8 +4451,36 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
     }
 }
 
-static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
-                               const MetricBinding &m) {
+// Round panels (#50): MIDL display classes round-* keep tile content inside the
+// visible circle (midl round-safe.ts). The panel background still fills the cell.
+#if defined(YB_MIDL_CLASS_ROUND_360) || defined(YB_MIDL_CLASS_ROUND_240)
+static constexpr bool kRoundPanel = true;
+#else
+static constexpr bool kRoundPanel = false;
+#endif
+
+// Transparent stand-in for the tile panel at a round-safe rect: same border +
+// pad metrics as style_panel, so the painters lay out exactly as they would in
+// a panel of that size. `cx`/`cy` are cell-local outer coordinates.
+static lv_obj_t *make_content_box(lv_obj_t *panel, int cx, int cy, int w, int h) {
+    const int inset = chrome::panel_border + chrome::panel_pad;
+    lv_obj_t *o = lv_obj_create(panel);
+    lv_obj_set_size(o, w, h);
+    lv_obj_set_pos(o, cx - inset, cy - inset);  // children sit in the panel's content box
+    lv_obj_set_style_bg_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(o, chrome::panel_border, 0);
+    lv_obj_set_style_border_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_radius(o, 0, 0);
+    lv_obj_set_style_pad_all(o, chrome::panel_pad, 0);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(o, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(o, LV_OBJ_FLAG_EVENT_BUBBLE);
+    return o;
+}
+
+// `disc` (round panels only, else null): the visible circle in screen coords.
+static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h, const MetricBinding &m,
+                               const ui::round_safe::Disc *disc = nullptr) {
     QuadGridTile t = {};
     t.idx = -1;
     t.kind = m.kind;
@@ -4300,16 +4523,68 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
     // the accent bubble (paint_button_body), so a chrome cap would duplicate it —
     // skip it for Button tiles. The full-screen dial draws its own labels, so skip
     // the cap there too. t.cap stays null; update paths never touch it.
-    if (m.kind != WidgetKind::Button && !fullscreen_dial) {
+    // Round panel (#50): caption and content move into the part of the cell
+    // inside the visible circle (round-safe rect; dials into the fitted circle).
+    // The full-screen composites draw their own round-aware faces and keep the
+    // whole cell. Painters lay out in `body` (a transparent stand-in panel at the
+    // safe rect) and see its size as (w, h); t.root stays the cell panel so the
+    // click / zoom handlers and update paths are unchanged.
+    const bool has_cap = m.kind != WidgetKind::Button && !fullscreen_dial;
+    int cap_x = 10, cap_y = 2;  // caption position, cell content-box coords
+    bool small_cap = false;
+    lv_obj_t *body = nullptr;
+    if (disc && !fullscreen_dial) {
+        // Ring-shaped painters fit a circle; the arc gauge is one too on the
+        // device (an lv_arc ring, unlike the web's flat gauge). The compass
+        // band (style.shape "band") is not a ring: it lays out in the safe rect.
+        using ui::round_safe::Dial;
+        Dial dial = Dial::None;
+        if (m.kind == WidgetKind::Compass && m.shape != DialShape::Band) dial = Dial::Compass;
+        if (m.kind == WidgetKind::WindRose) dial = Dial::WindRose;
+        if (m.kind == WidgetKind::Gauge) dial = Dial::Gauge;
+        const size_t cap_len = (has_cap && m.label) ? strlen(m.label) : 0;
+        const ui::round_safe::TilePlan plan =
+            ui::round_safe::plan_tile({x, y, w, h}, *disc, dial, cap_len);
+        cap_x += plan.cap.x - x;
+        cap_y += plan.cap.y - y;
+        // Ring painters get a box that centres a ring of plan.ring_dia on the
+        // fitted circle (the box itself is larger; only the ring is drawn). A
+        // circle too small for the painter's ring falls back to value-only
+        // content in the safe rect, so nothing spills into a neighbouring cell.
+        const ui::round_safe::IRect &b = plan.body;
+        if (plan.ring_dia > 0) t.fit_dia = plan.ring_dia;
+        if (plan.value_only) t.fit_dia = -1;
+        // A plain numeric tile needs ~110 px of height to clear its caption.
+        if (m.kind == WidgetKind::Numeric && m.extras_count == 0 && !plan.hidden && b.h < 110)
+            t.fit_dia = -1;
+        // A narrow safe rect gets the small caption font so the caption is
+        // not cut off at the cell edge.
+        small_cap = plan.cap.w < 110;
+        body = make_content_box(t.root, b.x - x, b.y - y, b.w, b.h);
+        // A cell (almost) entirely under the bezel keeps its panel and nothing
+        // else; the painters still build (hidden) so the update paths have
+        // their widgets.
+        if (plan.hidden) lv_obj_add_flag(body, LV_OBJ_FLAG_HIDDEN);
+        w = b.w;
+        h = b.h;
+        t.body_w = w;
+    }
+
+    if (has_cap) {
         t.cap = lv_label_create(t.root);
         lv_label_set_text(t.cap, m.label ? m.label : "");
-        lv_obj_set_style_text_font(t.cap, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(t.cap,
+                                   small_cap ? &lv_font_montserrat_14 : &lv_font_montserrat_20, 0);
         lv_obj_set_style_text_color(t.cap, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_set_pos(t.cap, 10, 2);
+        lv_obj_set_pos(t.cap, cap_x, cap_y);
         lv_obj_clear_flag(t.cap, LV_OBJ_FLAG_CLICKABLE);
+        if (body && lv_obj_has_flag(body, LV_OBJ_FLAG_HIDDEN))
+            lv_obj_add_flag(t.cap, LV_OBJ_FLAG_HIDDEN);
     }
 
     // --- Body: dispatched per widget kind ---
+    lv_obj_t *const panel_root = t.root;
+    if (body) t.root = body;
     switch (m.kind) {
     case WidgetKind::Compass:
         paint_compass_body(t, m, w, h);
@@ -4346,6 +4621,7 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h,
         paint_numeric_body(t, m, w, h);
         break;
     }
+    t.root = panel_root;
 
     // Button elements with an action (nav or command) make the WHOLE tile the
     // tap target via button_action_cb. The inner bubble has CLICKABLE cleared in
@@ -6023,11 +6299,15 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
     if (n > FREEFORM_MAX_TILES) n = FREEFORM_MAX_TILES;
     st->count = n;
 
+    // Round display classes (#50): content stays inside the visible circle.
+    ui::round_safe::Disc disc = ui::round_safe::viewport_disc({0, 0, (double)LCD_W, (double)LCD_H});
+    const ui::round_safe::Disc *round_disc = kRoundPanel ? &disc : nullptr;
+
     for (int i = 0; i < n; ++i) {
         const Rect &r = rects[i];
-        st->tiles[i].tile = build_tile(root, r.x, r.y, r.w, r.h, spec.metrics[i]);
+        st->tiles[i].tile = build_tile(root, r.x, r.y, r.w, r.h, spec.metrics[i], round_disc);
         st->tiles[i].tile.idx = i;
-        st->tiles[i].tile_w = r.w;
+        st->tiles[i].tile_w = st->tiles[i].tile.body_w ? st->tiles[i].tile.body_w : r.w;
 
         // Tap-to-zoom: mirror the QuadGrid interactive-tile logic.
         const MetricBinding &mb = spec.metrics[i];
@@ -6193,6 +6473,9 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                     // Fullscreen hero: re-fit the transform_scale to the new value
                     // width (1-digit scales bigger than 3-digit; see fit_hero_scale).
                     fit_hero_scale(t.value, pri, t.hero_h, t.hero_max_w);
+                } else if (t.kind == WidgetKind::Numeric && t.fit_dia < 0) {
+                    // Round-fit compact value (#50): fit its own budget.
+                    lv_obj_set_style_text_font(t.value, compact_font(pri, t.fit_w, t.fit_h), 0);
                 } else if (t.kind == WidgetKind::Numeric && m.extras_count == 0 &&
                            m.size_role == 0) {
                     // Use the tile's own width (solver may pick a rect different
