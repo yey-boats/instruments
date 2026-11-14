@@ -3,7 +3,14 @@
 // writing a 24-bit BMP. Lets every screen be eyeballed at every display class
 // without a panel. Screen id is argv[1], output path argv[2]. Values come from
 // the boat::current_view stub in sim/stubs.cpp.
+//
+// touch_grid / touch_cal are full-screen roots that poll raw touch from an
+// lv_timer. With SIM_REBUILD=1 they are deleted the way reset_screens() does
+// it (park on a blank screen, lv_obj_delete the root) and a tap is fed while
+// no root exists: a poll timer that outlives its root then writes freed
+// objects (instruments#73). Build env:sim-screens-asan to make that fatal.
 
+#include <Arduino.h>  // sim clock: g_sim_millis
 #include <lvgl.h>
 
 #include <cstdint>
@@ -87,6 +94,38 @@ static const ui::layouts::ScreenVariantSpec kConsoleSpec = {
     "console", "AUTOPILOT", ui::layouts::TemplateId::ControlConsole, nullptr, 0, 0};
 static lv_obj_t *s_template_root = nullptr;
 
+// Raw touch fed to the touch screens' poll timers (main.cpp on device).
+static int s_touch_x = -1, s_touch_y = -1, s_touch_pressed = 0;
+extern "C" void main_touch_raw(int *raw_x, int *raw_y, int *pressed) {
+    *raw_x = s_touch_x;
+    *raw_y = s_touch_y;
+    *pressed = s_touch_pressed;
+}
+
+// Advance LVGL ticks and the millis() clock together, running due timers.
+static void pump(int ms) {
+    for (int t = 0; t < ms; t += 10) {
+        lv_tick_inc(10);
+        g_sim_millis += 10;
+        lv_timer_handler();
+    }
+}
+
+// One 200 ms press + release at (x, y): long enough for both screens' glitch
+// filters (25 ms grid, 60 ms cal) and several poll periods on each edge.
+static void tap(int x, int y) {
+    s_touch_x = x;
+    s_touch_y = y;
+    s_touch_pressed = 1;
+    pump(200);
+    s_touch_pressed = 0;
+    pump(200);
+}
+
+static bool is_touch_screen(const char *id) {
+    return !strcmp(id, "touch_grid") || !strcmp(id, "touch_cal");
+}
+
 static const ui::layouts::ScreenVariantSpec *template_spec(const char *id) {
     if (!strcmp(id, "setup")) return &kSetupSpec;
     if (!strcmp(id, "console")) return &kConsoleSpec;
@@ -112,7 +151,13 @@ static lv_obj_t *build_screen(const char *id) {
         ui::layouts::set_zoom_target(kZoomNum);
         return ui::zoom::build(p);
     }
-    return nullptr;
+    // Touch screens are standalone roots (lazy-built with a NULL parent on
+    // device) and only act while loaded, so load them like show() does.
+    lv_obj_t *r = nullptr;
+    if (!strcmp(id, "touch_grid")) r = ui::touch_grid_screen::build(nullptr);
+    if (!strcmp(id, "touch_cal")) r = ui::touch_cal_screen::build(nullptr);
+    if (r) lv_screen_load(r);
+    return r;
 }
 
 static void refresh_screen(const char *id) {
@@ -124,6 +169,8 @@ static void refresh_screen(const char *id) {
     if (!strcmp(id, "wind_steer")) return ui::wind_steer::refresh();
     if (!strcmp(id, "wind_classic")) return ui::wind_classic::refresh();
     if (!strncmp(id, "zoom", 4)) return ui::zoom::refresh();
+    if (!strcmp(id, "touch_grid")) return ui::touch_grid_screen::refresh();
+    if (!strcmp(id, "touch_cal")) return ui::touch_cal_screen::refresh();
     if (const auto *spec = template_spec(id)) {
         static boat::View v;
         boat::current_view(v);
@@ -153,19 +200,34 @@ int main(int argc, char **argv) {
         lv_tick_inc(20);
         lv_timer_handler();
     }
+    const bool touch = is_touch_screen(id);
+    // A tap the screen consumes: lights a grid cell / advances the cal cross.
+    if (touch) tap(LCD_W / 2, LCD_H / 2);
     // SIM_REBUILD=1: delete and rebuild the screen, as a live theme switch or
     // config push does (reset_screens -> build), then refresh again. The
     // render must match a single build: tools/check_rebuild_render.sh diffs
     // the two, catching dirty-value caches that outlive their widgets.
     const char *rebuild = getenv("SIM_REBUILD");
     if (rebuild && rebuild[0] == '1') {
+        lv_obj_t *parking = nullptr;
+        if (touch) {
+            // reset_screens(): park on a blank screen, then free the root. A
+            // lazy screen stays unbuilt until next shown, so a tap lands
+            // while no root exists - any poll timer left running touches
+            // freed objects here.
+            parking = lv_obj_create(nullptr);
+            lv_screen_load(parking);
+        }
         lv_obj_delete(root);
+        if (touch) tap(LCD_W / 2, LCD_H / 2);
         root = build_screen(id);
+        if (parking) lv_obj_delete(parking);
         for (int i = 0; i < 8; ++i) {
             refresh_screen(id);
             lv_tick_inc(20);
             lv_timer_handler();
         }
+        if (touch) tap(LCD_W / 2, LCD_H / 2);
     }
     lv_refr_now(disp);
 

@@ -138,6 +138,12 @@ Namespace::Namespace(const char *, bool) {
 }
 Namespace::~Namespace() {
 }
+bool Namespace::is_key(const char *) {
+    return false;
+}
+bool Namespace::erase_all() {
+    return true;
+}
 std::string Namespace::get_string(const char *, const char *d) {
     return d ? d : "";
 }

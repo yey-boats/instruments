@@ -97,8 +97,11 @@ class String {
     std::string s_;
 };
 
+// Host clock for millis(): stays 0 unless a harness advances it (sim_screens
+// drives it alongside lv_tick_inc() to feed timed touch taps, instruments#73).
+inline unsigned long g_sim_millis = 0;
 static inline unsigned long millis() {
-    return 0;
+    return g_sim_millis;
 }
 static inline unsigned long micros() {
     return 0;
