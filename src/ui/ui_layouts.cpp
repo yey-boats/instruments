@@ -24,6 +24,7 @@
 #include "beeper.h"
 
 #include "storage.h"
+#include "theme_choice.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -6046,9 +6047,10 @@ static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
 // needing to re-wire every preference.
 
 // Settings THEME row: DAY / NIGHT pick the sunlight and night-vision skins
-// (owner choice, 2026-11-14); "auto" stays the legacy token. Used both to
-// build the buttons and to highlight the active one.
-static const char *const kSettingsThemeVals[3] = {"sun", "red-night", "auto"};
+// (owner choice, 2026-11-14); "auto" stays the legacy token. Shared with the
+// built-in Settings screen via theme_choice.h. Used both to build the buttons
+// and to highlight the active one.
+static const char *const *const kSettingsThemeVals = theme_choice::themes();
 
 struct SetupFormState {
     lv_obj_t *theme_btns[3];
