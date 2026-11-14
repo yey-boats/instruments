@@ -192,7 +192,10 @@ static lv_obj_t *make_sector(lv_obj_t *parent, int cx, int cy, int radius, int w
     return a;
 }
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);
@@ -389,6 +392,24 @@ static char s_last_twa[12] = {(char)0xFF};
 static int16_t s_last_scale_rot = INT16_MIN;
 static int s_last_xte_x = INT16_MIN;
 static char s_last_xte_txt[16] = {(char)0xFF};
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_mode[0] = (char)0xFF;
+    s_last_mode_color = 0xFFFFFFFF;
+    s_last_onstby[0] = (char)0xFF;
+    s_last_hdg[0] = (char)0xFF;
+    s_last_sub[0] = (char)0xFF;
+    s_last_aws[0] = (char)0xFF;
+    s_last_awa[0] = (char)0xFF;
+    s_last_tws[0] = (char)0xFF;
+    s_last_twa[0] = (char)0xFF;
+    s_last_scale_rot = INT16_MIN;
+    s_last_xte_x = INT16_MIN;
+    s_last_xte_txt[0] = (char)0xFF;
+}
 
 static double norm360(double d) {
     while (d < 0)

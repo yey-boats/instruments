@@ -423,7 +423,10 @@ static void build_tiles(lv_obj_t *parent) {
     }
 }
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);
@@ -548,6 +551,30 @@ static int8_t s_last_drift_cap_hidden = -1;
 // The speed label carries a HUD backing, so hide it too when there is no
 // current: an empty label would still paint a blank pill over the hull.
 static int8_t s_last_tide_speed_hidden = -1;
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_aws[0] = (char)0xFF;
+    s_last_tws[0] = (char)0xFF;
+    s_last_awa[0] = (char)0xFF;
+    s_last_twa[0] = (char)0xFF;
+    s_last_hdg[0] = (char)0xFF;
+    s_last_tide[0] = (char)0xFF;
+    s_last_awa_rot = INT16_MIN;
+    s_last_twa_rot = INT16_MIN;
+    s_last_bezel_rot = INT16_MIN;
+    s_last_tide_rot = INT16_MIN;
+    s_last_wp_rot = INT16_MIN;
+    s_last_awa_hidden = -1;
+    s_last_twa_hidden = -1;
+    s_last_tide_hidden = -1;
+    s_last_tide_zero_hidden = -1;
+    s_last_wp_hidden = -1;
+    s_last_drift_cap_hidden = -1;
+    s_last_tide_speed_hidden = -1;
+}
 
 using ui::set_hidden_if_changed;
 using ui::set_rot_if_changed;

@@ -132,6 +132,20 @@ int main(int argc, char **argv) {
         lv_tick_inc(20);
         lv_timer_handler();
     }
+    // SIM_REBUILD=1: delete and rebuild the screen, as a live theme switch or
+    // config push does (reset_screens -> build), then refresh again. The
+    // render must match a single build: tools/check_rebuild_render.sh diffs
+    // the two, catching dirty-value caches that outlive their widgets.
+    const char *rebuild = getenv("SIM_REBUILD");
+    if (rebuild && rebuild[0] == '1') {
+        lv_obj_delete(root);
+        root = build_screen(id);
+        for (int i = 0; i < 8; ++i) {
+            refresh_screen(id);
+            lv_tick_inc(20);
+            lv_timer_handler();
+        }
+    }
     lv_refr_now(disp);
 
     lv_draw_buf_t *snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);

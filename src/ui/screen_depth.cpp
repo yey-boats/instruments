@@ -106,7 +106,10 @@ static lv_obj_t *make_stat(lv_obj_t *parent, const char *cap, int x, int y, int 
     return c;
 }
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);
@@ -240,6 +243,16 @@ static char s_last_depth[16] = {(char)0xFF};
 static char s_last_temp[16] = {(char)0xFF};
 static char s_last_sog[16] = {(char)0xFF};
 static char s_last_twa[16] = {(char)0xFF};
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_depth[0] = (char)0xFF;
+    s_last_temp[0] = (char)0xFF;
+    s_last_sog[0] = (char)0xFF;
+    s_last_twa[0] = (char)0xFF;
+}
 
 void refresh() {
     if (!s_root) return;

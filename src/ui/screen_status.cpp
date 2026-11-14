@@ -51,7 +51,10 @@ static lv_obj_t *make_bar(lv_obj_t *parent, int y, uint32_t color) {
     return b;
 }
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);
@@ -125,6 +128,29 @@ static char s_last_fw[24] = {(char)0xFF};
 static int s_last_soc_bar = -1;
 static int s_last_fuel_bar = -1;
 static int s_last_water_bar = -1;
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_batt[0] = (char)0xFF;
+    s_last_soc[0] = (char)0xFF;
+    s_last_fuel[0] = (char)0xFF;
+    s_last_water[0] = (char)0xFF;
+    s_last_wifi_mode[0] = (char)0xFF;
+    s_last_ssid[0] = (char)0xFF;
+    s_last_ip[0] = (char)0xFF;
+    s_last_rssi[0] = (char)0xFF;
+    s_last_ble[0] = (char)0xFF;
+    s_last_sk[0] = (char)0xFF;
+    s_last_heap[0] = (char)0xFF;
+    s_last_psram[0] = (char)0xFF;
+    s_last_uptime[0] = (char)0xFF;
+    s_last_fw[0] = (char)0xFF;
+    s_last_soc_bar = -1;
+    s_last_fuel_bar = -1;
+    s_last_water_bar = -1;
+}
 
 void refresh() {
     boat::View d_snap;
