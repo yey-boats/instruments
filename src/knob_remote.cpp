@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "psram_static.h"
 #include "ui_screens.h"
 
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
@@ -21,7 +22,12 @@
 namespace knob_remote {
 
 namespace {
-DisplayEntry s_displays[kMaxDisplays];
+// ~8.8 KB: kept in PSRAM, not internal .bss (instruments#64, the #41 DRAM
+// budget). Allocated on first use; never touched from an ISR.
+DisplayEntry *displays() {
+    static DisplayEntry *d = yeyboats::psram_new<DisplayEntry>(kMaxDisplays);
+    return d;
+}
 int s_count = 0;
 // Ingest scratch: the count being rebuilt between begin_ingest/commit_ingest.
 // Defined unconditionally so the ingest functions compile on non-knob boards
@@ -29,7 +35,7 @@ int s_count = 0;
 int s_ingest_count = 0;
 
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
-// Guards s_displays / s_count. The manager worker rewrites entries 1..N while
+// Guards displays() / s_count. The manager worker rewrites entries 1..N while
 // the LVGL task reads them via copy_entry(); without the lock the reader could
 // observe a half-written DisplayEntry. Entry 0 (the local knob) is immutable
 // after setup() so reads of it are safe regardless.
@@ -75,7 +81,7 @@ void copy_str(char *dst, size_t cap, const char *src) {
 }
 
 void add_local() {
-    DisplayEntry &e = s_displays[0];
+    DisplayEntry &e = displays()[0];
     memset(&e, 0, sizeof(e));
     copy_str(e.id, sizeof(e.id), "");
     copy_str(e.name, sizeof(e.name), "This knob");
@@ -98,7 +104,7 @@ void add_local() {
 int find_by_id_locked(const char *id) {
     if (!id || !*id) return -1;
     for (int i = 1; i < s_count; ++i) {
-        if (strncmp(s_displays[i].id, id, sizeof(s_displays[i].id)) == 0) return i;
+        if (strncmp(displays()[i].id, id, sizeof(displays()[i].id)) == 0) return i;
     }
     return -1;
 }
@@ -124,7 +130,7 @@ int display_count() {
 bool copy_entry(int idx, DisplayEntry &out) {
     lock();
     bool ok = (idx >= 0 && idx < s_count);
-    if (ok) out = s_displays[idx];
+    if (ok) out = displays()[idx];
     unlock();
     return ok;
 }
@@ -136,7 +142,7 @@ bool switch_view(int dev_idx, int view_idx) {
     if (view_idx < 0 || view_idx >= e.view_count) return false;
     if (e.is_local) {
         lock();
-        if (dev_idx >= 0 && dev_idx < s_count) s_displays[dev_idx].current_view = view_idx;
+        if (dev_idx >= 0 && dev_idx < s_count) displays()[dev_idx].current_view = view_idx;
         unlock();
         return ui::show_by_id(e.view_id[view_idx]);
     }
@@ -161,7 +167,7 @@ bool switch_view(int dev_idx, int view_idx) {
              e.transport == Transport::BLE ? e.ble_addr : e.base_url);
     // Optimistically reflect the requested view in the registry for the menu;
     // the actual device state is reconciled by the next summary refresh.
-    if (dev_idx >= 0 && dev_idx < s_count) s_displays[dev_idx].current_view = view_idx;
+    if (dev_idx >= 0 && dev_idx < s_count) displays()[dev_idx].current_view = view_idx;
     unlock();
     return true;
 #else
@@ -186,10 +192,10 @@ void ingest_display(const char *id, const char *name, const char *current_screen
     bool had_prev = false;
     int old = find_by_id_locked(id);
     if (old >= 0) {
-        prev = s_displays[old];
+        prev = displays()[old];
         had_prev = true;
     }
-    DisplayEntry &e = s_displays[s_ingest_count];
+    DisplayEntry &e = displays()[s_ingest_count];
     memset(&e, 0, sizeof(e));
     copy_str(e.id, sizeof(e.id), id);
     copy_str(e.name, sizeof(e.name), name && *name ? name : id);
@@ -236,7 +242,7 @@ void copy_device_id(int dev_idx, char *out, size_t out_cap) {
     if (!out || !out_cap) return;
     out[0] = '\0';
     lock();
-    if (dev_idx >= 0 && dev_idx < s_count) copy_str(out, out_cap, s_displays[dev_idx].id);
+    if (dev_idx >= 0 && dev_idx < s_count) copy_str(out, out_cap, displays()[dev_idx].id);
     unlock();
 }
 
@@ -244,7 +250,7 @@ void set_views(int dev_idx, const char *const *view_ids, const char *const *view
                const char *current) {
     lock();
     if (dev_idx > 0 && dev_idx < s_count) {
-        DisplayEntry &e = s_displays[dev_idx];
+        DisplayEntry &e = displays()[dev_idx];
         if (count < 0) count = 0;
         if (count > (int)kMaxViews) count = (int)kMaxViews;
         e.view_count = count;
@@ -312,9 +318,9 @@ bool fetch_views_for(int dev_idx) {
     char ble_addr[24] = {0};
     lock();
     if (dev_idx > 0 && dev_idx < s_count) {
-        transport = s_displays[dev_idx].transport;
-        copy_str(base_url, sizeof(base_url), s_displays[dev_idx].base_url);
-        copy_str(ble_addr, sizeof(ble_addr), s_displays[dev_idx].ble_addr);
+        transport = displays()[dev_idx].transport;
+        copy_str(base_url, sizeof(base_url), displays()[dev_idx].base_url);
+        copy_str(ble_addr, sizeof(ble_addr), displays()[dev_idx].ble_addr);
     }
     unlock();
 
@@ -326,7 +332,7 @@ bool fetch_views_for(int dev_idx) {
         // the worker-task stack per the CLAUDE.md large-struct trap. knob_remote
         // fetch/switch run single-flight on the worker task, so a function-static
         // scratch is race-free.
-        static proto::DeviceRecord rec;
+        static proto::DeviceRecord &rec = *yeyboats::psram_new<proto::DeviceRecord>();
         memset(&rec, 0, sizeof(rec));
         bool got = false;
         if (transport == Transport::IP) {
@@ -440,7 +446,7 @@ bool ip_switch(const char *base_url, const char *view_id) {
     // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the worker-task
     // stack per the CLAUDE.md large-struct trap. Switch drains single-flight on
     // the worker task, so a function-static scratch is race-free.
-    static proto::AttachAck ack;
+    static proto::AttachAck &ack = *yeyboats::psram_new<proto::AttachAck>();
     memset(&ack, 0, sizeof(ack));
     if (!proto_ip::attach(base, a, ack) || !ack.accepted) return false;
 
@@ -506,7 +512,7 @@ bool ingest_ip_peer(const char *id, const char *name, const char *base_url, cons
         // Existing entry (likely from the manager source): upgrade it to IP,
         // which is preferred because it needs no manager. View list, name and
         // current_view are preserved.
-        DisplayEntry &e = s_displays[idx];
+        DisplayEntry &e = displays()[idx];
         if (e.transport != Transport::IP ||
             strncmp(e.base_url, base_url, sizeof(e.base_url)) != 0) {
             e.transport = Transport::IP;
@@ -515,7 +521,7 @@ bool ingest_ip_peer(const char *id, const char *name, const char *base_url, cons
             changed = true;
         }
     } else if (s_count < (int)kMaxDisplays) {
-        DisplayEntry &e = s_displays[s_count];
+        DisplayEntry &e = displays()[s_count];
         memset(&e, 0, sizeof(e));
         copy_str(e.id, sizeof(e.id), id);
         copy_str(e.name, sizeof(e.name), name && *name ? name : id);
@@ -554,14 +560,14 @@ bool ingest_ble_peer(const char *id, const char *name, const char *ble_addr) {
         // transport (IP-preferred): do NOT downgrade the entry's transport.
         // Just record the BLE address so the fallback is available without a
         // re-scan if the IP path later goes away. The transport stays as-is.
-        DisplayEntry &e = s_displays[idx];
+        DisplayEntry &e = displays()[idx];
         if (strncmp(e.ble_addr, ble_addr, sizeof(e.ble_addr)) != 0) {
             copy_str(e.ble_addr, sizeof(e.ble_addr), ble_addr);
             changed = true;
         }
     } else if (s_count < (int)kMaxDisplays) {
         // BLE-only peer (no IP/manager entry): create a Transport::BLE entry.
-        DisplayEntry &e = s_displays[s_count];
+        DisplayEntry &e = displays()[s_count];
         memset(&e, 0, sizeof(e));
         copy_str(e.id, sizeof(e.id), id);
         copy_str(e.name, sizeof(e.name), name && *name ? name : id);
