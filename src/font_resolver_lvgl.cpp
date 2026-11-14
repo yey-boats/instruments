@@ -10,21 +10,21 @@
 namespace font_resolver {
 
 const lv_font_t *font_for_size(uint16_t size) {
-    // Walk through compiled-in Montserrat fonts in increasing size.
-    // Update this switch whenever lv_conf.h LV_FONT_MONTSERRAT_*
-    // enables change. The host-side DEFAULT_SIZES table must stay
+    // Walk through the compiled-in UI fonts (B612, font_b612_*) in
+    // increasing size. Update this switch whenever tools/fonts/gen_fonts.sh
+    // changes the generated sizes. The host-side DEFAULT_SIZES table must stay
     // in sync.
     switch (size) {
     case 14:
-        return &lv_font_montserrat_14;
+        return &font_b612_14;
     case 20:
-        return &lv_font_montserrat_20;
+        return &font_b612_20;
     case 28:
-        return &lv_font_montserrat_28;
+        return &font_b612_28;
     case 48:
-        return &lv_font_montserrat_48;
+        return &font_b612_48;
     default:
-        return &lv_font_montserrat_14;
+        return &font_b612_14;
     }
 }
 

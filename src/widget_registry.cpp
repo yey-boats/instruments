@@ -26,15 +26,15 @@ const lv_font_t *font_for(uint16_t want, uint16_t fallback) {
     // Map to LVGL pointer via the Arduino-only TU.
     switch (size) {
     case 14:
-        return &lv_font_montserrat_14;
+        return &font_b612_14;
     case 20:
-        return &lv_font_montserrat_20;
+        return &font_b612_20;
     case 28:
-        return &lv_font_montserrat_28;
+        return &font_b612_28;
     case 48:
-        return &lv_font_montserrat_48;
+        return &font_b612_48;
     default:
-        return &lv_font_montserrat_14;
+        return &font_b612_14;
     }
 }
 

@@ -50,6 +50,7 @@ static void test_theme_supported_tokens_accepted() {
     TEST_ASSERT_TRUE(is_valid_theme("high-contrast"));
     TEST_ASSERT_TRUE(is_valid_theme("red-night"));
     TEST_ASSERT_TRUE(is_valid_theme("classic"));
+    TEST_ASSERT_TRUE(is_valid_theme("sun"));
 }
 
 static void test_theme_unknown_rejected() {
@@ -70,9 +71,9 @@ static void test_theme_null_rejected() {
 
 static void test_theme_name_parse_round_trip() {
     // Every enum value must survive name -> parse -> name unchanged.
-    const config::Theme all[] = {config::Theme::Night, config::Theme::Day,
+    const config::Theme all[] = {config::Theme::Night,        config::Theme::Day,
                                  config::Theme::HighContrast, config::Theme::RedNight,
-                                 config::Theme::Classic};
+                                 config::Theme::Classic,      config::Theme::Sun};
     for (config::Theme t : all) {
         const char *n = config::theme_name(t);
         config::Theme back = config::parse_theme(n, config::Theme::Night);
@@ -91,6 +92,8 @@ static void test_theme_parse_canonical_names() {
                       (int)config::parse_theme("red-night", config::Theme::Night));
     TEST_ASSERT_EQUAL((int)config::Theme::Classic,
                       (int)config::parse_theme("classic", config::Theme::Night));
+    TEST_ASSERT_EQUAL((int)config::Theme::Sun,
+                      (int)config::parse_theme("sun", config::Theme::Night));
 }
 
 static void test_theme_parse_unknown_falls_back() {
@@ -106,16 +109,16 @@ static void test_theme_parse_unknown_falls_back() {
 static void test_clamp_ui_accepts_all_themes_rejects_beyond() {
     config::UiConfig c;
     // Every named theme survives clamping untouched.
-    const config::Theme all[] = {config::Theme::Night, config::Theme::Day,
+    const config::Theme all[] = {config::Theme::Night,        config::Theme::Day,
                                  config::Theme::HighContrast, config::Theme::RedNight,
-                                 config::Theme::Classic};
+                                 config::Theme::Classic,      config::Theme::Sun};
     for (config::Theme t : all) {
         c.theme = t;
         TEST_ASSERT_TRUE_MESSAGE(config::clamp_ui(c), config::theme_name(t));
         TEST_ASSERT_EQUAL((int)t, (int)c.theme);
     }
     // A stale/corrupt NVS value past the last enum resets to Night.
-    c.theme = (config::Theme)((uint8_t)config::Theme::Classic + 1);
+    c.theme = (config::Theme)((uint8_t)config::Theme::Sun + 1);
     TEST_ASSERT_FALSE(config::clamp_ui(c));
     TEST_ASSERT_EQUAL((int)config::Theme::Night, (int)c.theme);
 }

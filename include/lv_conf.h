@@ -97,12 +97,18 @@
 #define LV_USE_GRID 1
 
 // Fonts
-#define LV_FONT_MONTSERRAT_14 1
-#define LV_FONT_MONTSERRAT_20 1
-#define LV_FONT_MONTSERRAT_28 1
-#define LV_FONT_MONTSERRAT_38 1
-#define LV_FONT_MONTSERRAT_48 1
-#define LV_FONT_DEFAULT &lv_font_montserrat_14
+#define LV_FONT_MONTSERRAT_14 0
+#define LV_FONT_MONTSERRAT_20 0
+#define LV_FONT_MONTSERRAT_28 0
+#define LV_FONT_MONTSERRAT_38 0
+#define LV_FONT_MONTSERRAT_48 0
+// The UI uses B612 (src/fonts/font_b612_*.c, tools/fonts/gen_fonts.sh) in
+// place of the built-in Montserrat, disabled above. Declared here so every
+// file that includes lvgl.h sees them.
+#define LV_FONT_CUSTOM_DECLARE                                                                     \
+    LV_FONT_DECLARE(font_b612_14) LV_FONT_DECLARE(font_b612_20) LV_FONT_DECLARE(font_b612_28)       \
+        LV_FONT_DECLARE(font_b612_38) LV_FONT_DECLARE(font_b612_48)
+#define LV_FONT_DEFAULT &font_b612_14
 
 // Misc
 #define LV_USE_ANIMATION 1

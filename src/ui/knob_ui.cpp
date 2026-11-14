@@ -148,25 +148,25 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_state = lv_label_create(s_root);
     lv_label_set_text(lbl_state, "STANDBY");
-    lv_obj_set_style_text_font(lbl_state, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_state, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_state, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_state, LV_ALIGN_CENTER, 0, -90);
 
     lv_obj_t *cap = lv_label_create(s_root);
     lv_label_set_text(cap, "TARGET");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_CENTER, 0, -48);
 
     lbl_target = lv_label_create(s_root);
     lv_label_set_text(lbl_target, "---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_target, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_target, &font_b612_48, 0);
     lv_obj_set_style_text_color(lbl_target, lv_color_hex(theme.warn), 0);
     lv_obj_align(lbl_target, LV_ALIGN_CENTER, 0, -8);
 
     lbl_hdg = lv_label_create(s_root);
     lv_label_set_text(lbl_hdg, "HDG ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_hdg, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(theme.fg), 0);
     lv_obj_align(lbl_hdg, LV_ALIGN_CENTER, -55, 56);
 
@@ -175,7 +175,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // rendered as a tofu box between the HDG and delta readouts.
     lbl_delta = lv_label_create(s_root);
     lv_label_set_text(lbl_delta, "TURN ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_delta, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_delta, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_delta, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_delta, LV_ALIGN_CENTER, 55, 56);
 
@@ -252,19 +252,19 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *cap = lv_label_create(s_root);
     lv_label_set_text(cap, "HEADING");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_CENTER, 0, -64);
 
     lbl_hdg = lv_label_create(s_root);
     lv_label_set_text(lbl_hdg, "---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_hdg, &font_b612_48, 0);
     lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_hdg, LV_ALIGN_CENTER, 0, -16);
 
     lbl_cog = lv_label_create(s_root);
     lv_label_set_text(lbl_cog, "COG ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_cog, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_cog, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_cog, lv_color_hex(theme.fg), 0);
     lv_obj_align(lbl_cog, LV_ALIGN_CENTER, 0, 56);
 
@@ -307,19 +307,19 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *cap = lv_label_create(s_root);
     lv_label_set_text(cap, "APP WIND");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_CENTER, 0, -64);
 
     lbl_aws = lv_label_create(s_root);
     lv_label_set_text(lbl_aws, "--.- kn");
-    lv_obj_set_style_text_font(lbl_aws, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_aws, &font_b612_48, 0);
     lv_obj_set_style_text_color(lbl_aws, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_aws, LV_ALIGN_CENTER, 0, -16);
 
     lbl_awa = lv_label_create(s_root);
     lv_label_set_text(lbl_awa, "--\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_awa, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_awa, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_awa, lv_color_hex(theme.fg), 0);
     lv_obj_align(lbl_awa, LV_ALIGN_CENTER, 0, 56);
 
@@ -363,19 +363,19 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_cap = lv_label_create(s_root);
     lv_label_set_text(lbl_cap, "DEPTH");
-    lv_obj_set_style_text_font(lbl_cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_cap, LV_ALIGN_CENTER, 0, -72);
 
     lbl_value = lv_label_create(s_root);
     lv_label_set_text(lbl_value, "--.-");
-    lv_obj_set_style_text_font(lbl_value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_value, &font_b612_48, 0);
     lv_obj_set_style_text_color(lbl_value, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_value, LV_ALIGN_CENTER, 0, 0);
 
     lbl_unit = lv_label_create(s_root);
     lv_label_set_text(lbl_unit, "m");
-    lv_obj_set_style_text_font(lbl_unit, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_unit, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_unit, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_unit, LV_ALIGN_CENTER, 0, 64);
 
@@ -428,14 +428,14 @@ lv_obj_t *build(lv_obj_t * /*parent*/) {
 
     s_title = lv_label_create(s_root);
     lv_label_set_text(s_title, "MENU");
-    lv_obj_set_style_text_font(s_title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_title, &font_b612_20, 0);
     lv_obj_set_style_text_color(s_title, lv_color_hex(theme.warn), 0);
     lv_obj_align(s_title, LV_ALIGN_TOP_MID, 0, board::geometry().usable_y + 6);
 
     for (int i = 0; i < kMaxRows; ++i) {
         lv_obj_t *r = lv_label_create(s_root);
         lv_label_set_text(r, "");
-        lv_obj_set_style_text_font(r, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(r, &font_b612_20, 0);
         lv_obj_set_style_text_color(r, lv_color_hex(theme.fg), 0);
         lv_obj_align(r, LV_ALIGN_TOP_MID, 0, board::geometry().usable_y + 40 + i * 30);
         s_rows[i] = r;

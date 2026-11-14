@@ -230,10 +230,8 @@ static void build_wind_scale(lv_obj_t *parent) {
     char buf[8];
     for (int i = 0; i < 5; ++i) {
         snprintf(buf, sizeof(buf), "%d", angles[i]);
-        make_label_at_polar(parent, buf, -angles[i], R_FACE - 26, &lv_font_montserrat_14,
-                            theme.fg_dim);
-        make_label_at_polar(parent, buf, angles[i], R_FACE - 26, &lv_font_montserrat_14,
-                            theme.fg_dim);
+        make_label_at_polar(parent, buf, -angles[i], R_FACE - 26, &font_b612_14, theme.fg_dim);
+        make_label_at_polar(parent, buf, angles[i], R_FACE - 26, &font_b612_14, theme.fg_dim);
     }
 }
 
@@ -313,7 +311,7 @@ static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t
     // A / T letter inboard of the triangle so apparent vs true stay legible.
     lv_obj_t *l = lv_label_create(body);
     lv_label_set_text(l, letter);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 30);
     return m;
@@ -353,7 +351,7 @@ static void build_tide(lv_obj_t *parent) {
     // Head: filled triangle at the set end, pointing OUTWARD (toward set).
     lv_obj_t *head = lv_label_create(tide_arrow);
     lv_label_set_text(head, LV_SYMBOL_UP);
-    lv_obj_set_style_text_font(head, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(head, &font_b612_28, 0);
     lv_obj_set_style_text_color(head, lv_color_hex(theme.accent), 0);
     lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(tide_arrow, LV_OBJ_FLAG_HIDDEN);
@@ -404,19 +402,19 @@ static void make_corner_box(lv_obj_t *parent, const char *label, const char *uni
 
     lv_obj_t *cap = lv_label_create(box);
     lv_label_set_text(cap, label);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lv_obj_t *unit_lbl = lv_label_create(box);
     lv_label_set_text(unit_lbl, unit);
-    lv_obj_set_style_text_font(unit_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(unit_lbl, &font_b612_14, 0);
     lv_obj_set_style_text_color(unit_lbl, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(unit_lbl, LV_ALIGN_TOP_RIGHT, 0, 0);
 
     lv_obj_t *val = lv_label_create(box);
     lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_38, 0);
+    lv_obj_set_style_text_font(val, &font_b612_38, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(value_color), 0);
     lv_obj_align(val, LV_ALIGN_BOTTOM_MID, 0, 2);
     lv_obj_clear_flag(val, LV_OBJ_FLAG_CLICKABLE);
@@ -438,7 +436,7 @@ static void inner_readout(lv_obj_t *parent, const char *cap_txt, int dx, int dy,
                           lv_obj_t **out_secondary) {
     lv_obj_t *cap = lv_label_create(parent);
     lv_label_set_text(cap, cap_txt);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_width(cap, 120);
     lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
@@ -457,7 +455,7 @@ static void inner_readout(lv_obj_t *parent, const char *cap_txt, int dx, int dy,
     if (out_secondary) {
         lv_obj_t *sec = lv_label_create(parent);
         lv_label_set_text(sec, "");
-        lv_obj_set_style_text_font(sec, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(sec, &font_b612_20, 0);
         lv_obj_set_style_text_color(sec, lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_width(sec, 120);
         lv_obj_set_style_text_align(sec, LV_TEXT_ALIGN_CENTER, 0);
@@ -472,7 +470,7 @@ static void build_cardinals(lv_obj_t *parent) {
         bool card = (i % 2) == 0;  // N / E / S / W
         lv_obj_t *l = lv_label_create(parent);
         lv_label_set_text(l, kCardText[i]);
-        lv_obj_set_style_text_font(l, card ? &lv_font_montserrat_20 : &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(l, card ? &font_b612_20 : &font_b612_14, 0);
         lv_obj_set_style_text_color(l, lv_color_hex(card ? theme.fg : theme.fg_dim), 0);
         lv_obj_set_width(l, 40);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
@@ -534,7 +532,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // bound to boat::View.currentDrift, paired with the blue set arrow).
     lbl_drift_cap = lv_label_create(s_root);
     lv_label_set_text(lbl_drift_cap, "DRIFT");
-    lv_obj_set_style_text_font(lbl_drift_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(lbl_drift_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_drift_cap, 60);
@@ -544,7 +542,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_tide_speed = lv_label_create(s_root);
     lv_label_set_text(lbl_tide_speed, "");
-    lv_obj_set_style_text_font(lbl_tide_speed, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_tide_speed, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_tide_speed, 60);
@@ -572,12 +570,9 @@ lv_obj_t *build(lv_obj_t *parent) {
     //   top-centre  : HDG
     const int dxl = -96;  // left column (pulled toward centre)
     const int dxr = 96;   // right column
-    inner_readout(s_root, "AWS", dxl, 0, &lv_font_montserrat_48, theme.warn, &lbl_aws_value,
-                  &lbl_awa_value);
-    inner_readout(s_root, "TWS", dxr, 0, &lv_font_montserrat_48, theme.fg, &lbl_tws_value,
-                  &lbl_twa_value);
-    inner_readout(s_root, "HDG", 0, -96, &lv_font_montserrat_48, theme.accent, &lbl_hdg_value,
-                  nullptr);
+    inner_readout(s_root, "AWS", dxl, 0, &font_b612_48, theme.warn, &lbl_aws_value, &lbl_awa_value);
+    inner_readout(s_root, "TWS", dxr, 0, &font_b612_48, theme.fg, &lbl_tws_value, &lbl_twa_value);
+    inner_readout(s_root, "HDG", 0, -96, &font_b612_48, theme.accent, &lbl_hdg_value, nullptr);
 
     // SOG / STW in the bottom screen corners (outside the ring). STW = speed
     // through water (the standard NMEA abbreviation; was mislabelled "SOW").

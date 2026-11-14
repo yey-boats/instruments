@@ -34,7 +34,7 @@ static lv_obj_t *make_row(lv_obj_t *parent, const char *label, int y) {
 
     lv_obj_t *v = lv_label_create(parent);
     lv_label_set_text(v, "-");
-    style_value(v, &lv_font_montserrat_20, theme.fg);
+    style_value(v, &font_b612_20, theme.fg);
     lv_obj_set_pos(v, 120, y - 4);
     return v;
 }
@@ -60,7 +60,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // Title
     lv_obj_t *title = lv_label_create(s_root);
     lv_label_set_text(title, "SYSTEM");
-    style_value(title, &lv_font_montserrat_28, theme.accent);
+    style_value(title, &font_b612_28, theme.accent);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     lv_obj_t *panel = lv_obj_create(s_root);

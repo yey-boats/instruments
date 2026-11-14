@@ -33,7 +33,7 @@ static const Entry CATALOG[] = {
     {"ui", "bright", "Read backlight (0..255)", true, true},
     {"ui", "bright <0-255>", "Set backlight", true, true},
     {"ui", "theme", "Print the active theme", true, true},
-    {"ui", "theme <day|night|high-contrast|red-night|classic>",
+    {"ui", "theme <day|night|high-contrast|red-night|classic|sun>",
      "Set theme (live, no reboot; persisted)", true, true},
 #if YEYBOATS_ENABLE_DEMO
     {"ui", "demo on|off", "Toggle synthetic demo data", true, true},

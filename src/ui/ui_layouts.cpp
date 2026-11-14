@@ -907,8 +907,8 @@ static double binding_unit_fraction(const MetricBinding &m, double v) {
 // when it shortens. Fixes wide scaled strings (e.g. "68.07kS", "453.95")
 // overflowing/clipping QuadGrid tiles. Called only on text change.
 static void fit_value_font(lv_obj_t *label, const char *txt, int max_w) {
-    static const lv_font_t *const ladder[] = {&font_xl_64, &lv_font_montserrat_48,
-                                              &lv_font_montserrat_38, &lv_font_montserrat_28};
+    static const lv_font_t *const ladder[] = {&font_xl_64, &font_b612_48, &font_b612_38,
+                                              &font_b612_28};
     for (int i = 0; i < 4; ++i) {
         lv_point_t sz;
         lv_text_get_size(&sz, txt, ladder[i], 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
@@ -927,14 +927,14 @@ static void fit_value_font(lv_obj_t *label, const char *txt, int max_w) {
 // any ring >= 135 px, and on a 480x480 quad tile (ring 140 px) "056" / "12.4"
 // ran over the ring and its E/W cardinals.
 static const lv_font_t *ring_hero_font(const char *sample, int max_w) {
-    static const lv_font_t *const ladder[] = {&font_xl_64, &lv_font_montserrat_48,
-                                              &lv_font_montserrat_38, &lv_font_montserrat_28};
+    static const lv_font_t *const ladder[] = {&font_xl_64, &font_b612_48, &font_b612_38,
+                                              &font_b612_28};
     for (const lv_font_t *f : ladder) {
         lv_point_t sz;
         lv_text_get_size(&sz, sample, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         if (sz.x <= max_w) return f;
     }
-    return &lv_font_montserrat_28;
+    return &font_b612_28;
 }
 
 // Hero-scale a value label well beyond the 64px ceiling of the enabled fonts,
@@ -972,8 +972,7 @@ static void fit_hero_scale(lv_obj_t *label, const char *txt, int hero_h, int her
 // (160 px) freeform/quad text tiles where the lat/lon line was wider than the
 // 28 px font. Called only on text change.
 static void fit_text_font(lv_obj_t *label, const char *txt, int max_w) {
-    static const lv_font_t *const ladder[] = {&lv_font_montserrat_28, &lv_font_montserrat_20,
-                                              &lv_font_montserrat_14};
+    static const lv_font_t *const ladder[] = {&font_b612_28, &font_b612_20, &font_b612_14};
     for (int i = 0; i < 3; ++i) {
         lv_point_t sz;
         lv_text_get_size(&sz, txt, ladder[i], 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
@@ -992,8 +991,8 @@ static void fit_text_font(lv_obj_t *label, const char *txt, int max_w) {
 // into the neighbouring tile). Always restarts from the cap so the value
 // grows back when it shortens. Called only on text change.
 static void fit_gauge_center_font(lv_obj_t *label, const char *txt, int dia) {
-    static const lv_font_t *const ladder[] = {&lv_font_montserrat_48, &lv_font_montserrat_38,
-                                              &lv_font_montserrat_28, &lv_font_montserrat_20};
+    static const lv_font_t *const ladder[] = {&font_b612_48, &font_b612_38, &font_b612_28,
+                                              &font_b612_20};
     int start = 2;              // mirrors paint_gauge_body's vfont pick
     if (dia >= 110) start = 1;  // montserrat_38
     if (dia >= 160) start = 0;  // montserrat_48
@@ -1069,16 +1068,15 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // without a secondary/extras line get the big font; tighter tiles step
     // down 48 -> 38 -> 28.
     const lv_font_t *vfont = &font_xl_64;
-    if (h < 180 || has_extras) vfont = &lv_font_montserrat_48;
-    if (h < 150) vfont = &lv_font_montserrat_38;
-    if (h < 110) vfont = &lv_font_montserrat_28;
+    if (h < 180 || has_extras) vfont = &font_b612_48;
+    if (h < 150) vfont = &font_b612_38;
+    if (h < 110) vfont = &font_b612_28;
     // style.size role (audit item 6): S/M/L/XL/Fill map onto the enabled font
     // ladder {14,20,28,48,64}, overriding the height-based auto pick. The
     // fullscreen-zoom hero keeps its transform-scale path regardless.
     if (m.size_role >= 1 && m.size_role <= 5) {
-        static const lv_font_t *const kRoleFonts[5] = {
-            &lv_font_montserrat_14, &lv_font_montserrat_20, &lv_font_montserrat_28,
-            &lv_font_montserrat_48, &font_xl_64};
+        static const lv_font_t *const kRoleFonts[5] = {&font_b612_14, &font_b612_20, &font_b612_28,
+                                                       &font_b612_48, &font_xl_64};
         vfont = kRoleFonts[m.size_role - 1];
     }
     if (fullscreen) vfont = &font_xl_64;  // hero scale needs the scalable digit font
@@ -1086,9 +1084,8 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // internal heap (16/18 sizes blew int_largest from 7668 -> 1908 bytes
     // and starved the network task; see USB-flash diagnostic). On a fullscreen
     // hero the unit rides large-but-secondary (38px).
-    const lv_font_t *ufont =
-        (vfont == &lv_font_montserrat_28) ? &lv_font_montserrat_14 : &lv_font_montserrat_20;
-    if (fullscreen) ufont = &lv_font_montserrat_38;
+    const lv_font_t *ufont = (vfont == &font_b612_28) ? &font_b612_14 : &font_b612_20;
+    if (fullscreen) ufont = &font_b612_38;
 
     // Flex row container holds value + unit so they're true bottom-aligned
     // (baselines match for digit fonts since there are no descenders).
@@ -1174,7 +1171,7 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
         // horizontal center even as the number widens/shrinks.
         t.secondary = lv_label_create(t.root);
         lv_label_set_text(t.secondary, "");
-        lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(t.secondary, &font_b612_14, 0);
         lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align_to(t.secondary, row, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
         lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
@@ -1187,7 +1184,7 @@ static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, i
         for (uint8_t i = 0; i < m.extras_count && i < 4; ++i) {
             t.extras[i] = lv_label_create(t.root);
             lv_label_set_text(t.extras[i], "");
-            lv_obj_set_style_text_font(t.extras[i], &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_font(t.extras[i], &font_b612_14, 0);
             lv_obj_set_style_text_color(t.extras[i], lv_color_hex(theme.fg), 0);
             lv_obj_align(t.extras[i], LV_ALIGN_TOP_MID, 0, first_y + i * row_h);
             lv_obj_clear_flag(t.extras[i], LV_OBJ_FLAG_CLICKABLE);
@@ -1485,7 +1482,7 @@ static bool paint_compass_band_body(QuadGridTile &t, const MetricBinding &m, int
 
     // HDG hero below the band centre (web bandSvg hero).
     const lv_font_t *hf = &font_xl_64;
-    if (hero_h < 64) hf = &lv_font_montserrat_38;
+    if (hero_h < 64) hf = &font_b612_38;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, hf, 0);
@@ -1521,15 +1518,14 @@ static void update_compass_band(QuadGridTile &t, const MetricBinding &m, const b
 // Round-fit (#50): the largest font of a compact ladder (down to 14 px, below
 // the hero ladders' 28 px floor) whose `sample` fits max_w x max_h.
 static const lv_font_t *compact_font(const char *sample, int max_w, int max_h) {
-    static const lv_font_t *const ladder[] = {&lv_font_montserrat_48, &lv_font_montserrat_38,
-                                              &lv_font_montserrat_28, &lv_font_montserrat_20,
-                                              &lv_font_montserrat_14};
+    static const lv_font_t *const ladder[] = {&font_b612_48, &font_b612_38, &font_b612_28,
+                                              &font_b612_20, &font_b612_14};
     for (const lv_font_t *f : ladder) {
         lv_point_t sz;
         lv_text_get_size(&sz, sample, f, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         if (sz.x <= max_w && sz.y <= max_h) return f;
     }
-    return &lv_font_montserrat_14;
+    return &font_b612_14;
 }
 
 // True when the gauge centre text carries its unit glued to the number ("77%",
@@ -1577,8 +1573,7 @@ static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w
     int unit_w = 0;
     if (word_unit) {
         lv_point_t usz;
-        lv_text_get_size(&usz, m.unit, &lv_font_montserrat_14, 0, 0, LV_COORD_MAX,
-                         LV_TEXT_FLAG_NONE);
+        lv_text_get_size(&usz, m.unit, &font_b612_14, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
         unit_w = usz.x + 4;
     }
     // Prefer a readable value over the unit: drop the unit before going below
@@ -1587,8 +1582,7 @@ static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w
     bool show_unit = word_unit;
     t.fit_w = cw - unit_w;
     t.fit_h = ch;
-    if (word_unit &&
-        lv_font_get_line_height(vfont) < lv_font_get_line_height(&lv_font_montserrat_20)) {
+    if (word_unit && lv_font_get_line_height(vfont) < lv_font_get_line_height(&font_b612_20)) {
         vfont = compact_font(sample, cw, ch);
         show_unit = false;
         t.fit_w = cw;
@@ -1614,7 +1608,7 @@ static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w
     if (show_unit) {
         t.unit = lv_label_create(row);
         lv_label_set_text(t.unit, m.unit);
-        lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(t.unit, &font_b612_14, 0);
         lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
     }
@@ -1716,7 +1710,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
         if (fit_north_only && i != 0) continue;
         lv_obj_t *c = lv_label_create(ring);
         lv_label_set_text(c, cardinals[i]);
-        lv_obj_set_style_text_font(c, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(c, &font_b612_14, 0);
         lv_obj_set_style_text_color(c, lv_color_hex(i == 0 ? theme.fg : theme.fg_dim), 0);
         lv_obj_align(c, aligns[i], xs[i], ys[i]);
         lv_obj_clear_flag(c, LV_OBJ_FLAG_CLICKABLE);
@@ -1772,7 +1766,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     int vh = lv_font_get_line_height(vfont);
     lv_obj_t *hcap = lv_label_create(ring);
     lv_label_set_text(hcap, "HDG");
-    lv_obj_set_style_text_font(hcap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(hcap, &font_b612_14, 0);
     lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(hcap, LV_ALIGN_CENTER, 0, 6 - vh / 2 - 8);
     lv_obj_clear_flag(hcap, LV_OBJ_FLAG_CLICKABLE);
@@ -1781,7 +1775,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
     // CTS line tracks the ring's bottom (label-tracks-number geometry).
     t.secondary = lv_label_create(t.root);
     lv_label_set_text(t.secondary, "");
-    lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(t.secondary, &font_b612_14, 0);
     lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.warn), 0);
     lv_obj_align_to(t.secondary, ring, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
     lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
@@ -1829,7 +1823,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
             lv_obj_clear_flag(g, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_t *l = lv_label_create(t.root);
             lv_label_set_text(l, kLegend[i].txt);
-            lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_font(l, &font_b612_14, 0);
             lv_obj_set_style_text_color(l, lv_color_hex(theme.fg_dim), 0);
             lv_obj_set_pos(l, gx + 14, gy + i * row_h);
             lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
@@ -1902,7 +1896,7 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
         if (hi <= lo) hi = lo + 1;  // defensive: keep a valid increasing range
         lv_scale_set_range(scale, lo, hi);
         lv_scale_set_label_show(scale, tick_labels);
-        lv_obj_set_style_text_font(scale, &lv_font_montserrat_14, LV_PART_MAIN);
+        lv_obj_set_style_text_font(scale, &font_b612_14, LV_PART_MAIN);
         lv_obj_set_style_text_color(scale, lv_color_hex(theme.fg_dim), LV_PART_MAIN);
     } else {
         lv_scale_set_range(scale, 0, 100);
@@ -1953,9 +1947,9 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
     // arc's open bottom. NO second caption beneath - the chrome already
     // carries the metric label in the tile's top-left (removed the
     // duplicate `cap` label that overlapped the percent on small tiles).
-    const lv_font_t *vfont = &lv_font_montserrat_28;
-    if (dia >= 110) vfont = &lv_font_montserrat_38;
-    if (dia >= 160) vfont = &lv_font_montserrat_48;
+    const lv_font_t *vfont = &font_b612_28;
+    if (dia >= 110) vfont = &font_b612_38;
+    if (dia >= 160) vfont = &font_b612_48;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
@@ -1973,7 +1967,7 @@ static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int
         if (word_unit) {
             t.unit = lv_label_create(t.root);
             lv_label_set_text(t.unit, m.unit);
-            lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_14, 0);
+            lv_obj_set_style_text_font(t.unit, &font_b612_14, 0);
             lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
             // In the arc's open bottom; a large ring keeps it under the value.
             if (dia >= 150)
@@ -2028,9 +2022,9 @@ static void paint_bar_body(QuadGridTile &t, const MetricBinding &m, int w, int h
     int bar_h = h < 130 ? 18 : 22;
     int bar_w = w - 32;
 
-    const lv_font_t *vfont = &lv_font_montserrat_38;
-    if (h < 140) vfont = &lv_font_montserrat_28;
-    if (h >= 180) vfont = &lv_font_montserrat_48;
+    const lv_font_t *vfont = &font_b612_38;
+    if (h < 140) vfont = &font_b612_28;
+    if (h >= 180) vfont = &font_b612_48;
 
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--%");
@@ -2197,9 +2191,9 @@ static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat
 // the fullscreen trend (a steady reading holds the line rather than scrolling it).
 static void paint_trend_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
     // Current reading: hero number, upper third of the tile.
-    const lv_font_t *vfont = &lv_font_montserrat_28;
-    if (h >= 160) vfont = &lv_font_montserrat_38;
-    if (w < 140) vfont = &lv_font_montserrat_20;
+    const lv_font_t *vfont = &font_b612_28;
+    if (h >= 160) vfont = &font_b612_38;
+    if (w < 140) vfont = &font_b612_20;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
@@ -2311,7 +2305,7 @@ static void paint_clinometer_body(QuadGridTile &t, const MetricBinding &m, int w
     lv_scale_set_total_tick_count(scale, 7);  // every 15°
     lv_scale_set_major_tick_every(scale, 3);
     lv_scale_set_label_show(scale, true);
-    lv_obj_set_style_text_font(scale, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(scale, &font_b612_14, LV_PART_MAIN);
     lv_obj_set_style_text_color(scale, lv_color_hex(theme.fg_dim), LV_PART_MAIN);
     lv_obj_set_style_length(scale, 6, LV_PART_INDICATOR);
     lv_obj_set_style_line_color(scale, lv_color_hex(theme.fg_dim), LV_PART_INDICATOR);
@@ -2335,8 +2329,8 @@ static void paint_clinometer_body(QuadGridTile &t, const MetricBinding &m, int w
     t.aux2 = bubble;
 
     // Hero heel readout at the arc centre; pitch as the small secondary line.
-    const lv_font_t *vfont = (dia >= 150) ? &lv_font_montserrat_48 : &lv_font_montserrat_38;
-    if (h < 140) vfont = &lv_font_montserrat_28;
+    const lv_font_t *vfont = (dia >= 150) ? &font_b612_48 : &font_b612_38;
+    if (h < 140) vfont = &font_b612_28;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
@@ -2346,7 +2340,7 @@ static void paint_clinometer_body(QuadGridTile &t, const MetricBinding &m, int w
 
     t.secondary = lv_label_create(t.root);
     lv_label_set_text(t.secondary, "");
-    lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(t.secondary, &font_b612_14, 0);
     lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(t.secondary, LV_ALIGN_BOTTOM_MID, 0, -6);
     lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
@@ -2515,8 +2509,8 @@ static void build_cardinals(WindDialState *st, lv_obj_t *parent) {
         bool card = (i % 2) == 0;  // N / E / S / W
         lv_obj_t *l = lv_label_create(parent);
         lv_label_set_text(l, kCardText[i]);
-        lv_obj_set_style_text_font(l, card ? &lv_font_montserrat_20 : &lv_font_montserrat_14, 0);
-        uint32_t color = card ? 0x16222f : 0x44546a;
+        lv_obj_set_style_text_font(l, card ? &font_b612_20 : &font_b612_14, 0);
+        uint32_t color = card ? theme.band_ink : theme.band_ink_dim;
         lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
         lv_obj_set_width(l, 40);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
@@ -2561,13 +2555,13 @@ static void build_bezel(WindDialState *st, lv_obj_t *parent) {
     make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, 0x0c1828, LV_OPA_COVER);
 
     for (int deg = 0; deg < 360; deg += 45) {
-        make_tick_at(st->bezel, bcx, bcy, deg + 22, 10, 2, 0x5a6b78, R_BEZEL);
+        make_tick_at(st->bezel, bcx, bcy, deg + 22, 10, 2, theme.band_ink_dim, R_BEZEL);
     }
 
     // Fixed bow indicator (red triangle) outside the bezel group so it stays at top.
     lv_obj_t *bow_notch = lv_label_create(parent);
     lv_label_set_text(bow_notch, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(bow_notch, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(bow_notch, &font_b612_20, 0);
     lv_obj_set_style_text_color(bow_notch, lv_color_hex(theme.alarm), 0);
     lv_obj_set_pos(bow_notch, st->cx - 9, st->cy - R_BEZEL - 6);
 }
@@ -2658,7 +2652,7 @@ static lv_obj_t *make_wind_marker(WindDialState *st, lv_obj_t *parent, const cha
 
     lv_obj_t *tri = lv_label_create(m);
     lv_label_set_text(tri, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(tri, &font_b612_28, 0);
     lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
     lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -6);
 
@@ -2675,7 +2669,7 @@ static lv_obj_t *make_wind_marker(WindDialState *st, lv_obj_t *parent, const cha
 
     lv_obj_t *l = lv_label_create(m);
     lv_label_set_text(l, letter);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 54);
     return m;
@@ -2706,7 +2700,7 @@ static void build_tide(WindDialState *st, lv_obj_t *parent) {
 
     lv_obj_t *head = lv_label_create(st->tide_arrow);
     lv_label_set_text(head, LV_SYMBOL_UP);
-    lv_obj_set_style_text_font(head, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(head, &font_b612_28, 0);
     lv_obj_set_style_text_color(head, lv_color_hex(0x288cff), 0);
     lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(st->tide_arrow, LV_OBJ_FLAG_HIDDEN);
@@ -2744,7 +2738,7 @@ static void build_waypoint(WindDialState *st, lv_obj_t *parent) {
 // NOT duplicated in the band). Three tiles evenly spaced across the width.
 // `band_h` is the full band height (TILE_BAND).
 static void build_tiles(WindDialState *st, lv_obj_t *parent, int w, int h, int band_h) {
-    const lv_font_t *tv = &lv_font_montserrat_38;
+    const lv_font_t *tv = &font_b612_38;
     int gap = 8, n = 3;
     int tw = (w - gap * (n + 1)) / n;
     int th = band_h - 16;
@@ -2854,7 +2848,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h, uint32_t hero_rgb) {
 
     st->lbl_drift_cap = lv_label_create(r);
     lv_label_set_text(st->lbl_drift_cap, "DRIFT");
-    lv_obj_set_style_text_font(st->lbl_drift_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->lbl_drift_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(st->lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(st->lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_drift_cap, 60);
@@ -2864,7 +2858,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h, uint32_t hero_rgb) {
 
     st->lbl_tide_speed = lv_label_create(r);
     lv_label_set_text(st->lbl_tide_speed, "");
-    lv_obj_set_style_text_font(st->lbl_tide_speed, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_tide_speed, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(st->lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_tide_speed, 60);
@@ -2886,7 +2880,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h, uint32_t hero_rgb) {
     // tiny dim readout below the AWS number (kept for at-a-glance reference).
     lv_obj_t *awscap = lv_label_create(r);
     lv_label_set_text(awscap, "AWS");
-    lv_obj_set_style_text_font(awscap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(awscap, &font_b612_14, 0);
     lv_obj_set_style_text_color(awscap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(awscap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(awscap, 80);
@@ -2903,7 +2897,7 @@ static WindDialState *build(lv_obj_t *parent, int w, int h, uint32_t hero_rgb) {
     // Tiny dim HDG readout under the AWS hero (heading is primarily the bezel).
     st->lbl_hdg_value = lv_label_create(r);
     lv_label_set_text(st->lbl_hdg_value, "--\xC2\xB0");
-    lv_obj_set_style_text_font(st->lbl_hdg_value, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->lbl_hdg_value, &font_b612_14, 0);
     lv_obj_set_style_text_color(st->lbl_hdg_value, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(st->lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_hdg_value, 100);
@@ -3193,7 +3187,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
     st->lbl_mode = lv_label_create(badge);
     lv_label_set_text(st->lbl_mode, "STANDBY");
-    lv_obj_set_style_text_font(st->lbl_mode, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_mode, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_mode, lv_color_hex(theme.fg_dim), 0);
     lv_obj_center(st->lbl_mode);
 
@@ -3211,7 +3205,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     lv_obj_set_style_pad_all(st->btn_engage, 0, 0);
     st->lbl_engage = lv_label_create(st->btn_engage);
     lv_label_set_text(st->lbl_engage, "ON");
-    lv_obj_set_style_text_font(st->lbl_engage, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_engage, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(theme.fg), 0);
     lv_obj_center(st->lbl_engage);
     lv_obj_add_event_cb(st->btn_engage, on_engage_short, LV_EVENT_SHORT_CLICKED, st);
@@ -3227,7 +3221,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     lv_obj_set_style_pad_all(btn_home, 0, 0);
     lv_obj_t *lbl_home = lv_label_create(btn_home);
     lv_label_set_text(lbl_home, "HOME");
-    lv_obj_set_style_text_font(lbl_home, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_home, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_home, lv_color_hex(theme.fg), 0);
     lv_obj_center(lbl_home);
     lv_obj_add_event_cb(btn_home, on_home, LV_EVENT_SHORT_CLICKED, st);
@@ -3254,7 +3248,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     // --- center readouts (over the dial face) ---
     lv_obj_t *cap = lv_label_create(r);
     lv_label_set_text(cap, "HDG");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(cap, 120);
@@ -3266,9 +3260,9 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     // on a compressed leaf (e.g. wind_steer, where the field band shrinks the dial).
     // A full-size dial keeps font_xl_64 (the <140 guard is false for aphud's region).
     const lv_font_t *hf = &font_xl_64;
-    if (st->cp.r < 140) hf = &lv_font_montserrat_48;
-    if (st->cp.r < 110) hf = &lv_font_montserrat_38;
-    if (st->cp.r < 85) hf = &lv_font_montserrat_28;
+    if (st->cp.r < 140) hf = &font_b612_48;
+    if (st->cp.r < 110) hf = &font_b612_38;
+    if (st->cp.r < 85) hf = &font_b612_28;
     lv_obj_set_style_text_font(st->lbl_hdg_value, hf, 0);
     lv_obj_set_style_text_color(st->lbl_hdg_value, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(st->lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
@@ -3280,7 +3274,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     // until apTargetHdg is a real bearing (set/cleared in update()).
     st->lbl_target = lv_label_create(r);
     lv_label_set_text(st->lbl_target, "");
-    lv_obj_set_style_text_font(st->lbl_target, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_target, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_target, lv_color_hex(theme.warn), 0);
     lv_obj_set_style_text_align(st->lbl_target, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_target, 160);
@@ -3293,7 +3287,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     int cogsog_y = compass_bottom + (cogsog_h - 20) / 2;  // vertically centre the 20px font
     st->lbl_cogsog = lv_label_create(r);
     lv_label_set_text(st->lbl_cogsog, "COG --\xC2\xB0  |  SOG -- kn");
-    lv_obj_set_style_text_font(st->lbl_cogsog, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_cogsog, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_cogsog, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(st->lbl_cogsog, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_cogsog, w);
@@ -3325,7 +3319,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
                                          /*full_scale=*/35.0, /*tick_decimals=*/0, theme.accent);
     lv_obj_t *rud_cap = lv_label_create(r);
     lv_label_set_text(rud_cap, "RUDDER");
-    lv_obj_set_style_text_font(rud_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(rud_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(rud_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(rud_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(rud_cap, w);
@@ -3338,7 +3332,7 @@ static ApHudState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rgb) {
     // COG/SOG + XTE are the steering priority, and squeezing 4 tiles under them
     // would collide. The pointers stay NULL (calloc) and update() is null-safe.
     if (show_tiles) {
-        const lv_font_t *tv = &lv_font_montserrat_38;
+        const lv_font_t *tv = &font_b612_38;
         int ty = h - sq - gap;  // bottom row, below the XTE band
         st->tile_depth = ui::numeric_tile(r, gap, ty, sq, sq, "DEPTH", "m", tv, theme.fg);
         st->tile_speed = ui::numeric_tile(r, gap * 2 + sq, ty, sq, sq, "STW", "kn", tv, theme.fg);
@@ -3749,7 +3743,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     lv_obj_set_style_pad_all(st->btn_engage, 0, 0);
     st->lbl_engage = lv_label_create(st->btn_engage);
     lv_label_set_text(st->lbl_engage, "ON");
-    lv_obj_set_style_text_font(st->lbl_engage, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_engage, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(theme.fg), 0);
     lv_obj_center(st->lbl_engage);
     lv_obj_add_event_cb(st->btn_engage, on_engage_short, LV_EVENT_SHORT_CLICKED, st);
@@ -3765,7 +3759,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     lv_obj_set_style_pad_all(btn_home, 0, 0);
     lv_obj_t *lbl_home = lv_label_create(btn_home);
     lv_label_set_text(lbl_home, "HOME");
-    lv_obj_set_style_text_font(lbl_home, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_home, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_home, lv_color_hex(theme.fg), 0);
     lv_obj_center(lbl_home);
     lv_obj_add_event_cb(btn_home, on_home, LV_EVENT_SHORT_CLICKED, st);
@@ -3786,7 +3780,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     lv_obj_clear_flag(badge, LV_OBJ_FLAG_CLICKABLE);
     st->lbl_mode = lv_label_create(badge);
     lv_label_set_text(st->lbl_mode, "STANDBY");
-    lv_obj_set_style_text_font(st->lbl_mode, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_mode, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_mode, lv_color_hex(theme.fg_dim), 0);
     lv_obj_center(st->lbl_mode);
 
@@ -3825,7 +3819,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     // --- center readouts (over the dial face) ---
     lv_obj_t *cap = lv_label_create(r);
     lv_label_set_text(cap, "HDG");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(cap, 120);
@@ -3837,9 +3831,9 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     // on a compressed leaf (e.g. wind_steer, where the field band shrinks the dial).
     // A full-size dial keeps font_xl_64 (the <140 guard is false for aphud's region).
     const lv_font_t *hf = &font_xl_64;
-    if (st->cp.r < 140) hf = &lv_font_montserrat_48;
-    if (st->cp.r < 110) hf = &lv_font_montserrat_38;
-    if (st->cp.r < 85) hf = &lv_font_montserrat_28;
+    if (st->cp.r < 140) hf = &font_b612_48;
+    if (st->cp.r < 110) hf = &font_b612_38;
+    if (st->cp.r < 85) hf = &font_b612_28;
     lv_obj_set_style_text_font(st->lbl_hdg_value, hf, 0);
     lv_obj_set_style_text_color(st->lbl_hdg_value, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(st->lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
@@ -3852,7 +3846,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     int sub_y = compass_bottom + (sub_h - 20) / 2;  // vertically centre the 20px font
     st->lbl_sub = lv_label_create(r);
     lv_label_set_text(st->lbl_sub, "TWA --\xC2\xB0 | TWD --\xC2\xB0");
-    lv_obj_set_style_text_font(st->lbl_sub, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->lbl_sub, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->lbl_sub, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(st->lbl_sub, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(st->lbl_sub, w);
@@ -3882,7 +3876,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
                                          /*full_scale=*/35.0, /*tick_decimals=*/0, theme.accent);
     lv_obj_t *rud_cap = lv_label_create(r);
     lv_label_set_text(rud_cap, "RUDDER");
-    lv_obj_set_style_text_font(rud_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(rud_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(rud_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(rud_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(rud_cap, w);
@@ -3896,7 +3890,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     // caption/unit; the dial is a touch smaller but the fields are the point. The
     // band is pinned to the very bottom, below the RUDDER caption strip.
     if (show_tiles) {
-        const lv_font_t *tv = &lv_font_montserrat_28;
+        const lv_font_t *tv = &font_b612_28;
         int ty = h - band_th - gap;  // bottom row, below the rudder band + caption
         st->tile_sog = ui::numeric_tile(r, gap, ty, band_tw, band_th, "SOG", "kn", tv, theme.fg);
         st->tile_stw =
@@ -4237,7 +4231,7 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     if (m.unit && m.unit[0]) {
         t.unit = lv_label_create(ring);
         lv_label_set_text(t.unit, m.unit);
-        lv_obj_set_style_text_font(t.unit, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(t.unit, &font_b612_14, 0);
         lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align_to(t.unit, t.value, LV_ALIGN_OUT_BOTTOM_MID, 0, 0);
         lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
@@ -4284,8 +4278,8 @@ static void paint_wind_steer_body(QuadGridTile &t, const MetricBinding &m, int w
 static void paint_text_body(QuadGridTile &t, const MetricBinding &m, int /*w*/, int h) {
     // Text widget covers multi-line values like position (lat / lon on
     // two lines). Pick a font that won't overflow short tiles.
-    const lv_font_t *vfont = &lv_font_montserrat_20;
-    if (h >= 160) vfont = &lv_font_montserrat_28;
+    const lv_font_t *vfont = &font_b612_20;
+    if (h >= 160) vfont = &font_b612_28;
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
@@ -4326,24 +4320,23 @@ static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int w, in
     lv_label_set_text(label, ltxt);
     // Scale the label by bubble HEIGHT first. Must be a Montserrat font —
     // font_xl_64 is digits-only and would drop letters from labels like "HOME".
-    const lv_font_t *lfont = &lv_font_montserrat_20;
-    if (btn_h >= 60) lfont = &lv_font_montserrat_28;
-    if (btn_h < 36) lfont = &lv_font_montserrat_14;
+    const lv_font_t *lfont = &font_b612_20;
+    if (btn_h >= 60) lfont = &font_b612_28;
+    if (btn_h < 36) lfont = &font_b612_14;
     // Then fit by WIDTH: on a narrow tile (e.g. the wind_steer 6-button row at
     // ~80 px) a height-picked 28/20 px font would clip a 4-letter label like
     // "TACK"/"GYBE". Step the font DOWN the 28→20→14 ladder until the measured
     // label width fits the bubble (minus a small horizontal pad). Roomy buttons
     // keep their large height-picked font (the first ladder entry already fits).
     {
-        static const lv_font_t *const ladder[] = {&lv_font_montserrat_28, &lv_font_montserrat_20,
-                                                  &lv_font_montserrat_14};
+        static const lv_font_t *const ladder[] = {&font_b612_28, &font_b612_20, &font_b612_14};
         const int max_w = btn_w - 12;  // small horizontal pad inside the bubble
         // Find where the height-picked font sits in the ladder; never step UP
         // from it (width-fit only shrinks).
-        int start = 1;  // default lv_font_montserrat_20
-        if (lfont == &lv_font_montserrat_28)
+        int start = 1;  // default font_b612_20
+        if (lfont == &font_b612_28)
             start = 0;
-        else if (lfont == &lv_font_montserrat_14)
+        else if (lfont == &font_b612_14)
             start = 2;
         for (int i = start; i < 3; ++i) {
             lv_point_t sz;
@@ -4414,7 +4407,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
 
     t.value = lv_label_create(pill);
     lv_label_set_text(t.value, "--");
-    lv_obj_set_style_text_font(t.value, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(t.value, &font_b612_20, 0);
     lv_obj_align(t.value, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
     style_ap_pill(pill, t.value, false, m);
@@ -4422,7 +4415,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
     // Target text below the pill.
     t.secondary = lv_label_create(t.root);
     lv_label_set_text(t.secondary, "target ---");
-    lv_obj_set_style_text_font(t.secondary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(t.secondary, &font_b612_14, 0);
     lv_obj_set_style_text_color(t.secondary, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align_to(t.secondary, pill, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
     lv_obj_clear_flag(t.secondary, LV_OBJ_FLAG_CLICKABLE);
@@ -4445,7 +4438,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
         lv_obj_clear_flag(b, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_t *bl = lv_label_create(b);
         lv_label_set_text(bl, labels[i]);
-        lv_obj_set_style_text_font(bl, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(bl, &font_b612_14, 0);
         lv_obj_set_style_text_color(bl, lv_color_hex(theme.fg), 0);
         lv_obj_align(bl, LV_ALIGN_CENTER, 0, 0);
     }
@@ -4573,8 +4566,7 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h, con
     if (has_cap) {
         t.cap = lv_label_create(t.root);
         lv_label_set_text(t.cap, m.label ? m.label : "");
-        lv_obj_set_style_text_font(t.cap,
-                                   small_cap ? &lv_font_montserrat_14 : &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(t.cap, small_cap ? &font_b612_14 : &font_b612_20, 0);
         lv_obj_set_style_text_color(t.cap, lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_pos(t.cap, cap_x, cap_y);
         lv_obj_clear_flag(t.cap, LV_OBJ_FLAG_CLICKABLE);
@@ -4949,7 +4941,7 @@ static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spe
     // Title at top, montserrat_28, accent color.
     lv_obj_t *title = lv_label_create(root);
     lv_label_set_text(title, spec.title ? spec.title : st->metric.label);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(title, &font_b612_28, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(st->metric.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
@@ -4971,14 +4963,14 @@ static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spe
     if (st->metric.label && st->metric.label[0]) {
         lv_obj_t *hcap = lv_label_create(hero);
         lv_label_set_text(hcap, st->metric.label);
-        lv_obj_set_style_text_font(hcap, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(hcap, &font_b612_14, 0);
         lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(hcap, LV_ALIGN_TOP_LEFT, 12, 10);
     }
 
     st->primary_value = lv_label_create(hero);
     lv_label_set_text(st->primary_value, "--");
-    lv_obj_set_style_text_font(st->primary_value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->primary_value, &font_b612_48, 0);
     // Accent color matches editor preview's .num-primary.
     lv_obj_set_style_text_color(st->primary_value, lv_color_hex(theme.accent), 0);
     lv_obj_align(st->primary_value, LV_ALIGN_CENTER, -30, -10);
@@ -4986,14 +4978,14 @@ static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spe
     if (st->metric.unit && st->metric.unit[0]) {
         st->primary_unit = lv_label_create(hero);
         lv_label_set_text(st->primary_unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->primary_unit, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(st->primary_unit, &font_b612_28, 0);
         lv_obj_set_style_text_color(st->primary_unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(st->primary_unit, LV_ALIGN_CENTER, 80, 8);
     }
 
     st->primary_secondary = lv_label_create(hero);
     lv_label_set_text(st->primary_secondary, "");
-    lv_obj_set_style_text_font(st->primary_secondary, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->primary_secondary, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->primary_secondary, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(st->primary_secondary, LV_ALIGN_BOTTOM_MID, 0, -10);
 
@@ -5020,13 +5012,13 @@ static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spe
         st->extras_label[i] = lv_label_create(grid);
         lv_label_set_text(st->extras_label[i],
                           st->metric.extras[i].label ? st->metric.extras[i].label : "");
-        lv_obj_set_style_text_font(st->extras_label[i], &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(st->extras_label[i], &font_b612_14, 0);
         lv_obj_set_style_text_color(st->extras_label[i], lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_pos(st->extras_label[i], x, y);
 
         st->extras_value[i] = lv_label_create(grid);
         lv_label_set_text(st->extras_value[i], "--");
-        lv_obj_set_style_text_font(st->extras_value[i], &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(st->extras_value[i], &font_b612_28, 0);
         lv_obj_set_style_text_color(st->extras_value[i], lv_color_hex(theme.fg), 0);
         lv_obj_set_pos(st->extras_value[i], x, y + 18);
     }
@@ -5094,7 +5086,7 @@ static lv_obj_t *create_status_list(lv_obj_t *parent, const ScreenVariantSpec &s
     // Title at top.
     lv_obj_t *title = lv_label_create(root);
     lv_label_set_text(title, spec.title ? spec.title : "STATUS");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(title, &font_b612_28, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
@@ -5116,13 +5108,13 @@ static lv_obj_t *create_status_list(lv_obj_t *parent, const ScreenVariantSpec &s
         const MetricBinding &m = spec.metrics[i];
         lv_obj_t *lbl = lv_label_create(panel);
         lv_label_set_text(lbl, m.label ? m.label : "");
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(lbl, &font_b612_20, 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_pos(lbl, 0, i * row_h);
 
         st->value_labels[i] = lv_label_create(panel);
         lv_label_set_text(st->value_labels[i], "--");
-        lv_obj_set_style_text_font(st->value_labels[i], &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(st->value_labels[i], &font_b612_20, 0);
         lv_obj_set_style_text_color(st->value_labels[i], lv_color_hex(theme.fg), 0);
         lv_obj_set_pos(st->value_labels[i], 180, i * row_h);
     }
@@ -5190,7 +5182,7 @@ static lv_obj_t *create_round_instrument(lv_obj_t *parent, const ScreenVariantSp
     // Title at top.
     lv_obj_t *title = lv_label_create(root);
     lv_label_set_text(title, spec.title ? spec.title : st->metric.label);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(title, &font_b612_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(st->metric.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
@@ -5209,21 +5201,21 @@ static lv_obj_t *create_round_instrument(lv_obj_t *parent, const ScreenVariantSp
 
     st->value = lv_label_create(bezel);
     lv_label_set_text(st->value, "--");
-    lv_obj_set_style_text_font(st->value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->value, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->value, LV_ALIGN_CENTER, 0, -8);
 
     if (st->metric.unit && st->metric.unit[0]) {
         st->unit = lv_label_create(bezel);
         lv_label_set_text(st->unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->unit, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(st->unit, &font_b612_20, 0);
         lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(st->unit, LV_ALIGN_CENTER, 0, 32);
     }
 
     st->secondary = lv_label_create(bezel);
     lv_label_set_text(st->secondary, "");
-    lv_obj_set_style_text_font(st->secondary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->secondary, &font_b612_14, 0);
     lv_obj_set_style_text_color(st->secondary, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(st->secondary, LV_ALIGN_BOTTOM_MID, 0, -16);
 
@@ -5282,20 +5274,20 @@ static void split_half_build(lv_obj_t *parent, int x, int y, int w, int h, const
 
     out.cap = lv_label_create(panel);
     lv_label_set_text(out.cap, m.label ? m.label : "");
-    lv_obj_set_style_text_font(out.cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(out.cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(out.cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(out.cap, LV_ALIGN_TOP_MID, 0, 12);
 
     out.value = lv_label_create(panel);
     lv_label_set_text(out.value, "--");
-    lv_obj_set_style_text_font(out.value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(out.value, &font_b612_48, 0);
     lv_obj_set_style_text_color(out.value, lv_color_hex(theme.fg), 0);
     lv_obj_align(out.value, LV_ALIGN_CENTER, -10, 0);
 
     if (m.unit && m.unit[0]) {
         out.unit = lv_label_create(panel);
         lv_label_set_text(out.unit, m.unit);
-        lv_obj_set_style_text_font(out.unit, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(out.unit, &font_b612_20, 0);
         lv_obj_set_style_text_color(out.unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(out.unit, LV_ALIGN_CENTER, 60, 12);
     } else {
@@ -5304,7 +5296,7 @@ static void split_half_build(lv_obj_t *parent, int x, int y, int w, int h, const
 
     out.secondary = lv_label_create(panel);
     lv_label_set_text(out.secondary, "");
-    lv_obj_set_style_text_font(out.secondary, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(out.secondary, &font_b612_14, 0);
     lv_obj_set_style_text_color(out.secondary, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(out.secondary, LV_ALIGN_BOTTOM_MID, 0, -10);
 }
@@ -5331,7 +5323,7 @@ static lv_obj_t *create_split_pair(lv_obj_t *parent, const ScreenVariantSpec &sp
     if (spec.title && spec.title[0]) {
         lv_obj_t *title = lv_label_create(root);
         lv_label_set_text(title, spec.title);
-        lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(title, &font_b612_20, 0);
         lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
     }
@@ -5427,27 +5419,27 @@ static lv_obj_t *create_trend_chart(lv_obj_t *parent, const ScreenVariantSpec &s
     // Title (caption) top-left.
     lv_obj_t *cap = lv_label_create(root);
     lv_label_set_text(cap, st->metric.label ? st->metric.label : "");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 16, 16);
 
     st->value = lv_label_create(root);
     lv_label_set_text(st->value, "--");
-    lv_obj_set_style_text_font(st->value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->value, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->value, LV_ALIGN_TOP_LEFT, 16, 40);
 
     if (st->metric.unit && st->metric.unit[0]) {
         st->unit = lv_label_create(root);
         lv_label_set_text(st->unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->unit, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(st->unit, &font_b612_28, 0);
         lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(st->unit, LV_ALIGN_TOP_LEFT, 180, 56);
     }
 
     st->secondary = lv_label_create(root);
     lv_label_set_text(st->secondary, "");
-    lv_obj_set_style_text_font(st->secondary, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->secondary, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->secondary, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(st->secondary, LV_ALIGN_TOP_RIGHT, -16, 16);
 
@@ -5615,7 +5607,7 @@ static lv_obj_t *create_alert_focus(lv_obj_t *parent, const ScreenVariantSpec &s
 
     st->cap = lv_label_create(st->root_panel);
     lv_label_set_text(st->cap, st->metric.label ? st->metric.label : "");
-    lv_obj_set_style_text_font(st->cap, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(st->cap, &font_b612_28, 0);
     lv_obj_set_style_text_color(st->cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(st->cap, LV_ALIGN_TOP_MID, 0, 20);
 
@@ -5623,21 +5615,21 @@ static lv_obj_t *create_alert_focus(lv_obj_t *parent, const ScreenVariantSpec &s
     lv_label_set_text(st->value, "--");
     // Largest available font; spec 12 visual adoption notes go further
     // when a 60-72 pt font ships.
-    lv_obj_set_style_text_font(st->value, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->value, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->value, LV_ALIGN_CENTER, 0, -10);
 
     if (st->metric.unit && st->metric.unit[0]) {
         st->unit = lv_label_create(st->root_panel);
         lv_label_set_text(st->unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->unit, &lv_font_montserrat_28, 0);
+        lv_obj_set_style_text_font(st->unit, &font_b612_28, 0);
         lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(st->unit, LV_ALIGN_CENTER, 0, 40);
     }
 
     st->status = lv_label_create(st->root_panel);
     lv_label_set_text(st->status, "");
-    lv_obj_set_style_text_font(st->status, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(st->status, &font_b612_20, 0);
     lv_obj_set_style_text_color(st->status, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(st->status, LV_ALIGN_BOTTOM_MID, 0, -16);
 
@@ -5730,7 +5722,7 @@ static lv_obj_t *cc_make_button(lv_obj_t *parent, int x, int y, int w, int h, co
     lv_obj_set_style_pad_all(b, 0, 0);
     lv_obj_t *lbl = lv_label_create(b);
     lv_label_set_text(lbl, label);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
     lv_obj_center(lbl);
     lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
@@ -5760,7 +5752,7 @@ static lv_obj_t *create_control_console(lv_obj_t *parent, const ScreenVariantSpe
     if (spec.title && spec.title[0]) {
         lv_obj_t *title = lv_label_create(root);
         lv_label_set_text(title, spec.title);
-        lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(title, &font_b612_20, 0);
         lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
     }
@@ -5784,31 +5776,31 @@ static lv_obj_t *create_control_console(lv_obj_t *parent, const ScreenVariantSpe
     // Current heading + target.
     lv_obj_t *cap_cur = lv_label_create(root);
     lv_label_set_text(cap_cur, "CURRENT");
-    lv_obj_set_style_text_font(cap_cur, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap_cur, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap_cur, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap_cur, LV_ALIGN_TOP_LEFT, 24, 152);
 
     st->current_lbl = lv_label_create(root);
     lv_label_set_text(st->current_lbl, "---");
-    lv_obj_set_style_text_font(st->current_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->current_lbl, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->current_lbl, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->current_lbl, LV_ALIGN_TOP_LEFT, 24, 172);
 
     lv_obj_t *cap_tgt = lv_label_create(root);
     lv_label_set_text(cap_tgt, "TARGET");
-    lv_obj_set_style_text_font(cap_tgt, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap_tgt, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap_tgt, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap_tgt, LV_ALIGN_TOP_RIGHT, -24, 152);
 
     st->target_lbl = lv_label_create(root);
     lv_label_set_text(st->target_lbl, "---");
-    lv_obj_set_style_text_font(st->target_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->target_lbl, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->target_lbl, lv_color_hex(theme.accent), 0);
     lv_obj_align(st->target_lbl, LV_ALIGN_TOP_RIGHT, -24, 172);
 
     st->backend_lbl = lv_label_create(root);
     lv_label_set_text(st->backend_lbl, "");
-    lv_obj_set_style_text_font(st->backend_lbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(st->backend_lbl, &font_b612_14, 0);
     lv_obj_set_style_text_color(st->backend_lbl, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(st->backend_lbl, LV_ALIGN_TOP_MID, 0, 240);
 
@@ -5925,32 +5917,32 @@ static lv_obj_t *create_route_progress(lv_obj_t *parent, const ScreenVariantSpec
     // Title at top.
     lv_obj_t *title = lv_label_create(root);
     lv_label_set_text(title, spec.title ? spec.title : "ROUTE");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(title, &font_b612_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
     // BTW left / DTW right at y=80.
     lv_obj_t *btw_cap = lv_label_create(root);
     lv_label_set_text(btw_cap, "BEARING");
-    lv_obj_set_style_text_font(btw_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(btw_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(btw_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(btw_cap, LV_ALIGN_TOP_LEFT, 24, 76);
 
     st->btw_lbl = lv_label_create(root);
     lv_label_set_text(st->btw_lbl, "---");
-    lv_obj_set_style_text_font(st->btw_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->btw_lbl, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->btw_lbl, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->btw_lbl, LV_ALIGN_TOP_LEFT, 24, 96);
 
     lv_obj_t *dtw_cap = lv_label_create(root);
     lv_label_set_text(dtw_cap, "DISTANCE");
-    lv_obj_set_style_text_font(dtw_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(dtw_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(dtw_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(dtw_cap, LV_ALIGN_TOP_RIGHT, -24, 76);
 
     st->dtw_lbl = lv_label_create(root);
     lv_label_set_text(st->dtw_lbl, "---");
-    lv_obj_set_style_text_font(st->dtw_lbl, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(st->dtw_lbl, &font_b612_48, 0);
     lv_obj_set_style_text_color(st->dtw_lbl, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->dtw_lbl, LV_ALIGN_TOP_RIGHT, -24, 96);
 
@@ -5982,13 +5974,13 @@ static lv_obj_t *create_route_progress(lv_obj_t *parent, const ScreenVariantSpec
     // XTE numeric below the bar.
     lv_obj_t *xte_cap = lv_label_create(root);
     lv_label_set_text(xte_cap, "XTE");
-    lv_obj_set_style_text_font(xte_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(xte_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(xte_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(xte_cap, LV_ALIGN_TOP_MID, 0, 304);
 
     st->xte_lbl = lv_label_create(root);
     lv_label_set_text(st->xte_lbl, "---");
-    lv_obj_set_style_text_font(st->xte_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(st->xte_lbl, &font_b612_28, 0);
     lv_obj_set_style_text_color(st->xte_lbl, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->xte_lbl, LV_ALIGN_TOP_MID, 0, 324);
 
@@ -6053,6 +6045,11 @@ static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
 // that exist today" so screens can adopt it without their authors
 // needing to re-wire every preference.
 
+// Settings THEME row: DAY / NIGHT pick the sunlight and night-vision skins
+// (owner choice, 2026-11-14); "auto" stays the legacy token. Used both to
+// build the buttons and to highlight the active one.
+static const char *const kSettingsThemeVals[3] = {"sun", "red-night", "auto"};
+
 struct SetupFormState {
     lv_obj_t *theme_btns[3];
     lv_obj_t *brightness_lbl;
@@ -6108,7 +6105,7 @@ static lv_obj_t *sf_make_row(lv_obj_t *parent, int y, const char *label, lv_obj_
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *cap = lv_label_create(row);
     lv_label_set_text(cap, label);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg), 0);
     lv_obj_align(cap, LV_ALIGN_LEFT_MID, 12, 0);
     if (out_panel) *out_panel = row;
@@ -6137,7 +6134,7 @@ static lv_obj_t *create_setup_form(lv_obj_t *parent, const ScreenVariantSpec &sp
 
     lv_obj_t *title = lv_label_create(root);
     lv_label_set_text(title, spec.title ? spec.title : "SETTINGS");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(title, &font_b612_28, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
 
@@ -6147,13 +6144,12 @@ static lv_obj_t *create_setup_form(lv_obj_t *parent, const ScreenVariantSpec &sp
     lv_obj_t *theme_row;
     sf_make_row(root, y, "THEME", &theme_row);
     static const char *theme_names[3] = {"DAY", "NIGHT", "AUTO"};
-    static const char *theme_vals[3] = {"day", "night", "auto"};
     int seg_w = 70;
     int seg_h = 36;
     for (int i = 0; i < 3; ++i) {
         st->theme_btns[i] = cc_make_button(
             theme_row, LCD_W - 16 - 12 - (3 - i) * (seg_w + 4), (56 - seg_h) / 2, seg_w, seg_h,
-            theme_names[i], theme.panel_edge, theme.fg, sf_theme_cb, (void *)theme_vals[i]);
+            theme_names[i], theme.panel_edge, theme.fg, sf_theme_cb, (void *)kSettingsThemeVals[i]);
     }
     y += 68;
 
@@ -6164,7 +6160,7 @@ static lv_obj_t *create_setup_form(lv_obj_t *parent, const ScreenVariantSpec &sp
                    sf_bright_cb, (void *)(intptr_t)-16);
     st->brightness_lbl = lv_label_create(bright_row);
     lv_label_set_text(st->brightness_lbl, "---");
-    lv_obj_set_style_text_font(st->brightness_lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(st->brightness_lbl, &font_b612_28, 0);
     lv_obj_set_style_text_color(st->brightness_lbl, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->brightness_lbl, LV_ALIGN_RIGHT_MID, -80, 0);
     cc_make_button(bright_row, LCD_W - 16 - 12 - 60, 8, 60, 40, "+", theme.accent, 0x05101c,
@@ -6204,9 +6200,8 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
     }
     if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
         strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
-        static const char *vals[3] = {"day", "night", "auto"};
         for (int i = 0; i < 3; ++i) {
-            bool active = strcmp(cur_theme.c_str(), vals[i]) == 0;
+            bool active = strcmp(cur_theme.c_str(), kSettingsThemeVals[i]) == 0;
             uint32_t bg = active ? theme.accent : theme.panel_edge;
             uint32_t fg = active ? 0x05101c : theme.fg;
             lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);
@@ -6665,7 +6660,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_add_event_cb(s_root, back_cb, LV_EVENT_CLICKED, nullptr);
 
     s_cap = lv_label_create(s_root);
-    lv_obj_set_style_text_font(s_cap, &lv_font_montserrat_38, 0);
+    lv_obj_set_style_text_font(s_cap, &font_b612_38, 0);
     lv_obj_set_style_text_color(s_cap, lv_color_hex(ui::theme.fg_dim), 0);
     lv_obj_align(s_cap, LV_ALIGN_TOP_MID, 0, 60);
 
@@ -6687,14 +6682,14 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_label_set_text(s_value, "--");
 
     s_unit = lv_label_create(s_root);
-    lv_obj_set_style_text_font(s_unit, &lv_font_montserrat_38, 0);
+    lv_obj_set_style_text_font(s_unit, &font_b612_38, 0);
     lv_obj_set_style_text_color(s_unit, lv_color_hex(ui::theme.fg_dim), 0);
     lv_obj_align(s_unit, LV_ALIGN_BOTTOM_MID, 0, -70);
 
     // A subtle hint that tapping returns.
     lv_obj_t *hint = lv_label_create(s_root);
     lv_label_set_text(hint, "tap to close");
-    lv_obj_set_style_text_font(hint, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(hint, &font_b612_14, 0);
     lv_obj_set_style_text_color(hint, lv_color_hex(ui::theme.fg_dim), 0);
     lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -16);
     return s_root;
@@ -6719,7 +6714,7 @@ void refresh() {
     if (kind != s_last_kind) {
         s_last_kind = kind;
         if (multiline) {
-            lv_obj_set_style_text_font(s_value, &lv_font_montserrat_38, 0);
+            lv_obj_set_style_text_font(s_value, &font_b612_38, 0);
             lv_obj_set_style_transform_scale(s_value, 256, 0);  // 256 = 1.0x (no scale)
         } else {
             lv_obj_set_style_text_font(s_value, &font_xl_64, 0);

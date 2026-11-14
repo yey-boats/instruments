@@ -201,8 +201,8 @@ void to_json_doc(JsonDocument &doc) {
     widgets["map"] = false;
 
     // Compiled font sizes. Hardcoded to match the LVGL fonts the
-    // firmware actually links - keeping this in sync requires updating
-    // lv_conf.h LV_FONT_MONTSERRAT_* enables + this array together.
+    // firmware actually links (font_b612_*, tools/fonts/gen_fonts.sh) -
+    // keep this array in sync with the generated sizes.
     JsonObject fonts = caps["fonts"].to<JsonObject>();
     fonts["scalable"] = false;
     JsonArray sizes = fonts["sizes"].to<JsonArray>();
@@ -211,7 +211,7 @@ void to_json_doc(JsonDocument &doc) {
     sizes.add(28);
     sizes.add(48);
     JsonArray families = fonts["families"].to<JsonArray>();
-    families.add("default");  // Montserrat
+    families.add("default");  // B612
 
     JsonObject layout = caps["layout"].to<JsonObject>();
     layout["grid"] = true;       // QuadGrid, StatusList, ControlConsole

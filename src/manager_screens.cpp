@@ -96,7 +96,7 @@ bool build_screen(const manager_config::RenderPlan &plan, const manager_config::
     if (plan.layout_variant[0]) {
         lv_obj_t *title = lv_label_create(out.root);
         lv_label_set_text(title, plan.layout_variant);
-        lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(title, &font_b612_14, 0);
         lv_obj_set_style_text_color(title, lv_color_hex(ui::theme.fg_dim), 0);
         lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
     }

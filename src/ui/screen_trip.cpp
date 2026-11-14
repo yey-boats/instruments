@@ -71,7 +71,7 @@ static lv_obj_t *make_stat(lv_obj_t *parent, const char *cap, int x, int y, int 
 
     lv_obj_t *ttl = lv_label_create(c);
     lv_label_set_text(ttl, cap);
-    lv_obj_set_style_text_font(ttl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(ttl, &font_b612_14, 0);
     lv_obj_set_style_text_color(ttl, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(ttl, LV_ALIGN_TOP_LEFT, 0, 0);
 
@@ -97,7 +97,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *title = lv_label_create(s_root);
     lv_label_set_text(title, "TRIP");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(title, &font_b612_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
@@ -130,13 +130,13 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *cap = lv_label_create(hero);
     lv_label_set_text(cap, "DISTANCE");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lbl_dist = lv_label_create(hero);
     lv_label_set_text(lbl_dist, "0.00");
-    lv_obj_set_style_text_font(lbl_dist, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(lbl_dist, &font_b612_48, 0);
     lv_obj_set_style_text_color(lbl_dist, lv_color_hex(theme.fg), 0);
     lv_obj_align(lbl_dist, LV_ALIGN_CENTER, -30, 10);
 
@@ -146,20 +146,20 @@ lv_obj_t *build(lv_obj_t *parent) {
     // so it stays attached as the digit count changes (0.00 -> 12.3).
     lbl_dist_unit = lv_label_create(hero);
     lv_label_set_text(lbl_dist_unit, "nm");
-    lv_obj_set_style_text_font(lbl_dist_unit, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_dist_unit, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_dist_unit, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align_to(lbl_dist_unit, lbl_dist, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -6);
 
     // Three stats side by side
     int col_w = (LCD_W - 32) / 3;
-    make_stat(s_root, "TIME UNDERWAY", 8, stats_y, col_w, stat_h, &lbl_time, &lv_font_montserrat_28,
+    make_stat(s_root, "TIME UNDERWAY", 8, stats_y, col_w, stat_h, &lbl_time, &font_b612_28,
               theme.fg);
-    make_stat(s_root, "AVG SPEED", 8 + col_w + 8, stats_y, col_w, stat_h, &lbl_avg,
-              &lv_font_montserrat_28, theme.fg);
+    make_stat(s_root, "AVG SPEED", 8 + col_w + 8, stats_y, col_w, stat_h, &lbl_avg, &font_b612_28,
+              theme.fg);
     // MAX SPEED neutral (theme.fg): green implied a "good" state it doesn't have
     // (it's just a record); reserve green for genuine favourable cues.
     make_stat(s_root, "MAX SPEED", 8 + (col_w + 8) * 2, stats_y, col_w - 8, stat_h, &lbl_max,
-              &lv_font_montserrat_28, theme.fg);
+              &font_b612_28, theme.fg);
 
     // Live SOG strip fills the remaining band above the footer tip
     lv_obj_t *strip = lv_obj_create(s_root);
@@ -175,13 +175,13 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *now_cap = lv_label_create(strip);
     lv_label_set_text(now_cap, "NOW");
-    lv_obj_set_style_text_font(now_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(now_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(now_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(now_cap, LV_ALIGN_LEFT_MID, 0, 0);
 
     lbl_sog_now = lv_label_create(strip);
     lv_label_set_text(lbl_sog_now, "--.- kn");
-    lv_obj_set_style_text_font(lbl_sog_now, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_sog_now, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_sog_now, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_sog_now, LV_ALIGN_CENTER, 0, 0);
 

@@ -146,7 +146,7 @@ static lv_obj_t *chip(lv_obj_t *parent, const char *txt, int w, lv_event_cb_t sh
     lv_obj_set_style_pad_all(b, 0, 0);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(theme.fg), 0);
     lv_obj_center(l);
     if (short_cb) lv_obj_add_event_cb(b, short_cb, LV_EVENT_SHORT_CLICKED, nullptr);
@@ -194,7 +194,7 @@ static void build_mode_modal(lv_obj_t *parent) {
 
     lv_obj_t *t = lv_label_create(card);
     lv_label_set_text(t, "MODE");
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(t, &font_b612_14, 0);
     lv_obj_set_style_text_color(t, lv_color_hex(theme.fg_dim), 0);
 
     for (int i = 0; i < 4; ++i) {
@@ -204,7 +204,7 @@ static void build_mode_modal(lv_obj_t *parent) {
         lv_obj_set_style_radius(b, ui::chrome::panel_radius, 0);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, kModeName[i]);
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(l, &font_b612_20, 0);
         // Ink on the accent-filled buttons is theme.bg (the ground colour
         // always contrasts the accent in every palette); the old night-navy
         // literal disappeared against the day/classic accents.
@@ -238,7 +238,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_mode = lv_label_create(s_root);
     lv_label_set_text(lbl_mode, "STANDBY");
-    lv_obj_set_style_text_font(lbl_mode, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_mode, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_mode, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_mode, LV_ALIGN_TOP_MID, 0, 14);
 
@@ -272,7 +272,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // --- center readouts (over the dial face) ---
     lv_obj_t *cap = lv_label_create(s_root);
     lv_label_set_text(cap, "HDG");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(cap, 120);
@@ -288,7 +288,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_cogsog = lv_label_create(s_root);
     lv_label_set_text(lbl_cogsog, "COG --\xC2\xB0 | SOG -- kn");
-    lv_obj_set_style_text_font(lbl_cogsog, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_cogsog, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_cogsog, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(lbl_cogsog, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_cogsog, LCD_W);
@@ -327,7 +327,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     s_xte = ui::build_xte_strip(s_root, xte_x, xte_y, xte_w, xte_h);
 
     // --- numeric tiles (exactly square, anchored clear of the XTE strip) ---
-    const lv_font_t *tv = &lv_font_montserrat_38;
+    const lv_font_t *tv = &font_b612_38;
     int gap = 8;
     if (!wide) {
         int n = 4;

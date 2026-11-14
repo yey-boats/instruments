@@ -117,7 +117,7 @@ static lv_obj_t *course_btn(lv_obj_t *parent, const char *txt, int w, lv_event_c
     lv_obj_set_style_pad_all(b, 0, 0);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(theme.fg), 0);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, cb, LV_EVENT_SHORT_CLICKED, user_data);
@@ -163,7 +163,7 @@ static lv_obj_t *chip(lv_obj_t *parent, const char *txt, int w, lv_event_cb_t sh
     lv_obj_set_style_pad_all(b, 0, 0);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(theme.fg), 0);
     lv_obj_center(l);
     if (short_cb) lv_obj_add_event_cb(b, short_cb, LV_EVENT_SHORT_CLICKED, nullptr);
@@ -215,7 +215,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_mode = lv_label_create(s_root);
     lv_label_set_text(lbl_mode, "WIND");
-    lv_obj_set_style_text_font(lbl_mode, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_mode, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_mode, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_mode, LV_ALIGN_TOP_MID, 0, 14);
 
@@ -273,8 +273,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     int cap_y = scy - s_cp.r / 2 - 30;
     bool show_cap = true;
     if (!wide && sl.compass_w < LCD_W - 32) {
-        static const lv_font_t *const ladder[] = {&lv_font_montserrat_48, &lv_font_montserrat_38,
-                                                  &lv_font_montserrat_28, &lv_font_montserrat_20};
+        static const lv_font_t *const ladder[] = {&font_b612_48, &font_b612_38, &font_b612_28,
+                                                  &font_b612_20};
         const int hole_r = s_cp.r - 62;
         auto chord = [hole_r](int d) -> int {  // hole width d px above the centre
             if (d >= hole_r) return 0;
@@ -296,17 +296,17 @@ lv_obj_t *build(lv_obj_t *parent) {
     }
     // The wind sub-line straddles the compass diameter: drop to 14 px when the
     // real refresh text ("TWA %s  |  TWD %s", worst case) is wider than the dial.
-    const lv_font_t *sub_font = &lv_font_montserrat_20;
+    const lv_font_t *sub_font = &font_b612_20;
     {
         lv_point_t sz;
         lv_text_get_size(&sz, "TWA 180\xC2\xB0S  |  TWD 359\xC2\xB0", sub_font, 0, 0, LV_COORD_MAX,
                          LV_TEXT_FLAG_NONE);
-        if (sz.x > 2 * s_cp.r - 16) sub_font = &lv_font_montserrat_14;
+        if (sz.x > 2 * s_cp.r - 16) sub_font = &font_b612_14;
     }
 
     lv_obj_t *cap = lv_label_create(s_root);
     lv_label_set_text(cap, "HDG");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(cap, 120);
@@ -342,7 +342,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // the wide panel the side columns already leave the bottom-center free.
     const int course_h = ui::geom::kSteerCourseH;
     const int course_pad = ui::geom::kSteerCoursePad;
-    const lv_font_t *tv = &lv_font_montserrat_38;
+    const lv_font_t *tv = &font_b612_38;
     int gap = ui::geom::kSteerGap;
     if (!wide) {
         // Tiles sit under the XTE strip (never over its tick numbers) and above
@@ -351,7 +351,7 @@ lv_obj_t *build(lv_obj_t *parent) {
         tile_aws = tile_awa = tile_tws = tile_twa = nullptr;
         if (sl.tiles) {
             const int sq = sl.tile_w, th = sl.tile_h, ty = sl.tile_y;
-            if (th < 80) tv = &lv_font_montserrat_28;
+            if (th < 80) tv = &font_b612_28;
             tile_aws = ui::numeric_tile(s_root, gap, ty, sq, th, "AWS", "kn", tv, theme.warn);
             tile_awa = ui::numeric_tile(s_root, gap * 2 + sq, ty, sq, th, "AWA", "", tv, theme.fg);
             tile_tws =

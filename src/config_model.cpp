@@ -19,7 +19,7 @@ bool clamp_ui(UiConfig &c) {
         c.pos_format = PosFormat::DDM;
         ok = false;
     }
-    if ((uint8_t)c.theme > (uint8_t)Theme::Classic) {
+    if ((uint8_t)c.theme > (uint8_t)Theme::Sun) {
         c.theme = Theme::Night;
         ok = false;
     }
@@ -79,6 +79,8 @@ const char *theme_name(Theme t) {
         return "red-night";
     case Theme::Classic:
         return "classic";
+    case Theme::Sun:
+        return "sun";
     }
     return "night";
 }
@@ -90,6 +92,7 @@ Theme parse_theme(const char *s, Theme fallback) {
     if (strcmp(s, "high-contrast") == 0) return Theme::HighContrast;
     if (strcmp(s, "red-night") == 0) return Theme::RedNight;
     if (strcmp(s, "classic") == 0) return Theme::Classic;
+    if (strcmp(s, "sun") == 0) return Theme::Sun;
     return fallback;
 }
 

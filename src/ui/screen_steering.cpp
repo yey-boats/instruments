@@ -103,7 +103,7 @@ static lv_obj_t *nudge_btn(lv_obj_t *parent, const char *txt, int delta) {
     lv_obj_set_style_pad_all(b, 0, 0);
     lv_obj_t *l = lv_label_create(b);
     lv_label_set_text(l, txt);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(theme.fg), 0);
     lv_obj_center(l);
     lv_obj_add_event_cb(b, on_nudge, LV_EVENT_SHORT_CLICKED, (void *)(intptr_t)delta);

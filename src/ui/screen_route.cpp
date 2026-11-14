@@ -91,7 +91,7 @@ static void reanchor_extras(lv_obj_t *root) {
         for (uint32_t ci = 0; ci < nc; ++ci) {
             lv_obj_t *c = lv_obj_get_child(tile, ci);
             if (!lv_obj_check_type(c, &lv_label_class)) continue;
-            if (lv_obj_get_style_text_font(c, LV_PART_MAIN) != &lv_font_montserrat_14) continue;
+            if (lv_obj_get_style_text_font(c, LV_PART_MAIN) != &font_b612_14) continue;
             if (lv_obj_get_style_align(c, LV_PART_MAIN) != LV_ALIGN_TOP_MID) continue;
             if ((int)lv_obj_get_style_y(c, LV_PART_MAIN) < 56) continue;  // caption/unit band
             lv_obj_align(c, LV_ALIGN_CENTER, 0, 12 + k * 20);

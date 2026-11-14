@@ -1245,31 +1245,31 @@ static void mob_build(lv_obj_t *scr) {
     lv_obj_t *t = lv_label_create(mob_view);
     lv_label_set_text(t, "MAN OVERBOARD");
     lv_obj_set_style_text_color(t, lv_color_hex(ui::theme.port), 0);
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(t, &font_b612_28, 0);
     lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 0);
 
     mob_lbl_dist = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_dist, "--- m");
     lv_obj_set_style_text_color(mob_lbl_dist, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(mob_lbl_dist, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(mob_lbl_dist, &font_b612_48, 0);
     lv_obj_align(mob_lbl_dist, LV_ALIGN_TOP_MID, 0, 70);
 
     mob_lbl_brg = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_brg, "BRG ---\xC2\xB0");
     lv_obj_set_style_text_color(mob_lbl_brg, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(mob_lbl_brg, &lv_font_montserrat_48, 0);
+    lv_obj_set_style_text_font(mob_lbl_brg, &font_b612_48, 0);
     lv_obj_align(mob_lbl_brg, LV_ALIGN_CENTER, 0, 10);
 
     mob_lbl_back = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_back, "return ---\xC2\xB0");
     lv_obj_set_style_text_color(mob_lbl_back, lv_color_hex(ui::theme.accent), 0);
-    lv_obj_set_style_text_font(mob_lbl_back, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(mob_lbl_back, &font_b612_20, 0);
     lv_obj_align(mob_lbl_back, LV_ALIGN_CENTER, 0, 70);
 
     mob_lbl_elapsed = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_elapsed, "elapsed --:--");
     lv_obj_set_style_text_color(mob_lbl_elapsed, lv_color_hex(ui::theme.fg), 0);
-    lv_obj_set_style_text_font(mob_lbl_elapsed, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(mob_lbl_elapsed, &font_b612_20, 0);
     lv_obj_align(mob_lbl_elapsed, LV_ALIGN_BOTTOM_MID, 0, -70);
 
     lv_obj_t *clear_btn = lv_obj_create(mob_view);
@@ -1283,7 +1283,7 @@ static void mob_build(lv_obj_t *scr) {
     lv_obj_t *cbl = lv_label_create(clear_btn);
     lv_label_set_text(cbl, "HOLD TO CLEAR");
     lv_obj_set_style_text_color(cbl, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(cbl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cbl, &font_b612_14, 0);
     lv_obj_center(cbl);
 }
 
@@ -1303,7 +1303,7 @@ static void alarms_build(lv_obj_t *scr) {
     alarm_label = lv_label_create(alarm_banner);
     lv_label_set_text(alarm_label, "");
     lv_obj_set_style_text_color(alarm_label, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(alarm_label, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(alarm_label, &font_b612_20, 0);
     lv_obj_center(alarm_label);
     // Blink + multi-alarm cycle driver (no-op while nothing is active).
     if (!g_alarm_timer) g_alarm_timer = lv_timer_create(alarm_tick, 500, nullptr);
@@ -1448,7 +1448,7 @@ static void demo_start(uint32_t period_ms) {
         lv_obj_set_style_bg_color(g_demo_badge, lv_color_hex(ui::theme.port), 0);
         lv_obj_set_style_bg_opa(g_demo_badge, LV_OPA_COVER, 0);
         lv_obj_set_style_text_color(g_demo_badge, lv_color_hex(0xffffff), 0);
-        lv_obj_set_style_text_font(g_demo_badge, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(g_demo_badge, &font_b612_14, 0);
         lv_obj_set_style_pad_all(g_demo_badge, 4, 0);
         lv_obj_set_style_radius(g_demo_badge, 4, 0);
     }
@@ -1498,7 +1498,7 @@ static void fps_overlay_toggle() {
         lv_obj_set_style_bg_color(g_fps_overlay, lv_color_hex(0x000000), 0);
         lv_obj_set_style_bg_opa(g_fps_overlay, LV_OPA_70, 0);
         lv_obj_set_style_text_color(g_fps_overlay, lv_color_hex(0x33ff99), 0);
-        lv_obj_set_style_text_font(g_fps_overlay, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(g_fps_overlay, &font_b612_14, 0);
         lv_obj_set_style_pad_all(g_fps_overlay, 4, 0);
         lv_obj_set_style_radius(g_fps_overlay, 4, 0);
         lv_obj_align(g_fps_overlay, LV_ALIGN_TOP_LEFT, 70, 4);
@@ -2160,7 +2160,7 @@ static bool handleMainCommand(const String &line) {
         // persists it, and rebuilds the built screens live (no reboot).
         // "auto" is a legacy token the pump persists without a palette flip.
         if (!ui::theme_known(v.c_str()) && v != "auto") {
-            net::logf("usage: theme day|night|high-contrast|red-night|classic");
+            net::logf("usage: theme day|night|high-contrast|red-night|classic|sun");
             return true;
         }
         app::Command cmd;
