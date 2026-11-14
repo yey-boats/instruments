@@ -47,7 +47,7 @@ static void test_theme_supported_tokens_accepted() {
     TEST_ASSERT_TRUE(is_valid_theme("day"));
     TEST_ASSERT_TRUE(is_valid_theme("night"));
     TEST_ASSERT_TRUE(is_valid_theme("auto"));
-    // Catalog theme implemented in firmware + the two firmware-extra skins.
+    // The other MIDL catalog themes implemented in firmware.
     TEST_ASSERT_TRUE(is_valid_theme("high-contrast"));
     TEST_ASSERT_TRUE(is_valid_theme("red-night"));
     TEST_ASSERT_TRUE(is_valid_theme("classic"));

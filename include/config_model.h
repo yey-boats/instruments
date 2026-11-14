@@ -57,8 +57,7 @@ enum class PersistPolicy : uint8_t {
 };
 
 // Theme ids are persisted to NVS as their u8 value — append only, never
-// reorder. day/night/high-contrast mirror the MIDL catalog; red-night and
-// classic are firmware-extra skins (not in the advertised manifest yet).
+// reorder. Every theme here is in the MIDL catalog and advertised manifest.
 enum class Theme : uint8_t {
     Night = 0,
     Day = 1,

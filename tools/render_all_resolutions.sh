@@ -4,7 +4,7 @@
 #
 #   docs/bench/screens/<env>/<WxH>/<name>.png           default (night) theme,
 #                                                       every geometry
-#   docs/bench/screens/<env>/<WxH>/<theme>/<name>.png   ALL 5 themes at the
+#   docs/bench/screens/<env>/<WxH>/<theme>/<name>.png   ALL 6 themes at the
 #                                                       env's native geometry
 #
 # This is a superset driver of tools/sim_render.sh (which writes a flatter
@@ -47,7 +47,7 @@ OUT_ROOT="docs/bench/screens"
 WIDE_RES=("480x480" "800x480" "1024x600")
 NATIVE_RES="480x480"
 KNOB_RES="360x360"
-THEMES=("night" "day" "high-contrast" "red-night" "classic")
+THEMES=("night" "day" "high-contrast" "red-night" "classic" "sun")
 ENVS=("sim" "sim-midl" "sim-wind" "sim-ap" "sim-screens" "sim-knob" "sim-control")
 
 MIDL_SCREENS=("wind" "course" "engine" "power" "race" "anchor")

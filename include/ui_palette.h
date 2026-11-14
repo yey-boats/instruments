@@ -152,8 +152,8 @@ struct Named {
     const Palette *palette;
 };
 
-// Single source for name -> palette. day/night/high-contrast mirror the MIDL
-// catalog; red-night/classic/sun are firmware-extra (see ui_theme.h).
+// Single source for name -> palette. All six mirror the MIDL catalog
+// (see ui_theme.h).
 constexpr Named all[] = {
     {"night", &night},         {"day", &day},         {"high-contrast", &high_contrast},
     {"red-night", &red_night}, {"classic", &classic}, {"sun", &sun},
