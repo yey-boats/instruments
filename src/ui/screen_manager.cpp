@@ -4,7 +4,7 @@
 
 namespace ui {
 
-static Screen s_screens[MAX_SCREENS];
+static Screen s_screens[REGISTRY_CAPACITY];
 static size_t s_count = 0;
 static int s_index = 0;
 static ScreenPostBuildCb s_post_build_cb = nullptr;
@@ -33,7 +33,11 @@ void set_post_build_cb(ScreenPostBuildCb cb) {
 }
 
 void register_screen(const Screen &s) {
-    if (s_count >= MAX_SCREENS) return;
+    if (s_count >= REGISTRY_CAPACITY) {
+        net::logf("[ui] screen registry full (%u); '%s' not registered",
+                  (unsigned)REGISTRY_CAPACITY, s.id ? s.id : "?");
+        return;
+    }
     s_screens[s_count++] = s;
     if (s_count == 1 && s.root) {
         lv_screen_load(s.root);
@@ -71,7 +75,12 @@ bool set_screen_collect_paths(const char *id, CollectPathsFn fn) {
 
 void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_fn)(lv_obj_t *),
                           void (*refresh_fn)(), bool hidden) {
-    if (s_count >= MAX_SCREENS || !build_fn) return;
+    if (!build_fn) return;
+    if (s_count >= REGISTRY_CAPACITY) {
+        net::logf("[ui] screen registry full (%u); '%s' not registered",
+                  (unsigned)REGISTRY_CAPACITY, id ? id : "?");
+        return;
+    }
     Screen s = {};
     s.id = id;
     s.title = title;

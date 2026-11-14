@@ -338,7 +338,16 @@ void pump() {
             } else if (isdigit((unsigned char)id[0])) {
                 ui::show(atoi(id));
             } else {
-                ui::show_by_id(id);
+                // The manager names screens by its profile ids ("wind"); managed
+                // screens register as "mgr_<id>", and a built-in may share the
+                // plain id. While a managed set is applied, its screen wins.
+                char managed[48];
+                bool shown = false;
+                if (manager_screens::is_applied() && strncmp(id, "mgr_", 4) != 0) {
+                    snprintf(managed, sizeof(managed), "mgr_%s", id);
+                    shown = ui::show_by_id(managed);
+                }
+                if (!shown) ui::show_by_id(id);
             }
             break;
         }

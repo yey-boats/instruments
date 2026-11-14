@@ -33,6 +33,16 @@ static void test_widget_type_round_trip() {
                           static_cast<int>(widget_type_from_string("nope")));
 }
 
+// The capability report advertises windCircle/control (capabilities.cpp) and
+// the manager sends those names; rejecting them dropped every layout with a
+// wind rose ("unsupported_widget_type at widgets.items.<id>.type").
+static void test_advertised_view_type_aliases() {
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WidgetType::WindRose),
+                          static_cast<int>(widget_type_from_string("windCircle")));
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(WidgetType::Autopilot),
+                          static_cast<int>(widget_type_from_string("control")));
+}
+
 static void test_minimal_widgets_parses() {
     auto cfg = parse_json(R"({
         "widgets": {
@@ -317,6 +327,7 @@ static void test_empty_config_is_valid_empty_plan() {
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_widget_type_round_trip);
+    RUN_TEST(test_advertised_view_type_aliases);
     RUN_TEST(test_minimal_widgets_parses);
     RUN_TEST(test_unsupported_widget_type_rejected);
     RUN_TEST(test_display_mismatch_rejected);

@@ -19,6 +19,10 @@ class SubscriptionSet;
 namespace ui {
 
 constexpr size_t MAX_SCREENS = 16;
+// Registry slots: the built-in screens (16 on the 4848S040, which used every
+// slot) plus the manager's managed screens (manager_screens::MAX_MANAGED_SCREENS).
+// MAX_SCREENS stays the MIDL screen/arena limit; only the registry grows.
+constexpr size_t REGISTRY_CAPACITY = MAX_SCREENS + 8;
 
 // Per-screen path collector: appends the SignalK paths this screen consumes to
 // `out` (does not clear it). Template screens register one so the subscription

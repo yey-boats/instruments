@@ -67,10 +67,14 @@ WidgetType widget_type_from_string(const char *s) {
     if (!strcmp(s, "gauge")) return WidgetType::Gauge;
     if (!strcmp(s, "compass")) return WidgetType::Compass;
     if (!strcmp(s, "windRose")) return WidgetType::WindRose;
+    // The capability report (capabilities.cpp) advertises these view-type names,
+    // so the manager sends them; accept both spellings.
+    if (!strcmp(s, "windCircle")) return WidgetType::WindRose;
     if (!strcmp(s, "trend")) return WidgetType::Trend;
     if (!strcmp(s, "bar")) return WidgetType::Bar;
     if (!strcmp(s, "button")) return WidgetType::Button;
     if (!strcmp(s, "autopilot")) return WidgetType::Autopilot;
+    if (!strcmp(s, "control")) return WidgetType::Autopilot;
     return WidgetType::Unknown;
 }
 
