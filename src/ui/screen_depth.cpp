@@ -93,13 +93,13 @@ static lv_obj_t *make_stat(lv_obj_t *parent, const char *cap, int x, int y, int 
 
     lv_obj_t *ttl = lv_label_create(c);
     lv_label_set_text(ttl, cap);
-    lv_obj_set_style_text_font(ttl, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(ttl, &font_b612_14, 0);
     lv_obj_set_style_text_color(ttl, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(ttl, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lv_obj_t *val = lv_label_create(c);
     lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(val, &font_b612_28, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(color), 0);
     lv_obj_align(val, LV_ALIGN_BOTTOM_LEFT, 0, 0);
     *value_out = val;
@@ -119,7 +119,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *title = lv_label_create(s_root);
     lv_label_set_text(title, "DEPTH");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(title, &font_b612_20, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
 
@@ -151,7 +151,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *cap = lv_label_create(hero);
     lv_label_set_text(cap, "BELOW KEEL");
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, 0);
 
@@ -176,7 +176,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // unit anchors there with a downward bias to share the digits' baseline.
     lv_obj_t *unit = lv_label_create(hero);
     lv_label_set_text(unit, "m");
-    lv_obj_set_style_text_font(unit, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(unit, &font_b612_28, 0);
     lv_obj_set_style_text_color(unit, lv_color_hex(theme.fg_dim), 0);
     // Bottom-right of the hero, clear of the fit-scaled value (which is centred
     // with a left bias and never grows past the reserved unit gutter).
@@ -205,7 +205,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *hist_cap = lv_label_create(hist);
     lv_label_set_text(hist_cap, "DEPTH HISTORY");
-    lv_obj_set_style_text_font(hist_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(hist_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(hist_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(hist_cap, LV_ALIGN_TOP_LEFT, 0, 0);
 

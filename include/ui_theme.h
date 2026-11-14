@@ -23,12 +23,16 @@ struct Palette {
     uint32_t port;        // red side (port wind)
     uint32_t starboard;   // green side (starboard wind)
     uint32_t grid;        // axis / compass tick color
-    uint32_t arc_band;    // near-white gauge band (reference compass rail)
+    uint32_t arc_band;    // gauge band (compass rail, wind bezel)
     // MIDL colour tokens with no firmware chrome slot of their own (#45):
     // `tide` (current/tide vectors) and `stale` (aged data), values from the
     // matching midl/web/src/theme.ts palette.
     uint32_t tide;
     uint32_t stale;
+    // Ink drawn ON arc_band: major ticks + numerals / minor ticks. Dark ink
+    // for a light band; red-night's dark band takes light red ink.
+    uint32_t band_ink;
+    uint32_t band_ink_dim;
 };
 
 // Glass-cockpit chrome metrics (consolidated; no inline magic numbers in
@@ -63,12 +67,14 @@ extern Palette theme;
 // catalog palettes (midl/web/src/theme.ts). red-night and classic are
 // firmware-extra skins: selectable via console/web/config but NOT advertised
 // in the generated MIDL manifest (that list comes from the upstream midl
-// catalog; adding them there is a follow-up in the midl repo).
+// catalog; adding them there is a follow-up in the midl repo). sun is a
+// firmware-extra too, and is the Settings screen's DAY choice (red-night is NIGHT).
 void use_night();          // dark blue "glass cockpit", default
 void use_day();            // light / sunlight-readable
 void use_high_contrast();  // pure black + saturated primaries (max legibility)
 void use_red_night();      // night-vision red/amber on near-black
 void use_classic();        // warm cream/charcoal analog look, brass accent
+void use_sun();            // direct sunlight: white ground, black ink, black borders
 
 // Name-based selection ("night" | "day" | "high-contrast" | "red-night" |
 // "classic"). Flips the global palette; painters pick it up on their next

@@ -1516,6 +1516,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
     <button data-cmd="theme high-contrast">high-contrast</button>
     <button data-cmd="theme red-night">red-night</button>
     <button data-cmd="theme classic">classic</button>
+    <button data-cmd="theme sun">sun</button>
     <div class=k style="margin-top:8px">BRIGHTNESS</div>
     <input type=range id=brightSlider min=20 max=255 value=200 style="width:100%">
   </div>

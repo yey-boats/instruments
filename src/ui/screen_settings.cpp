@@ -98,7 +98,7 @@ static lv_obj_t *make_value_label(lv_obj_t *parent, int x, int y, int w) {
     lv_obj_t *label = lv_label_create(parent);
     lv_obj_set_width(label, w);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_RIGHT, 0);
-    style_value(label, &lv_font_montserrat_14, theme.fg_dim);
+    style_value(label, &font_b612_14, theme.fg_dim);
     lv_obj_set_pos(label, x, y);
     return label;
 }
@@ -127,7 +127,7 @@ static void make_segmented(lv_obj_t *parent, Segmented &seg, const char *const *
 
         lv_obj_t *label = lv_label_create(button);
         lv_label_set_text(label, labels[i]);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(label, &font_b612_14, 0);
         lv_obj_center(label);
     }
 }
@@ -145,7 +145,7 @@ static lv_obj_t *make_action(lv_obj_t *parent, const char *text, int x, int y, i
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, text);
     lv_obj_set_style_text_color(label, lv_color_hex(theme.bg), 0);  // ink on accent fill
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(label, &font_b612_14, 0);
     lv_obj_center(label);
     return button;
 }
@@ -261,7 +261,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *title = lv_label_create(s_root);
     lv_label_set_text(title, "SETTINGS");
-    style_value(title, &lv_font_montserrat_28, theme.accent);
+    style_value(title, &font_b612_28, theme.accent);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 112, 12);
 
     static const char *const brightness_labels[] = {"20", "35", "50", "80", "100"};

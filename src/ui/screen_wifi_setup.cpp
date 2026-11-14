@@ -79,7 +79,7 @@ static void populate_list_from_scan(int found) {
         lv_obj_t *empty = lv_label_create(ssid_list);
         lv_label_set_text(empty, "no networks found");
         lv_obj_set_style_text_color(empty, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_set_style_text_font(empty, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(empty, &font_b612_20, 0);
         return;
     }
     for (int i = 0; i < found && i < 20; ++i) {
@@ -105,7 +105,7 @@ static void populate_list_from_scan(int found) {
 
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, ssid.c_str());
-        lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+        lv_obj_set_style_text_font(l, &font_b612_20, 0);
         lv_obj_set_style_text_color(l, lv_color_hex(theme.fg), 0);
         lv_obj_align(l, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -113,7 +113,7 @@ static void populate_list_from_scan(int found) {
         snprintf(meta, sizeof(meta), "%d dBm %s", rssi, secured ? "lock" : "open");
         lv_obj_t *m = lv_label_create(b);
         lv_label_set_text(m, meta);
-        lv_obj_set_style_text_font(m, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(m, &font_b612_14, 0);
         lv_obj_set_style_text_color(m, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(m, LV_ALIGN_RIGHT_MID, 0, 0);
     }
@@ -171,7 +171,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *prov_title = lv_label_create(provision_view);
     lv_label_set_text(prov_title, "JOIN TO CONFIGURE");
-    lv_obj_set_style_text_font(prov_title, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(prov_title, &font_b612_20, 0);
     lv_obj_set_style_text_color(prov_title, lv_color_hex(theme.accent), 0);
     lv_obj_align(prov_title, LV_ALIGN_TOP_MID, 0, 0);
 
@@ -179,7 +179,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_label_set_text(prov_sub, "1. scan QR or join the network below\n"
                                 "2. open http://192.168.4.1/\n"
                                 "3. pick a network in the WIFI panel");
-    lv_obj_set_style_text_font(prov_sub, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(prov_sub, &font_b612_14, 0);
     lv_obj_set_style_text_color(prov_sub, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(prov_sub, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(prov_sub, LV_ALIGN_TOP_MID, 0, 28);
@@ -219,7 +219,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     char url_line[96];
     snprintf(url_line, sizeof(url_line), "%s  ->  http://192.168.4.1/", ap_ssid.c_str());
     lv_label_set_text(lbl_ap_url, url_line);
-    lv_obj_set_style_text_font(lbl_ap_url, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(lbl_ap_url, &font_b612_14, 0);
     lv_obj_set_style_text_color(lbl_ap_url, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_ap_url, LV_ALIGN_BOTTOM_MID, 0, -8);
 
@@ -233,7 +233,7 @@ lv_obj_t *build(lv_obj_t *parent) {
         snprintf(pass_line, sizeof(pass_line), "password: %s", ap_pass.c_str());
         lv_label_set_text(lbl_ap_pass, pass_line);
     }
-    lv_obj_set_style_text_font(lbl_ap_pass, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(lbl_ap_pass, &font_b612_14, 0);
     lv_obj_set_style_text_color(lbl_ap_pass, lv_color_hex(theme.fg), 0);
     lv_obj_align(lbl_ap_pass, LV_ALIGN_BOTTOM_MID, 0, -26);
 
@@ -249,7 +249,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *title = lv_label_create(list_view);
     lv_label_set_text(title, "WIFI");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(title, &font_b612_28, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 8, 4);
 
@@ -262,12 +262,12 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_add_event_cb(btn_scan, on_scan_clicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t *scan_lbl = lv_label_create(btn_scan);
     lv_label_set_text(scan_lbl, "SCAN");
-    lv_obj_set_style_text_font(scan_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(scan_lbl, &font_b612_20, 0);
     lv_obj_center(scan_lbl);
 
     lbl_scan_status = lv_label_create(list_view);
     lv_label_set_text(lbl_scan_status, "tap SCAN to search");
-    lv_obj_set_style_text_font(lbl_scan_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(lbl_scan_status, &font_b612_14, 0);
     lv_obj_set_style_text_color(lbl_scan_status, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(lbl_scan_status, LV_ALIGN_TOP_LEFT, 8, 56);
 
@@ -294,13 +294,13 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *entry_title = lv_label_create(entry_view);
     lv_label_set_text(entry_title, "PASSWORD");
-    lv_obj_set_style_text_font(entry_title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(entry_title, &font_b612_14, 0);
     lv_obj_set_style_text_color(entry_title, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(entry_title, LV_ALIGN_TOP_LEFT, 0, 0);
 
     lbl_selected_ssid = lv_label_create(entry_view);
     lv_label_set_text(lbl_selected_ssid, "");
-    lv_obj_set_style_text_font(lbl_selected_ssid, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_selected_ssid, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_selected_ssid, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_selected_ssid, LV_ALIGN_TOP_LEFT, 0, 16);
 

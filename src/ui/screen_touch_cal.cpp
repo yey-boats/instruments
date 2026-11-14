@@ -187,19 +187,19 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lv_obj_t *title = lv_label_create(s_root);
     lv_label_set_text(title, "TOUCH CALIBRATION");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(title, &font_b612_28, 0);
     lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
     lv_obj_align(title, LV_ALIGN_CENTER, 0, -60);
 
     s_lbl_step = lv_label_create(s_root);
     lv_label_set_text(s_lbl_step, "POINT 1/4");
-    lv_obj_set_style_text_font(s_lbl_step, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_lbl_step, &font_b612_20, 0);
     lv_obj_set_style_text_color(s_lbl_step, lv_color_hex(theme.fg), 0);
     lv_obj_align(s_lbl_step, LV_ALIGN_CENTER, 0, -20);
 
     s_lbl_help = lv_label_create(s_root);
     lv_label_set_text(s_lbl_help, "Tap each cross.  Long-press bottom of screen to escape.");
-    lv_obj_set_style_text_font(s_lbl_help, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_lbl_help, &font_b612_14, 0);
     lv_obj_set_style_text_color(s_lbl_help, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(s_lbl_help, LV_ALIGN_CENTER, 0, 8);
 
@@ -216,7 +216,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_t *lbl = lv_label_create(s_btn_cancel);
     lv_label_set_text(lbl, "CANCEL");
     lv_obj_set_style_text_color(lbl, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(lbl, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl, &font_b612_28, 0);
     lv_obj_center(lbl);
 
     s_target = make_target(s_root);

@@ -117,7 +117,7 @@ Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
     for (int deg = 0; deg < 360; deg += 10) {
         bool major = (deg % 30) == 0;
         radial_tick(scale, r, r, deg, major ? 12 : 7, major ? 3 : 2, rim,
-                    major ? 0x16222f : 0x5a6b78);
+                    major ? theme.band_ink : theme.band_ink_dim);
     }
 
     // Upright degree labels (children of root, NOT the rotating group). Created
@@ -140,9 +140,8 @@ Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
         }
         lv_obj_t *l = lv_label_create(root);
         lv_label_set_text(l, txt);
-        lv_obj_set_style_text_font(
-            l, is_cardinal(i) ? &lv_font_montserrat_28 : &lv_font_montserrat_20, 0);
-        lv_obj_set_style_text_color(l, lv_color_hex(0x16222f), 0);
+        lv_obj_set_style_text_font(l, is_cardinal(i) ? &font_b612_28 : &font_b612_20, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(theme.band_ink), 0);
         lv_obj_set_width(l, 52);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
@@ -156,7 +155,7 @@ Compass build_compass(lv_obj_t *parent, int ox, int oy, int w) {
     // Fixed red lubber at the very top: the boat's heading reference.
     lv_obj_t *lub = lv_label_create(root);
     lv_label_set_text(lub, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(lub, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lub, &font_b612_28, 0);
     lv_obj_set_style_text_color(lub, lv_color_hex(theme.alarm), 0);
     lv_obj_align(lub, LV_ALIGN_TOP_MID, 0, -2);
     cp.lubber = lub;
@@ -215,14 +214,14 @@ lv_obj_t *numeric_tile(lv_obj_t *parent, int x, int y, int w, int h, const char 
 
     lv_obj_t *cap = lv_label_create(box);
     lv_label_set_text(cap, caption);
-    lv_obj_set_style_text_font(cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, 0);
 
     if (unit && unit[0]) {
         lv_obj_t *u = lv_label_create(box);
         lv_label_set_text(u, unit);
-        lv_obj_set_style_text_font(u, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(u, &font_b612_14, 0);
         lv_obj_set_style_text_color(u, lv_color_hex(theme.fg_dim), 0);
         lv_obj_align(u, LV_ALIGN_TOP_RIGHT, 0, 0);
     }
@@ -314,7 +313,7 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
             snprintf(tbuf, sizeof(tbuf), "%.*f", tick_decimals, fr[i] * full_scale);
         lv_obj_t *nl = lv_label_create(root);
         lv_label_set_text(nl, tbuf);
-        lv_obj_set_style_text_font(nl, &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(nl, &font_b612_14, 0);
         lv_obj_set_style_text_color(nl, lv_color_hex(theme.fg_dim), 0);
         lv_obj_set_pos(nl, tx - (int)strlen(tbuf) * 4, base_y + 5);
     }
@@ -323,12 +322,12 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
     // (which now live in the gutter below the baseline).
     lv_obj_t *port = lv_label_create(root);
     lv_label_set_text(port, left_label);
-    lv_obj_set_style_text_font(port, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(port, &font_b612_14, 0);
     lv_obj_set_style_text_color(port, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_pos(port, 0, label_row_y);
     lv_obj_t *stbd = lv_label_create(root);
     lv_label_set_text(stbd, right_label);
-    lv_obj_set_style_text_font(stbd, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(stbd, &font_b612_14, 0);
     lv_obj_set_style_text_color(stbd, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(stbd, LV_ALIGN_TOP_RIGHT, 0, label_row_y);
 
@@ -349,7 +348,7 @@ XteStrip build_centerzero_strip(lv_obj_t *parent, int x, int y, int w, int h,
     // Caller fills it via set_text_if_changed in the refresh path.
     lv_obj_t *val = lv_label_create(root);
     lv_label_set_text(val, "--");
-    lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(val, &font_b612_14, 0);
     lv_obj_set_style_text_color(val, lv_color_hex(theme.fg), 0);
     ui::style_hud_backing(val);
     // The strip has no panel of its own: back the readout with the ground it

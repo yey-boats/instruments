@@ -297,7 +297,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // Status pill: top-center.
     s_lbl_status = lv_label_create(s_root);
     lv_label_set_text(s_lbl_status, "TEST   tap any cell");
-    lv_obj_set_style_text_font(s_lbl_status, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(s_lbl_status, &font_b612_14, 0);
     lv_obj_set_style_text_color(s_lbl_status, lv_color_hex(0xebf5ff), 0);
     lv_obj_set_style_bg_color(s_lbl_status, lv_color_hex(0x000000), 0);
     lv_obj_set_style_bg_opa(s_lbl_status, LV_OPA_70, 0);
@@ -315,7 +315,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_add_event_cb(s_btn_left, on_left, LV_EVENT_CLICKED, NULL);
     s_btn_left_lbl = lv_label_create(s_btn_left);
     lv_obj_set_style_text_color(s_btn_left_lbl, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(s_btn_left_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_btn_left_lbl, &font_b612_20, 0);
     lv_obj_center(s_btn_left_lbl);
 
     // Right button: bottom-right. Test = CANCEL, Cal = BACK.
@@ -326,7 +326,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_add_event_cb(s_btn_right, on_right, LV_EVENT_CLICKED, NULL);
     s_btn_right_lbl = lv_label_create(s_btn_right);
     lv_obj_set_style_text_color(s_btn_right_lbl, lv_color_hex(0xffffff), 0);
-    lv_obj_set_style_text_font(s_btn_right_lbl, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(s_btn_right_lbl, &font_b612_20, 0);
     lv_obj_center(s_btn_right_lbl);
 
     update_status();

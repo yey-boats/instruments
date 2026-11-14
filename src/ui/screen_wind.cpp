@@ -89,10 +89,10 @@ static void build_cardinals(lv_obj_t *parent) {
         bool card = (i % 2) == 0;  // N / E / S / W
         lv_obj_t *l = lv_label_create(parent);
         lv_label_set_text(l, kCardText[i]);
-        lv_obj_set_style_text_font(l, card ? &lv_font_montserrat_20 : &lv_font_montserrat_14, 0);
+        lv_obj_set_style_text_font(l, card ? &font_b612_20 : &font_b612_14, 0);
         // Neutral ink for all cardinals (N no longer red): red is reserved for
         // port-side cues on the wind dial, so the N letter must not claim it.
-        uint32_t color = card ? 0x16222f : 0x44546a;
+        uint32_t color = card ? theme.band_ink : theme.band_ink_dim;
         lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
         lv_obj_set_width(l, 40);
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
@@ -189,14 +189,14 @@ static void build_bezel(lv_obj_t *parent) {
 
     // 22.5deg tick marks (between cardinals + intercardinals)
     for (int deg = 0; deg < 360; deg += 45) {
-        make_tick_at(bezel, bcx, bcy, deg + 22, 10, 2, 0x5a6b78);
+        make_tick_at(bezel, bcx, bcy, deg + 22, 10, 2, theme.band_ink_dim);
     }
 
     // Fixed bow indicator (notch on the rim) — a small red triangle *outside*
     // the bezel group so it stays at the top (the boat's heading reference).
     lv_obj_t *bow_notch = lv_label_create(parent);
     lv_label_set_text(bow_notch, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(bow_notch, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(bow_notch, &font_b612_20, 0);
     lv_obj_set_style_text_color(bow_notch, lv_color_hex(theme.alarm), 0);
     lv_obj_set_pos(bow_notch, CX - 9, CY - R_BEZEL - 6);
 }
@@ -298,7 +298,7 @@ static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t
     // Filled triangle head at the rim, pointing inward toward the boat.
     lv_obj_t *tri = lv_label_create(m);
     lv_label_set_text(tri, LV_SYMBOL_DOWN);
-    lv_obj_set_style_text_font(tri, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(tri, &font_b612_28, 0);
     lv_obj_set_style_text_color(tri, lv_color_hex(color), 0);
     lv_obj_align(tri, LV_ALIGN_TOP_MID, 0, -6);
 
@@ -318,7 +318,7 @@ static lv_obj_t *make_wind_marker(lv_obj_t *parent, const char *letter, uint32_t
     // A / T letter inboard of the stem, in the marker's high-contrast color.
     lv_obj_t *l = lv_label_create(m);
     lv_label_set_text(l, letter);
-    lv_obj_set_style_text_font(l, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(l, &font_b612_20, 0);
     lv_obj_set_style_text_color(l, lv_color_hex(color), 0);
     lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 54);
     return m;
@@ -356,7 +356,7 @@ static void build_tide(lv_obj_t *parent) {
     // Head: filled triangle at the set end, pointing OUTWARD (toward set).
     lv_obj_t *head = lv_label_create(tide_arrow);
     lv_label_set_text(head, LV_SYMBOL_UP);
-    lv_obj_set_style_text_font(head, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(head, &font_b612_28, 0);
     lv_obj_set_style_text_color(head, lv_color_hex(theme.accent), 0);
     lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(tide_arrow, LV_OBJ_FLAG_HIDDEN);
@@ -394,7 +394,7 @@ static void build_waypoint(lv_obj_t *parent) {
 // ---- tiles -------------------------------------------------------------
 
 static void build_tiles(lv_obj_t *parent) {
-    const lv_font_t *tv = &lv_font_montserrat_38;
+    const lv_font_t *tv = &font_b612_38;
     if (!WIDE) {
         int gap = 8, n = 4;
         int tw = (LCD_W - gap * (n + 1)) / n;
@@ -460,7 +460,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // speed, bound to boat::View.currentDrift, paired with the blue set arrow).
     lbl_drift_cap = lv_label_create(s_root);
     lv_label_set_text(lbl_drift_cap, "DRIFT");
-    lv_obj_set_style_text_font(lbl_drift_cap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(lbl_drift_cap, &font_b612_14, 0);
     lv_obj_set_style_text_color(lbl_drift_cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(lbl_drift_cap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_drift_cap, 60);
@@ -470,7 +470,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_tide_speed = lv_label_create(s_root);
     lv_label_set_text(lbl_tide_speed, "");
-    lv_obj_set_style_text_font(lbl_tide_speed, &lv_font_montserrat_20, 0);
+    lv_obj_set_style_text_font(lbl_tide_speed, &font_b612_20, 0);
     lv_obj_set_style_text_color(lbl_tide_speed, lv_color_hex(theme.fg), 0);
     lv_obj_set_style_text_align(lbl_tide_speed, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_tide_speed, 60);
@@ -495,7 +495,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     // hull or the central current vector.
     lv_obj_t *hcap = lv_label_create(s_root);
     lv_label_set_text(hcap, "HDG");
-    lv_obj_set_style_text_font(hcap, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(hcap, &font_b612_14, 0);
     lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_set_style_text_align(hcap, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(hcap, 80);
@@ -503,7 +503,7 @@ lv_obj_t *build(lv_obj_t *parent) {
 
     lbl_hdg_value = lv_label_create(s_root);
     lv_label_set_text(lbl_hdg_value, "--\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg_value, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_hdg_value, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_hdg_value, lv_color_hex(theme.accent), 0);
     lv_obj_set_style_text_align(lbl_hdg_value, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(lbl_hdg_value, 120);
