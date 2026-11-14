@@ -6203,7 +6203,8 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
     if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
         strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
         for (int i = 0; i < 3; ++i) {
-            bool active = strcmp(cur_theme.c_str(), kSettingsThemeVals[i]) == 0;
+            // Shared mapping: legacy day/night light DAY/NIGHT here too (#66).
+            bool active = theme_choice::index_for(cur_theme.c_str()) == i;
             uint32_t bg = active ? theme.accent : theme.panel_edge;
             uint32_t fg = active ? 0x05101c : theme.fg;
             lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);
