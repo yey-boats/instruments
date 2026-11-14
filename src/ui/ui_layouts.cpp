@@ -24,6 +24,7 @@
 #include "beeper.h"
 
 #include "storage.h"
+#include "theme_choice.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -6046,9 +6047,10 @@ static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
 // needing to re-wire every preference.
 
 // Settings THEME row: DAY / NIGHT pick the sunlight and night-vision skins
-// (owner choice, 2026-11-14); "auto" stays the legacy token. Used both to
-// build the buttons and to highlight the active one.
-static const char *const kSettingsThemeVals[3] = {"sun", "red-night", "auto"};
+// (owner choice, 2026-11-14); "auto" stays the legacy token. Shared with the
+// built-in Settings screen via theme_choice.h. Used both to build the buttons
+// and to highlight the active one.
+static const char *const *const kSettingsThemeVals = theme_choice::themes();
 
 struct SetupFormState {
     lv_obj_t *theme_btns[3];
@@ -6201,7 +6203,8 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
     if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
         strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
         for (int i = 0; i < 3; ++i) {
-            bool active = strcmp(cur_theme.c_str(), kSettingsThemeVals[i]) == 0;
+            // Shared mapping: legacy day/night light DAY/NIGHT here too (#66).
+            bool active = theme_choice::index_for(cur_theme.c_str()) == i;
             uint32_t bg = active ? theme.accent : theme.panel_edge;
             uint32_t fg = active ? 0x05101c : theme.fg;
             lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);

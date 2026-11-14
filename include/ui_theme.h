@@ -77,7 +77,7 @@ void use_classic();        // warm cream/charcoal analog look, brass accent
 void use_sun();            // direct sunlight: white ground, black ink, black borders
 
 // Name-based selection ("night" | "day" | "high-contrast" | "red-night" |
-// "classic"). Flips the global palette; painters pick it up on their next
+// "classic" | "sun"). Flips the global palette; painters pick it up on their next
 // (re)build — the live rebuild is driven by app_events' SetTheme handler.
 // Returns false (palette untouched) for unknown names. Call on the UI task.
 bool use_theme(const char *name);
