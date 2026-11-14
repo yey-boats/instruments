@@ -222,7 +222,8 @@
     "night",
     "high-contrast",
     "red-night",
-    "classic"
+    "classic",
+    "sun"
    ],
    "fonts": [
     14,
@@ -452,7 +453,8 @@
     "night",
     "high-contrast",
     "red-night",
-    "classic"
+    "classic",
+    "sun"
    ],
    "fonts": [
     14,
@@ -682,7 +684,8 @@
     "night",
     "high-contrast",
     "red-night",
-    "classic"
+    "classic",
+    "sun"
    ],
    "fonts": [
     14,
@@ -912,7 +915,8 @@
     "night",
     "high-contrast",
     "red-night",
-    "classic"
+    "classic",
+    "sun"
    ],
    "fonts": [
     14,

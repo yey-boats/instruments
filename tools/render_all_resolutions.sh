@@ -4,7 +4,7 @@
 #
 #   docs/bench/screens/<env>/<WxH>/<name>.png           default (night) theme,
 #                                                       every geometry
-#   docs/bench/screens/<env>/<WxH>/<theme>/<name>.png   ALL 5 themes at the
+#   docs/bench/screens/<env>/<WxH>/<theme>/<name>.png   ALL 6 themes at the
 #                                                       env's native geometry
 #
 # This is a superset driver of tools/sim_render.sh (which writes a flatter
