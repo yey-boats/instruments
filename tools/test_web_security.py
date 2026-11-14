@@ -7,6 +7,12 @@
 - instruments#30: the same guards for the lab-only YEYBOATS_LAB_OPEN_OTA flag
   (password-less ArduinoOTA on a dev build). net.cpp #errors if it meets
   YEYBOATS_RELEASE_BUILD, and release builds compile ArduinoOTA out entirely.
+- instruments#58: no workflow may define YEYBOATS_RELEASE_BUILD either. Since
+  #56 the guards test its value, so `-D YEYBOATS_RELEASE_BUILD=0` appended
+  through PLATFORMIO_BUILD_FLAGS would silently turn a release-* build into a
+  dev build (ArduinoOTA back in, lab flags allowed).
+- instruments#58: release.yml builds every [env:release-*] (listed by
+  tools/release_envs.py) and gates each on the DRAM budget.
 - The device web server never sends a wildcard CORS header. Nothing needs
   cross-origin browser access: the manager talks to the device server-side
   (Node) and the layout editor fetches previews through the plugin proxy.
@@ -28,6 +34,28 @@ from test_midl_class import ENVS  # noqa: E402  (shared platformio.ini resolver)
 
 LAB_FLAG = "YEYBOATS_LAB_OPEN_WEB"
 LAB_FLAGS = (LAB_FLAG, "YEYBOATS_LAB_OPEN_OTA")
+RELEASE_FLAG = "YEYBOATS_RELEASE_BUILD"
+# Build-mode flags only platformio.ini may set; a workflow naming one is
+# injecting it (PLATFORMIO_BUILD_FLAGS, a `-D` on a pio command line, ...).
+WORKFLOW_BANNED_FLAGS = LAB_FLAGS + (RELEASE_FLAG,)
+
+
+def workflow_flag_violations(text):
+    """(line number, flag) for every banned build flag a workflow sets.
+
+    Every non-comment line counts, not just `PLATFORMIO_BUILD_FLAGS:` ones,
+    so a folded/multi-line value or an `export` in a run block is caught
+    too. The guard steps that grep for the flags are exempt."""
+    hits = []
+    for n, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue
+        if "check_release_flags" in line or "test_web_security" in line:
+            continue
+        for flag in WORKFLOW_BANNED_FLAGS:
+            if flag in line:
+                hits.append((n, flag))
+    return hits
 
 
 def read(path):
@@ -56,18 +84,39 @@ class TestLabBypassNeverInRelease(unittest.TestCase):
             with self.subTest(env=name):
                 self.assertNotIn("YEYBOATS_LAB_OPEN_OTA", e["flags"])
 
-    def test_no_workflow_injects_lab_open_web(self):
-        for wf in glob.glob(os.path.join(ROOT, ".github", "workflows", "*.yml")):
+    def test_no_workflow_injects_build_mode_flags(self):
+        wfs = glob.glob(os.path.join(ROOT, ".github", "workflows", "*.yml"))
+        self.assertTrue(wfs)
+        for wf in wfs:
             with self.subTest(workflow=os.path.basename(wf)):
                 with open(wf, encoding="utf-8") as f:
-                    for line in f:
-                        if line.lstrip().startswith("#"):
-                            continue
-                        # The guard step itself names the flag in a grep.
-                        if "check_release_flags" in line or "test_web_security" in line:
-                            continue
-                        for flag in LAB_FLAGS:
-                            self.assertNotIn(flag, line)
+                    self.assertEqual(workflow_flag_violations(f.read()), [])
+
+    def test_workflow_scan_catches_release_flag_override(self):
+        # instruments#58: each of these would turn a release-* env into a
+        # dev build, so the scan must flag it.
+        bad = {
+            "env key": "    env:\n      PLATFORMIO_BUILD_FLAGS: -D YEYBOATS_RELEASE_BUILD=0\n",
+            "no space": "      PLATFORMIO_BUILD_FLAGS: \"-DYEYBOATS_RELEASE_BUILD=0\"\n",
+            "folded": "      PLATFORMIO_BUILD_FLAGS: >-\n        -D FOO=1\n        -D YEYBOATS_RELEASE_BUILD=0\n",
+            "export": "        run: |\n          export PLATFORMIO_BUILD_FLAGS='-D YEYBOATS_RELEASE_BUILD=0'\n",
+            "undef": "      PLATFORMIO_BUILD_FLAGS: -U YEYBOATS_RELEASE_BUILD\n",
+            "lab": "      PLATFORMIO_BUILD_FLAGS: -D YEYBOATS_LAB_OPEN_OTA=1\n",
+        }
+        for name, text in bad.items():
+            with self.subTest(case=name):
+                self.assertTrue(workflow_flag_violations(text))
+        hits = workflow_flag_violations(bad["folded"])
+        self.assertEqual(hits, [(3, RELEASE_FLAG)])
+
+    def test_workflow_scan_passes_clean_workflow(self):
+        ok = (
+            "    env:\n"
+            "      PLATFORMIO_BUILD_FLAGS: -D YEYBOATS_TRACE=1\n"
+            "      # never set YEYBOATS_RELEASE_BUILD here (instruments#58)\n"
+            "      - run: python3 -m unittest discover -s tools -p 'test_web_security.py'\n"
+        )
+        self.assertEqual(workflow_flag_violations(ok), [])
 
     def test_web_cpp_refuses_lab_flag_in_release_build(self):
         src = read("src/web.cpp")
@@ -147,6 +196,28 @@ class TestReleaseFlagIsTestedByValue(unittest.TestCase):
     def test_ota_policy_reads_the_flag_from_build_config(self):
         hdr = read("include/ota_policy.h")
         self.assertIn('#include "build_config.h"', hdr)
+
+
+class TestReleaseWorkflowBuildsEveryReleaseEnv(unittest.TestCase):
+    """instruments#58: release.yml once kept its own env list and shipped 8
+    of 12 release-* envs. It now builds what tools/release_envs.py prints."""
+
+    def test_lister_matches_platformio_release_envs(self):
+        import release_envs
+
+        expected = sorted(n for n in ENVS if n.startswith("release-"))
+        self.assertEqual(sorted(release_envs.release_envs()), expected)
+
+    def test_release_workflow_derives_envs_and_checks_dram(self):
+        wf = read(".github/workflows/release.yml")
+        self.assertIn("python3 tools/release_envs.py", wf)
+        self.assertRegex(wf, r'make dram-check ENV="\$env"')
+        # No hand-kept list may creep back in: no env is named in the code.
+        code = "\n".join(l for l in wf.splitlines() if not l.lstrip().startswith("#"))
+        for name in ENVS:
+            if name.startswith("release-"):
+                with self.subTest(env=name):
+                    self.assertIsNone(re.search(re.escape(name) + r"\b", code))
 
 
 class TestNoWildcardCors(unittest.TestCase):

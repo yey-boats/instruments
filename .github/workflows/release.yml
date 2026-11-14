@@ -53,7 +53,7 @@ jobs:
           YEYBOATS_OTA_PASSWORD: ${{ secrets.YEYBOATS_OTA_PASSWORD }}
         run: python3 tools/write_secrets_header.py --require-ota-password
 
-      - name: Build supported firmware environments
+      - name: Build every release-* firmware environment
         run: |
           set -euo pipefail
           # Stage each env's artifacts IMMEDIATELY after building - the
@@ -64,20 +64,20 @@ jobs:
           # stage time). Whatever was wiping the sunton build dir
           # can't get at the files once they live under release-staging.
           mkdir -p release-staging
-          targets=(
-            esp32-4848s040:release-esp32-4848s040
-            waveshare-touch-lcd-4:release-waveshare-touch-lcd-4
-            waveshare-touch-lcd-4_3:release-waveshare-touch-lcd-4_3
-            waveshare-touch-lcd-4_3b:release-waveshare-touch-lcd-4_3b
-            waveshare-touch-lcd-5_800x480:release-waveshare-touch-lcd-5_800x480
-            waveshare-touch-lcd-5_1024x600:release-waveshare-touch-lcd-5_1024x600
-            waveshare-touch-lcd-7_800x480:release-waveshare-touch-lcd-7_800x480
-            waveshare-touch-lcd-7b_1024x600:release-waveshare-touch-lcd-7b_1024x600
-          )
-          for entry in "${targets[@]}"; do
-            public="${entry%%:*}"
-            env="${entry##*:}"
+          # instruments#58: build EVERY [env:release-*] in platformio.ini.
+          # A hand-kept list here drifted (8 of 12 envs shipped). The public
+          # artifact name is the env name without the "release-" prefix.
+          # Plain assignment so set -e sees a lister failure (a process
+          # substitution would swallow it and build nothing).
+          env_list=$(python3 tools/release_envs.py)
+          mapfile -t envs <<< "$env_list"
+          echo "Release envs (${#envs[@]}): ${envs[*]}"
+          for env in "${envs[@]}"; do
+            public="${env#release-}"
             YEYBOATS_VERSION="${TAG_NAME#v}" pio run -e "$env"
+            # instruments#41/#65: the same static internal DRAM budget CI
+            # enforces; a release must not ship a build CI would reject.
+            make dram-check ENV="$env"
             # Snapshot artifacts immediately. cp errors out (set -e) if
             # anything is missing, so a missing bootloader.bin fails the
             # right env's step rather than 10 minutes later.
@@ -132,14 +132,9 @@ jobs:
             echo ""
             echo "Download the merged firmware image for your board target:"
             echo ""
-            echo "- \`esp32-4848s040-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-4-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-4_3-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-4_3b-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-5_800x480-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-5_1024x600-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-7_800x480-merged_firmware.bin\`"
-            echo "- \`waveshare-touch-lcd-7b_1024x600-merged_firmware.bin\`"
+            for f in release-staging/*-merged_firmware.bin; do
+              echo "- \`${f##*/}\`"
+            done
             echo ""
             echo 'Single-file flash (covers bootloader, partition table, OTA boot selector, and app):'
             echo ""
