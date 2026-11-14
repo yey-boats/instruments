@@ -14,6 +14,7 @@
 
 #include "ble_config.h"  // CTRL_* UUIDs (Phase 4.1) — reuse, do not redefine
 #include "net.h"
+#include "psram_static.h"
 
 namespace proto_ble {
 
@@ -158,7 +159,7 @@ bool switch_on_peer(const char *addr, const proto::Attach &a, const proto::Switc
     // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the worker-task
     // stack per the CLAUDE.md large-struct trap. BusyGuard makes central ops
     // single-flight, so a function-static scratch is race-free.
-    static proto::AttachAck ack;
+    static proto::AttachAck &ack = *yeyboats::psram_new<proto::AttachAck>();
     memset(&ack, 0, sizeof(ack));
     if (!read_resp(svc, ack) || !ack.accepted || !ack.sessionId[0]) return false;
 

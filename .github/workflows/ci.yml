@@ -80,9 +80,10 @@ jobs:
         run: pio run -e ${{ matrix.env }}
 
       # instruments#41: internal .bss/.data eats the WiFi RX headroom; large
-      # app buffers belong in PSRAM (include/psram_static.h).
+      # app buffers belong in PSRAM (include/psram_static.h). Every board
+      # runs WiFi + OTA from the same SRAM pool, so every env is gated
+      # (instruments#64: the knob was 5.6 KB over while only 4848s040 ran it).
       - name: Check static internal DRAM budget
-        if: matrix.env == 'esp32-4848s040'
         run: make dram-check ENV=${{ matrix.env }}
 
       - name: Create merged firmware image
