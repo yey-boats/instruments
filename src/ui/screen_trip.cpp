@@ -137,21 +137,32 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    lbl_dist = lv_label_create(hero);
+    // Value + unit sit in a content-sized flex row centred in the card, so
+    // they read as one block ("217.0 nm") and the 8 px gap holds at every
+    // digit count. lv_obj_align_to() is one-shot: it placed the unit against
+    // the build-time "0.00" box, so wider values ran into it ("217.0nm").
+    lv_obj_t *dist_row = lv_obj_create(hero);
+    lv_obj_remove_style_all(dist_row);
+    lv_obj_set_size(dist_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(dist_row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(dist_row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_set_style_pad_column(dist_row, 8, 0);
+    lv_obj_clear_flag(dist_row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(dist_row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_flag(dist_row, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_align(dist_row, LV_ALIGN_CENTER, 0, 10);
+
+    lbl_dist = lv_label_create(dist_row);
     lv_label_set_text(lbl_dist, "0.00");
     lv_obj_set_style_text_font(lbl_dist, &font_b612_48, 0);
     lv_obj_set_style_text_color(lbl_dist, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_dist, LV_ALIGN_CENTER, -30, 10);
 
-    // Unit attaches just to the right of the value (baseline-aligned) so number
-    // + "nm" read as one centered block, instead of "nm" pinned to the card's
-    // right edge with dead space between. lv_obj_align_to tracks the value box,
-    // so it stays attached as the digit count changes (0.00 -> 12.3).
-    lbl_dist_unit = lv_label_create(hero);
+    // Smaller, dimmer unit; bottom pad lifts it onto the value's baseline.
+    lbl_dist_unit = lv_label_create(dist_row);
     lv_label_set_text(lbl_dist_unit, "nm");
     lv_obj_set_style_text_font(lbl_dist_unit, &font_b612_28, 0);
     lv_obj_set_style_text_color(lbl_dist_unit, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align_to(lbl_dist_unit, lbl_dist, LV_ALIGN_OUT_RIGHT_BOTTOM, 8, -6);
+    lv_obj_set_style_pad_bottom(lbl_dist_unit, 6, 0);
 
     // Three stats side by side
     int col_w = (LCD_W - 32) / 3;

@@ -6,6 +6,7 @@
 #include <cstdarg>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "app_events.h"
@@ -158,7 +159,12 @@ bool Namespace::get_bool(const char *, bool d) {
 float Namespace::get_float(const char *, float d) {
     return d;
 }
-double Namespace::get_double(const char *, double d) {
+double Namespace::get_double(const char *key, double d) {
+    // SIM_TRIP_NM=<nm>: seed the TRIP screen's persisted distance so wide
+    // values ("217.0 nm") can be rendered and eyeballed (sim-screens trip).
+    if (key && !strcmp(key, "dist")) {
+        if (const char *nm = getenv("SIM_TRIP_NM")) return atof(nm) * 1852.0;
+    }
     return d;
 }
 bool Namespace::put_string(const char *, const char *) {
