@@ -215,7 +215,10 @@ static void build_mode_modal(lv_obj_t *parent) {
     lv_obj_add_flag(mode_modal, LV_OBJ_FLAG_HIDDEN);
 }
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);
@@ -368,6 +371,24 @@ static char s_last_awa[12] = {(char)0xFF};
 static int16_t s_last_scale_rot = INT16_MIN;
 static int s_last_xte_x = INT16_MIN;
 static char s_last_xte_txt[16] = {(char)0xFF};
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_mode[0] = (char)0xFF;
+    s_last_mode_color = 0xFFFFFFFF;
+    s_last_onstby[0] = (char)0xFF;
+    s_last_hdg[0] = (char)0xFF;
+    s_last_cogsog[0] = (char)0xFF;
+    s_last_depth[0] = (char)0xFF;
+    s_last_speed[0] = (char)0xFF;
+    s_last_aws[0] = (char)0xFF;
+    s_last_awa[0] = (char)0xFF;
+    s_last_scale_rot = INT16_MIN;
+    s_last_xte_x = INT16_MIN;
+    s_last_xte_txt[0] = (char)0xFF;
+}
 
 using ui::deg_to_lvgl;  // shared (include/ui_dirty.h)
 
