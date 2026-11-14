@@ -17,7 +17,7 @@ trap 'rm -rf "$out"' EXIT
 pio run -e sim-screens >"$out/build.log" 2>&1 || { cat "$out/build.log"; exit 1; }
 bin=.pio/build/sim-screens/program
 fail=0
-for id in nav depth steering route trip wind_steer wind_classic; do
+for id in nav depth steering route trip wind_steer wind_classic zoom-pos zoom-num; do
     "$bin" "$id" "$out/$id-once.bmp" >/dev/null
     SIM_REBUILD=1 "$bin" "$id" "$out/$id-rebuilt.bmp" >/dev/null
     if cmp -s "$out/$id-once.bmp" "$out/$id-rebuilt.bmp"; then
