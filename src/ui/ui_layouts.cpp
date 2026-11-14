@@ -24,6 +24,7 @@
 #include "beeper.h"
 
 #include "storage.h"
+#include "theme_choice.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -6046,9 +6047,10 @@ static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
 // needing to re-wire every preference.
 
 // Settings THEME row: DAY / NIGHT pick the sunlight and night-vision skins
-// (owner choice, 2026-11-14); "auto" stays the legacy token. Used both to
-// build the buttons and to highlight the active one.
-static const char *const kSettingsThemeVals[3] = {"sun", "red-night", "auto"};
+// (owner choice, 2026-11-14); "auto" stays the legacy token. Shared with the
+// built-in Settings screen via theme_choice.h. Used both to build the buttons
+// and to highlight the active one.
+static const char *const *const kSettingsThemeVals = theme_choice::themes();
 
 struct SetupFormState {
     lv_obj_t *theme_btns[3];
@@ -6202,7 +6204,8 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
     if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
         strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
         for (int i = 0; i < 3; ++i) {
-            bool active = strcmp(cur_theme.c_str(), kSettingsThemeVals[i]) == 0;
+            // Shared mapping: legacy day/night light DAY/NIGHT here too (#66).
+            bool active = theme_choice::index_for(cur_theme.c_str()) == i;
             uint32_t bg = active ? theme.button_active_bg : theme.button_bg;
             uint32_t fg = active ? theme.button_active_fg : theme.button_fg;
             lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);
@@ -6625,6 +6628,14 @@ static lv_obj_t *s_unit = nullptr;
 static char s_last[40] = {(char)0xFF};
 static int s_last_kind = -1;  // 0 = big number, 1 = multi-line/long (e.g. position)
 
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last[0] = (char)0xFF;
+    s_last_kind = -1;
+}
+
 static void back_cb(lv_event_t *) {
     ui::show_by_id("dashboard");
 }
@@ -6652,6 +6663,7 @@ static uint32_t hero_rgb(const ui::layouts::MetricBinding &m) {
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);

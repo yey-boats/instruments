@@ -3,7 +3,7 @@
 //
 // The headless render harnesses pick their palette from the SIM_THEME
 // environment variable ("night" | "day" | "high-contrast" | "red-night" |
-// "classic", see src/ui/ui_theme.cpp) so a single built binary can be swept
+// "classic" | "sun", see src/ui/ui_theme.cpp) so a single built binary can be swept
 // across the whole theme matrix by tools/render_all_resolutions.sh without
 // per-theme rebuilds or argv reshuffling in seven different mains.
 //
@@ -27,7 +27,8 @@ inline bool apply_theme_from_env() {
     const char *name = std::getenv("SIM_THEME");
     if (!name || !*name) return true;  // default night palette
     if (!ui::use_theme(name)) {
-        std::fprintf(stderr, "unknown SIM_THEME '%s' (night|day|high-contrast|red-night|classic)\n",
+        std::fprintf(stderr,
+                     "unknown SIM_THEME '%s' (night|day|high-contrast|red-night|classic|sun)\n",
                      name);
         return false;
     }

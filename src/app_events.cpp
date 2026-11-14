@@ -125,21 +125,6 @@ void setup() {
     xTaskCreatePinnedToCore(net_task, "app-net", 6144, nullptr, 2, &s_net_task, 0);
     net::logf("[app] event queues up (ui=%u, net=%u)", (unsigned)UI_QUEUE_LEN,
               (unsigned)NET_QUEUE_LEN);
-    // Boot palette hand-off: main's early theme load (which runs before these
-    // queues exist) only knows day/night. If the persisted theme is one of
-    // the extra palettes, route it through the normal SetTheme pump path so
-    // the palette flips and the (still dashboard-only) screen set rebuilds
-    // on the first pump pass. No-op for day/night (already applied by boot).
-    {
-        storage::Namespace p("ui", true);
-        std::string pref = p.get_string("theme", "night");
-        if (pref != "day" && pref != "night" && ui::theme_known(pref.c_str())) {
-            Command c;
-            c.type = CommandType::SetTheme;
-            strncpy(c.a, pref.c_str(), sizeof(c.a) - 1);
-            post(c);
-        }
-    }
 }
 
 bool post(const Command &cmd, uint32_t timeout_ms) {
@@ -403,7 +388,7 @@ void pump() {
                 p.put_string("theme", t.c_str());
             } else {
                 net::logf("[ui] unknown theme '%s' "
-                          "(day|night|high-contrast|red-night|classic)",
+                          "(day|night|high-contrast|red-night|classic|sun)",
                           t.c_str());
             }
             break;

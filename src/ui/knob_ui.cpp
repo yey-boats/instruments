@@ -143,7 +143,10 @@ static lv_obj_t *lbl_state, *lbl_target, *lbl_hdg, *lbl_delta;
 
 static const char *kModeState[4] = {"standby", "auto", "wind", "route"};
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = make_round_root(parent);
 
     lbl_state = lv_label_create(s_root);
@@ -187,6 +190,17 @@ static char s_last_target[16] = {(char)0xFF};
 static char s_last_hdg[16] = {(char)0xFF};
 static char s_last_delta[16] = {(char)0xFF};
 static uint32_t s_last_state_color = 0xFFFFFFFF;
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_state[0] = (char)0xFF;
+    s_last_target[0] = (char)0xFF;
+    s_last_hdg[0] = (char)0xFF;
+    s_last_delta[0] = (char)0xFF;
+    s_last_state_color = 0xFFFFFFFF;
+}
 
 void refresh() {
     boat::View d;
@@ -247,7 +261,10 @@ namespace ui::knob_compass {
 static lv_obj_t *s_root = nullptr;
 static lv_obj_t *lbl_hdg, *lbl_cog;
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = make_round_root(parent);
 
     lv_obj_t *cap = lv_label_create(s_root);
@@ -273,6 +290,14 @@ lv_obj_t *build(lv_obj_t *parent) {
 
 static char s_last_hdg[16] = {(char)0xFF};
 static char s_last_cog[16] = {(char)0xFF};
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_hdg[0] = (char)0xFF;
+    s_last_cog[0] = (char)0xFF;
+}
 
 void refresh() {
     boat::View d;
@@ -302,7 +327,10 @@ namespace ui::knob_wind {
 static lv_obj_t *s_root = nullptr;
 static lv_obj_t *lbl_aws, *lbl_awa;
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = make_round_root(parent);
 
     lv_obj_t *cap = lv_label_create(s_root);
@@ -328,6 +356,14 @@ lv_obj_t *build(lv_obj_t *parent) {
 
 static char s_last_aws[16] = {(char)0xFF};
 static char s_last_awa[16] = {(char)0xFF};
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_aws[0] = (char)0xFF;
+    s_last_awa[0] = (char)0xFF;
+}
 
 void refresh() {
     boat::View d;
@@ -358,7 +394,10 @@ namespace ui::knob_big {
 static lv_obj_t *s_root = nullptr;
 static lv_obj_t *lbl_cap, *lbl_value, *lbl_unit;
 
+static void reset_caches();
+
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = make_round_root(parent);
 
     lbl_cap = lv_label_create(s_root);
@@ -383,6 +422,13 @@ lv_obj_t *build(lv_obj_t *parent) {
 }
 
 static char s_last_value[16] = {(char)0xFF};
+
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last_value[0] = (char)0xFF;
+}
 
 void refresh() {
     boat::View d;

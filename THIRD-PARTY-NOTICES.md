@@ -20,7 +20,8 @@ License identifiers use [SPDX](https://spdx.org/licenses/) where one is declared
 | TAMC_GT911 (touch) | `TAMCTec/gt911-arduino` | **Apache-2.0** | https://github.com/TAMCTec/gt911-arduino |
 | GFX Library for Arduino | `moononournation/GFX Library for Arduino@~1.4.7` | **license not explicitly stated** — see note | https://github.com/moononournation/Arduino_GFX |
 | arduinoWebSockets | `links2004/WebSockets@^2.4.1` | **LGPL-2.1** | https://github.com/Links2004/arduinoWebSockets |
-| JetBrains Mono (embedded glyphs, `src/fonts/font_xl_64.c`) | `v2.304` | **OFL-1.1** | https://github.com/JetBrains/JetBrainsMono |
+| B612 (embedded glyphs, `src/fonts/font_b612_*.c`, `src/fonts/font_xl_64.c`) | `v1.008` | **OFL-1.1** | https://github.com/polarsys/b612 |
+| Font Awesome Free 5 (symbol glyphs merged into `src/fonts/font_b612_*.c`) | 5.9.0 (LVGL-bundled merge) | **OFL-1.1** (font files) | https://fontawesome.com/license/free |
 
 ### Platform / framework (linked, supplied by the toolchain)
 
@@ -38,7 +39,8 @@ License identifiers use [SPDX](https://spdx.org/licenses/) where one is declared
 | `@yey-boats/midl` runtime: `yaml` | **ISC** | https://github.com/eemeli/yaml | MIDL YAML↔JSON authoring (non-core) |
 | MIDL TS toolchain: `typescript` (Apache-2.0), `tsup` (MIT), `vitest` (MIT), `@types/node` (MIT) | as noted | — | MIDL build/test only |
 | `lv_font_conv` | **MIT** | https://github.com/lvgl/lv_font_conv | regenerating `src/fonts/*.c` (see `tools/fonts/gen_fonts.sh`) |
-| JetBrains Mono TTF (`tools/fonts/JetBrainsMono-Regular.ttf`) | **OFL-1.1** | https://github.com/JetBrains/JetBrainsMono | source for the embedded 64 px hero font |
+| B612 TTFs (`tools/fonts/B612-Regular.ttf`, `B612-Bold.ttf`) | **OFL-1.1** | https://github.com/polarsys/b612 | source for every embedded UI font (`tools/fonts/gen_fonts.sh`) |
+| Font Awesome Free 5 WOFF (`tools/fonts/FontAwesome5-Solid+Brands+Regular.woff`) | **OFL-1.1** | https://fontawesome.com/license/free | source for the LVGL symbol glyphs |
 
 > Alternate board environments in `platformio.ini` (e.g. the Waveshare knob
 > variant) additionally pull `CST816S`, `ESP32Encoder`, and `OneButton`. Confirm
@@ -54,6 +56,12 @@ that any `NOTICE` text they ship be propagated and that modifications be stated.
 None impose source-disclosure on this project's own code, and all are compatible
 with distribution under PolyForm Noncommercial 1.0.0 and with a separate
 commercial license.
+
+**Fonts (OFL-1.1): B612 and Font Awesome.** The generated glyph tables in
+`src/fonts/*.c` are derived from OFL fonts and stay under the OFL (clause 5), not
+PolyForm. They may be embedded and distributed with this product, but not sold on
+their own (clause 1), and each copy must carry the copyright notice and licence
+(clause 2): see `tools/fonts/B612-OFL.txt` and `tools/fonts/FontAwesome5-OFL.txt`.
 
 **Weak-copyleft components (LGPL-2.1): `arduinoWebSockets` and the Arduino-ESP32
 core.** The LGPL does **not** require this project's own source to be opened, but
@@ -89,12 +97,19 @@ intended license with upstream, or migrate the display path onto `esp_lcd`
   License v2.1.
 - GFX Library for Arduino — © Moon On Our Nation (moononournation); license not
   explicitly stated (see note above).
-- JetBrains Mono — Copyright © 2020 The JetBrains Mono Project Authors. SIL Open
-  Font License, Version 1.1. Full text: [`tools/fonts/JetBrainsMono-OFL.txt`](tools/fonts/JetBrainsMono-OFL.txt).
-  Used to generate the embedded hero font (`src/fonts/font_xl_64.c`). The OFL
+- B612 — Copyright © 2012 The B612 Project Authors (https://github.com/polarsys/b612).
+  SIL Open Font License, Version 1.1, no Reserved Font Name. Full text:
+  [`tools/fonts/B612-OFL.txt`](tools/fonts/B612-OFL.txt). Used to generate every
+  embedded UI font (`src/fonts/font_b612_*.c`, `src/fonts/font_xl_64.c`). The OFL
   permits embedding the font in this product; the font itself is not sold.
+- Font Awesome Free 5 — Copyright © Fonticons, Inc. (https://fontawesome.com).
+  Font files under the SIL Open Font License, Version 1.1. Full text:
+  [`tools/fonts/FontAwesome5-OFL.txt`](tools/fonts/FontAwesome5-OFL.txt). The
+  LVGL-bundled Font Awesome 5.9.0 merge (v9.2.2 `scripts/built_in_font/`) supplies the
+  symbol glyphs (U+F077, U+F078) merged into `src/fonts/font_b612_*.c`.
 - Arduino core for ESP32 — Copyright © Espressif Systems and contributors. LGPL-2.1.
 - ESP-IDF — Copyright © Espressif Systems. Apache License 2.0.
 
-Full license texts are distributed with each component (in its installed package
-under `.pio/libdeps/<env>/<lib>/`) and at the upstream URLs above.
+Full license texts for libraries are distributed with each component (in its
+installed package under `.pio/libdeps/<env>/<lib>/`) and at the upstream URLs
+above. Font licence texts are in `tools/fonts/*-OFL.txt`.

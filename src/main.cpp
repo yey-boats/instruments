@@ -2516,10 +2516,9 @@ void setup() {
         storage::Namespace p("ui", true);
         String themePref = String(p.get_string("theme", "night").c_str());
         ui::set_pos_format((ui::PosFormat)p.get_u8("pos_fmt", (uint8_t)ui::PosFormat::DDM));
-        if (themePref == "day")
-            ui::use_day();
-        else
-            ui::use_night();
+        // Apply any persisted palette directly (sun, red-night, ...), before
+        // the first screen is built. "auto" / unknown render as night.
+        if (!ui::use_theme(themePref.c_str())) ui::use_night();
     }
 
     // Each screen is a DETACHED screen object (parent = NULL). Screen

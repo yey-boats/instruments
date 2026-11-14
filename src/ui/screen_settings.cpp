@@ -3,6 +3,7 @@
 #include "ui_data.h"
 #include "ui_screens.h"
 #include "net.h"
+#include "theme_choice.h"
 
 #include "board_pins.h"
 #include "build_config.h"
@@ -187,7 +188,11 @@ static void on_brightness(lv_event_t *e) {
 static void on_theme(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     int index = (int)(intptr_t)lv_event_get_user_data(e);
-    net::dispatchCommand(index == 0 ? "theme day" : "theme night");
+    const char *name = theme_choice::theme_for(index);
+    if (!name) return;
+    char cmd[32];
+    snprintf(cmd, sizeof(cmd), "theme %s", name);
+    net::dispatchCommand(cmd);
     update_segment(seg_theme, index);
 }
 
@@ -321,8 +326,11 @@ lv_obj_t *build(lv_obj_t *parent) {
     update_segment(seg_brightness, nearest_brightness_index(brightness()));
     update_brightness_label();
 
+    // DAY / NIGHT only (no AUTO button here); AUTO and the other palettes
+    // light no button.
     String theme_pref = current_theme_pref();
-    update_segment(seg_theme, theme_pref == "day" ? 0 : 1);
+    int theme_idx = theme_choice::index_for(theme_pref.c_str());
+    update_segment(seg_theme, theme_idx < (int)seg_theme.count ? theme_idx : -1);
 
     PosFormat fmt = pos_format();
     update_segment(seg_format, fmt == PosFormat::DDM ? 0 : fmt == PosFormat::DD ? 1 : 2);
