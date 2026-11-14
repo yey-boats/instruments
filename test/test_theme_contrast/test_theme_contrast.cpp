@@ -39,12 +39,16 @@ static double contrast(uint32_t a, uint32_t b) {
     return (la + 0.05) / (lb + 0.05);
 }
 
-static constexpr double kMinContrast = 4.5;
+// WCAG 2.x SC 1.4.3: 4.5:1 for text. SC 1.4.11 asks 3:1 for non-text
+// graphics (arrows, shafts, rings), which carry no letters to read.
+static constexpr double kText = 4.5;
+static constexpr double kGraphic = 3.0;
 
 struct Pair {
     const char *what;  // "<ink> on <ground>"
     uint32_t Palette::*ink;
     uint32_t Palette::*ground;
+    double min = kText;
 };
 
 // Text / ink drawn on a filled ground, as the painters pair them.
@@ -59,9 +63,32 @@ static const Pair kPairs[] = {
     {"button_active_fg on button_active_bg", &Palette::button_active_fg,
      &Palette::button_active_bg},
     {"alarm_fg on alarm", &Palette::alarm_fg, &Palette::alarm},
+    // DEMO badge uses the same alarm / alarm_fg pair.
+    // Every text token on the MOB overlay ground: distance, bearing, return,
+    // elapsed (mob_fg) and the title (mob_title). The HOLD TO CLEAR label is
+    // button_fg on its own button_bg fill, covered above.
     {"mob_fg on mob_bg", &Palette::mob_fg, &Palette::mob_bg},
+    {"mob_title on mob_bg", &Palette::mob_title, &Palette::mob_bg},
     // Engaged autopilot pill / chip / badge: good fill, ground-colour ink.
     {"bg on good", &Palette::bg, &Palette::good},
+    // Gauge band: cardinal (20 px) and intercardinal (14 px) labels and ticks.
+    {"band_ink on arc_band", &Palette::band_ink, &Palette::arc_band},
+    {"band_ink_dim on arc_band", &Palette::band_ink_dim, &Palette::arc_band},
+    // accent / warn: hero numbers but also small captions (AWS secondary,
+    // knob target/title), so text contrast on every ground.
+    {"accent on bg", &Palette::accent, &Palette::bg},
+    {"accent on panel", &Palette::accent, &Palette::panel},
+    {"accent on panel_bot", &Palette::accent, &Palette::panel_bot},
+    {"warn on bg", &Palette::warn, &Palette::bg},
+    {"warn on panel", &Palette::warn, &Palette::panel},
+    {"warn on panel_bot", &Palette::warn, &Palette::panel_bot},
+    // Wind dial T marker: arrow + 20 px letter, drawn on the screen ground.
+    {"wind_true on bg", &Palette::wind_true, &Palette::bg},
+    {"wind_true on panel", &Palette::wind_true, &Palette::panel},
+    // Tide arrow / zero ring: a pure graphic (no letters), so 3:1.
+    {"tide on bg", &Palette::tide, &Palette::bg, kGraphic},
+    {"tide on panel", &Palette::tide, &Palette::panel, kGraphic},
+    {"tide on panel_bot", &Palette::tide, &Palette::panel_bot, kGraphic},
 };
 
 static void test_contrast_math_reference_points() {
@@ -69,6 +96,23 @@ static void test_contrast_math_reference_points() {
     TEST_ASSERT_DOUBLE_WITHIN(1e-9, 1.0, contrast(0x777777, 0x777777));
     // The #67 regression: sun's old panel_edge button with fg ink.
     TEST_ASSERT_DOUBLE_WITHIN(0.01, 1.21, contrast(0x000000, 0x1a1a1a));
+}
+
+// Red-night rule, shared by the test and its self-check below: red-dominant,
+// blue low, and green low enough that nothing reads as white or yellow-white
+// (amber 0xffa028 is the brightest allowed green).
+static bool red_night_ok(uint32_t c) {
+    uint32_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+    return r >= g && r >= b && b <= 0x60 && g <= 0xb0;
+}
+
+static void test_red_night_rule_rejects_near_white() {
+    TEST_ASSERT_FALSE(red_night_ok(0xffffff));
+    TEST_ASSERT_FALSE(red_night_ok(0xffff60));  // passed the old rule
+    TEST_ASSERT_FALSE(red_night_ok(0xffe0c0));
+    TEST_ASSERT_FALSE(red_night_ok(0x288cff));  // the old blue tide literal
+    TEST_ASSERT_TRUE(red_night_ok(0xff1a1a));
+    TEST_ASSERT_TRUE(red_night_ok(0xffa028));
 }
 
 static void test_all_skins_meet_aa() {
@@ -80,9 +124,9 @@ static void test_all_skins_meet_aa() {
             double cr = contrast(p.*pair.ink, p.*pair.ground);
             printf("%-14s %-40s %06x/%06x %5.2f:1\n", t.name, pair.what, (unsigned)(p.*pair.ink),
                    (unsigned)(p.*pair.ground), cr);
-            if (cr < kMinContrast) {
+            if (cr < pair.min) {
                 snprintf(msg, sizeof(msg), "%s: %s %06x/%06x = %.2f:1 < %.1f:1", t.name, pair.what,
-                         (unsigned)(p.*pair.ink), (unsigned)(p.*pair.ground), cr, kMinContrast);
+                         (unsigned)(p.*pair.ink), (unsigned)(p.*pair.ground), cr, pair.min);
                 printf("FAIL %s\n", msg);
                 ++failures;
             }
@@ -97,11 +141,9 @@ static void test_red_night_stays_red() {
     const Palette &p = ui::palettes::red_night;
     const uint32_t *c = reinterpret_cast<const uint32_t *>(&p);
     for (size_t i = 0; i < ui::kPaletteColours; ++i) {
-        uint32_t r = (c[i] >> 16) & 0xFF, g = (c[i] >> 8) & 0xFF, b = c[i] & 0xFF;
         char msg[64];
         snprintf(msg, sizeof(msg), "red-night token %u = %06x", (unsigned)i, (unsigned)c[i]);
-        TEST_ASSERT_TRUE_MESSAGE(r >= g && r >= b, msg);
-        TEST_ASSERT_TRUE_MESSAGE(b <= 0x60, msg);
+        TEST_ASSERT_TRUE_MESSAGE(red_night_ok(c[i]), msg);
     }
 }
 
@@ -117,6 +159,7 @@ int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_contrast_math_reference_points);
     RUN_TEST(test_all_skins_meet_aa);
+    RUN_TEST(test_red_night_rule_rejects_near_white);
     RUN_TEST(test_red_night_stays_red);
     RUN_TEST(test_names_unique_and_complete);
     return UNITY_END();

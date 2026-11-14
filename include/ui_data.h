@@ -36,6 +36,10 @@ void set_battery_alarm_v(double value);
 // worker tasks.
 void overlay_show(const char *message);
 void overlay_clear();
+// Repaint the lv_layer_top() overlays (MOB, alarm banner, DEMO badge) from
+// the live ui::theme after a palette switch. Colours only: MOB/alarm state
+// and visibility are kept. LVGL task only.
+void overlay_restyle();
 
 // Unit helpers. The raw conversion factors live in units.h (single source
 // of truth); these thin wrappers add the display-specific normalisation.

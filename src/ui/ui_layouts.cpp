@@ -2867,9 +2867,9 @@ static WindDialState *build(lv_obj_t *parent, int w, int h, uint32_t hero_rgb) {
     lv_obj_add_flag(st->lbl_tide_speed, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_pos(st->lbl_tide_speed, CX - 30, CY + 76);
 
-    // Wind indices: T (true) cyan below A (apparent) amber in z-order.
-    st->twa_marker = make_wind_marker(st, r, "T", 0x2bd4e8);
-    st->awa_marker = make_wind_marker(st, r, "A", 0xff8800);
+    // Wind indices: T (true, wind_true) below A (apparent, warn) in z-order.
+    st->twa_marker = make_wind_marker(st, r, "T", theme.wind_true);
+    st->awa_marker = make_wind_marker(st, r, "A", theme.warn);
 
     build_bezel(st, r);
     build_cardinals(st, r);

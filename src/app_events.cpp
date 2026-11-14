@@ -276,6 +276,9 @@ static void retheme_screens() {
     if (s_layout_applied) ui::layout_render::apply();
     // Return to where the user was; the apply/registration default otherwise.
     if (!ui::show_by_id(cur) && !midl_set) ui::show(0);
+    // lv_layer_top() overlays (MOB, alarm banner) are not part of any screen,
+    // so the rebuild above never reaches them: repaint them in place (#67).
+    ui::overlay_restyle();
     net::logf("[app] retheme: screens rebuilt (theme=%s, on '%s')", ui::theme_id(),
               ui::current_id());
 }

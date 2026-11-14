@@ -1227,6 +1227,28 @@ static void mob_refresh() {
     lv_label_set_text(mob_lbl_elapsed, buf);
 }
 
+// MOB overlay parts that only restyle (the readout labels are file-scope above).
+static lv_obj_t *mob_lbl_title = nullptr;
+static lv_obj_t *mob_clear_btn = nullptr;
+static lv_obj_t *mob_clear_lbl = nullptr;
+
+// Paint the MOB overlay from the live palette. Called from mob_build and again
+// from ui::overlay_restyle() after a theme switch: the overlay lives on
+// lv_layer_top(), which retheme_screens() does not rebuild (#67). Every
+// readout uses mob_fg (accent / fg on mob_bg fell to 1.04:1 on sun).
+static void mob_restyle() {
+    if (!mob_view) return;
+    lv_obj_set_style_bg_color(mob_view, lv_color_hex(ui::theme.mob_bg), 0);
+    lv_obj_set_style_border_color(mob_view, lv_color_hex(ui::theme.alarm), 0);
+    lv_obj_set_style_text_color(mob_lbl_title, lv_color_hex(ui::theme.mob_title), 0);
+    lv_obj_set_style_text_color(mob_lbl_dist, lv_color_hex(ui::theme.mob_fg), 0);
+    lv_obj_set_style_text_color(mob_lbl_brg, lv_color_hex(ui::theme.mob_fg), 0);
+    lv_obj_set_style_text_color(mob_lbl_back, lv_color_hex(ui::theme.mob_fg), 0);
+    lv_obj_set_style_text_color(mob_lbl_elapsed, lv_color_hex(ui::theme.mob_fg), 0);
+    lv_obj_set_style_bg_color(mob_clear_btn, lv_color_hex(ui::theme.button_bg), 0);
+    lv_obj_set_style_text_color(mob_clear_lbl, lv_color_hex(ui::theme.button_fg), 0);
+}
+
 static void mob_build(lv_obj_t *scr) {
     // The on-screen MOB button was removed per product direction. MOB is still
     // triggered via the console/command path (mob_trigger), which shows the
@@ -1234,57 +1256,59 @@ static void mob_build(lv_obj_t *scr) {
     mob_view = lv_obj_create(scr);
     lv_obj_set_size(mob_view, LCD_W, LCD_H);
     lv_obj_set_pos(mob_view, 0, 0);
-    lv_obj_set_style_bg_color(mob_view, lv_color_hex(ui::theme.mob_bg), 0);
     lv_obj_set_style_border_width(mob_view, 4, 0);
-    lv_obj_set_style_border_color(mob_view, lv_color_hex(ui::theme.alarm), 0);
     lv_obj_set_style_radius(mob_view, 0, 0);
     lv_obj_set_style_pad_all(mob_view, 16, 0);
     lv_obj_clear_flag(mob_view, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(mob_view, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *t = lv_label_create(mob_view);
-    lv_label_set_text(t, "MAN OVERBOARD");
-    lv_obj_set_style_text_color(t, lv_color_hex(ui::theme.port), 0);
-    lv_obj_set_style_text_font(t, &font_b612_28, 0);
-    lv_obj_align(t, LV_ALIGN_TOP_MID, 0, 0);
+    mob_lbl_title = lv_label_create(mob_view);
+    lv_label_set_text(mob_lbl_title, "MAN OVERBOARD");
+    lv_obj_set_style_text_font(mob_lbl_title, &font_b612_28, 0);
+    lv_obj_align(mob_lbl_title, LV_ALIGN_TOP_MID, 0, 0);
 
     mob_lbl_dist = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_dist, "--- m");
-    lv_obj_set_style_text_color(mob_lbl_dist, lv_color_hex(ui::theme.mob_fg), 0);
     lv_obj_set_style_text_font(mob_lbl_dist, &font_b612_48, 0);
     lv_obj_align(mob_lbl_dist, LV_ALIGN_TOP_MID, 0, 70);
 
     mob_lbl_brg = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_brg, "BRG ---\xC2\xB0");
-    lv_obj_set_style_text_color(mob_lbl_brg, lv_color_hex(ui::theme.mob_fg), 0);
     lv_obj_set_style_text_font(mob_lbl_brg, &font_b612_48, 0);
     lv_obj_align(mob_lbl_brg, LV_ALIGN_CENTER, 0, 10);
 
     mob_lbl_back = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_back, "return ---\xC2\xB0");
-    lv_obj_set_style_text_color(mob_lbl_back, lv_color_hex(ui::theme.accent), 0);
     lv_obj_set_style_text_font(mob_lbl_back, &font_b612_20, 0);
     lv_obj_align(mob_lbl_back, LV_ALIGN_CENTER, 0, 70);
 
     mob_lbl_elapsed = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_elapsed, "elapsed --:--");
-    lv_obj_set_style_text_color(mob_lbl_elapsed, lv_color_hex(ui::theme.fg), 0);
     lv_obj_set_style_text_font(mob_lbl_elapsed, &font_b612_20, 0);
     lv_obj_align(mob_lbl_elapsed, LV_ALIGN_BOTTOM_MID, 0, -70);
 
-    lv_obj_t *clear_btn = lv_obj_create(mob_view);
-    lv_obj_set_size(clear_btn, 220, 56);
-    lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_set_style_bg_color(clear_btn, lv_color_hex(ui::theme.button_bg), 0);
-    lv_obj_set_style_radius(clear_btn, 8, 0);
-    lv_obj_set_style_pad_all(clear_btn, 0, 0);
-    lv_obj_clear_flag(clear_btn, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(clear_btn, mob_clear_evt, LV_EVENT_LONG_PRESSED, NULL);
-    lv_obj_t *cbl = lv_label_create(clear_btn);
-    lv_label_set_text(cbl, "HOLD TO CLEAR");
-    lv_obj_set_style_text_color(cbl, lv_color_hex(ui::theme.button_fg), 0);
-    lv_obj_set_style_text_font(cbl, &font_b612_14, 0);
-    lv_obj_center(cbl);
+    mob_clear_btn = lv_obj_create(mob_view);
+    lv_obj_set_size(mob_clear_btn, 220, 56);
+    lv_obj_align(mob_clear_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
+    lv_obj_set_style_radius(mob_clear_btn, 8, 0);
+    lv_obj_set_style_pad_all(mob_clear_btn, 0, 0);
+    lv_obj_clear_flag(mob_clear_btn, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(mob_clear_btn, mob_clear_evt, LV_EVENT_LONG_PRESSED, NULL);
+    mob_clear_lbl = lv_label_create(mob_clear_btn);
+    lv_label_set_text(mob_clear_lbl, "HOLD TO CLEAR");
+    lv_obj_set_style_text_font(mob_clear_lbl, &font_b612_14, 0);
+    lv_obj_center(mob_clear_lbl);
+    mob_restyle();
+}
+
+// Paint the alarm banner from the live palette (from alarms_build and from
+// ui::overlay_restyle() after a theme switch). alarm_tick repaints the same
+// tokens on every blink phase.
+static void alarms_restyle() {
+    if (!alarm_banner) return;
+    lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(ui::theme.alarm), 0);
+    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ui::theme.alarm_fg), 0);
+    lv_obj_set_style_text_color(alarm_label, lv_color_hex(ui::theme.alarm_fg), 0);
 }
 
 static void alarms_build(lv_obj_t *scr) {
@@ -1293,8 +1317,6 @@ static void alarms_build(lv_obj_t *scr) {
     // TOP-center, not BOTTOM: the bottom-center is occupied by data tiles on the
     // wind/compass HUDs, which the banner used to cover. The top strip is clear.
     lv_obj_align(alarm_banner, LV_ALIGN_TOP_MID, 0, 4);
-    lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(ui::theme.alarm), 0);
-    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ui::theme.fg), 0);
     lv_obj_set_style_border_width(alarm_banner, 1, 0);
     lv_obj_set_style_radius(alarm_banner, 6, 0);
     lv_obj_set_style_pad_all(alarm_banner, 0, 0);
@@ -1302,9 +1324,9 @@ static void alarms_build(lv_obj_t *scr) {
     lv_obj_add_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
     alarm_label = lv_label_create(alarm_banner);
     lv_label_set_text(alarm_label, "");
-    lv_obj_set_style_text_color(alarm_label, lv_color_hex(ui::theme.alarm_fg), 0);
     lv_obj_set_style_text_font(alarm_label, &font_b612_20, 0);
     lv_obj_center(alarm_label);
+    alarms_restyle();
     // Blink + multi-alarm cycle driver (no-op while nothing is active).
     if (!g_alarm_timer) g_alarm_timer = lv_timer_create(alarm_tick, 500, nullptr);
 }
@@ -1328,8 +1350,14 @@ static void alarm_tick(lv_timer_t *) {
     static uint8_t phase = 0, cyc = 0;
     if (g_active_alarm_n == 0 || !alarm_banner) return;
     phase ^= 1;
-    lv_obj_set_style_bg_opa(alarm_banner, phase ? LV_OPA_COVER : LV_OPA_30, 0);
-    lv_obj_set_style_text_opa(alarm_label, phase ? LV_OPA_COVER : LV_OPA_50, 0);
+    // Blink by swapping fill and ink (reverse video), never by fading: the
+    // text reads at the full alarm_fg/alarm ratio in both phases. The old
+    // 30% fill + 50% text phase fell to 1.23:1 on high-contrast (#67).
+    uint32_t fill = phase ? ui::theme.alarm : ui::theme.alarm_fg;
+    uint32_t ink = phase ? ui::theme.alarm_fg : ui::theme.alarm;
+    lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(fill), 0);
+    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ink), 0);
+    lv_obj_set_style_text_color(alarm_label, lv_color_hex(ink), 0);
     if (g_active_alarm_n > 1 && ++cyc >= 3) {
         cyc = 0;
         g_alarm_cycle = (g_alarm_cycle + 1) % g_active_alarm_n;
@@ -1426,6 +1454,16 @@ void overlay_show(const char *message) {
     alarm_set_list(&a, 1);
 }
 
+void overlay_restyle() {
+    // Colours only: MOB/alarm state, the text and HIDDEN flags are untouched.
+    mob_restyle();
+    alarms_restyle();
+    if (g_demo_badge) {
+        lv_obj_set_style_bg_color(g_demo_badge, lv_color_hex(ui::theme.alarm), 0);
+        lv_obj_set_style_text_color(g_demo_badge, lv_color_hex(ui::theme.alarm_fg), 0);
+    }
+}
+
 void overlay_clear() {
     g_overlay_pinned = false;
     alarm_set_list(nullptr, 0);
@@ -1445,9 +1483,11 @@ static void demo_start(uint32_t period_ms) {
     if (!g_demo_badge) {
         g_demo_badge = lv_label_create(lv_layer_top());
         lv_label_set_text(g_demo_badge, " DEMO ");
-        lv_obj_set_style_bg_color(g_demo_badge, lv_color_hex(ui::theme.port), 0);
+        // alarm fill + alarm_fg ink: a tested pair on every skin (the old
+        // white-on-port literal glowed on red-night).
+        lv_obj_set_style_bg_color(g_demo_badge, lv_color_hex(ui::theme.alarm), 0);
         lv_obj_set_style_bg_opa(g_demo_badge, LV_OPA_COVER, 0);
-        lv_obj_set_style_text_color(g_demo_badge, lv_color_hex(0xffffff), 0);
+        lv_obj_set_style_text_color(g_demo_badge, lv_color_hex(ui::theme.alarm_fg), 0);
         lv_obj_set_style_text_font(g_demo_badge, &font_b612_14, 0);
         lv_obj_set_style_pad_all(g_demo_badge, 4, 0);
         lv_obj_set_style_radius(g_demo_badge, 4, 0);

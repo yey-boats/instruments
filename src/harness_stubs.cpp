@@ -70,6 +70,8 @@ void overlay_show(const char *) {
 }
 void overlay_clear() {
 }
+void overlay_restyle() {
+}
 
 // ui_theme.h
 void use_day() {

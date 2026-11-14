@@ -50,11 +50,17 @@ struct Palette {
     // MOB rescue overlay ground and its readout ink.
     uint32_t mob_bg;
     uint32_t mob_fg;
+    // "MAN OVERBOARD" title on mob_bg (red, but bright enough for 4.5:1 on
+    // the dark-red ground; `port`/`alarm` are too dark on the light skins).
+    uint32_t mob_title;
+    // True-wind ("T") marker on the wind dial; the apparent ("A") marker uses
+    // `warn`. Both include a 20 px letter, so they are held to text contrast.
+    uint32_t wind_true;
 };
 
 // Positional initialisers below list exactly this many colours, in the field
 // order above.
-constexpr size_t kPaletteColours = 26;
+constexpr size_t kPaletteColours = 28;
 static_assert(sizeof(Palette) == kPaletteColours * sizeof(uint32_t),
               "update every Palette initialiser");
 
@@ -66,7 +72,7 @@ namespace palettes {
 //        alarm, good, port, starboard, grid, arc_band, tide, stale,
 //        band_ink, band_ink_dim,
 //        button_bg, button_fg, button_active_bg, button_active_fg,
-//        alarm_fg, mob_bg, mob_fg.
+//        alarm_fg, mob_bg, mob_fg, mob_title, wind_true.
 
 // Dark blue "glass cockpit" (Garmin GPSMAP school), the default: cool
 // near-black ground, bordered cells with a subtle vertical gradient for
@@ -76,15 +82,17 @@ constexpr Palette night = {
     0x4fc3f7, 0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c,
     0xf2f6fb, 0x288cff, 0x4a5666, 0x16222f, 0x5a6b78,
     0x1f2d3d, 0xeef4fa, 0x4fc3f7, 0x05101c, 0x05101c, 0x1a0000, 0xffffff,
+    0xff5252, 0x2bd4e8,
 };
 
 // Sun-readable glass cockpit: bright panels with a faint gradient, dark
 // text, saturated semantic colors. Same chrome structure as night.
 constexpr Palette day = {
     0xeef1f4, 0xffffff, 0xeef2f6, 0xc7d2da, 0xe7edf2, 0x14211d, 0x5a6b78,
-    0x0277bd, 0xb56f00, 0xc62828, 0x1b7a4b, 0xc62828, 0x1b7a4b, 0x9fb0bd,
-    0xdfe7ee, 0x0a5fc0, 0x9aa7b4, 0x16222f, 0x5a6b78,
-    0xc7d2da, 0x14211d, 0x0277bd, 0xffffff, 0xffffff, 0x1a0000, 0xffffff,
+    0x0266a8, 0x8a5500, 0xc62828, 0x1b7a4b, 0xc62828, 0x1b7a4b, 0x9fb0bd,
+    0xdfe7ee, 0x0a5fc0, 0x9aa7b4, 0x16222f, 0x52616d,
+    0xc7d2da, 0x14211d, 0x0266a8, 0xffffff, 0xffffff, 0x1a0000, 0xffffff,
+    0xff5252, 0x00707f,
 };
 
 // Maximum legibility: pure black ground, white text/edges, saturated
@@ -97,6 +105,7 @@ constexpr Palette high_contrast = {
     0x00d0ff, 0xffd000, 0xff3030, 0x00ff88, 0xff3030, 0x00ff88, 0x888888,
     0xffffff, 0x3aa0ff, 0x666666, 0x16222f, 0x5a6b78,
     0x333333, 0xffffff, 0x00d0ff, 0x000000, 0x000000, 0x1a0000, 0xffffff,
+    0xff3030, 0x2bd4e8,
 };
 
 // Night-vision skin (standard practice on marine nav displays): every
@@ -108,8 +117,9 @@ constexpr Palette high_contrast = {
 constexpr Palette red_night = {
     0x000000, 0x140302, 0x0a0100, 0x4a1410, 0x1f0705, 0xff4b3e, 0xd84a3a,
     0xff7a29, 0xffa028, 0xff1a1a, 0xe0921e, 0xff5252, 0xd9a441, 0x3c100c,
-    0x2a0805, 0xc03a30, 0x5c211c, 0xff6a50, 0x8a2a1c,
+    0x2a0805, 0xc03a30, 0x5c211c, 0xff6a50, 0xe0503c,
     0x4a1410, 0xff4b3e, 0xff7a29, 0x000000, 0x000000, 0x1a0000, 0xff7a29,
+    0xff5252, 0xff4b3e,
 };
 
 // Warm analog-instrument look: cream dial faces, charcoal ink, brass-gold
@@ -117,9 +127,10 @@ constexpr Palette red_night = {
 // (panels brighter than ground) like day.
 constexpr Palette classic = {
     0xe8e1cf, 0xf7f1e3, 0xe9e1cc, 0xb9ab8c, 0xe4dbc4, 0x2e2a24, 0x685d4e,
-    0x9a741b, 0xb56f00, 0x9e2f28, 0x3e6b41, 0x9e2f28, 0x3e6b41, 0x9b8d70,
+    0x7a5a10, 0x8a5500, 0x9e2f28, 0x3e6b41, 0x9e2f28, 0x3e6b41, 0x9b8d70,
     0xefe8d6, 0x35566b, 0xa89878, 0x16222f, 0x5a6b78,
     0xb9ab8c, 0x2e2a24, 0x9a741b, 0x000000, 0xffffff, 0x1a0000, 0xffffff,
+    0xff5252, 0x2f6170,
 };
 
 // Direct sunlight on the IPS panel: white ground and flat white panels
@@ -131,6 +142,7 @@ constexpr Palette sun = {
     0x0050a0, 0xa05a00, 0xc00000, 0x007a3d, 0xc00000, 0x007a3d, 0x444444,
     0xe6e6e6, 0x0a5fc0, 0x8a8a8a, 0x000000, 0x555555,
     0xcccccc, 0x000000, 0x0050a0, 0xffffff, 0xffffff, 0x1a0000, 0xffffff,
+    0xff5252, 0x006c80,
 };
 
 // clang-format on
