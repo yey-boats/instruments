@@ -14,6 +14,7 @@
 
 using ui_config::is_valid_brightness;
 using ui_config::is_valid_theme;
+using ui_config::theme_set_status;
 
 void setUp(void) {
 }
@@ -65,6 +66,44 @@ static void test_theme_unknown_rejected() {
 
 static void test_theme_null_rejected() {
     TEST_ASSERT_FALSE(is_valid_theme(nullptr));
+}
+
+// ---- theme.set command (instruments#76) -----------------------------------
+
+static void test_theme_set_accepts_every_palette() {
+    // The manager must be able to select every skin, not just day/night.
+    const char *names[] = {"sun", "red-night", "high-contrast", "classic", "day", "night"};
+    for (const char *n : names)
+        TEST_ASSERT_EQUAL_STRING_MESSAGE("ok", theme_set_status(n), n);
+}
+
+static void test_theme_set_accepts_auto() {
+    TEST_ASSERT_EQUAL_STRING("ok", theme_set_status("auto"));
+}
+
+static void test_theme_set_accepts_every_config_theme() {
+    // Drift guard: every Theme the config model can persist (and so report
+    // in /api/config) must be settable through theme.set.
+    for (uint8_t i = 0; i <= (uint8_t)config::Theme::Sun; ++i) {
+        const char *n = config::theme_name((config::Theme)i);
+        TEST_ASSERT_EQUAL_STRING_MESSAGE("ok", theme_set_status(n), n);
+    }
+}
+
+static void test_theme_set_matches_ui_theme_rule() {
+    const char *probe[] = {"day", "night", "auto", "high-contrast", "red-night", "classic",
+                           "sun", "",      "dusk", "DAY",           "Sun",       "auto "};
+    for (const char *n : probe) {
+        TEST_ASSERT_EQUAL_STRING_MESSAGE(is_valid_theme(n) ? "ok" : "invalid_payload",
+                                         theme_set_status(n), n);
+    }
+}
+
+static void test_theme_set_rejects_unknown_and_null() {
+    TEST_ASSERT_EQUAL_STRING("invalid_payload", theme_set_status(""));
+    TEST_ASSERT_EQUAL_STRING("invalid_payload", theme_set_status("dusk"));
+    TEST_ASSERT_EQUAL_STRING("invalid_payload", theme_set_status("Sun"));
+    TEST_ASSERT_EQUAL_STRING("invalid_payload", theme_set_status(nullptr));
 }
 
 // ---- config_model theme mapping -------------------------------------------
@@ -131,6 +170,11 @@ int main(int, char **) {
     RUN_TEST(test_theme_supported_tokens_accepted);
     RUN_TEST(test_theme_unknown_rejected);
     RUN_TEST(test_theme_null_rejected);
+    RUN_TEST(test_theme_set_accepts_every_palette);
+    RUN_TEST(test_theme_set_accepts_auto);
+    RUN_TEST(test_theme_set_accepts_every_config_theme);
+    RUN_TEST(test_theme_set_matches_ui_theme_rule);
+    RUN_TEST(test_theme_set_rejects_unknown_and_null);
     RUN_TEST(test_theme_name_parse_round_trip);
     RUN_TEST(test_theme_parse_canonical_names);
     RUN_TEST(test_theme_parse_unknown_falls_back);

@@ -18,4 +18,10 @@ bool is_valid_theme(const char *name) {
            strcmp(name, "classic") == 0 || strcmp(name, "sun") == 0 || strcmp(name, "auto") == 0;
 }
 
+const char *theme_set_status(const char *theme) {
+    // Same rule as ui.theme in apply_config, so the manager can select every
+    // skin (sun / red-night / high-contrast / classic), not just day/night.
+    return is_valid_theme(theme) ? "ok" : "invalid_payload";
+}
+
 }  // namespace ui_config

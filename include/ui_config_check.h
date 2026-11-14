@@ -12,8 +12,14 @@ namespace ui_config {
 // brightness.set v1 command.
 bool is_valid_brightness(int value);
 
-// True iff `name` matches one of the supported theme tokens.
-// Spec 17 §8 lists "day"/"night"/"auto"; case-sensitive match.
+// True iff `name` matches one of the supported theme tokens: every palette
+// ui::theme_known() knows (day, night, high-contrast, red-night, classic,
+// sun) plus the legacy "auto". Case-sensitive match.
 bool is_valid_theme(const char *name);
+
+// Outcome of the manager v1 `theme.set` command for payload.theme = `theme`
+// (instruments#76): "ok" when the token is accepted (same rule as ui.theme
+// in apply_config), else "invalid_payload". Returns a static string.
+const char *theme_set_status(const char *theme);
 
 }  // namespace ui_config
