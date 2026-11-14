@@ -1398,9 +1398,8 @@ const char *execute_command(const char *type, JsonObject payload) {
     }
     if (strcmp(type, "theme.set") == 0) {
         const char *t = payload["theme"] | "";
-        if (strcmp(t, "day") && strcmp(t, "night") && strcmp(t, "auto")) {
-            return "invalid_payload";
-        }
+        const char *status = ui_config::theme_set_status(t);
+        if (strcmp(status, "ok") != 0) return status;
         app::Command c;
         c.type = app::CommandType::SetTheme;
         strncpy(c.a, t, sizeof(c.a) - 1);

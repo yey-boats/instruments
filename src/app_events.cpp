@@ -362,7 +362,20 @@ void pump() {
             String t(cmd.a);
             t.trim();
             if (strcmp(t.c_str(), ui::theme_id()) == 0) {
-                net::logf("[ui] theme already %s", t.c_str());
+                // Palette already live, but cfg_ui may still hold an older
+                // theme (power cut inside its debounce window, #76): re-sync
+                // it so /api/config heals on a re-select. No rebuild needed.
+                config::Theme want = config::parse_theme(t.c_str(), config::Theme::Night);
+                if (config::ui().theme != want) {
+                    config::Mutation m;
+                    m.kind = config::MutationKind::SetTheme;
+                    m.source = config::Source::External;
+                    m.theme = want;
+                    config::mutate(m);
+                    net::logf("[ui] theme already %s (config re-synced)", t.c_str());
+                } else {
+                    net::logf("[ui] theme already %s", t.c_str());
+                }
                 break;
             }
             if (ui::use_theme(t.c_str())) {
