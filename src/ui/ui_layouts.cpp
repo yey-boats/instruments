@@ -6620,6 +6620,14 @@ static lv_obj_t *s_unit = nullptr;
 static char s_last[40] = {(char)0xFF};
 static int s_last_kind = -1;  // 0 = big number, 1 = multi-line/long (e.g. position)
 
+// A rebuilt screen (theme switch / config push -> reset_screens -> build)
+// starts with placeholder text, so forget what the previous widgets showed:
+// otherwise any value that has not changed since is never redrawn.
+static void reset_caches() {
+    s_last[0] = (char)0xFF;
+    s_last_kind = -1;
+}
+
 static void back_cb(lv_event_t *) {
     ui::show_by_id("dashboard");
 }
@@ -6647,6 +6655,7 @@ static uint32_t hero_rgb(const ui::layouts::MetricBinding &m) {
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
+    reset_caches();
     s_root = lv_obj_create(parent);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_set_pos(s_root, 0, 0);
