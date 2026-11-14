@@ -46,7 +46,11 @@ static lv_obj_t *s_btn_left = nullptr;  // "START CAL" / "APPLY"
 static lv_obj_t *s_btn_left_lbl = nullptr;
 static lv_obj_t *s_btn_right = nullptr;  // "CANCEL" / "BACK TO TEST"
 static lv_obj_t *s_btn_right_lbl = nullptr;
+// Raw-touch poll timer, owned by the current root: created in build(),
+// deleted with the root (on_root_delete). A timer that outlived the root
+// would paint freed cells after a theme switch / reset_screens (#73).
 static lv_timer_t *s_timer = nullptr;
+static bool s_was_active = false;
 
 static Mode s_mode = Mode::Test;
 static ::touch_cal::Sample s_samples[CELLS];
@@ -117,6 +121,7 @@ static void set_active(int idx) {
 }
 
 static void update_buttons() {
+    if (!s_btn_left || !s_btn_left_lbl || !s_btn_right || !s_btn_right_lbl) return;
     if (s_mode == Mode::Test) {
         lv_label_set_text(s_btn_left_lbl, "START CAL");
         lv_obj_set_style_bg_color(s_btn_left, lv_color_hex(0x57c7d8), 0);
@@ -211,6 +216,14 @@ static void on_right(lv_event_t *e) {
 }
 
 static void poll(lv_timer_t *) {
+    // Act only while this screen is shown: no root (freed by a rebuild) or
+    // another screen loaded means the touch belongs to someone else.
+    if (!s_root || lv_screen_active() != s_root) {
+        s_last_pressed = false;
+        s_press_rx = -1;
+        s_press_ry = -1;
+        return;
+    }
     int rx = -1, ry = -1, pressed = 0;
     ::main_touch_raw(&rx, &ry, &pressed);
 
@@ -280,8 +293,31 @@ static void make_grid(lv_obj_t *parent) {
     }
 }
 
+// LV_EVENT_DELETE on the root: reset_screens() / replace_screen() free it
+// with lv_obj_delete. Stop the poll timer and drop every pointer into the
+// freed subtree so nothing touches it afterwards.
+static void on_root_delete(lv_event_t *e) {
+    if (lv_event_get_target(e) != s_root) return;
+    if (s_timer) {
+        lv_timer_delete(s_timer);
+        s_timer = nullptr;
+    }
+    s_root = nullptr;
+    for (int i = 0; i < CELLS; ++i)
+        s_cells[i] = nullptr;
+    s_lbl_status = nullptr;
+    s_lbl_help = nullptr;
+    s_btn_left = nullptr;
+    s_btn_left_lbl = nullptr;
+    s_btn_right = nullptr;
+    s_btn_right_lbl = nullptr;
+    s_was_active = false;  // a rebuilt root starts fresh on entry
+    s_last_pressed = false;
+}
+
 lv_obj_t *build(lv_obj_t *parent) {
     s_root = lv_obj_create(parent);
+    lv_obj_add_event_cb(s_root, on_root_delete, LV_EVENT_DELETE, NULL);
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     if (parent) lv_obj_set_pos(s_root, 0, 0);
     lv_obj_set_style_bg_color(s_root, lv_color_hex(0x000814), 0);
@@ -330,15 +366,14 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_center(s_btn_right_lbl);
 
     update_status();
+    if (s_timer) lv_timer_delete(s_timer);  // defensive: one timer per root
+    s_timer = lv_timer_create(poll, 20, NULL);
     return s_root;
 }
 
 void refresh() {
-    static bool s_was_active = false;
+    if (!s_root) return;
     bool now_active = (lv_screen_active() == s_root);
-    if (!s_timer) {
-        s_timer = lv_timer_create(poll, 20, NULL);
-    }
     if (now_active && !s_was_active) {
         // Default to Test mode on entry.
         s_mode = Mode::Test;
