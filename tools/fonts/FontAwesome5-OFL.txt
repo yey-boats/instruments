@@ -1,5 +1,5 @@
-Font Awesome Free 5 (FontAwesome5-Solid+Brands+Regular.woff, the subset bundled with LVGL's
-scripts/built_in_font). Copyright (c) Fonticons, Inc. (https://fontawesome.com)
+Font Awesome Free 5.9.0 (FontAwesome5-Solid+Brands+Regular.woff, the merge bundled with
+LVGL v9.2.2 scripts/built_in_font). Copyright (c) Fonticons, Inc. (https://fontawesome.com)
 
 Font Awesome Free fonts are licensed under the SIL Open Font License, Version 1.1.
 (Icons: CC BY 4.0; code: MIT. See https://fontawesome.com/license/free.)

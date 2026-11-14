@@ -21,7 +21,7 @@ License identifiers use [SPDX](https://spdx.org/licenses/) where one is declared
 | GFX Library for Arduino | `moononournation/GFX Library for Arduino@~1.4.7` | **license not explicitly stated** — see note | https://github.com/moononournation/Arduino_GFX |
 | arduinoWebSockets | `links2004/WebSockets@^2.4.1` | **LGPL-2.1** | https://github.com/Links2004/arduinoWebSockets |
 | B612 (embedded glyphs, `src/fonts/font_b612_*.c`, `src/fonts/font_xl_64.c`) | `v1.008` | **OFL-1.1** | https://github.com/polarsys/b612 |
-| Font Awesome Free 5 (symbol glyphs merged into `src/fonts/font_b612_*.c`) | LVGL-bundled subset | **OFL-1.1** (font files) | https://fontawesome.com/license/free |
+| Font Awesome Free 5 (symbol glyphs merged into `src/fonts/font_b612_*.c`) | 5.9.0 (LVGL-bundled merge) | **OFL-1.1** (font files) | https://fontawesome.com/license/free |
 
 ### Platform / framework (linked, supplied by the toolchain)
 
@@ -48,7 +48,7 @@ License identifiers use [SPDX](https://spdx.org/licenses/) where one is declared
 
 ## Obligations summary
 
-**Permissive components** (MIT / Apache-2.0 / ISC / OFL-1.1 — ArduinoJson, LVGL, B612, Font Awesome,
+**Permissive components** (MIT / Apache-2.0 / ISC — ArduinoJson, LVGL,
 NimBLE-Arduino, TAMC_GT911, Unity, ajv, yaml, and the TS toolchain) require only
 that their copyright and permission notices be **preserved**. Apache-2.0
 components (NimBLE-Arduino, TAMC_GT911, ESP-IDF, TypeScript) additionally require
@@ -56,6 +56,12 @@ that any `NOTICE` text they ship be propagated and that modifications be stated.
 None impose source-disclosure on this project's own code, and all are compatible
 with distribution under PolyForm Noncommercial 1.0.0 and with a separate
 commercial license.
+
+**Fonts (OFL-1.1): B612 and Font Awesome.** The generated glyph tables in
+`src/fonts/*.c` are derived from OFL fonts and stay under the OFL (clause 5), not
+PolyForm. They may be embedded and distributed with this product, but not sold on
+their own (clause 1), and each copy must carry the copyright notice and licence
+(clause 2): see `tools/fonts/B612-OFL.txt` and `tools/fonts/FontAwesome5-OFL.txt`.
 
 **Weak-copyleft components (LGPL-2.1): `arduinoWebSockets` and the Arduino-ESP32
 core.** The LGPL does **not** require this project's own source to be opened, but
@@ -99,9 +105,11 @@ intended license with upstream, or migrate the display path onto `esp_lcd`
 - Font Awesome Free 5 — Copyright © Fonticons, Inc. (https://fontawesome.com).
   Font files under the SIL Open Font License, Version 1.1. Full text:
   [`tools/fonts/FontAwesome5-OFL.txt`](tools/fonts/FontAwesome5-OFL.txt). The
-  LVGL-bundled subset supplies the symbol glyphs merged into `src/fonts/font_b612_*.c`.
+  LVGL-bundled Font Awesome 5.9.0 merge (v9.2.2 `scripts/built_in_font/`) supplies the
+  symbol glyphs (U+F077, U+F078) merged into `src/fonts/font_b612_*.c`.
 - Arduino core for ESP32 — Copyright © Espressif Systems and contributors. LGPL-2.1.
 - ESP-IDF — Copyright © Espressif Systems. Apache License 2.0.
 
-Full license texts are distributed with each component (in its installed package
-under `.pio/libdeps/<env>/<lib>/`) and at the upstream URLs above.
+Full license texts for libraries are distributed with each component (in its
+installed package under `.pio/libdeps/<env>/<lib>/`) and at the upstream URLs
+above. Font licence texts are in `tools/fonts/*-OFL.txt`.
