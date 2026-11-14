@@ -41,12 +41,10 @@ constexpr uint32_t pill_text = 0xffffff;
 
 extern Palette theme;
 
-// Canonical firmware theme set. day / night / high-contrast mirror the MIDL
-// catalog palettes (midl/web/src/theme.ts). red-night and classic are
-// firmware-extra skins: selectable via console/web/config but NOT advertised
-// in the generated MIDL manifest (that list comes from the upstream midl
-// catalog; adding them there is a follow-up in the midl repo). sun is a
-// firmware-extra too, and is the Settings screen's DAY choice (red-night is NIGHT).
+// Canonical firmware theme set: all six (night, day, high-contrast, red-night,
+// classic, sun) are in the MIDL catalog (midl/cpp/include/yb_midl_catalog.h,
+// palettes in midl/web/src/theme.ts) and advertised in the generated manifest.
+// sun is the Settings screen's DAY choice (red-night is NIGHT).
 void use_night();          // dark blue "glass cockpit", default
 void use_day();            // light / sunlight-readable
 void use_high_contrast();  // pure black + saturated primaries (max legibility)

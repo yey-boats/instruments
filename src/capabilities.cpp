@@ -96,15 +96,16 @@ void build_manifest(JsonObject out) {
     JsonArray controls = out["controls"].to<JsonArray>();
     controls.add("autopilot");
 
-    // Advertised theme list mirrors the upstream MIDL catalog (all five are
+    // Advertised theme list mirrors the upstream MIDL catalog (all six are
     // implemented in ui_theme.cpp; red-night/classic landed upstream in
-    // midl 692ac00, matching the embedded manifest).
+    // midl 692ac00, sun in midl#48, matching the embedded manifest).
     JsonArray themes = out["themes"].to<JsonArray>();
     themes.add("day");
     themes.add("night");
     themes.add("high-contrast");
     themes.add("red-night");
     themes.add("classic");
+    themes.add("sun");
 }
 
 }  // namespace capabilities

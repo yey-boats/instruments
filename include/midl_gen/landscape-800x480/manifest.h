@@ -35,7 +35,7 @@ inline constexpr const char *JSON = R"midljson({
   "actionKinds": ["nav", "command", "put"],
   "presets": ["full", "hero-split"],
   "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"],
-  "themes": ["day", "night", "high-contrast", "red-night", "classic"],
+  "themes": ["day", "night", "high-contrast", "red-night", "classic", "sun"],
   "fonts": [14, 20, 28, 48]
 }
 )midljson";
