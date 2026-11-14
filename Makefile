@@ -337,6 +337,9 @@ lint: version-check  ## Check C++ formatting and Python syntax
 	@find src include test \( -name '*.cpp' -o -name '*.h' \) ! -name 'build_version.h' -print | xargs $(CLANG_FORMAT) --dry-run --Werror
 	@find tools -name '*.py' -print | xargs python3 -m py_compile
 
+dram-check:  ## Check static internal DRAM budget of the last $(ENV) build (instruments#41)
+	python3 tools/check_dram_budget.py .pio/build/$(ENV)/firmware.elf
+
 pre-commit: lint  ## Run the same checks used by the local hook and CI
 
 hooks-install:  ## Install repository git hooks
@@ -369,7 +372,7 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
 	$(PIO) run -t clean 2>/dev/null || true
 	rm -rf .pio
 
-.PHONY: help setup version version-check version-set build test sim sys-test sys-test-remote \
+.PHONY: help dram-check setup version version-check version-set build test sim sys-test sys-test-remote \
         sys-test-mac sys-test-attended flash ota monitor ble ble-cmd provision logs \
         demo-up demo-down demo-up-remote demo-down-remote \
         server-setup server-sk-only server-status server-teardown \

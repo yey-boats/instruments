@@ -79,6 +79,12 @@ jobs:
           YEYBOATS_VERSION: ${{ steps.ver.outputs.fw_version }}
         run: pio run -e ${{ matrix.env }}
 
+      # instruments#41: internal .bss/.data eats the WiFi RX headroom; large
+      # app buffers belong in PSRAM (include/psram_static.h).
+      - name: Check static internal DRAM budget
+        if: matrix.env == 'esp32-4848s040'
+        run: make dram-check ENV=${{ matrix.env }}
+
       - name: Create merged firmware image
         run: |
           BOOT_APP0=$(find "$HOME/.platformio/packages/framework-arduinoespressif32" -name boot_app0.bin -print -quit 2>/dev/null)

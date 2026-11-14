@@ -1,4 +1,5 @@
 #include "net.h"
+#include "psram_static.h"
 #include "web_auth_policy.h"
 #include "web_pw_store.h"
 
@@ -212,7 +213,11 @@ static uint32_t s_mdns_seq = 0;
 static SemaphoreHandle_t s_log_mtx = nullptr;
 static SemaphoreHandle_t s_udp_mtx = nullptr;
 static constexpr size_t LOG_RING_CAP = 96;
-static LogEntry s_log_ring[LOG_RING_CAP];
+// ~19 KB: PSRAM, not internal .bss (instruments#41, include/psram_static.h).
+static LogEntry *log_ring() {
+    static LogEntry *ring = yeyboats::psram_new<LogEntry>(LOG_RING_CAP);
+    return ring;
+}
 static uint32_t s_log_seq = 0;
 static size_t s_log_count = 0;
 static char s_discovery_ip[16] = {0};
@@ -496,6 +501,16 @@ static const char *ota_error_name(ota_error_t e) {
     }
 }
 
+// Internal (non-PSRAM) heap is what the WiFi/lwIP RX path draws on during a
+// transfer; esp_get_free_heap_size() includes ~7.5 MB of PSRAM and hid the
+// starvation behind instruments#41. Log the internal numbers instead.
+static unsigned int_heap_free() {
+    return (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+static unsigned int_heap_largest() {
+    return (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+
 static void otaSetup() {
     // instruments#30: see include/ota_policy.h. Runtime OTA password (NVS)
     // wins over the compile-time default; no password => ArduinoOTA stays
@@ -519,13 +534,14 @@ static void otaSetup() {
     // is invisible on the field device).
     ArduinoOTA.onStart([]() {
         s_ota_in_progress = true;
-        logf_at(LOG_WARN, "[ota] start cmd=%s free_heap=%u",
-                ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs",
-                (unsigned)esp_get_free_heap_size());
+        logf_at(LOG_WARN, "[ota] start cmd=%s int_free=%u int_largest=%u",
+                ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs", int_heap_free(),
+                int_heap_largest());
     });
     ArduinoOTA.onEnd([]() {
         s_ota_in_progress = false;
-        logf_at(LOG_WARN, "[ota] end free_heap=%u", (unsigned)esp_get_free_heap_size());
+        logf_at(LOG_WARN, "[ota] end int_free=%u int_largest=%u", int_heap_free(),
+                int_heap_largest());
     });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
         // 10% milestones at WARN so we know how far the upload got
@@ -535,16 +551,15 @@ static void otaSetup() {
         unsigned int pct = (p * 100) / t;
         unsigned int decile = pct / 10;
         if (decile != last_decile) {
-            logf_at(LOG_WARN, "[ota] %u%% (%u/%u) heap=%u", pct, p, t,
-                    (unsigned)esp_get_free_heap_size());
+            logf_at(LOG_WARN, "[ota] %u%% (%u/%u) int_free=%u int_largest=%u", pct, p, t,
+                    int_heap_free(), int_heap_largest());
             last_decile = decile;
         }
     });
     ArduinoOTA.onError([](ota_error_t e) {
         s_ota_in_progress = false;
-        logf_at(LOG_WARN, "[ota] error %d (%s) free_heap=%u largest=%u", (int)e, ota_error_name(e),
-                (unsigned)esp_get_free_heap_size(),
-                (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        logf_at(LOG_WARN, "[ota] error %d (%s) int_free=%u int_largest=%u", (int)e,
+                ota_error_name(e), int_heap_free(), int_heap_largest());
     });
     ArduinoOTA.begin();
     ota_started = true;
@@ -970,7 +985,7 @@ static void wifi_manager_task(void *) {
         }
         uint32_t first_seq = s_log_seq >= s_log_count ? s_log_seq - s_log_count + 1 : 1;
         for (uint32_t seq = first_seq; seq <= s_log_seq; ++seq) {
-            const LogEntry &entry = s_log_ring[(seq - 1) % LOG_RING_CAP];
+            const LogEntry &entry = log_ring()[(seq - 1) % LOG_RING_CAP];
             if (entry.seq != seq) continue;
             int len = (int)strnlen(entry.line, sizeof(entry.line));
             if (len <= 0) continue;
@@ -1198,7 +1213,7 @@ void setOtaPassword(const char *pw) {
 static void append_log_locked(const char *line, int n, uint8_t level) {
     if (!line || n <= 0) return;
     size_t idx = s_log_seq % LOG_RING_CAP;
-    LogEntry &entry = s_log_ring[idx];
+    LogEntry &entry = log_ring()[idx];
     entry.seq = ++s_log_seq;
     entry.ms = millis();
     entry.level = level;
@@ -1221,7 +1236,7 @@ size_t copyLogs(LogEntry *out, size_t cap, uint32_t since_seq) {
     uint32_t first_seq = s_log_seq >= s_log_count ? s_log_seq - s_log_count + 1 : 1;
     for (uint32_t seq = first_seq; seq <= s_log_seq && n < cap; ++seq) {
         if (since_seq && seq <= since_seq) continue;
-        const LogEntry &entry = s_log_ring[(seq - 1) % LOG_RING_CAP];
+        const LogEntry &entry = log_ring()[(seq - 1) % LOG_RING_CAP];
         if (entry.seq == seq) out[n++] = entry;
     }
 

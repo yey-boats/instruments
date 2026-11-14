@@ -1,4 +1,5 @@
 #include "ble_config.h"
+#include "psram_static.h"
 #include "net.h"
 #include "psram_json.h"
 #include "signalk.h"
@@ -303,7 +304,7 @@ static String controlDeviceJson() {
     // overflows it and reboots the device (same class as the project's "large
     // stack temporary" trap). GATT callbacks run serially on the one NimBLE
     // host task, so a function-static scratch is safe (no re-entrancy).
-    static proto::DeviceRecord r;
+    static proto::DeviceRecord &r = *yeyboats::psram_new<proto::DeviceRecord>();
     memset(&r, 0, sizeof(r));
     proto_target::fill_device_record(r);
 
@@ -355,7 +356,7 @@ static String controlStateJson() {
     // ControlState holds Session[16] (~2 KB) — too large for the NimBLE host
     // task stack. Function-static scratch (GATT callbacks are serial). See
     // controlDeviceJson() for the rationale.
-    static proto::ControlState cs;
+    static proto::ControlState &cs = *yeyboats::psram_new<proto::ControlState>();
     memset(&cs, 0, sizeof(cs));
     proto_target::fill_state(cs);
     JsonDocument doc(&yeyboats::psram_json);
@@ -393,8 +394,8 @@ static String dispatchControl(const std::string &data) {
     if (strcmp(t, "attach") == 0) {
         // AttachAck embeds a DeviceRecord (~1.5 KB) — keep it off the small
         // NimBLE host-task stack. Static scratch (GATT callbacks are serial).
-        static proto::Attach req;
-        static proto::AttachAck ack;
+        static proto::Attach req;  // ~340 B: small enough for internal .bss
+        static proto::AttachAck &ack = *yeyboats::psram_new<proto::AttachAck>();
         memset(&req, 0, sizeof(req));
         memset(&ack, 0, sizeof(ack));
         proto::from_json(o, req);

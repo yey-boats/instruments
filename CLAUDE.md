@@ -111,9 +111,14 @@ Key contracts:
   `onRead`/`onWrite`, an HTTP handler, or a controller loop overflows the
   stack and reboots the device with **no panic text** (the crash precedes
   console init: ROM boot → `entry` → `RTC_SW_SYS_RST`, repeating). Make
-  such scratch structs `static` (GATT/web callbacks run serially on one
-  task, so a function-static is race-free) + `memset` in place, or
-  heap/PSRAM. This is the `out = Config{}` 34 KB-temporary trap in a new
+  such scratch structs function-static (GATT/web callbacks run serially
+  on one task, so a function-static is race-free) + `memset` in place.
+  Anything over ~1 KB goes in PSRAM, not internal `.bss`:
+  `static T &x = *yeyboats::psram_new<T>();` (`include/psram_static.h`).
+  Plain `static` is only for small scratch. Internal static DRAM eats the
+  WiFi RX headroom (OTA failed mid-transfer, instruments#41), and
+  `make dram-check` / CI fail when `.dram0.data + .dram0.bss` exceeds the
+  budget in `tools/check_dram_budget.py`. This is the `out = Config{}` 34 KB-temporary trap in a new
   guise — it bit the BLE Control handlers (`ble_config.cpp`), the IP
   `/api/p2p` handlers (`web.cpp`), and the harness loop, all at once, and
   only showed up on hardware (compile + host tests pass).
