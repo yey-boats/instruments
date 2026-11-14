@@ -231,8 +231,8 @@ Widget *create(lv_obj_t *parent, int16_t x, int16_t y, int16_t w, int16_t h,
         wd->value_lbl = lv_label_create(wd->root);
         lv_label_set_text(wd->value_lbl, "--");
         lv_obj_set_style_text_font(wd->value_lbl, font_for(def.style.value_font_size, 28), 0);
-        lv_obj_set_style_text_color(wd->value_lbl, lv_color_hex(ui::theme.fg), 0);
-        lv_obj_set_style_bg_color(wd->value_lbl, lv_color_hex(ui::theme.panel_edge), 0);
+        lv_obj_set_style_text_color(wd->value_lbl, lv_color_hex(ui::theme.button_fg), 0);
+        lv_obj_set_style_bg_color(wd->value_lbl, lv_color_hex(ui::theme.button_bg), 0);
         lv_obj_set_style_bg_opa(wd->value_lbl, LV_OPA_COVER, 0);
         lv_obj_set_style_radius(wd->value_lbl, 8, 0);
         lv_obj_set_style_pad_hor(wd->value_lbl, 12, 0);
@@ -367,11 +367,16 @@ void update(Widget &w, const boat::View &data) {
                 *p = (char)toupper((unsigned char)*p);
             lv_label_set_text(w.value_lbl, st);
             bool engaged = strcmp(st, "STANDBY") != 0 && strcmp(st, "OFF") != 0;
+            // Engaged: good fill with ground-colour ink (fg on good was
+            // 1.3-3.9:1); standby: the inactive button tokens.
             lv_obj_set_style_bg_color(
-                w.value_lbl, lv_color_hex(engaged ? ui::theme.good : ui::theme.panel_edge), 0);
+                w.value_lbl, lv_color_hex(engaged ? ui::theme.good : ui::theme.button_bg), 0);
+            lv_obj_set_style_text_color(
+                w.value_lbl, lv_color_hex(engaged ? ui::theme.bg : ui::theme.button_fg), 0);
         } else {
             lv_label_set_text(w.value_lbl, "--");
-            lv_obj_set_style_bg_color(w.value_lbl, lv_color_hex(ui::theme.panel_edge), 0);
+            lv_obj_set_style_bg_color(w.value_lbl, lv_color_hex(ui::theme.button_bg), 0);
+            lv_obj_set_style_text_color(w.value_lbl, lv_color_hex(ui::theme.button_fg), 0);
         }
         break;
     }

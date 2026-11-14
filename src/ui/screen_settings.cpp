@@ -77,11 +77,11 @@ static void update_segment(Segmented &seg, int selected) {
     seg.selected = selected;
     for (uint8_t i = 0; i < seg.count; ++i) {
         bool active = (i == selected);
-        uint32_t bg = active ? theme.accent : theme.panel;
-        uint32_t fg = active ? theme.bg : theme.fg;  // bg token contrasts the accent fill
+        // Button tokens (#67), tested for AA on every skin.
+        uint32_t bg = active ? theme.button_active_bg : theme.button_bg;
+        uint32_t fg = active ? theme.button_active_fg : theme.button_fg;
         lv_obj_set_style_bg_color(seg.buttons[i], lv_color_hex(bg), 0);
-        lv_obj_set_style_border_color(seg.buttons[i],
-                                      lv_color_hex(active ? theme.accent : theme.panel_edge), 0);
+        lv_obj_set_style_border_color(seg.buttons[i], lv_color_hex(bg), 0);
         lv_obj_t *label = lv_obj_get_child(seg.buttons[i], 0);
         if (label) lv_obj_set_style_text_color(label, lv_color_hex(fg), 0);
     }

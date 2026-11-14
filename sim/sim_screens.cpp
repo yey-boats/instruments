@@ -79,6 +79,20 @@ static const ui::layouts::MetricBinding kZoomNum = {
     "sog",   "SOG", "kn", ui::layouts::MetricSource::SOG_kn, 0x57c7d8,
     nullptr, 0,     {},   ui::layouts::WidgetKind::Numeric};
 
+// Template-only screens with buttons (#67 contrast review): the Settings form
+// and the autopilot control console, built through the generic dispatcher.
+static const ui::layouts::ScreenVariantSpec kSetupSpec = {
+    "setup", "SETTINGS", ui::layouts::TemplateId::SetupForm, nullptr, 0, 0};
+static const ui::layouts::ScreenVariantSpec kConsoleSpec = {
+    "console", "AUTOPILOT", ui::layouts::TemplateId::ControlConsole, nullptr, 0, 0};
+static lv_obj_t *s_template_root = nullptr;
+
+static const ui::layouts::ScreenVariantSpec *template_spec(const char *id) {
+    if (!strcmp(id, "setup")) return &kSetupSpec;
+    if (!strcmp(id, "console")) return &kConsoleSpec;
+    return nullptr;
+}
+
 static lv_obj_t *build_screen(const char *id) {
     lv_obj_t *p = lv_screen_active();
     if (!strcmp(id, "nav")) return ui::nav::build(p);
@@ -88,6 +102,8 @@ static lv_obj_t *build_screen(const char *id) {
     if (!strcmp(id, "trip")) return ui::trip::build(p);
     if (!strcmp(id, "wind_steer")) return ui::wind_steer::build(p);
     if (!strcmp(id, "wind_classic")) return ui::wind_classic::build(p);
+    if (const auto *spec = template_spec(id))
+        return s_template_root = ui::layouts::create(p, *spec);
     if (!strcmp(id, "zoom-pos")) {
         ui::layouts::set_zoom_target(kZoomPos);
         return ui::zoom::build(p);
@@ -108,6 +124,11 @@ static void refresh_screen(const char *id) {
     if (!strcmp(id, "wind_steer")) return ui::wind_steer::refresh();
     if (!strcmp(id, "wind_classic")) return ui::wind_classic::refresh();
     if (!strncmp(id, "zoom", 4)) return ui::zoom::refresh();
+    if (const auto *spec = template_spec(id)) {
+        static boat::View v;
+        boat::current_view(v);
+        ui::layouts::update(s_template_root, *spec, v);
+    }
 }
 
 int main(int argc, char **argv) {

@@ -4,121 +4,50 @@
 
 namespace ui {
 
-// Default = night theme, "glass cockpit" language (Garmin GPSMAP school):
-// cool near-black ground, bordered cells with a subtle vertical gradient for
-// depth, semantic side colors. Field order must match struct Palette exactly.
-// Order: bg, panel, panel_bot, panel_edge, badge, fg, fg_dim, accent, warn,
-//        alarm, good, port, starboard, grid, arc_band, tide, stale,
-//        band_ink, band_ink_dim.
-Palette theme = {
-    0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd,
-    0x4fc3f7, 0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c,
-    0xf2f6fb, 0x288cff, 0x4a5666, 0x16222f, 0x5a6b78,
-};
-
-// The positional initialisers below list exactly 19 colours.
-static_assert(sizeof(Palette) == 19 * sizeof(uint32_t), "update every Palette initialiser");
+// Default = night theme (palettes::night). The colour tables themselves live
+// in ui_palette.h so the native contrast test can check them.
+Palette theme = palettes::night;
 
 // Canonical name of the active palette; kept in lockstep by the use_*()
 // setters so console/web/state endpoints can report the live theme.
 static const char *s_theme_id = "night";
 
+static void apply(const Palette &p, const char *id) {
+    theme = p;
+    s_theme_id = id;
+}
+
 void use_night() {
-    theme = {
-        0x0a1018, 0x101b29, 0x0b1320, 0x1f2d3d, 0x16222f, 0xeef4fa, 0x8fa7bd,
-        0x4fc3f7, 0xffb84d, 0xff5252, 0x36d399, 0xff5252, 0x36d399, 0x2a3a4c,
-        0xf2f6fb, 0x288cff, 0x4a5666, 0x16222f, 0x5a6b78,
-    };
-    s_theme_id = "night";
+    apply(palettes::night, "night");
 }
-
 void use_day() {
-    // Sun-readable glass cockpit: bright panels with a faint gradient, dark
-    // text, saturated semantic colors. Same chrome structure as night.
-    theme = {
-        0xeef1f4, 0xffffff, 0xeef2f6, 0xc7d2da, 0xe7edf2, 0x14211d, 0x5a6b78,
-        0x0277bd, 0xb56f00, 0xc62828, 0x1b7a4b, 0xc62828, 0x1b7a4b, 0x9fb0bd,
-        0xdfe7ee, 0x0a5fc0, 0x9aa7b4, 0x16222f, 0x5a6b78,
-    };
-    s_theme_id = "day";
+    apply(palettes::day, "day");
 }
-
 void use_high_contrast() {
-    // Maximum legibility: pure black ground, white text/edges, saturated
-    // primaries. Matches the web reference (midl/web/src/theme.ts
-    // THEMES["high-contrast"] + WIDGETS_HC: accent #00d0ff, warn #ffd000,
-    // alarm #ff3030, good #00ff88, ticks #888888, HUD band #ffffff).
-    theme = {
-        0x000000, 0x0a0a0a, 0x000000, 0xffffff, 0x141414, 0xffffff, 0xbdbdbd,
-        0x00d0ff, 0xffd000, 0xff3030, 0x00ff88, 0xff3030, 0x00ff88, 0x888888,
-        0xffffff, 0x3aa0ff, 0x666666, 0x16222f, 0x5a6b78,
-    };
-    s_theme_id = "high-contrast";
+    apply(palettes::high_contrast, "high-contrast");
 }
-
 void use_red_night() {
-    // Night-vision skin (standard practice on marine nav displays): every
-    // foreground in red/amber on near-black so the helm keeps dark
-    // adaptation. No greens/blues anywhere — "good"/starboard fall back to
-    // amber tones, alarm stays the brightest pure red. The gauge band is a
-    // dark red with red ink on it: the old salmon band (0xff8a75) was the
-    // brightest thing on a night screen.
-    theme = {
-        0x000000, 0x140302, 0x0a0100, 0x4a1410, 0x1f0705, 0xff4b3e, 0xa63527,
-        0xff7a29, 0xffa028, 0xff1a1a, 0xe0921e, 0xff5252, 0xd9a441, 0x3c100c,
-        0x2a0805, 0xc03a30, 0x5c211c, 0xff6a50, 0x8a2a1c,
-    };
-    s_theme_id = "red-night";
+    apply(palettes::red_night, "red-night");
 }
-
 void use_classic() {
-    // Warm analog-instrument look: cream dial faces, charcoal ink, brass-gold
-    // accent, oxblood/racing-green semantic colors. Light-theme structure
-    // (panels brighter than ground) like use_day().
-    theme = {
-        0xe8e1cf, 0xf7f1e3, 0xe9e1cc, 0xb9ab8c, 0xe4dbc4, 0x2e2a24, 0x6f6454,
-        0x9a741b, 0xb56f00, 0x9e2f28, 0x3e6b41, 0x9e2f28, 0x3e6b41, 0x9b8d70,
-        0xefe8d6, 0x35566b, 0xa89878, 0x16222f, 0x5a6b78,
-    };
-    s_theme_id = "classic";
+    apply(palettes::classic, "classic");
 }
-
 void use_sun() {
-    // Direct sunlight on the IPS panel: white ground and flat white panels
-    // (no gradient), black text, thin black panel borders, darker saturated
-    // semantic colours that hold up against glare.
-    theme = {
-        0xffffff, 0xffffff, 0xffffff, 0x1a1a1a, 0xeeeeee, 0x000000, 0x3a3a3a,
-        0x0050a0, 0xa05a00, 0xc00000, 0x007a3d, 0xc00000, 0x007a3d, 0x444444,
-        0xe6e6e6, 0x0a5fc0, 0x8a8a8a, 0x000000, 0x555555,
-    };
-    s_theme_id = "sun";
+    apply(palettes::sun, "sun");
 }
-namespace {
-struct NamedTheme {
-    const char *name;
-    void (*apply)();
-};
-// Single source for name -> palette. day/night/high-contrast mirror the MIDL
-// catalog; red-night/classic/sun are firmware-extra (see ui_theme.h).
-constexpr NamedTheme k_themes[] = {
-    {"night", use_night},         {"day", use_day},         {"high-contrast", use_high_contrast},
-    {"red-night", use_red_night}, {"classic", use_classic}, {"sun", use_sun},
-};
-}  // namespace
 
 bool theme_known(const char *name) {
     if (!name || !*name) return false;
-    for (const auto &t : k_themes)
+    for (const auto &t : palettes::all)
         if (strcmp(t.name, name) == 0) return true;
     return false;
 }
 
 bool use_theme(const char *name) {
     if (!name) return false;
-    for (const auto &t : k_themes) {
+    for (const auto &t : palettes::all) {
         if (strcmp(t.name, name) == 0) {
-            t.apply();
+            apply(*t.palette, t.name);
             return true;
         }
     }

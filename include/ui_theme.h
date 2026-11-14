@@ -3,37 +3,15 @@
 #include <lvgl.h>
 #include <stdint.h>
 
+#include "ui_palette.h"
+
 // Palette indirection so day/night themes can flip a single struct without
 // every widget knowing how to re-style itself.
 
 namespace ui {
 
-struct Palette {
-    uint32_t bg;          // screen background
-    uint32_t panel;       // card / quadrant background (gradient top)
-    uint32_t panel_bot;   // card gradient bottom (glass-cockpit depth)
-    uint32_t panel_edge;  // panel border
-    uint32_t badge;       // unit-badge background
-    uint32_t fg;          // primary text
-    uint32_t fg_dim;      // secondary text / units / labels
-    uint32_t accent;      // hero metric color
-    uint32_t warn;        // amber-ish accent
-    uint32_t alarm;       // red / urgent
-    uint32_t good;        // green / ok
-    uint32_t port;        // red side (port wind)
-    uint32_t starboard;   // green side (starboard wind)
-    uint32_t grid;        // axis / compass tick color
-    uint32_t arc_band;    // gauge band (compass rail, wind bezel)
-    // MIDL colour tokens with no firmware chrome slot of their own (#45):
-    // `tide` (current/tide vectors) and `stale` (aged data), values from the
-    // matching midl/web/src/theme.ts palette.
-    uint32_t tide;
-    uint32_t stale;
-    // Ink drawn ON arc_band: major ticks + numerals / minor ticks. Dark ink
-    // for a light band; red-night's dark band takes light red ink.
-    uint32_t band_ink;
-    uint32_t band_ink_dim;
-};
+// struct Palette and the per-skin colour tables live in ui_palette.h (pure,
+// host-testable).
 
 // Glass-cockpit chrome metrics (consolidated; no inline magic numbers in
 // painters). Single source for radius/border/padding so device and editor
