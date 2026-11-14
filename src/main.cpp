@@ -1234,7 +1234,7 @@ static void mob_build(lv_obj_t *scr) {
     mob_view = lv_obj_create(scr);
     lv_obj_set_size(mob_view, LCD_W, LCD_H);
     lv_obj_set_pos(mob_view, 0, 0);
-    lv_obj_set_style_bg_color(mob_view, lv_color_hex(0x1a0000), 0);
+    lv_obj_set_style_bg_color(mob_view, lv_color_hex(ui::theme.mob_bg), 0);
     lv_obj_set_style_border_width(mob_view, 4, 0);
     lv_obj_set_style_border_color(mob_view, lv_color_hex(ui::theme.alarm), 0);
     lv_obj_set_style_radius(mob_view, 0, 0);
@@ -1250,13 +1250,13 @@ static void mob_build(lv_obj_t *scr) {
 
     mob_lbl_dist = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_dist, "--- m");
-    lv_obj_set_style_text_color(mob_lbl_dist, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_color(mob_lbl_dist, lv_color_hex(ui::theme.mob_fg), 0);
     lv_obj_set_style_text_font(mob_lbl_dist, &font_b612_48, 0);
     lv_obj_align(mob_lbl_dist, LV_ALIGN_TOP_MID, 0, 70);
 
     mob_lbl_brg = lv_label_create(mob_view);
     lv_label_set_text(mob_lbl_brg, "BRG ---\xC2\xB0");
-    lv_obj_set_style_text_color(mob_lbl_brg, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_color(mob_lbl_brg, lv_color_hex(ui::theme.mob_fg), 0);
     lv_obj_set_style_text_font(mob_lbl_brg, &font_b612_48, 0);
     lv_obj_align(mob_lbl_brg, LV_ALIGN_CENTER, 0, 10);
 
@@ -1275,14 +1275,14 @@ static void mob_build(lv_obj_t *scr) {
     lv_obj_t *clear_btn = lv_obj_create(mob_view);
     lv_obj_set_size(clear_btn, 220, 56);
     lv_obj_align(clear_btn, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_set_style_bg_color(clear_btn, lv_color_hex(0x333333), 0);
+    lv_obj_set_style_bg_color(clear_btn, lv_color_hex(ui::theme.button_bg), 0);
     lv_obj_set_style_radius(clear_btn, 8, 0);
     lv_obj_set_style_pad_all(clear_btn, 0, 0);
     lv_obj_clear_flag(clear_btn, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(clear_btn, mob_clear_evt, LV_EVENT_LONG_PRESSED, NULL);
     lv_obj_t *cbl = lv_label_create(clear_btn);
     lv_label_set_text(cbl, "HOLD TO CLEAR");
-    lv_obj_set_style_text_color(cbl, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_color(cbl, lv_color_hex(ui::theme.button_fg), 0);
     lv_obj_set_style_text_font(cbl, &font_b612_14, 0);
     lv_obj_center(cbl);
 }
@@ -1294,7 +1294,7 @@ static void alarms_build(lv_obj_t *scr) {
     // wind/compass HUDs, which the banner used to cover. The top strip is clear.
     lv_obj_align(alarm_banner, LV_ALIGN_TOP_MID, 0, 4);
     lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(ui::theme.alarm), 0);
-    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ui::theme.fg), 0);
     lv_obj_set_style_border_width(alarm_banner, 1, 0);
     lv_obj_set_style_radius(alarm_banner, 6, 0);
     lv_obj_set_style_pad_all(alarm_banner, 0, 0);
@@ -1302,7 +1302,7 @@ static void alarms_build(lv_obj_t *scr) {
     lv_obj_add_flag(alarm_banner, LV_OBJ_FLAG_HIDDEN);
     alarm_label = lv_label_create(alarm_banner);
     lv_label_set_text(alarm_label, "");
-    lv_obj_set_style_text_color(alarm_label, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_text_color(alarm_label, lv_color_hex(ui::theme.alarm_fg), 0);
     lv_obj_set_style_text_font(alarm_label, &font_b612_20, 0);
     lv_obj_center(alarm_label);
     // Blink + multi-alarm cycle driver (no-op while nothing is active).

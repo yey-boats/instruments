@@ -200,15 +200,16 @@ static void build_mode_modal(lv_obj_t *parent) {
     for (int i = 0; i < 4; ++i) {
         lv_obj_t *b = lv_button_create(card);
         lv_obj_set_size(b, cw - 32, 44);
-        lv_obj_set_style_bg_color(b, lv_color_hex(i == 3 ? theme.panel_edge : theme.accent), 0);
+        lv_obj_set_style_bg_color(
+            b, lv_color_hex(i == 3 ? theme.button_bg : theme.button_active_bg), 0);
         lv_obj_set_style_radius(b, ui::chrome::panel_radius, 0);
         lv_obj_t *l = lv_label_create(b);
         lv_label_set_text(l, kModeName[i]);
         lv_obj_set_style_text_font(l, &font_b612_20, 0);
-        // Ink on the accent-filled buttons is theme.bg (the ground colour
-        // always contrasts the accent in every palette); the old night-navy
-        // literal disappeared against the day/classic accents.
-        lv_obj_set_style_text_color(l, lv_color_hex(i == 3 ? theme.fg : theme.bg), 0);
+        // Mode picks use the active button tokens, CANCEL the inactive ones
+        // (#67: panel_edge + fg was 1.2:1 on sun, 1:1 on high-contrast).
+        lv_obj_set_style_text_color(
+            l, lv_color_hex(i == 3 ? theme.button_fg : theme.button_active_fg), 0);
         lv_obj_center(l);
         lv_obj_add_event_cb(b, on_mode_pick, LV_EVENT_CLICKED, (void *)(intptr_t)i);
     }

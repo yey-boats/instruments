@@ -1025,7 +1025,7 @@ static inline uint32_t value_color(const MetricBinding &m) {
 // (`good`) keeps the original near-black ink in every theme; an authored
 // style.color gets near-black on a light fill, white on a dark one.
 static uint32_t badge_ink(uint32_t bg) {
-    if (bg == theme.good) return 0x05101c;
+    if (bg == theme.good) return theme.bg;
     uint32_t r = (bg >> 16) & 0xFF, g = (bg >> 8) & 0xFF, b = bg & 0xFF;
     return (r * 299 + g * 587 + b * 114) / 1000 >= 96 ? 0x05101c : 0xffffff;
 }
@@ -2690,7 +2690,7 @@ static void build_tide(WindDialState *st, lv_obj_t *parent) {
     lv_obj_t *shaft = lv_obj_create(st->tide_arrow);
     lv_obj_set_size(shaft, 5, 54);
     lv_obj_set_pos(shaft, 16 - 2, TIDE_MID - 54);
-    lv_obj_set_style_bg_color(shaft, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_bg_color(shaft, lv_color_hex(theme.tide), 0);
     lv_obj_set_style_bg_opa(shaft, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(shaft, 0, 0);
     lv_obj_set_style_radius(shaft, 2, 0);
@@ -2701,7 +2701,7 @@ static void build_tide(WindDialState *st, lv_obj_t *parent) {
     lv_obj_t *head = lv_label_create(st->tide_arrow);
     lv_label_set_text(head, LV_SYMBOL_UP);
     lv_obj_set_style_text_font(head, &font_b612_28, 0);
-    lv_obj_set_style_text_color(head, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_text_color(head, lv_color_hex(theme.tide), 0);
     lv_obj_align(head, LV_ALIGN_TOP_MID, 0, -4);
     lv_obj_add_flag(st->tide_arrow, LV_OBJ_FLAG_HIDDEN);
 
@@ -2709,7 +2709,7 @@ static void build_tide(WindDialState *st, lv_obj_t *parent) {
     lv_obj_set_size(st->tide_zero, 26, 26);
     apply_pivot_at(st->tide_zero, st->cx, st->cy, 13, 13);
     lv_obj_set_style_bg_opa(st->tide_zero, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_color(st->tide_zero, lv_color_hex(0x288cff), 0);
+    lv_obj_set_style_border_color(st->tide_zero, lv_color_hex(theme.tide), 0);
     lv_obj_set_style_border_width(st->tide_zero, 3, 0);
     lv_obj_set_style_radius(st->tide_zero, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_pad_all(st->tide_zero, 0, 0);
@@ -3429,7 +3429,7 @@ static void update(ApHudState *st, const boat::View &d) {
         lv_obj_set_style_bg_opa(st->btn_engage, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         lv_obj_set_style_bg_color(st->btn_engage, lv_color_hex(theme.good), 0);
         lv_obj_set_style_border_color(st->btn_engage, lv_color_hex(want_engage_color), 0);
-        lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(engaged ? 0x05101c : theme.fg), 0);
+        lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(engaged ? theme.bg : theme.fg), 0);
     }
 
     // TGT caption: "TGT <ddd>°" near the HDG hero in the amber target color, hidden
@@ -4057,7 +4057,7 @@ static void update(WindSteerState *st, const boat::View &d) {
         lv_obj_set_style_bg_opa(st->btn_engage, engaged ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
         lv_obj_set_style_bg_color(st->btn_engage, lv_color_hex(theme.good), 0);
         lv_obj_set_style_border_color(st->btn_engage, lv_color_hex(want_engage_color), 0);
-        lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(engaged ? 0x05101c : theme.fg), 0);
+        lv_obj_set_style_text_color(st->lbl_engage, lv_color_hex(engaged ? theme.bg : theme.fg), 0);
     }
 
     // RUDDER needle (helm position) — same mapping as aphud::update. rudder is
@@ -4430,7 +4430,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
         // repositioned the entire tile 4x per build, causing the tile
         // to drift to bottom-left).
         lv_obj_align(b, LV_ALIGN_BOTTOM_LEFT, 16 + i * (btn_w + 2), -8);
-        lv_obj_set_style_bg_color(b, lv_color_hex(theme.panel_edge), 0);
+        lv_obj_set_style_bg_color(b, lv_color_hex(theme.button_bg), 0);
         lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(b, 0, 0);
         lv_obj_set_style_radius(b, 3, 0);
@@ -4439,7 +4439,7 @@ static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w,
         lv_obj_t *bl = lv_label_create(b);
         lv_label_set_text(bl, labels[i]);
         lv_obj_set_style_text_font(bl, &font_b612_14, 0);
-        lv_obj_set_style_text_color(bl, lv_color_hex(theme.fg), 0);
+        lv_obj_set_style_text_color(bl, lv_color_hex(theme.button_fg), 0);
         lv_obj_align(bl, LV_ALIGN_CENTER, 0, 0);
     }
 }
@@ -5655,8 +5655,8 @@ static void update_alert_focus(lv_obj_t *root, const ScreenVariantSpec &spec,
     if (now_alarm != st->in_alarm) {
         st->in_alarm = now_alarm;
         uint32_t bg = now_alarm ? theme.alarm : theme.panel;
-        uint32_t fg = now_alarm ? 0xffffff : theme.fg;
-        uint32_t fg_dim = now_alarm ? 0xffe5e5 : theme.fg_dim;
+        uint32_t fg = now_alarm ? theme.alarm_fg : theme.fg;
+        uint32_t fg_dim = now_alarm ? theme.alarm_fg : theme.fg_dim;
         lv_obj_set_style_bg_color(st->root_panel, lv_color_hex(bg), 0);
         lv_obj_set_style_border_color(st->root_panel,
                                       lv_color_hex(now_alarm ? theme.alarm : st->metric.accent), 0);
@@ -5813,11 +5813,11 @@ static lv_obj_t *create_control_console(lv_obj_t *parent, const ScreenVariantSpe
     int adj_x0 = (LCD_W - total_w) / 2;
     for (int i = 0; i < 4; ++i) {
         int x = adj_x0 + i * (adj_w + 4);
-        cc_make_button(root, x, adj_y, adj_w, 60, adj_names[i], theme.accent, 0x05101c,
-                       cc_adjust_btn_cb, (void *)(intptr_t)adj_vals[i]);
+        cc_make_button(root, x, adj_y, adj_w, 60, adj_names[i], theme.button_active_bg,
+                       theme.button_active_fg, cc_adjust_btn_cb, (void *)(intptr_t)adj_vals[i]);
     }
     // Silence button across the full width at the bottom.
-    cc_make_button(root, 8, adj_y + 70, LCD_W - 16, 50, "SILENCE", theme.alarm, 0xffffff,
+    cc_make_button(root, 8, adj_y + 70, LCD_W - 16, 50, "SILENCE", theme.alarm, theme.alarm_fg,
                    cc_silence_btn_cb, nullptr);
 
     lv_obj_set_user_data(root, st);
@@ -5840,8 +5840,8 @@ static void update_control_console(lv_obj_t *root, const ScreenVariantSpec &spec
         st->last_mode = ap.mode;
         for (int i = 0; i < 4; ++i) {
             bool active = (st->mode_for[i] == ap.mode);
-            uint32_t bg = active ? theme.accent : theme.panel;
-            uint32_t fg = active ? 0x05101c : theme.fg;
+            uint32_t bg = active ? theme.button_active_bg : theme.panel;
+            uint32_t fg = active ? theme.button_active_fg : theme.fg;
             lv_obj_set_style_bg_color(st->mode_btns[i], lv_color_hex(bg), 0);
             // child label is first child
             lv_obj_t *lbl = lv_obj_get_child(st->mode_btns[i], 0);
@@ -6147,37 +6147,38 @@ static lv_obj_t *create_setup_form(lv_obj_t *parent, const ScreenVariantSpec &sp
     int seg_w = 70;
     int seg_h = 36;
     for (int i = 0; i < 3; ++i) {
-        st->theme_btns[i] = cc_make_button(
-            theme_row, LCD_W - 16 - 12 - (3 - i) * (seg_w + 4), (56 - seg_h) / 2, seg_w, seg_h,
-            theme_names[i], theme.panel_edge, theme.fg, sf_theme_cb, (void *)kSettingsThemeVals[i]);
+        st->theme_btns[i] =
+            cc_make_button(theme_row, LCD_W - 16 - 12 - (3 - i) * (seg_w + 4), (56 - seg_h) / 2,
+                           seg_w, seg_h, theme_names[i], theme.button_bg, theme.button_fg,
+                           sf_theme_cb, (void *)kSettingsThemeVals[i]);
     }
     y += 68;
 
     // Brightness: -/+ buttons around current value label.
     lv_obj_t *bright_row;
     sf_make_row(root, y, "BRIGHTNESS", &bright_row);
-    cc_make_button(bright_row, LCD_W - 16 - 12 - 200, 8, 60, 40, "-", theme.accent, 0x05101c,
-                   sf_bright_cb, (void *)(intptr_t)-16);
+    cc_make_button(bright_row, LCD_W - 16 - 12 - 200, 8, 60, 40, "-", theme.button_active_bg,
+                   theme.button_active_fg, sf_bright_cb, (void *)(intptr_t)-16);
     st->brightness_lbl = lv_label_create(bright_row);
     lv_label_set_text(st->brightness_lbl, "---");
     lv_obj_set_style_text_font(st->brightness_lbl, &font_b612_28, 0);
     lv_obj_set_style_text_color(st->brightness_lbl, lv_color_hex(theme.fg), 0);
     lv_obj_align(st->brightness_lbl, LV_ALIGN_RIGHT_MID, -80, 0);
-    cc_make_button(bright_row, LCD_W - 16 - 12 - 60, 8, 60, 40, "+", theme.accent, 0x05101c,
-                   sf_bright_cb, (void *)(intptr_t)16);
+    cc_make_button(bright_row, LCD_W - 16 - 12 - 60, 8, 60, 40, "+", theme.button_active_bg,
+                   theme.button_active_fg, sf_bright_cb, (void *)(intptr_t)16);
     y += 68;
 
     // Audible alarms: toggle.
     lv_obj_t *aud_row;
     sf_make_row(root, y, "AUDIBLE ALARMS", &aud_row);
     st->audible_btn = cc_make_button(aud_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "OFF",
-                                     theme.panel_edge, theme.fg, sf_audible_cb, nullptr);
+                                     theme.button_bg, theme.button_fg, sf_audible_cb, nullptr);
     y += 68;
 
     // Reboot action.
     lv_obj_t *rb_row;
     sf_make_row(root, y, "REBOOT", &rb_row);
-    cc_make_button(rb_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "REBOOT", theme.alarm, 0xffffff,
+    cc_make_button(rb_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "REBOOT", theme.alarm, theme.alarm_fg,
                    sf_reboot_cb, nullptr);
 
     lv_obj_set_user_data(root, st);
@@ -6202,8 +6203,8 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
         strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
         for (int i = 0; i < 3; ++i) {
             bool active = strcmp(cur_theme.c_str(), kSettingsThemeVals[i]) == 0;
-            uint32_t bg = active ? theme.accent : theme.panel_edge;
-            uint32_t fg = active ? 0x05101c : theme.fg;
+            uint32_t bg = active ? theme.button_active_bg : theme.button_bg;
+            uint32_t fg = active ? theme.button_active_fg : theme.button_fg;
             lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);
             lv_obj_t *lbl = lv_obj_get_child(st->theme_btns[i], 0);
             if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
@@ -6223,8 +6224,12 @@ static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
         st->last_audible = aud;
         lv_obj_t *lbl = lv_obj_get_child(st->audible_btn, 0);
         if (lbl) lv_label_set_text(lbl, aud ? "ON" : "OFF");
-        uint32_t bg = aud ? theme.good : theme.panel_edge;
+        // ON = selected state: same active tokens as the theme segment (the
+        // old good fill with fg ink was 1.7:1 on night).
+        uint32_t bg = aud ? theme.button_active_bg : theme.button_bg;
+        uint32_t fg = aud ? theme.button_active_fg : theme.button_fg;
         lv_obj_set_style_bg_color(st->audible_btn, lv_color_hex(bg), 0);
+        if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
     }
 }
 
