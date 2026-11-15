@@ -365,12 +365,14 @@ struct ClassSet {
     size_t count;
 };
 
+// clang-format off (macro layout differs between clang-format 18 builds)
 #define CLASS_SET(ns)                                                                              \
     {                                                                                              \
         ns::midl_manifest::CLASS_ID, ns::midl_manifest::JSON,                                      \
             reinterpret_cast<const midl_builtin::Record *>(ns::midl_builtin::RECORDS),             \
             ns::midl_builtin::COUNT                                                                \
     }
+// clang-format on
 
 static void check_class(const ClassSet &c, std::string &failures) {
     // Knob views on the round class, the 11 built-in screens elsewhere.
