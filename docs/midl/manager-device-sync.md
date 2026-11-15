@@ -1,161 +1,30 @@
-# Manager ↔ Device screen sync (and the MIDL cutover)
+# Manager ↔ Device screen sync
 
-**Status:** the MIDL screen cutover changes how the SignalK **instruments manager**
-(`yey-boats-display-manager`) drives a device's screens. During the transition the
-legacy link and the MIDL link coexist; this doc explains both, what currently
-breaks the link, and how to sync them back.
+**Superseded by [midl-only.md](midl-only.md)** (owner decision, 2026-11-15):
+the display renders MIDL screens only and Display Manager delivers MIDL
+records only. This page is kept as a short map of where things live.
 
-## TL;DR
+## Current state (firmware)
 
-- The **default firmware build** still honors the manager: it fetches the
-  manager's config and renders manager-driven screens (legacy v2 model). **The
-  link is intact in the default build.**
-- The **`YEYBOATS_MIDL_ONLY` build breaks the link on purpose**: it compiles out
-  the built-in screens *and* gates off the manager screen apply
-  (`src/app_events.cpp` `ApplyManagedScreens` → `#ifndef YEYBOATS_MIDL_ONLY`), and
-  boots a **baked** MIDL doc instead. It is a dev/preview build, not
-  manager-synced.
-- The MIDL delivery path that will re-establish the link **does not exist yet**:
-  the device serves only `GET /api/midl/manifest` (capability advertisement).
-  There is **no `POST /api/midl/config`**, no SignalK MIDL pull, and no flash
-  persistence of a MIDL doc. Those are firmware **Slice 3 + Slice 4** (see
-  roadmap) and manager **Plan 4 Slice 5**.
-
-**To sync a device to the manager right now: flash a normal build (no
-`YEYBOATS_MIDL_ONLY`).** The MIDL-only build is intentionally manager-independent
-until the MIDL delivery path lands.
-
-## The legacy link (how it works in the default build)
-
-The manager plugin runs on the SignalK host (`mythra-nav`). The device's
-`manager.cpp` worker:
-
-1. **Registers / heartbeats** to the plugin, authenticating with
-   `X-YeyBoats-Authorization: Bearer <token>` (device/dev/provision token).
-2. **Fetches config**: `fetch_config()` → `GET /devices/<device_id>/config`
-   (`manager.cpp:1767`). A **push-live** re-fetch is triggered by
-   `request_config_fetch()` (`manager.cpp:2313`), wired to the manager's
-   config-push signal.
-3. **Applies screens**: the fetched render plan is posted as a
-   `CommandType::ApplyManagedScreens` app-event (`manager.cpp:1685`) →
-   `manager_screens::apply(RenderPlan)` on the UI task → registers the
-   manager-defined screens (the `yeyboats.dashboard.v2` widgets+tiles model).
-
-So in the default build: edit a dashboard in the manager → it pushes →
-the device re-fetches and re-renders. That is the link.
-
-## What the MIDL cutover changes
-
-The device is moving from the v2 widgets+tiles model to **MIDL documents**
-(`screens → elements → layout`, rendered by the native MIDL renderer). Two
-divergences result:
-
-1. **Model**: the manager currently authors/stores `yeyboats.dashboard.v2`; the
-   MIDL renderer consumes MIDL docs. The manager carries a **bidirectional
-   v2 ↔ MIDL adapter** (manager Plan 4) so the two can coexist during the
-   transition.
-2. **Transport on the device**: manager screens arrive via
-   `ApplyManagedScreens` (RenderPlan). MIDL docs will arrive via a **new MIDL
-   ingress** (below) — which is not built yet.
-
-In the `YEYBOATS_MIDL_ONLY` build both legacy paths are suppressed, so that build
-shows only the baked MIDL doc and ignores the manager entirely.
-
-## Target MIDL sync contract (what re-establishes the link)
-
-Per the runtime spec (`docs/superpowers/specs/2026-06-19-generic-dashboard-runtime-design.md`
-§3.6–§3.8) and the manager migration plan:
-
-```
-Manager (yey-boats-display-manager)                 Device (firmware)
- ─ authors/stores a dashboard (v2 today,             ─ serves GET /api/midl/manifest
-   MIDL after Plan 4 Slice 4)                          (capability advertisement) ✅ done
- ─ resolves it to the device's class +               ─ validates incoming doc vs its
-   migrates to the device's MIDL version               own embedded manifest (render-safety)
- ─ validates vs the device's manifest                ─ persists to LittleFS:
- ─ delivers the resolved MIDL doc ───────────────▶     current / last-known-good / factory
-   • PRIMARY: POST /api/midl/config   (Slice 4 ❌)    ─ applies on the UI task (apply_all)
-   • FALLBACK: SignalK pull           (Slice 4 ❌)    ─ A/B commit + boot-loop rollback (Slice 3 ❌)
-```
-
-Auth reuses the existing device-token header (`X-YeyBoats-Authorization`), not the
-web Basic Auth. The device's manifest at `/api/midl/manifest` is the contract the
-manager validates against before posting (so it never sends an inadmissible doc).
-
-**Source / action kinds (instruments#23).** The MIDL schema is the language and
-allows more than any one target implements (e.g. `computed` sources). The
-manifest's `sources` / `actionKinds` are the firmware's truth, taken from
-`include/midl_kinds.h` by `tools/embed_manifest.py` (today `signalk, local,
-const` and `nav, command, put`), not midl's generic catalog. `POST
-/api/midl/config` rejects a doc using any other kind with HTTP 422 and a
-located message, e.g. `unsupported source kind 'computed' at
-/screens/0/elements/vmg/bindings/value (this device supports: signalk, local,
-const)`. A `put` must target a SignalK path. Full on-device schema validation
-(#20) builds on this.
-
-**Allowed SignalK path charset for `put` (instruments#29, #31).** A SignalK
-PUT target is 2 or more segments of `[A-Za-z0-9_-]` joined by single dots, at
-most 95 characters (`midl::kinds::put_target_ok`). Examples:
-`steering.autopilot.tack`, `electrical.switches.bank-1.state`,
-`steering.autopilot.target.headingMagnetic`. Rejected: slashes
-(`steering/autopilot/state`), empty, leading or trailing segments (`a..b`,
-`.a`, `a.`), `?`, `#`, `%`, whitespace, `:`, and non-ASCII, so instance names
-such as `urn:mrn:...` or `Möwe` cannot be PUT targets. Write the dotted form.
-`signalk-server` maps URL slashes to dots, so the dotted form resolves to the
-same handler.
-
-The same rule applies on the device side:
-
-- A `put` action with any other target gets a 422 from `POST /api/midl/config`.
-- A button's `command` target goes to SignalK PUT only if it passes the same
-  check (`midl::kinds::button_route`). Any other target, for example
-  `../../x.y`, stays on the console-command funnel and never reaches the
-  bearer-token PUT URL.
-- `sk::putValue` refuses any path that is not a valid SignalK path, which
-  covers firmware-internal callers too. It percent-encodes everything except
-  `[A-Za-z0-9-._~]`, and that includes `/`.
-
-## Work required to sync them back (with status)
-
-**Firmware (this repo, branch `feat/midl-firmware-render`):**
-- ✅ `GET /api/midl/manifest` — served (manager can already validate against it).
-- ✅ Multi-screen render (`apply_all`) + `ConfigApplyMidl` app-event (accepts a
-  doc blob) — the apply side is ready; nothing posts to it over HTTP yet.
-- ❌ **Slice 4 — delivery**: add `POST /api/midl/config` (manager → device) +
-  SignalK pull fallback + `POST /api/midl/reset?to=default|previous`. This is the
-  endpoint the manager will push to.
-- ❌ **Slice 3 — flash persistence**: LittleFS current/last-known-good/factory so
-  a pushed doc survives reboot; `YEYBOATS_MIDL_ONLY` then boots the **flash** doc
-  instead of the baked demo.
-
-**Manager (`../signalk-espdisp-manager`, plan
-`docs/superpowers/plans/2026-06-19-yb-midl-manager-migration.md`):**
-- Plan 4 Slices 1–4: v2↔MIDL adapter, validate-before-post, catalog-driven editor,
-  author MIDL natively.
-- **Plan 4 Slice 5 — Device cutover**: "post MIDL to devices; remove v2 path."
-  Explicitly gated on firmware accepting MIDL (this work). Once firmware Slice 4
-  lands, the manager posts MIDL to `POST /api/midl/config` instead of (or
-  alongside) the v2 RenderPlan.
-
-## Operational guidance during the transition
-
-| You want… | Do this |
-|---|---|
-| **Manager-driven screens (sync intact)** | Flash a **default build** (no `YEYBOATS_MIDL_ONLY`). The manager push → device re-fetch → render still works. |
-| **MIDL preview on a device** | Flash `-D YEYBOATS_MIDL_ONLY=1` (boots the baked MIDL doc; **not** manager-synced) or use the `midl-render` console command on a default build. |
-| **Re-establish sync on the MIDL path** | Land firmware Slice 4 (`POST /api/midl/config` + flash) and manager Plan 4 Slice 5 (post MIDL). Then the manager drives MIDL docs the same way it drove v2 plans. |
-
-Until Slice 4 + manager Slice 5 are done, treat `YEYBOATS_MIDL_ONLY` as a
-**lab/dev build** and keep manager-managed lab devices on the default build.
-
-## Re-sync checklist (once the delivery path exists)
-
-1. Firmware: `POST /api/midl/config` accepts a resolved MIDL doc, validates vs the
-   embedded manifest, persists to LittleFS (current; promotes last-known-good on a
-   clean render), applies via `apply_all`.
-2. Manager: on dashboard save, resolve+migrate+validate the doc against the
-   device's `/api/midl/manifest`, then `POST /api/midl/config` with the
-   `X-YeyBoats-Authorization` device token (and/or write the SignalK pull path).
-3. Verify: edit in the manager → device re-renders the MIDL screens; reboot →
-   device loads the persisted doc from flash; `POST /api/midl/reset?to=default`
-   restores the factory MIDL doc.
+- Default build = MIDL records (`YEYBOATS_MIDL_RECORDS`, `include/build_config.h`).
+  Boot renders the record owning `index.defaultScreen` from the record store:
+  embedded built-in records (`midl/library/builtin`, per display class) plus
+  manager/local records persisted on LittleFS under `/midl/`.
+- Delivery:
+  - **push** (default): `PUT /api/midl/records/<id>`, `DELETE …`,
+    `PUT /api/midl/index`, `POST /api/midl/reset?to=factory`, authenticated with
+    the manager device token (`X-YeyBoats-Authorization: Bearer …`).
+    `POST /api/midl/config` still exists as an alias for a local record.
+  - **pull**: the `midl` block of `GET /devices/<id>/config`
+    (`index` + `records[{id,title,hash,url}]`); changed records are fetched,
+    unlisted manager records deleted.
+- Reporting: heartbeat `ui.screen/record/screens` + `midl{version,class,
+  indexHash,records}`; identity `capabilities.midl`.
+- Code: `src/midl_records.cpp` (pure store logic, host-tested),
+  `src/midl_store.cpp` (persistence + API), `src/midl_store_ui.cpp`
+  (activation/navigation, UI task), `src/web.cpp` (push API),
+  `src/manager.cpp` (`pull_midl_records`, heartbeat).
+- `-D YEYBOATS_LEGACY_SCREENS=1` still builds the old C++ screens, managed
+  screens (`layout`/`widgets`) and the RAM-only `/api/midl/config`; the removal
+  is a follow-up PR. The old `YEYBOATS_MIDL_ONLY` flag is gone (MIDL is the
+  default now).
