@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
 #include "midl_render.h"
+#include "trend_history.h"
 #include "midl_kinds.h"
 #include "metric_source_map.h"  // ui::metric_map::path_to_source
 #include "midl_limits.h"        // midl::FirmwareLimits::path_len
@@ -413,6 +414,16 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
         if (out.accent != 0) out.style_color = ZoneColor::Literal;
     } else if (col.is<const char *>()) {
         out.style_color = parse_zone_color(col.as<const char *>(), out.accent);
+    }
+    // history {window, agg} (trend): window "<n>s|m|h" or seconds, agg
+    // avg|min|max|last. Absent/invalid keeps the defaults (0 -> 10m, avg); the
+    // painter clamps the window into the class's [60 s, maxWindowS].
+    JsonVariantConst hist = el["history"];
+    if (hist.is<JsonObjectConst>()) {
+        uint32_t w = 0;
+        if (trend::parse_window_json(hist["window"], w)) out.history_window_s = w;
+        trend::Agg agg = trend::Agg::Avg;
+        if (trend::parse_agg(hist["agg"] | "", agg)) out.history_agg = (uint8_t)agg;
     }
     // Per-element `zoom` (tap-to-fullscreen). Three shapes:
     //   absent      -> DEFAULT: every value/instrument tile is zoomable to its

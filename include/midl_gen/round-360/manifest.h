@@ -26,7 +26,7 @@ inline constexpr const char *JSON = R"midljson({
     { "type": "bar", "bindings": ["value"], "attrs": ["title", "size", "unit", "color", "range", "zones", "center"] },
     { "type": "compass", "bindings": ["value", "dir"], "attrs": ["title", "size", "color", "sectors", "hull", "shape"], "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"] },
     { "type": "windrose", "bindings": ["value", "dir"], "attrs": ["title", "format", "size", "unit", "color", "side", "sectors", "hull", "shape"], "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"] },
-    { "type": "trend", "bindings": ["value"], "attrs": ["title", "size", "unit", "color"] },
+    { "type": "trend", "bindings": ["value"], "attrs": ["title", "format", "size", "unit", "color", "range", "history"] },
     { "type": "autopilot", "bindings": ["value"], "attrs": ["title", "size", "color"] },
     { "type": "button", "bindings": [], "attrs": ["title", "size", "color"] },
     { "type": "clinometer", "bindings": ["value"], "attrs": ["title", "format", "size", "unit", "color", "zones", "range"] },
@@ -37,7 +37,8 @@ inline constexpr const char *JSON = R"midljson({
   "presets": ["full", "hero-split"],
   "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"],
   "themes": ["day", "night", "high-contrast", "red-night", "classic", "sun"],
-  "fonts": [14, 20, 28, 48]
+  "fonts": [14, 20, 28, 48],
+  "history": { "points": 90, "maxSeries": 2, "maxWindowS": 86400, "windows": ["10m", "30m", "1h", "6h", "24h"], "backfill": true }
 }
 )midljson";
 }  // namespace midl_manifest

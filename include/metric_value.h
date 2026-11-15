@@ -21,6 +21,14 @@ namespace ui::layouts {
 // non-scalar (None / Position / APState).
 double metric_value(MetricSource src, const boat::View &d);
 
+// The same value in SI as received from SignalK (m/s, rad, K, m, Pa, ratio,
+// Hz, m3/s, s), and the conversion metric_value applies to it. The trend
+// history stores SI and converts at draw time with exactly this function, so
+// the chart and the hero number agree:
+//   metric_value(src, d) == metric_display_from_si(src, metric_si(src, d)).
+double metric_si(MetricSource src, const boat::View &d);
+double metric_display_from_si(MetricSource src, double si);
+
 // Map a display value `v` (as returned by metric_value) to a 0..1 gauge/bar
 // fill fraction using the built-in per-source heuristic range. Returns NaN for
 // sources without an obvious range (headings, positions) or NaN input.

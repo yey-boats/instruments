@@ -12,4 +12,9 @@ namespace midl_gen {
 inline constexpr const char *CLASS_ID = "round-360";
 inline constexpr int MAX_TILES = 4;
 inline constexpr int MAX_DEPTH = 2;
+// Trend history (midl docs/specs/2026-11-15-trend-history.md): points per
+// chart, trend tiles with history per screen, longest window.
+inline constexpr int HISTORY_POINTS = 90;
+inline constexpr int HISTORY_MAX_SERIES = 2;
+inline constexpr long HISTORY_MAX_WINDOW_S = 86400;
 }  // namespace midl_gen

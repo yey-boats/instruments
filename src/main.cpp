@@ -25,6 +25,7 @@
 #include "ui_screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
+#include "ui_layouts.h"  // trend history: screen-change hook + bench stats
 #include "screens.h"
 #include "web.h"
 #include "screenshot.h"
@@ -1711,6 +1712,12 @@ static void bench_dump() {
     net::logf("[bench] psram free=%u / %u KB", (unsigned)(psram_free / 1024),
               (unsigned)(psram_total / 1024));
     {
+        int trend_series = 0;
+        size_t trend_bytes = 0;
+        ui::layouts::trend_stats(trend_series, trend_bytes);
+        net::logf("[bench] trend history: %d series, %u B", trend_series, (unsigned)trend_bytes);
+    }
+    {
         float tC = board::chipTempC();
         if (!isnan(tC))
             net::logf("[bench] chip temp=%.1f C", tC);
@@ -1814,6 +1821,9 @@ extern volatile uint32_t g_last_swipe_ms;
 // ~5 KB SubscriptionSet on the loopTask stack would overflow it (CLAUDE.md
 // large-struct-on-stack trap).
 static void on_screen_change_collect_paths(const char * /*id*/, ui::CollectPathsFn collect) {
+    // Trend history records only for the screen on display (midl spec
+    // 2026-11-15): drop the series of the screen just left.
+    ui::layouts::trend_screen_changed();
     // UI-task-local, not on the stack; ~5 KB so PSRAM (instruments#41).
     static sk::SubscriptionSet &s_screen_paths = *yeyboats::psram_new<sk::SubscriptionSet>();
     s_screen_paths.clear();

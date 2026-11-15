@@ -594,6 +594,10 @@ void identity_caps(JsonObject m) {
     m["editor"] = "/editor";  // device-hosted MIDL editor page (web.cpp)
     m["push"] = true;
     m["pull"] = true;
+    // Trend history capability (points/maxSeries/maxWindowS/windows/backfill),
+    // the manifest's own object so the two can never disagree.
+    JsonVariantConst hist = manifest()["history"];
+    if (hist.is<JsonObjectConst>()) m["history"] = hist;
 }
 
 bool plan_pull(JsonVariantConst blk, PullPlan &plan, PullActions &acts, Error &err) {

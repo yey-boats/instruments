@@ -735,6 +735,10 @@ uint16_t targetPort() {
     return s_port;
 }
 
+String authToken() {
+    return s_token;
+}
+
 static bool probe_discovered_target(const String &host, uint16_t port) {
     WiFiClient client;
     client.setTimeout(1500);

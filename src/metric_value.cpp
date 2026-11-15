@@ -19,85 +19,147 @@ double rad_to_deg_pos(double rad) {
 
 }  // namespace
 
-double metric_value(MetricSource src, const boat::View &d) {
+double metric_si(MetricSource src, const boat::View &d) {
     switch (src) {
     case MetricSource::AWS_kn:
-        return isnan(d.aws) ? NAN : units::mps_to_kn(d.aws);
+        return d.aws;
     case MetricSource::TWS_kn:
-        return isnan(d.tws) ? NAN : units::mps_to_kn(d.tws);
+        return d.tws;
     case MetricSource::SOG_kn:
-        return isnan(d.sog) ? NAN : units::mps_to_kn(d.sog);
+        return d.sog;
     case MetricSource::STW_kn:
-        return isnan(d.stw) ? NAN : units::mps_to_kn(d.stw);
+        return d.stw;
     case MetricSource::Depth_m:
         return d.depth;
     case MetricSource::DepthKeel_m:
         return d.depthKeel;
     case MetricSource::WaterTemp_C:
-        return isnan(d.waterTemp) ? NAN : units::k_to_c(d.waterTemp);
+        return d.waterTemp;
     case MetricSource::BatteryV:
         return d.battVoltage;
     case MetricSource::BatterySOC_pct:
-        return isnan(d.battSoc) ? NAN : d.battSoc * 100.0;
+        return d.battSoc;
     case MetricSource::VMG_kn:
-        return isnan(d.vmg) ? NAN : units::mps_to_kn(d.vmg);
+        return d.vmg;
     case MetricSource::VMGwind_kn:
-        return isnan(d.vmgWind) ? NAN : units::mps_to_kn(d.vmgWind);
+        return d.vmgWind;
     case MetricSource::COG_deg:
-        return isnan(d.cogTrue) ? NAN : rad_to_deg_pos(d.cogTrue);
+        return d.cogTrue;
     case MetricSource::HDG_deg:
-        return isnan(d.headingTrue) ? NAN : rad_to_deg_pos(d.headingTrue);
+        return d.headingTrue;
     case MetricSource::AWA_deg:
-        return isnan(d.awa) ? NAN : rad_to_deg_pos(d.awa);
+        return d.awa;
     case MetricSource::TWA_deg:
-        return isnan(d.twa) ? NAN : rad_to_deg_pos(d.twa);
+        return d.twa;
     case MetricSource::BTW_deg:
-        return isnan(d.btw) ? NAN : rad_to_deg_pos(d.btw);
+        return d.btw;
     case MetricSource::CTS_deg:
-        return isnan(d.cts) ? NAN : rad_to_deg_pos(d.cts);
+        return d.cts;
     case MetricSource::XTE:
         return d.xte;
     case MetricSource::DTW:
-        return isnan(d.dtw) ? NAN : units::m_to_nm(d.dtw);  // nm
+        return d.dtw;
     case MetricSource::Rudder_deg:
-        return isnan(d.rudder) ? NAN : units::rad_to_deg(d.rudder);  // signed deg
+        return d.rudder;
     case MetricSource::OutsideTemp_C:
-        return isnan(d.outsideTemp) ? NAN : units::k_to_c(d.outsideTemp);
+        return d.outsideTemp;
     case MetricSource::OutsidePressure_hPa:
-        return isnan(d.outsidePressure) ? NAN : units::pa_to_hpa(d.outsidePressure);
+        return d.outsidePressure;
     case MetricSource::Humidity_pct:
-        return isnan(d.humidity) ? NAN : d.humidity * 100.0;
+        return d.humidity;
     case MetricSource::Roll_deg:
-        return isnan(d.roll) ? NAN : units::rad_to_deg(d.roll);  // signed deg
+        return d.roll;
     case MetricSource::Pitch_deg:
-        return isnan(d.pitch) ? NAN : units::rad_to_deg(d.pitch);  // signed deg
+        return d.pitch;
     case MetricSource::ROT_degmin:
-        return isnan(d.rateOfTurn) ? NAN : units::radps_to_degmin(d.rateOfTurn);
+        return d.rateOfTurn;
     case MetricSource::TripLog_nm:
-        return isnan(d.tripLog) ? NAN : units::m_to_nm(d.tripLog);
+        return d.tripLog;
     case MetricSource::Log_nm:
-        return isnan(d.totalLog) ? NAN : units::m_to_nm(d.totalLog);
+        return d.totalLog;
     case MetricSource::BattCurrent_A:
-        return d.battCurrent;  // signed A, no conversion
+        return d.battCurrent;
     case MetricSource::BattTemp_C:
-        return isnan(d.battTemp) ? NAN : units::k_to_c(d.battTemp);
+        return d.battTemp;
     case MetricSource::EngineRpm:
-        return isnan(d.engineRevs) ? NAN : units::hz_to_rpm(d.engineRevs);
+        return d.engineRevs;
     case MetricSource::EngineCoolant_C:
-        return isnan(d.engineCoolantTemp) ? NAN : units::k_to_c(d.engineCoolantTemp);
+        return d.engineCoolantTemp;
     case MetricSource::EngineOilP_bar:
-        return isnan(d.engineOilPressure) ? NAN : units::pa_to_bar(d.engineOilPressure);
+        return d.engineOilPressure;
     case MetricSource::EngineFuelRate_lph:
-        return isnan(d.engineFuelRate) ? NAN : units::m3s_to_lph(d.engineFuelRate);
+        return d.engineFuelRate;
     case MetricSource::HDGm_deg:
-        return isnan(d.headingMag) ? NAN : rad_to_deg_pos(d.headingMag);
+        return d.headingMag;
     case MetricSource::Variation_deg:
-        return isnan(d.variation) ? NAN : units::rad_to_deg(d.variation);  // signed, +E
+        return d.variation;
     case MetricSource::EngineHours_h:
-        return isnan(d.engineHours) ? NAN : units::s_to_h(d.engineHours);
+        return d.engineHours;
     default:
         return NAN;
     }
+}
+
+double metric_display_from_si(MetricSource src, double v) {
+    if (isnan(v)) return NAN;
+    switch (src) {
+    case MetricSource::AWS_kn:
+    case MetricSource::TWS_kn:
+    case MetricSource::SOG_kn:
+    case MetricSource::STW_kn:
+    case MetricSource::VMG_kn:
+    case MetricSource::VMGwind_kn:
+        return units::mps_to_kn(v);
+    case MetricSource::Depth_m:
+    case MetricSource::DepthKeel_m:
+    case MetricSource::BatteryV:
+    case MetricSource::XTE:
+    case MetricSource::BattCurrent_A:  // signed A, no conversion
+        return v;
+    case MetricSource::WaterTemp_C:
+    case MetricSource::OutsideTemp_C:
+    case MetricSource::BattTemp_C:
+    case MetricSource::EngineCoolant_C:
+        return units::k_to_c(v);
+    case MetricSource::BatterySOC_pct:
+    case MetricSource::Humidity_pct:
+        return v * 100.0;
+    case MetricSource::COG_deg:
+    case MetricSource::HDG_deg:
+    case MetricSource::AWA_deg:
+    case MetricSource::TWA_deg:
+    case MetricSource::BTW_deg:
+    case MetricSource::CTS_deg:
+    case MetricSource::HDGm_deg:
+        return rad_to_deg_pos(v);
+    case MetricSource::DTW:
+    case MetricSource::TripLog_nm:
+    case MetricSource::Log_nm:
+        return units::m_to_nm(v);  // nm
+    case MetricSource::Rudder_deg:
+    case MetricSource::Roll_deg:
+    case MetricSource::Pitch_deg:
+    case MetricSource::Variation_deg:  // signed, +E
+        return units::rad_to_deg(v);   // signed deg
+    case MetricSource::OutsidePressure_hPa:
+        return units::pa_to_hpa(v);
+    case MetricSource::ROT_degmin:
+        return units::radps_to_degmin(v);
+    case MetricSource::EngineRpm:
+        return units::hz_to_rpm(v);
+    case MetricSource::EngineOilP_bar:
+        return units::pa_to_bar(v);
+    case MetricSource::EngineFuelRate_lph:
+        return units::m3s_to_lph(v);
+    case MetricSource::EngineHours_h:
+        return units::s_to_h(v);
+    default:
+        return NAN;
+    }
+}
+
+double metric_value(MetricSource src, const boat::View &d) {
+    return metric_display_from_si(src, metric_si(src, d));
 }
 
 double metric_unit_fraction(MetricSource src, double v) {
