@@ -3,13 +3,14 @@
 // The Settings screen's "web login" row: how to reach and sign in to this
 // display's own web UI and its MIDL editor (/editor).
 //
-// The device cannot show the password itself: since instruments#30 it keeps
-// only a salted PBKDF2 record in NVS (web_pw.h), never the plaintext. The
-// only source of a web password is the Display Manager (webAuth push), which
-// keeps the plaintext and offers an owner-only "Show password" on the
-// device's page. So the row says who to sign in as, where, and where the
-// password lives; a display that never had a manager has no password and
-// its web UI is open (web_auth_policy.h "setup-open").
+// The device cannot show a stored password: since instruments#30 it keeps
+// only a salted PBKDF2 record in NVS (web_pw.h), never the plaintext. A
+// managed display gets its password from the Display Manager (webAuth push),
+// which keeps the plaintext and offers an owner-only "Show password" on the
+// device's page. A display that never had a manager has no password and its
+// web UI is open (web_auth_policy.h "setup-open") until the owner makes one
+// on the display ("new pass", web_pw_new.h), which is shown once. So the row
+// says who to sign in as, where, and where the password lives.
 //
 // Pure C++ (host-tested in test/test_web_login_info).
 

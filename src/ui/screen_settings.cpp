@@ -9,6 +9,7 @@
 #include "manager.h"
 #include "web_auth_policy.h"
 #include "web_login_info.h"
+#include "web_pw_new.h"
 #include "web_pw_store.h"
 
 #include "board_pins.h"
@@ -19,6 +20,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 // Settings screen - hidden from the swipe cycle, opened by swipe-up from any
 // screen. Uses single segmented controls for choices so state is visible and
@@ -33,6 +35,23 @@ static lv_obj_t *battery_value = nullptr;
 static lv_obj_t *web_who = nullptr;
 static lv_obj_t *web_where = nullptr;
 static uint32_t web_refreshed_ms = 0;
+
+// "new pass" (web_pw_new.h): standalone displays only. Press twice within
+// CONFIRM_MS; the new plaintext is shown on a panel for REVEAL_MS, then the
+// panel is deleted and the buffer wiped. Small statics (UI task only).
+static lv_obj_t *web_new_btn = nullptr;
+static lv_obj_t *web_new_label = nullptr;
+static lv_obj_t *reveal_panel = nullptr;
+static lv_obj_t *reveal_left = nullptr;
+static lv_obj_t *reveal_pw = nullptr;
+static lv_obj_t *reveal_dead = nullptr;  // hidden panel, deleted on the next refresh
+static web_pw_new::Confirm s_confirm;
+static web_pw_new::Reveal s_reveal;
+static web_pw_new::Offer s_offer{};
+static bool s_confirm_shown = false;
+static int s_reveal_left_shown = -1;
+static char s_status[64] = {0};  // one-off message in the who line ("failed", ...)
+static uint32_t s_status_ms = 0;
 
 static constexpr uint8_t BRIGHTNESS_VALUES[] = {32, 80, 128, 200, 255};
 static constexpr double DEPTH_VALUES[] = {1.0, 2.0, 3.0, 5.0, 10.0};
@@ -271,18 +290,185 @@ static void update_web_login() {
         flag = p.get_u8("auth", web_auth_policy::FLAG_DEFAULT);
     }
     String ip = net::ipString();
-    web_login_info::Input in{web_auth_policy::state(flag, web_pw_store::is_set() ? "set" : ""),
-                             user.c_str(), ip.c_str(), manager::is_provisioned()};
+    bool managed = manager::is_provisioned();
+    web_auth_policy::State st = web_auth_policy::state(flag, web_pw_store::is_set() ? "set" : "");
+    web_login_info::Input in{st, user.c_str(), ip.c_str(), managed};
     char who[80], where[64];
     web_login_info::describe(in, who, sizeof(who), where, sizeof(where));
+    uint32_t now = millis();
+    s_offer = web_pw_new::offer(managed, st);
+    if (!s_offer.available) s_confirm.reset();
+    if (s_confirm.armed(now)) {
+        snprintf(who, sizeof(who), "press again: %s",
+                 s_offer.turns_auth_on ? "new password, login on" : "replace the password");
+    } else if (s_status[0] && (uint32_t)(now - s_status_ms) < 10000) {
+        snprintf(who, sizeof(who), "%s", s_status);
+    }
     lv_label_set_text(web_who, who);
     lv_label_set_text(web_where, where);
-    web_refreshed_ms = millis();
+    if (web_new_btn) {
+        // The button sits right of the row text; the text gets the full
+        // width back on a managed display.
+        int w = s_offer.available ? lv_obj_get_x(web_new_btn) - lv_obj_get_x(web_who) - 8
+                                  : LCD_W - lv_obj_get_x(web_who) - 20;
+        lv_obj_set_width(web_who, w);
+        lv_obj_set_width(web_where, w);
+        if (s_offer.available)
+            lv_obj_remove_flag(web_new_btn, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(web_new_btn, LV_OBJ_FLAG_HIDDEN);
+        bool armed = s_confirm.armed(now);
+        lv_label_set_text(web_new_label, armed ? "confirm?" : "new pass");
+        lv_obj_set_style_bg_color(web_new_btn, lv_color_hex(armed ? theme.warn : theme.accent), 0);
+        s_confirm_shown = armed;
+    }
+    web_refreshed_ms = now;
 }
 
-static void on_root_delete(lv_event_t *) {
+// Hide the panel and wipe the plaintext (expiry, "hide", leaving the screen,
+// rebuild). LVGL copies label text into its own heap buffer and lv_free does
+// not clear it, so that copy is overwritten in place first. The "hide"
+// button lives on the panel, so its click only hides the panel; the object
+// is deleted on the next refresh, never inside its own child's event.
+static void hide_reveal() {
+    if (reveal_pw) {
+        char *t = lv_label_get_text(reveal_pw);
+        if (t) web_pw_new::wipe(t, strlen(t));
+        lv_label_set_text(reveal_pw, "");
+        reveal_pw = nullptr;
+    }
+    if (reveal_panel) {
+        lv_obj_add_flag(reveal_panel, LV_OBJ_FLAG_HIDDEN);
+        if (reveal_dead) lv_obj_delete(reveal_dead);
+        reveal_dead = reveal_panel;
+        reveal_panel = nullptr;
+        reveal_left = nullptr;
+    }
+    s_reveal.hide();
+    s_reveal_left_shown = -1;
+}
+
+// Whatever deletes the password label (hide, screen rebuild), its LVGL copy
+// of the text is overwritten before LVGL frees it.
+static void on_reveal_pw_delete(lv_event_t *e) {
+    lv_obj_t *l = (lv_obj_t *)lv_event_get_target(e);
+    char *t = l ? lv_label_get_text(l) : nullptr;
+    if (t) web_pw_new::wipe(t, strlen(t));
+}
+
+static void on_reveal_hide(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    hide_reveal();
+}
+
+static void update_reveal_left(uint32_t now) {
+    if (!reveal_left) return;
+    int left = (int)s_reveal.seconds_left(now);
+    if (left == s_reveal_left_shown) return;
+    s_reveal_left_shown = left;
+    char buf[48];
+    snprintf(buf, sizeof(buf), "write it down - hides in %d s", left);
+    lv_label_set_text(reveal_left, buf);
+}
+
+static lv_obj_t *reveal_line(lv_obj_t *parent, const char *text, const lv_font_t *font,
+                             uint32_t color, int y) {
+    lv_obj_t *l = lv_label_create(parent);
+    lv_label_set_text(l, text);
+    style_value(l, font, color);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, y);
+    return l;
+}
+
+static void show_reveal(const char *user) {
+    if (!s_root) return;
+    uint32_t now = millis();
+    const int w = LCD_W - 40 < 440 ? LCD_W - 40 : 440;
+    reveal_panel = lv_obj_create(s_root);
+    lv_obj_set_size(reveal_panel, w, 250);
+    lv_obj_align(reveal_panel, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_set_style_bg_color(reveal_panel, lv_color_hex(theme.bg), 0);
+    lv_obj_set_style_bg_opa(reveal_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(reveal_panel, lv_color_hex(theme.accent), 0);
+    lv_obj_set_style_border_width(reveal_panel, 2, 0);
+    lv_obj_set_style_radius(reveal_panel, 10, 0);
+    lv_obj_set_style_pad_all(reveal_panel, 0, 0);
+    lv_obj_clear_flag(reveal_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    char buf[64];
+    reveal_line(reveal_panel, "NEW WEB PASSWORD", &font_b612_14, theme.accent, 12);
+    snprintf(buf, sizeof(buf), "user %.31s", user);
+    reveal_line(reveal_panel, buf, &font_b612_20, theme.fg, 36);
+    reveal_pw = reveal_line(reveal_panel, s_reveal.password(),
+                            LCD_W >= 400 ? &font_b612_38 : &font_b612_28, theme.fg, 66);
+    lv_obj_add_event_cb(reveal_pw, on_reveal_pw_delete, LV_EVENT_DELETE, nullptr);
+    String ip = net::ipString();
+    if (web_login_info::address_known(ip.c_str()))
+        snprintf(buf, sizeof(buf), "http://%s/editor", ip.c_str());
+    else
+        snprintf(buf, sizeof(buf), "web UI and /editor on this display");
+    reveal_line(reveal_panel, buf, &font_b612_14, theme.fg, 120);
+    reveal_left = reveal_line(reveal_panel, "", &font_b612_14, theme.fg_dim, 146);
+    update_reveal_left(now);
+
+    lv_obj_t *hide = make_action(reveal_panel, "hide", 0, 0, 120, theme.accent, on_reveal_hide);
+    lv_obj_align(hide, LV_ALIGN_BOTTOM_MID, 0, -14);
+}
+
+static void on_web_new(lv_event_t *e) {
+    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+    uint32_t now = millis();
+    update_web_login();  // re-check gating (manager may have paired since)
+    if (!s_offer.available) return;
+    if (s_confirm.press(now) == web_pw_new::Confirm::Press::Armed) {
+        update_web_login();
+        return;
+    }
+    hide_reveal();
+    static char pw[web_pw_new::BUF_LEN];
+    web_pw_store::NewResult r = web_pw_store::new_password(pw, sizeof(pw));
+    s_status[0] = '\0';
+    if (r == web_pw_store::NewResult::Ok) {
+        s_reveal.show(pw, millis());
+        web_pw_new::wipe(pw, sizeof(pw));
+        std::string user;
+        {
+            storage::Namespace p("web", true);
+            user = p.get_string("user", web_auth_policy::DEFAULT_USER);
+        }
+        show_reveal(user.c_str());
+    } else {
+        snprintf(s_status, sizeof(s_status), "%s",
+                 r == web_pw_store::NewResult::Managed
+                     ? "managed: password is on the Display Manager"
+                     : "new password FAILED (unchanged)");
+        s_status_ms = millis();
+    }
+    update_web_login();
+}
+
+static void on_root_delete(lv_event_t *e) {
+    if (lv_event_get_target(e) != s_root) return;  // a bubbled child delete
+    // The panel is a child of the root and goes with it (its password label
+    // wipes itself in on_reveal_pw_delete); just drop the pointers.
+    reveal_pw = nullptr;
+    reveal_panel = nullptr;
+    reveal_dead = nullptr;
+    reveal_left = nullptr;
+    s_reveal.hide();
+    s_reveal_left_shown = -1;
+    s_confirm.reset();
     web_who = nullptr;
     web_where = nullptr;
+    web_new_btn = nullptr;
+    web_new_label = nullptr;
+}
+
+// Leaving Settings hides the password and disarms the button.
+static void on_root_unloaded(lv_event_t *e) {
+    if (lv_event_get_target(e) != s_root) return;
+    hide_reveal();
+    s_confirm.reset();
 }
 
 static void on_close(lv_event_t *e) {
@@ -304,6 +490,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_event_cb(s_root, on_root_delete, LV_EVENT_DELETE, nullptr);
+    lv_obj_add_event_cb(s_root, on_root_unloaded, LV_EVENT_SCREEN_UNLOADED, nullptr);
 
     make_action(s_root, "close", 12, 8, 80, theme.fg_dim, on_close);
 
@@ -378,6 +565,11 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_pos(web_where, value_x, web_y + 19);
     lv_obj_set_width(web_where, LCD_W - value_x - 20);
     lv_label_set_long_mode(web_where, LV_LABEL_LONG_DOT);
+    // Standalone only (update_web_login hides it on a managed display).
+    web_new_btn =
+        make_action(s_root, "new pass", LCD_W - 12 - 100, web_y + 1, 100, theme.accent, on_web_new);
+    web_new_label = lv_obj_get_child(web_new_btn, 0);
+    lv_obj_add_flag(web_new_btn, LV_OBJ_FLAG_HIDDEN);
     update_web_login();
 
     update_segment(seg_brightness, nearest_brightness_index(brightness()));
@@ -407,8 +599,18 @@ lv_obj_t *build(lv_obj_t *parent) {
 
 void refresh() {
     // Settings update from their own events; only the web login row follows
-    // the network (address, manager pairing), every ~2 s while visible.
-    if (web_who && (uint32_t)(millis() - web_refreshed_ms) >= 2000) update_web_login();
+    // the network (address, manager pairing), every ~2 s while visible, and
+    // the new-password confirm / reveal timers.
+    uint32_t now = millis();
+    if (reveal_dead) {
+        lv_obj_delete(reveal_dead);
+        reveal_dead = nullptr;
+    }
+    if (s_reveal.expire(now)) hide_reveal();
+    update_reveal_left(now);
+    bool confirm_lapsed = s_confirm_shown && !s_confirm.armed(now);
+    if (web_who && (confirm_lapsed || (uint32_t)(now - web_refreshed_ms) >= 2000))
+        update_web_login();
 }
 
 }  // namespace ui::settings

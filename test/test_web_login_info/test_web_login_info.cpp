@@ -23,11 +23,11 @@ static void test_enforced_paired_points_at_manager() {
     TEST_ASSERT_EQUAL_STRING("http://10.0.0.7/editor", where);
 }
 
-static void test_enforced_unpaired_says_manager_keeps_it() {
+static void test_enforced_unpaired_says_password_set() {
     char who[64], where[64];
     describe(Input{State::Enforced, "yeyboats", "10.0.0.7", false}, who, sizeof(who), where,
              sizeof(where));
-    TEST_ASSERT_EQUAL_STRING("user yeyboats, password: kept by the Display Manager", who);
+    TEST_ASSERT_EQUAL_STRING("user yeyboats, password set", who);
 }
 
 static void test_missing_username_uses_firmware_default() {
@@ -76,7 +76,7 @@ static void test_truncates_and_terminates() {
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_enforced_paired_points_at_manager);
-    RUN_TEST(test_enforced_unpaired_says_manager_keeps_it);
+    RUN_TEST(test_enforced_unpaired_says_password_set);
     RUN_TEST(test_missing_username_uses_firmware_default);
     RUN_TEST(test_setup_open_and_disabled);
     RUN_TEST(test_unknown_address);
