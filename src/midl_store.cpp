@@ -21,6 +21,7 @@
 #include "app_events.h"
 #include "generated_midl_builtin.h"
 #include "generated_midl_manifest.h"
+#include "midl_gen/midl_commit.h"
 #include "midl_validate.h"
 #include "net.h"
 #include "psram_json.h"
@@ -525,6 +526,7 @@ void list_json(JsonObject out) {
     State &s = st();
     out["active"] = s.active;
     out["screen"] = ui::current_id();
+    out["midlCommit"] = midl_gen::MIDL_COMMIT;
     index_to_json(s.store.index(), out["index"].to<JsonObject>());
     JsonArray arr = out["records"].to<JsonArray>();
     const RecordInfo *recs[MAX_RECORDS];
@@ -568,6 +570,7 @@ void heartbeat_midl(JsonObject m) {
     State &s = st();
     m["version"] = manifest()["midl"] | "1.0.0";
     m["class"] = midl_manifest::CLASS_ID;
+    m["commit"] = midl_gen::MIDL_COMMIT;
     char h[HASH_LEN];
     index_hash(h, sizeof(h));
     m["indexHash"] = h;
@@ -587,6 +590,8 @@ void identity_caps(JsonObject m) {
     m["version"] = manifest()["midl"] | "1.0.0";
     m["class"] = midl_manifest::CLASS_ID;
     m["manifestHash"] = st().manifest_hash;
+    m["commit"] = midl_gen::MIDL_COMMIT;
+    m["editor"] = "/editor";  // device-hosted MIDL editor page (web.cpp)
     m["push"] = true;
     m["pull"] = true;
 }

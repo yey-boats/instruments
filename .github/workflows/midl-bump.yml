@@ -1,0 +1,73 @@
+name: midl bump
+
+# Daily: move the midl submodule to midl main, regenerate every embed
+# (per-class manifests/limits, built-in records, the device editor page, the
+# midl commit stamp, the conformance fixture) and open or update the PR
+# "chore: bump midl to <sha>" on branch chore/midl-bump. No-op when the
+# submodule is already at midl main.
+#
+# A PR opened with the default GITHUB_TOKEN does not trigger the CI workflow
+# (GitHub rule). Set the repository secret MIDL_BUMP_TOKEN (a fine-grained
+# token with contents + pull-requests write) to get CI on the bump PR;
+# without it, push an empty commit or re-run CI on the PR by hand.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: midl-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      BRANCH: chore/midl-bump
+      GH_TOKEN: ${{ secrets.MIDL_BUMP_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+          token: ${{ secrets.MIDL_BUMP_TOKEN || github.token }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML (conformance fixture generator)
+        run: pip install pyyaml
+
+      - name: Bump midl to main and regenerate embeds
+        run: make midl-latest
+
+      - name: Commit, push, open or update the PR
+        run: |
+          set -euo pipefail
+          git add midl include/midl_gen test/fixtures/yb-midl
+          if git diff --cached --quiet; then
+            echo "midl already at main: nothing to do"
+            exit 0
+          fi
+          SHA=$(git -C midl rev-parse HEAD)
+          SHORT=${SHA:0:7}
+          OLD=$(git rev-parse HEAD:midl)
+          LOG=$(git -C midl log --oneline --no-decorate "${OLD}..${SHA}" | head -50)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git commit -m "chore: bump midl to ${SHORT}" -m "midl ${OLD:0:7}..${SHORT}, embeds regenerated (make midl-latest)."
+          git push --force origin "$BRANCH"
+          BODY=$(printf 'Moves the midl submodule from `%s` to midl main `%s` and regenerates every embed (`make midl-latest`).\n\n```\n%s\n```\n\nOpened by `.github/workflows/midl-bump.yml`.' "${OLD:0:7}" "$SHORT" "$LOG")
+          PR=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$PR" ]; then
+            gh pr edit "$PR" --title "chore: bump midl to ${SHORT}" --body "$BODY"
+          else
+            gh pr create --base main --head "$BRANCH" --title "chore: bump midl to ${SHORT}" --body "$BODY"
+          fi

@@ -68,13 +68,13 @@ void factory_reset();
 // ---- reads ----------------------------------------------------------------
 // Full record JSON ({id,title,source,hash,doc}); false for an unknown id.
 bool record_json(const char *id, String &out);
-// GET /api/midl/records body: {active, screen, index, records:[...]}.
+// GET /api/midl/records body: {active, screen, midlCommit, index, records:[...]}.
 void list_json(JsonObject out);
 // Heartbeat: ui.record + ui.screens[{id,title,record}] (visible records,
-// carousel order) and the `midl` block {version,class,indexHash,records}.
+// carousel order) and the `midl` block {version,class,commit,indexHash,records}.
 void heartbeat_ui(JsonObject ui);
 void heartbeat_midl(JsonObject midl);
-// Identity capabilities.midl = {version,class,manifestHash,push,pull}.
+// Identity capabilities.midl = {version,class,manifestHash,commit,editor,push,pull}.
 void identity_caps(JsonObject midl);
 // The embedded capability manifest (parsed once, PSRAM).
 JsonVariantConst manifest();

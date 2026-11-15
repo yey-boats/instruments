@@ -6,6 +6,7 @@
 #include "device_identity.h"
 #include "manager.h"
 #include "midl_kinds.h"
+#include "midl_live.h"
 #include "net_health.h"
 #include "notifications.h"
 #include "psram_json.h"
@@ -421,17 +422,90 @@ static void reset_subscriptions_on_connect() {
     s_subs_change_ms = millis() - SUBS_REDUCE_STABLE_MS - 1;
 }
 
+// The active screen's paths (last setDesiredPaths) and the editor watch
+// (GET /api/midl/live), both guarded by s_sub_mtx. g_desired = baseline ∪
+// screen ∪ watch; screen paths go first, so a full set drops editor paths,
+// never the screen's. PSRAM (~5 KB / ~2.7 KB).
+static SubscriptionSet *s_screen_p = nullptr;
+static bool s_screen_published = false;  // setDesiredPaths ran at least once
+static SubscriptionSet &g_screen() {
+    return psramSet(s_screen_p);
+}
+static midl::live::WatchSet &g_watch() {
+    static midl::live::WatchSet &w = *yeyboats::psram_new<midl::live::WatchSet>();
+    return w;
+}
+
+static bool same_set(const SubscriptionSet &a, const SubscriptionSet &b) {
+    if (a.size() != b.size()) return false;
+    for (int i = 0; i < a.size(); ++i)
+        if (!b.has(a.at(i))) return false;
+    return true;
+}
+
+// Recompute g_desired; caller holds s_sub_mtx. Marks the change for the SK
+// task only when the set actually differs (`force`: a screen change always
+// re-arms, like before), so the editor's 1 Hz polling never re-arms the
+// reduce debounce on its own.
+static void rebuild_desired_locked(bool force) {
+    static SubscriptionSet &next = *yeyboats::psram_new<SubscriptionSet>();
+    next.clear();
+    fill_baseline(next);  // always-on paths
+    const SubscriptionSet &scr = g_screen();
+    for (int i = 0; i < scr.size(); ++i)
+        next.add(scr.at(i));
+    midl::live::WatchSet &w = g_watch();
+    for (size_t i = 0; i < w.size(); ++i)
+        next.add(w.at(i));
+    SubscriptionSet &d = g_desired();
+    if (!force && same_set(next, d)) return;
+    d = next;  // POD assign, both in PSRAM
+    s_subs_dirty = true;
+    s_subs_change_ms = millis();  // (re)arm the debounce window
+}
+
 void setDesiredPaths(const SubscriptionSet &screenPaths) {
     if (!s_sub_mtx) s_sub_mtx = xSemaphoreCreateMutex();
     if (s_sub_mtx) xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
-    SubscriptionSet &d = g_desired();
-    d.clear();
-    fill_baseline(d);  // always-on paths
+    SubscriptionSet &scr = g_screen();
+    scr.clear();
     for (int i = 0; i < screenPaths.size(); ++i)
-        d.add(screenPaths.at(i));
-    s_subs_dirty = true;
-    s_subs_change_ms = millis();  // (re)arm the debounce window
+        scr.add(screenPaths.at(i));
+    s_screen_published = true;
+    rebuild_desired_locked(true);
     if (s_sub_mtx) xSemaphoreGive(s_sub_mtx);
+}
+
+void editorWatch(const char *const *paths, size_t n) {
+    if (!s_sub_mtx) return;  // before setup(): nothing to subscribe yet
+    xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
+    uint32_t now = millis();
+    bool changed = false;
+    for (size_t i = 0; i < n; ++i)
+        changed |= g_watch().touch(paths[i], now);
+    // Before the UI published a screen set the desired set is the full list
+    // (reset_subscriptions_on_connect); only rebuild once a screen set exists.
+    if (changed && s_screen_published) rebuild_desired_locked(false);
+    xSemaphoreGive(s_sub_mtx);
+}
+
+size_t editorWatchCount() {
+    if (!s_sub_mtx) return 0;
+    xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
+    size_t n = g_watch().size();
+    xSemaphoreGive(s_sub_mtx);
+    return n;
+}
+
+// SK task, ~1 Hz: drop editor paths not asked for in WATCH_TTL_MS.
+static void editor_watch_tick() {
+    static uint32_t last_ms = 0;
+    uint32_t now = millis();
+    if (!s_sub_mtx || (uint32_t)(now - last_ms) < 1000) return;
+    last_ms = now;
+    xSemaphoreTake(s_sub_mtx, portMAX_DELAY);
+    if (g_watch().expire(now) && s_screen_published) rebuild_desired_locked(false);
+    xSemaphoreGive(s_sub_mtx);
 }
 
 // Bounded substring search (payload may not be NUL-terminated). memchr
@@ -940,6 +1014,7 @@ static void sk_task(void *) {
         // Apply any pending per-screen subscription change (UI task set the
         // desired set; we diff + send sub/unsub here, on the SK task that owns
         // ws.sendTXT). Cheap no-op when nothing changed.
+        editor_watch_tick();
         pump_subscriptions();
 
         // Forensic heap+temp watermark every 60s. Captures the slow-leak

@@ -36,13 +36,11 @@
 #include "signalk.h"               // boat::current_view, boat::View, sk::dynamicStore
 #include "widget_data_resolver.h"  // widget_data::resolve_numeric (dynamic-path fallback)
 #include "net.h"                   // net::logf
-#include "midl_local_ids.h"        // text-valued local ids (net.ip, sk.state, ...)
-#include "device_identity.h"       // firmware version / build / device id
-#include "trip_log.h"              // trip.* local ids
+#include "midl_local_device.h"     // local ids (net.ip, sk.state, trip.*, ...)
 
 #include "esp_heap_caps.h"
 
-#include <Arduino.h>  // temperatureRead / millis (local metric resolver)
+#include <Arduino.h>
 #include <string.h>
 
 // Global (main.cpp): true while the current touch contact is a drag/swipe, not a
@@ -576,67 +574,18 @@ static double midl_dynamic_resolve(const char *path, const boat::View &d) {
     return widget_data::resolve_numeric(path, d, &sk::dynamicStore());
 }
 
-// Device-local metric resolver ({kind:"local", id:"..."} bindings). The
-// manifest advertises the "local" source kind without an id catalog, so the
-// supported set is the device-status surface the firmware already exposes
-// elsewhere (main.cpp status line / web.cpp /api device block). Values are in
-// DISPLAY units; unknown ids return NaN and the tile degrades to "--".
-// Accepted with or without a "device." prefix.
+// Device-local metric resolvers ({kind:"local", id:"..."} bindings): the
+// shared device half (midl_local_device.h), also used by GET /api/midl/live.
+// Numeric ids are in DISPLAY units; unknown ids return NaN ("--").
 static double midl_local_resolve(const char *id) {
-    if (!id || !id[0]) return NAN;
-    if (strncmp(id, "device.", 7) == 0) id += 7;
-    if (!strcmp(id, "temperature") || !strcmp(id, "temp"))
-        return (double)temperatureRead();                                       // SoC temp, degC
-    if (!strcmp(id, "heap")) return (double)esp_get_free_heap_size() / 1024.0;  // free internal, KB
-    if (!strcmp(id, "psram"))
-        return (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0;  // KB
-    if (!strcmp(id, "rssi")) return (double)net::rssi();                     // dBm
-    if (!strcmp(id, "uptime")) return (double)(millis() / 1000UL);           // s
-    // Trip log (built-in trip record), display units.
-    if (!strcmp(id, "trip.distance")) return trip_log::distance_nm(trip_log::current());  // nm
-    if (!strcmp(id, "trip.avgSpeed")) return trip_log::avg_kn(trip_log::current());       // kn
-    if (!strcmp(id, "trip.maxSpeed")) return trip_log::max_kn(trip_log::current());       // kn
-    return NAN;
+    return midl::local_dev::numeric(id);
 }
 
-// Text-valued local ids (net.ip, sk.state, sys.uptime, ...; midl_local_ids.h).
-// The device strings are snapshotted at most once a second into small static
-// buffers (the painters call this at 5 Hz per tile; the String-returning status
-// APIs would churn the internal heap otherwise). UI task only.
+// Text-valued local ids (net.ip, sk.state, sys.uptime, ...). The cache is this
+// task's own (UI task only).
 static bool midl_local_text_resolve(const char *id, char *out, size_t cap) {
-    if (!midl::local_ids::is_text_id(id)) return false;
-    static char ip[16], ssid[33], sk_state[20], sk_host[72];
-    static uint32_t last_ms = 0;
-    static bool primed = false;
-    uint32_t now = millis();
-    if (!primed || now - last_ms >= 1000) {
-        primed = true;
-        last_ms = now;
-        snprintf(ip, sizeof(ip), "%s", net::wifiUp() ? net::ipString().c_str() : "");
-        snprintf(ssid, sizeof(ssid), "%s", net::ssidString().c_str());
-        snprintf(sk_state, sizeof(sk_state), "%s", sk::connectionStatus().c_str());
-        String h = sk::targetHost();
-        if (h.length())
-            snprintf(sk_host, sizeof(sk_host), "%s:%u", h.c_str(), (unsigned)sk::targetPort());
-        else
-            sk_host[0] = 0;
-    }
-    const device_identity::Identity &di = device_identity::get();
-    midl::local_ids::Snapshot snap = {};
-    snap.ip = ip;
-    snap.ssid = ssid;
-    snap.rssi = net::wifiUp() ? net::rssi() : 0;
-    snap.sk_state = sk_state;
-    snap.sk_host = sk_host;
-    snap.build = di.build_time;
-    snap.version = di.firmware_version;
-    snap.uptime_s = millis() / 1000UL;
-    snap.heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    snap.psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    snap.device_id = di.device_id;
-    snap.underway_s = trip_log::current().underway_s;
-    midl::local_ids::format(id, snap, out, cap);
-    return true;
+    static midl::local_dev::TextCache cache = {};
+    return midl::local_dev::text(id, out, cap, cache);
 }
 
 size_t apply_all(JsonVariantConst doc) {

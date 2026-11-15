@@ -76,7 +76,7 @@ record.
 | Method | Path | Body / query | Result |
 |---|---|---|---|
 | GET | `/api/midl/manifest` | | existing |
-| GET | `/api/midl/records` | | `{active, screen, index, records:[{id,title,source,hash,overridesEmbedded,screens:[{id,title}]}]}` |
+| GET | `/api/midl/records` | | `{active, screen, midlCommit, index, records:[{id,title,source,hash,overridesEmbedded,screens:[{id,title}]}]}` |
 | GET | `/api/midl/records/<id>` | | the record JSON |
 | PUT | `/api/midl/records/<id>` | `{title, doc}`; `?activate=1&screen=<sid>` | 200 `{id,hash,screens}`; 422 invalid; 409 conflict; 413 too large (48 KB doc cap) |
 | DELETE | `/api/midl/records/<id>` | | removes a manager/local record or override; 404 for a bare embedded record |
@@ -109,10 +109,11 @@ a matching hash, so a later pull is a no-op. The device ignores `layout` and
 ### Heartbeat / identity
 - Heartbeat `ui`: `screen`, `record`, `screens:[{id,title,record}]` (all screens
   across visible records, in carousel order), `theme`, `brightness`.
-  New `midl: {version, class, indexHash, records:[{id,hash,source}]}`.
+  New `midl: {version, class, commit, indexHash, records:[{id,hash,source}]}`
+  (`commit` = the midl commit the firmware embeds).
   The legacy `layoutVariant`, `widgetVariant`, `widgetConfigHash` and v2
   `capabilities` (viewTypes/maxViews/maxTilesPerScreen) go away.
-- Identity `capabilities.midl = {version, class, manifestHash, push:true,
+- Identity `capabilities.midl = {version, class, manifestHash, commit, editor:"/editor", push:true,
   pull:true}`; the legacy `capabilities.widgets` / `capabilities.layout` go away.
 
 ## Display Manager
@@ -275,3 +276,97 @@ The knob shows its embedded records only. The rotary menu is system UI on
   single-value tiles.
 - The freeform painter now snapshots the display format config
   (`config::format()`) each refresh; only the removed template path did.
+
+## Device-hosted MIDL editor (instruments)
+
+A standalone display (no Display Manager) serves the MIDL editor itself: it
+lists the display's records, edits them, previews them with the display's own
+live values and writes them back through the push API above (source `local`).
+
+### Page
+- Source: `midl/editor/device/dist/index.html.gz` + `manifest.json` (midl
+  submodule; built by `npm run build:device` in midl, see
+  `midl/editor/README.md`).
+- Embedded by `tools/embed_editor.py` (`make embed-editor`) into
+  `include/midl_gen/editor_page.h`: verifies `gzSha256` / `sha256` against
+  `manifest.json`, **strips external font imports** (the page's CSS imports
+  Google Fonts; a boat has no internet, the page falls back to its local font
+  stack), fails when any other `http(s)://` host remains (allowed: the
+  `www.w3.org` namespace URIs and React's `reactjs.org` error text, which are
+  never fetched), re-gzips (level 9, mtime 0) and emits the bytes as a const
+  array in flash rodata (~130 KB). CI (`--check`) compares the upstream and
+  served sha256, not the gzip bytes (zlib versions differ).
+- `GET /editor`: `Content-Type: text/html; charset=utf-8`,
+  `Content-Encoding: gzip`, `Cache-Control: no-cache`, `ETag: "<sha256 of the
+  served page>"` (`If-None-Match` -> 304). Same web Basic auth as `/`.
+  `/editor/`, `/midl/editor`, `/midl/editor/` redirect (302) to `/editor`.
+  The root page `/` links to it. Identity `capabilities.midl.editor =
+  "/editor"`.
+- Error bodies of the `/api/midl/*` handlers carry `message` (the page shows
+  it) next to `error`; store errors also `path`, `record`, `conflictWith`,
+  `screen`. A local PUT needs no `hash` (the device hashes its own
+  serialization). `POST /api/screen/<sid>` shows any screen id in the store,
+  loading the owning record.
+
+### `GET /api/midl/live`
+```
+GET /api/midl/live?paths=<p1,p2,...>&locals=<id1,id2,...>
+-> {"t":<millis>,"values":{"<path>":number|string|null},"locals":{"<id>":number|string|null}}
+```
+- Auth: as the other `/api/midl` reads (device token or web Basic auth).
+- Each list is comma-separated, each item URL-encoded (the server decodes the
+  whole parameter once; SignalK paths contain no commas). Items are trimmed,
+  de-duplicated, validated and capped at **32 paths and 32 locals** (the first
+  32 valid ones; `"truncated":true` is added when more came). Parameters up to
+  4 KB are parsed (the WebServer has no request-line limit). Paths: 1..79
+  chars of `[A-Za-z0-9_.:-]`, no wildcard, no leading/trailing/double `.`;
+  locals: 1..31 chars of `[A-Za-z0-9_.-]`. Invalid items are dropped (not in
+  the answer).
+- `values`: raw SignalK SI from `widget_data::resolve_numeric(path, view,
+  &sk::dynamicStore())` (typed fields, then the dynamic PathStore); when that
+  is NaN, the string resolver (`widget_data::resolve_string`, e.g.
+  `steering.autopilot.state`); else `null`.
+- `locals`: the same resolvers the MIDL painters use
+  (`include/midl_local_device.h`): text ids (`net.ip`, `net.ssid`,
+  `net.rssi`, `sk.state`, `sk.host`, `sys.build`, `sys.version`,
+  `sys.uptime`, `sys.heap`, `sys.psram`, `device.id`, `trip.underway`) as
+  strings, numeric ids (`trip.distance`, `trip.avgSpeed`, `trip.maxSpeed`,
+  `temperature`, `heap`, `psram`, `rssi`, `uptime`, optionally `device.`
+  prefixed) in display units; unknown -> `null`.
+- **Editor watch**: every valid requested path is put on a bounded watch set
+  (32 paths, PSRAM, least recently asked evicted) that `src/signalk.cpp`
+  unions into the desired subscription set after the active screen's paths
+  (`sk::editorWatch`). A path the device was not subscribed to arrives after
+  the subscribe debounce (~0.3 s; the first poll answers `null`). Paths expire
+  10 s after the last request naming them (checked ~1 Hz on the SK task); the
+  resulting unsubscribe is deferred like any reduction (the SK server drops
+  the socket on unsubscribe). The desired set changes (and the SK task is
+  woken) only when the set really differs, so 1 Hz polling of the same paths
+  costs nothing on the SignalK link.
+- Pure half (parsing, caps, JSON shape, watch expiry): `src/midl_live.cpp`,
+  native test `test/test_midl_live`.
+
+## Tracking midl main (instruments)
+
+The firmware follows midl main; every embed is generated from the pinned
+submodule and committed (the firmware build needs no Node, no submodule).
+
+- `make midl-latest`: submodule -> midl main (fetched over HTTPS), then
+  `make embed-all` (per-class manifests/limits, built-in records, editor
+  page, midl commit stamp, conformance fixture). Commit `midl`,
+  `include/midl_gen/`, `test/fixtures/yb-midl/`. `make embed-check` checks
+  them all; `make midl-drift` reports how far the pin is behind.
+- Commit stamp: `tools/embed_midl_commit.py` -> `include/midl_gen/midl_commit.h`
+  (`midl_gen::MIDL_COMMIT`). Reported as heartbeat `midl.commit`, identity
+  `capabilities.midl.commit`, `GET /api/midl/records` `midlCommit`,
+  `/api/state` `device.midl_commit` and the ABOUT line of the web UI.
+- CI `midl-drift` job (`tools/midl_drift.py --github`): pinned behind midl
+  main -> an `::error::` annotation + job summary listing the missing commits,
+  but the job **passes** (unrelated PRs must not go red because midl moved);
+  pinned commit **not on midl main** -> the job **fails**. The freshness jobs
+  fail on any stale embed (`--check`).
+- `.github/workflows/midl-bump.yml` (daily 04:17 UTC + manual): runs
+  `make midl-latest` and, when anything changed, force-pushes branch
+  `chore/midl-bump` and opens or updates the PR "chore: bump midl to <sha>".
+  A PR opened with the default `GITHUB_TOKEN` does not trigger CI; set the
+  secret `MIDL_BUMP_TOKEN` to get CI on the bump PR.

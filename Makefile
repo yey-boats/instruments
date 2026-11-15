@@ -377,7 +377,8 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
         demo-up demo-down demo-up-remote demo-down-remote \
         server-setup server-sk-only server-status server-teardown \
         proto lint pre-commit hooks-install format backup release-tag clean \
-        gen-manifest check-catalog embed-manifest embed-records
+        gen-manifest check-catalog embed-manifest embed-records embed-editor \
+        embed-midl-commit embed-all embed-check midl-latest midl-drift
 
 # MIDL catalog/generator now live in the midl/ submodule (yey-boats/midl);
 # these delegate so `make gen-manifest` / `make check-catalog` still work here.
@@ -392,3 +393,38 @@ embed-manifest:  ## Regenerate the per-class MIDL manifest/limits headers (inclu
 
 embed-records:  ## Regenerate the per-class embedded built-in MIDL records (include/midl_gen/)
 	python3 tools/embed_builtin_records.py
+
+embed-editor:  ## Regenerate the embedded device MIDL editor page (include/midl_gen/editor_page.h)
+	python3 tools/embed_editor.py
+
+embed-midl-commit:  ## Stamp the pinned midl commit (include/midl_gen/midl_commit.h)
+	python3 tools/embed_midl_commit.py
+
+embed-all:  ## Regenerate every midl embed (manifests, records, editor, commit, conformance)
+	python3 tools/embed_manifest.py
+	python3 tools/embed_builtin_records.py
+	python3 tools/embed_editor.py
+	python3 tools/embed_midl_commit.py
+	python3 tools/gen_midl_conformance.py
+
+embed-check:  ## Fail if any midl embed is stale vs the pinned submodule
+	python3 tools/embed_builtin_records.py --check
+	python3 tools/embed_editor.py --check
+	python3 tools/embed_midl_commit.py --check
+	python3 tools/gen_midl_conformance.py --check
+
+# midl tracking: the firmware follows midl main. `make midl-latest` moves the
+# submodule to midl main (fetched over HTTPS, no ssh key needed) and
+# regenerates every embed; commit the submodule pointer + include/midl_gen/ +
+# test/fixtures/yb-midl. The daily .github/workflows/midl-bump.yml does the
+# same and opens "chore: bump midl to <sha>".
+MIDL_REMOTE ?= https://github.com/yey-boats/midl.git
+midl-latest:  ## Bump the midl submodule to midl main and regenerate every embed
+	git submodule update --init midl
+	git -C midl fetch --quiet $(MIDL_REMOTE) main
+	git -C midl checkout --quiet --detach FETCH_HEAD
+	@git -C midl log --oneline -1
+	$(MAKE) embed-all
+
+midl-drift:  ## Report how far the pinned midl is behind midl main
+	python3 tools/midl_drift.py --remote $(MIDL_REMOTE)
