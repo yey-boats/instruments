@@ -365,7 +365,8 @@ struct ClassSet {
     size_t count;
 };
 
-// clang-format off (macro layout differs between clang-format 18 builds)
+// Kept out of clang-format: CI and local clang-format 18 builds disagree on it.
+// clang-format off
 #define CLASS_SET(ns)                                                                              \
     {                                                                                              \
         ns::midl_manifest::CLASS_ID, ns::midl_manifest::JSON,                                      \
