@@ -254,9 +254,8 @@ not render a value. **Verify on hardware.**
 ### MIDL library gallery (6 screens, `include/midl_demo_doc.h`)
 
 Baked JSON (`midl::demo::SQUARE_480_JSON`), 1:1 with the MIDL web demo's
-"standard layout library". Rendered via `midl::render::apply_all()`
-(`src/midl_render_apply.cpp`); reachable from the `midl-render` console
-command and the `YEYBOATS_MIDL_ONLY` boot mode.
+"standard layout library". A test/sim fixture (env:sim-midl, native MIDL
+tests); the firmware boots from the embedded records in `midl/library/builtin`.
 
 | Screen (id) | Elements → SignalK paths |
 |---|---|

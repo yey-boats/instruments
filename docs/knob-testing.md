@@ -1,5 +1,12 @@
 # Knob: testing & simulation
 
+> **Update (MIDL-only firmware):** the knob's screens are now its embedded
+> round-360 MIDL records and the C++ round views and `env:sim-knob` are gone.
+> The gesture map changed: Home turns through the MIDL screens, double-click
+> enters Steer (the old autopilot home), long-press opens the menu. The current
+> map is in [midl/midl-only.md](midl/midl-only.md#knob-round-360) and the
+> README; parts of this page describe the earlier design.
+
 How the **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** (`waveshare-knob-1_8`, 360×360
 round rotary remote) is verified. The knob is a remote controller — encoder +
 push button driving an autopilot-home menu and a select-display / select-view

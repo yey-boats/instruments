@@ -11,17 +11,18 @@ Source-available under PolyForm Noncommercial 1.0.0.
 
 ## Build & test commands
 
-The Makefile is the user-facing entry point; targets wrap PlatformIO. Three envs:
+The Makefile is the user-facing entry point; targets wrap PlatformIO. Main envs (every board has its own env in `platformio.ini`):
 
 | Env | Purpose |
 |---|---|
 | `esp32-4848s040` | Production firmware build |
 | `ota` | Same build, `upload_protocol=espota` for OTA flashing |
-| `native` | Host unit tests (Unity). Builds the pure-C++ side modules (~30 TUs — parser, layout, boat_data, MIDL solve/render mapping, stores, …) per `[env:native] build_src_filter`. |
+| `native` | Host unit tests (Unity). Builds the pure-C++ side modules (~30 TUs — parser, boat_data, MIDL solve/validate/render mapping, record store, …) per `[env:native] build_src_filter`. |
+| `sim-midl` / `sim-screens` / `sim-control` | Headless LVGL host renders: MIDL docs through the real render path, the system touch screens, the control-frame overlay (`make sim`). |
 
 ```sh
 make build                              # pio run -e esp32-4848s040
-make test                               # pio test -e native (parser + layout tests)
+make test                               # pio test -e native (host unit tests)
 make flash                              # USB flash, auto-detects /dev/cu.usbserial-*
 make ota DEVICE_IP=<ip>                 # WiFi flash (port 3232)
 make monitor                            # serial @ 115200
@@ -37,49 +38,61 @@ make backup                             # full 16 MB flash dump via tools/dump_c
 
 Run a single host test by env-filter on the PIO command:
 ```sh
-pio test -e native -f test_parser       # or test_layout
+pio test -e native -f test_parser       # or test_midl_records, test_knob_menu, ...
 ```
 
 ## Architecture
 
-`src/main.cpp` (LVGL UI + display/touch init) is the only TU that depends on
-Arduino_GFX and LVGL. All networking, parsing, and config live in side
-modules so they can be host-tested:
+`src/main.cpp` (LVGL UI + display/touch init) and `src/ui/*` are the TUs
+that depend on Arduino_GFX and LVGL. All networking, parsing, and config live
+in side modules so they can be host-tested.
+
+**The display renders MIDL screens only** (contract:
+`docs/midl/midl-only.md`). There are no hand-written C++ content screens, no
+`layout::Config` pipeline and no manager-pushed widget plan.
 
 ```
-                              +-----------+
-                              |  main.cpp |  display + LVGL + touch + UI refresh
-                              +-----+-----+
-                                    | ui_refresh @ 5 Hz reads sk::data
-                                    | dispatch user input -> net::dispatchCommand
-                                    v
-  +-----------+   +-----------+   +-------------+   +---------------+
-  | net.cpp   |-->| signalk   |-->| signalk_    |   | layout_loader |
-  | WiFi/BLE/ |   | .cpp WS   |   | parser.cpp  |   | .cpp +        |
-  | OTA/mDNS/ |   | client    |   | (pure, host)|   | layout.cpp    |
-  | UDP log   |   +-----------+   +-------------+   | (pure, host)  |
-  +-----+-----+                                     +---------------+
-        |                                                 ^
-        +-----> ble_config.cpp (GATT: CONNECTION + CONFIGURATION characteristics)
-                                                          |
-                                                          +- apply_json() / fetch_from_signalk()
+  net.cpp / signalk.cpp / sources ──> boat data (sk::data, boat::View)
+                                              │ 5 Hz ui_refresh
+  Display Manager ── push (HTTP) ──┐          v
+        (or pull: config `midl`) ──┼─> midl_store.cpp ──> midl_store_ui.cpp ──> midl_render_apply.cpp
+  embedded records (midl/library/  │   records + index     activate / nav       solve -> map_element
+     builtin, per display class) ──┘   on LittleFS         (UI task only)       -> ui_layouts.cpp painters
 ```
+
+- **Records**: `include/midl_store.h` (device half; LittleFS
+  `/midl/index.json`, `/midl/records/<id>.json`, `.lkg.json`) and
+  `include/midl_records.h` (pure, host-tested rules: override, screen-id
+  conflicts, carousel order, fallback chain). Embedded records are generated
+  by `tools/embed_builtin_records.py` (`make embed-records`) into
+  `include/midl_gen/<class>/builtin_records.h`.
+- **One active record**: `midl::store_ui::show(id)` loads the owning record
+  first; `next`/`prev` cross record boundaries; `home` = `index.defaultScreen`.
+  Every navigation (swipe, `screen` command, HTTP `/api/screen/<id>`, knob)
+  goes through `app::CommandType::ShowScreen` on the UI task.
+- **System UI** stays native: settings, wifi, touch_cal, touch_grid
+  (`include/screens.h`), registered as system screens so
+  `ui::reset_screens()` keeps them; plus the lv_layer_top() overlays (MOB,
+  alarm banner, control frame, the knob's rotary menu).
+- **Knob** (`BOARD_ID_WAVESHARE_KNOB_1_8`): runs its embedded round-360
+  records (ap_hud, knob_compass, knob_wind, knob_big). `src/knob_menu.cpp`
+  (pure, host-tested) is the rotary state machine: Home turns through the
+  MIDL carousel, Steer adjusts the autopilot, Menu/ModePicker/Displays are
+  overlay levels drawn by `src/ui/knob_ui.cpp`.
 
 Key contracts:
 
 - **`net::dispatchCommand(line)`** is the single command funnel. It tries
-  `net::handleSerialCommand` → `sk::handleSerialCommand` →
-  `layout::handleSerialCommand` → `s_extra` (main's `handleMainCommand`).
-  Serial, BLE NUS RX, and BLE CONNECTION writes (`view`, `id`) all route
-  through it. Add new commands by extending one of these handlers, not by
-  parsing inside `ble_config.cpp`.
+  `net::handleSerialCommand` → `sk::handleSerialCommand` → … → `s_extra`
+  (main's `handleMainCommand`). Serial, BLE NUS RX, and BLE CONNECTION writes
+  all route through it. Add new commands by extending one of these handlers,
+  not by parsing inside `ble_config.cpp`.
 - **`sk::data`** (in `signalk_parser.h`) is the single source of truth for
   live boat state. Parser is pure C++ and tested on the host; the device
   loop only feeds it WebSocket frames.
-- **`layout::Config`** (`include/layout.h`) is a ~34 KB POD with fixed
-  bounds (`MAX_SCREENS=8`, `MAX_TILES_PER_SCREEN=4`, …). The live copy is
-  **heap-allocated in PSRAM** by `layout_loader.cpp` — never make it
-  `static` in `.bss` (see "Memory traps" below).
+- **LVGL is UI-task only.** Web, BLE and manager handlers validate/persist
+  through `midl::store` (mutex-guarded, PSRAM) and queue rendering
+  (`MidlActivate` / `ShowScreen`); they never touch LVGL.
 - **`net::deviceId()`** is the NVS-persisted name used for BLE advertising,
   mDNS host, OTA hostname, and WiFi hostname. `id <name>` reboots; default
   is `OTA_HOSTNAME` from `secrets.h`.
@@ -90,20 +103,19 @@ Key contracts:
   GT911 references). Decode each 16-bit field as
   `((uint16_t)hi << 8) | lo` with explicit ordered reads — never
   `Wire.read() | (Wire.read() << 8)` (unspecified evaluation order).
-- **`layout::parse()` must `memset(&out, 0, sizeof(out))`**, not
-  `out = Config{}` — the latter creates a 34 KB temporary that overflows
-  the 8 KB Arduino main stack and boot-loops the device.
-- **The live `layout::Config` must be PSRAM-allocated**
-  (`heap_caps_calloc(1, sizeof(Config), MALLOC_CAP_SPIRAM)`). A `static
-  Config` in internal SRAM starves NimBLE and the controller hangs
-  silently between WiFi AP and BLE init.
+- **Never value-initialize a large struct into a stack temporary**
+  (`out = Big{}`): a 34 KB temporary once overflowed the 8 KB Arduino main
+  stack and boot-looped the device. `memset` in place.
+- **Large resident state goes in PSRAM**, never `static` in internal
+  `.bss`: a 34 KB static config struct in internal SRAM starved NimBLE and
+  the controller hung silently between WiFi AP and BLE init. The MIDL screen
+  arenas, FreeformState and the record store follow this rule.
 - **`NimBLECharacteristic::setValue` overload trap**: always use the
   `(const uint8_t *data, size_t len)` form. `setValue(const char *)` can
   resolve to `setValue(uint32_t)` and store 4 bytes of pointer.
-- **BLE attribute values are capped at 512 bytes.** `ConfigCb::onRead`
-  returns a JSON summary stub (`{truncated, size, screen_count, ...}`)
-  when the layout exceeds the cap; large layouts must come in via the
-  SignalK REST endpoint and be triggered with `layout-fetch`.
+- **BLE attribute values are capped at 512 bytes.** The CONFIGURATION
+  characteristic is a read-only MIDL status summary; records (48 KB cap)
+  come in over HTTP (`PUT /api/midl/records/<id>`) or the manager pull.
 - **Never build a large struct on a task callback's stack.** The NimBLE
   host task (~4 KB stack), the WebServer task, and even the Arduino
   loopTask (8 KB) are small. A `proto::AttachAck`/`DeviceRecord` (~1.5 KB)
@@ -118,7 +130,7 @@ Key contracts:
   Plain `static` is only for small scratch. Internal static DRAM eats the
   WiFi RX headroom (OTA failed mid-transfer, instruments#41), and
   `make dram-check` / CI fail when `.dram0.data + .dram0.bss` exceeds the
-  budget in `tools/check_dram_budget.py`. This is the `out = Config{}` 34 KB-temporary trap in a new
+  budget in `tools/check_dram_budget.py`. This is the 34 KB-temporary trap above in a new
   guise — it bit the BLE Control handlers (`ble_config.cpp`), the IP
   `/api/p2p` handlers (`web.cpp`), and the harness loop, all at once, and
   only showed up on hardware (compile + host tests pass).
@@ -136,8 +148,7 @@ Key contracts:
 - **`ui_markers::draw_glyph` allocates a per-glyph PSRAM canvas buffer; LVGL
   does not own a user-supplied canvas buffer.** Since live theme switching
   made screens rebuildable, every such buffer (and the other heap states on
-  rebuildable roots: FreeformState, QuadGridState, composite HUD states, hull
-  point arrays) is freed via an `LV_EVENT_DELETE` callback registered at
+  rebuildable roots: FreeformState, composite HUD states, hull point arrays) is freed via an `LV_EVENT_DELETE` callback registered at
   allocation time — both teardown paths (`reset_screens`, `replace_screen`)
   go through `lv_obj_delete`, which fires DELETE on the whole subtree. If you
   allocate a buffer an LVGL object points at, register the same DELETE-free
@@ -152,7 +163,16 @@ Key contracts:
 2. Path → field branch in `applyValue` in `src/signalk_parser.cpp`.
 3. Test case in `test/test_parser/test_parser.cpp` (host-runnable).
 4. `subscribe()` entry in `src/signalk.cpp` so the server sends it.
-5. Render in `main.cpp::ui_refresh` if it should appear on screen.
+5. To show it on screen, bind it in a MIDL record. A path without a typed
+   `MetricSource` (`ui::metric_map::path_to_source`, `src/metric_source_map.cpp`)
+   still renders through the dynamic PathStore; add a typed source only for
+   the fast path or special formatting.
+
+### A new built-in screen
+Add or edit the record in the midl repo (`midl/library/builtin/*.midl.json`,
+with a `variants` entry per display class), bump the `midl` submodule, run
+`make embed-records`, and commit the regenerated
+`include/midl_gen/<class>/builtin_records.h`. Never add a C++ content screen.
 
 ### A new board variant
 1. `include/board_pins_<board>.h` with full GPIO map.
@@ -162,8 +182,8 @@ Key contracts:
 
 ### A new console command
 Pick the right handler: `net` (connectivity/identity), `sk` (SignalK target),
-`layout` (layout loader/show/fetch), or `handleMainCommand` in `main.cpp`
-(UI actions like `view`, `demo`). It will automatically be reachable from
+`manager`, or `handleMainCommand` in `main.cpp` (UI actions like `screen`,
+`demo`, `theme`). It will automatically be reachable from
 serial **and** BLE NUS via `net::dispatchCommand`.
 
 ## Session workflow (for AI agents)
@@ -202,8 +222,8 @@ that apply to *this* firmware repo, distilled:
   almost always the wrong end-of-turn — just do step 2.
 
 `CLAUDE-orch.md` itself is generic across projects in this fleet; the
-firmware-specific contracts (memory traps, dispatch funnel, layout
-PSRAM rule) in this file win where the two overlap.
+firmware-specific contracts (memory traps, dispatch funnel, PSRAM rule,
+MIDL-only screens) in this file win where the two overlap.
 
 ## Conventions
 
