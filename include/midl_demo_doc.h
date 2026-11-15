@@ -12,9 +12,9 @@
 // `hero-split` preset instead of the library's nested row[a | col[b, c]] --
 // same geometry, but the preset does not recurse, so the doc stays within
 // round-360's depth 2 (the baked doc is rendered on every class; checked by
-// test/test_midl_demo_doc). Exercises the multi-screen apply_all() render + navigation path
-// without requiring a live SignalK delivery. Used by the `midl-render` console
-// command, the ConfigApplyMidl pump case, and the YEYBOATS_MIDL_ONLY boot.
+// test/test_midl_demo_doc). A test/sim fixture only (env:sim-midl, the native
+// MIDL tests); the firmware boots from the embedded records
+// (generated_midl_builtin.h), not from this doc.
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 

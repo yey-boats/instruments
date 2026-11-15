@@ -78,7 +78,6 @@ static void persist_ui(const UiConfig &c, DomainMeta &meta) {
     p.put_u8("theme", (uint8_t)c.theme);
     p.put_u8("bright", c.brightness);
     p.put_u8("pos_fmt", (uint8_t)c.pos_format);
-    p.put_string("default", c.default_screen);
     p.put_u8("fmt_dist", pack_unit(c.format.distance));
     p.put_u8("fmt_depth", pack_unit(c.format.depth));
     p.put_u8("fmt_speed", pack_unit(c.format.speed));
@@ -98,8 +97,6 @@ static void load_ui(UiConfig &c, DomainMeta &meta) {
             c.theme = (Theme)p.get_u8("theme", (uint8_t)Theme::Night);
             c.brightness = p.get_u8("bright", 255);
             c.pos_format = (PosFormat)p.get_u8("pos_fmt", (uint8_t)PosFormat::DDM);
-            std::string dft = p.get_string("default", "dashboard");
-            strncpy(c.default_screen, dft.c_str(), sizeof(c.default_screen) - 1);
             c.format.distance = unpack_unit(p.get_u8("fmt_dist", 0xFF), c.format.distance);
             c.format.depth = unpack_unit(p.get_u8("fmt_depth", 0xFF), c.format.depth);
             c.format.speed = unpack_unit(p.get_u8("fmt_speed", 0xFF), c.format.speed);
@@ -385,11 +382,6 @@ bool mutate(const Mutation &m) {
         break;
     case MutationKind::SetPosFormat:
         s_cfg.ui.pos_format = m.pos_format;
-        clamp_ui(s_cfg.ui);
-        d = Domain::Ui;
-        break;
-    case MutationKind::SetDefaultScreen:
-        strncpy(s_cfg.ui.default_screen, m.s, sizeof(s_cfg.ui.default_screen) - 1);
         clamp_ui(s_cfg.ui);
         d = Domain::Ui;
         break;

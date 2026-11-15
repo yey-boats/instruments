@@ -5,7 +5,7 @@
 // integrated while that screen refreshed; it is now a screen-independent
 // module ticked from the UI refresh timer, read by the MIDL `trip` record
 // through local ids (trip.distance / trip.avgSpeed / trip.maxSpeed /
-// trip.underway) and by the legacy C++ trip screen. Persisted to NVS ("trip").
+// trip.underway). Persisted to NVS ("trip").
 //
 // The accumulator (Accum + sample) is pure and host-tested; setup/tick/reset
 // are device-side (NVS + boat data).

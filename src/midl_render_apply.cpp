@@ -7,14 +7,8 @@
 //   - apply_all(doc): register EVERY screen in doc["screens"] (up to
 //     ui::MAX_SCREENS) and enable `screen <id|next|prev>` navigation. This is
 //     the multi-screen path used at boot.
-//   - apply_doc(doc, screen_id): single-screen convenience — builds all screens
-//     via apply_all then shows the requested one (or doc settings.defaultScreen
-//     / the first screen). Kept for the `midl-render` console command and the
-//     ConfigApplyMidl pump case.
 //
-// Mirrors the legacy layout_renderer.cpp flow (per-slot RendererSlot pool +
-// template-generated refresh trampolines) but uses the MIDL solver instead of
-// the editor JSON shape.
+// Per-slot screen arena pool + template-generated refresh trampolines.
 //
 // DEVICE-ONLY: this TU includes <lvgl.h> (via ui_layouts.h) and ui_screens.h.
 // It is NOT listed in the native build_src_filter — only in esp32-4848s040.
@@ -28,7 +22,7 @@
 //   - Each arena is `memset`-cleared in place before building (never
 //     `arena = MidlScreenArena{}`, which builds a ~1 KB temporary on the task
 //     stack — same trap as `out = Config{}`).
-//   - All build/`lv_obj_*` work runs on the UI task (apply_all/apply_doc are
+//   - All build/`lv_obj_*` work runs on the UI task (apply_all is
 //     called from setup() and the app pump, both the UI/LVGL task).
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
@@ -61,7 +55,6 @@ using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
 using ui::layouts::Rect;
 using ui::layouts::ScreenVariantSpec;
-using ui::layouts::TemplateId;
 
 // ---------------------------------------------------------------------------
 // Per-screen arena. One per registered MIDL screen. Function-lifetime via the
@@ -165,8 +158,7 @@ static MidlScreenArena *arenas() {
 // ---------------------------------------------------------------------------
 // Refresh + collect-paths trampolines — one per arena slot. ui::Screen.refresh
 // / collect_paths take no user_data, so the slot index is baked into each
-// template instantiation. Mirrors layout_renderer.cpp's refresh_slot<N> /
-// collect_slot<N> tables.
+// template instantiation.
 // ---------------------------------------------------------------------------
 template <size_t N> static void midl_refresh_n() {
     if (!s_arenas) return;
@@ -204,7 +196,7 @@ static const ui::CollectPathsFn s_collect_fns[MIDL_SLOTS] = {
 // writing all state into `arena` and registering/replacing it on the screen
 // manager with the trampolines at slot `refresh_index`. Runs ON THE UI TASK.
 //
-// Shared by apply_all (per-screen loop) and apply_doc (single screen).
+// Used by apply_all (per-screen loop).
 // Returns true if the screen was built and registered.
 // ---------------------------------------------------------------------------
 static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlScreenArena &arena,
@@ -286,10 +278,8 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
 
     arena.spec.screen_id = arena.screen_id;
     arena.spec.title = arena.screen_title;
-    arena.spec.template_id = TemplateId::QuadGrid;  // irrelevant; create_freeform called directly
     arena.spec.metrics = arena.metrics;
     arena.spec.metric_count = (uint8_t)n;
-    arena.spec.variant_flags = 0;
 
     // --- Build the LVGL freeform screen ---
     lv_obj_t *root = ui::layouts::create_freeform(nullptr, arena.spec, arena.rects);
@@ -515,10 +505,8 @@ static void zoom_to_fullscreen(const MetricBinding &m) {
     strncpy(za->screen_title, "Zoom", STR_CAP - 1);
     za->spec.screen_id = za->screen_id;
     za->spec.title = za->screen_title;
-    za->spec.template_id = TemplateId::QuadGrid;
     za->spec.metrics = za->metrics;
     za->spec.metric_count = 1;
-    za->spec.variant_flags = 0;
 
     lv_obj_t *root = ui::layouts::create_freeform(nullptr, za->spec, za->rects);
     if (!root) {
@@ -746,34 +734,6 @@ size_t apply_all(JsonVariantConst doc) {
 
     net::logf("[midl-render] apply_all built %zu screen(s)", built);
     return built;
-}
-
-// ---------------------------------------------------------------------------
-// apply_doc: single-screen convenience. Runs ON THE UI TASK.
-//
-// Builds ALL screens in the doc via apply_all (so navigation between them works
-// regardless of which entry point fired), then shows `screen_id`. If screen_id
-// is null/empty/unmatched, apply_all's default-screen logic (or the first
-// registered screen) governs which screen is visible.
-//
-// This keeps the `midl-render [screenId]` command and the ConfigApplyMidl pump
-// case working while sharing the multi-screen build path — there is no longer a
-// separate single-screen build, so a doc applied via either route registers all
-// its screens.
-//
-// Returns true if at least one screen was built (and, when screen_id is given
-// and matched, it was shown).
-// ---------------------------------------------------------------------------
-bool apply_doc(JsonVariantConst doc, const char *screen_id) {
-    size_t built = apply_all(doc);
-    if (built == 0) return false;
-
-    if (screen_id && screen_id[0]) {
-        if (!ui::show_by_id(screen_id)) {
-            net::logf("[midl-render] apply_doc: screen '%s' not found; default shown", screen_id);
-        }
-    }
-    return true;
 }
 
 }  // namespace midl::render

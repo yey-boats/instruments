@@ -4,8 +4,9 @@
 // peer controller can read/write:
 //
 //   CONNECTION    - JSON snapshot of network + SignalK state and config
-//   CONFIGURATION - the layout JSON document (same schema as SignalK
-//                   resource at configuration.boat-mfd.layouts)
+//   CONFIGURATION - read/notify a small MIDL status summary
+//                   {midl,record,screen,home,records}; screens are MIDL
+//                   records pushed over HTTP (docs/midl/midl-only.md)
 //   WIFISCAN      - write "scan" to trigger an async WiFi scan; read/notify
 //                   a JSON array of {ssid,rssi,sec} (strongest first, <=512 B)
 //

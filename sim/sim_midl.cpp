@@ -157,11 +157,34 @@ static int check_round_content(lv_obj_t *o, const lv_area_t &cell, const char *s
 }
 #endif
 
+// Device-like values for the text-valued local ids (midl_local_ids.h), so the
+// built-in status record renders realistic widths (long git-describe version,
+// __DATE__ __TIME__ build stamp).
+static bool sim_local_text(const char *id, char *out, size_t cap) {
+    static const struct {
+        const char *id, *v;
+    } kVals[] = {{"net.ip", "10.42.0.14"},       {"net.ssid", "yey-bench"},
+                 {"net.rssi", "-61 dBm"},        {"sk.state", "live"},
+                 {"sk.host", "10.42.0.1:3000"}, {"sys.build", "Nov 15 2026 12:06:06"},
+                 {"sys.version", "0.4.0+196.g8d67bebc88f2"},
+                 {"sys.uptime", "3d 04:05"},     {"sys.heap", "142 KB"},
+                 {"sys.psram", "7.5 MB"},        {"device.id", "yey-display-4848"},
+                 {"trip.underway", "1:02:03"}};
+    for (const auto &kv : kVals) {
+        if (strcmp(id, kv.id) == 0) {
+            snprintf(out, cap, "%s", kv.v);
+            return true;
+        }
+    }
+    return false;
+}
+
 int main(int argc, char **argv) {
     const char *sel = (argc > 2) ? argv[1] : nullptr;
     const char *out = (argc > 2) ? argv[2] : (argc > 1 ? argv[1] : "midl.bmp");
 
     if (!sim::apply_theme_from_env()) return 2;
+    ui::layouts::set_local_text_resolver(sim_local_text);
     lv_init();
     lv_display_t *disp = lv_display_create(LCD_W, LCD_H);
     static uint8_t *buf = (uint8_t *)malloc((size_t)LCD_W * LCD_H * 2);
@@ -246,6 +269,7 @@ int main(int argc, char **argv) {
     static char units[MAX_TILES][STR_CAP];
     static char actions[MAX_TILES][midl::FirmwareLimits::path_len];
     static char zooms[MAX_TILES][STR_CAP];
+    static char paths[MAX_TILES][midl::FirmwareLimits::path_len];  // path / const / local id
     static MetricBinding metrics[MAX_TILES];
     static Rect rects[MAX_TILES];
     memset(ids, 0, sizeof(ids));
@@ -253,6 +277,7 @@ int main(int argc, char **argv) {
     memset(units, 0, sizeof(units));
     memset(actions, 0, sizeof(actions));
     memset(zooms, 0, sizeof(zooms));
+    memset(paths, 0, sizeof(paths));
     memset(metrics, 0, sizeof(metrics));
     memset(rects, 0, sizeof(rects));
 
@@ -275,7 +300,7 @@ int main(int argc, char **argv) {
         key[STR_CAP - 1] = 0;
         JsonVariantConst el = elements[(const char *)key];
         bool ok = midl::render::map_element(el, pl.element, metrics[i], ids[i], labels[i], units[i],
-                                            actions[i], zooms[i]);
+                                            actions[i], zooms[i], paths[i]);
         if (!ok) {
             strncpy(ids[i], pl.element, STR_CAP - 1);
             ids[i][STR_CAP - 1] = 0;
@@ -288,8 +313,7 @@ int main(int argc, char **argv) {
     }
 
     // --- Build the ScreenVariantSpec + freeform screen (apply_doc steps 4-5) ---
-    ScreenVariantSpec spec = {screen_id, screen_title, TemplateId::QuadGrid,
-                              metrics,   (uint8_t)n,   0};
+    ScreenVariantSpec spec = {screen_id, screen_title, metrics, (uint8_t)n};
 
     lv_obj_t *root = create_freeform(nullptr, spec, rects);
     if (!root) {

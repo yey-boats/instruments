@@ -131,15 +131,6 @@ JsonVariantConst find_element(JsonVariantConst elements_obj, const char *element
 // Returns the number of screens successfully built.
 size_t apply_all(JsonVariantConst doc);
 
-// apply_doc: single-screen convenience. Builds ALL screens in the doc via
-// apply_all (so navigation works regardless of entry point), then shows
-// `screen_id` (null/empty/unmatched -> apply_all's default screen governs which
-// is visible). Used by the `midl-render` console command and the
-// ConfigApplyMidl pump case.
-//
-// Returns true if at least one screen was built and registered.
-bool apply_doc(JsonVariantConst doc, const char *screen_id);
-
 // Dismiss the transient MIDL fullscreen-zoom screen (__zoom__) if it is the
 // currently-shown screen, returning to the screen it was launched from (the
 // captured return id, falling back to screen 0). Returns true if a zoom was

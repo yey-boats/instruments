@@ -23,7 +23,6 @@ bool clamp_ui(UiConfig &c) {
         c.theme = Theme::Night;
         ok = false;
     }
-    c.default_screen[sizeof(c.default_screen) - 1] = 0;
     return ok;
 }
 

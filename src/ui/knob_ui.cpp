@@ -14,16 +14,23 @@
 #include "knob_menu.h"
 #include "knob_remote.h"
 #include "net.h"
+#include "midl_store.h"
 #include "screens.h"
 #include "signalk.h"
 #include "ui_data.h"
-#include "ui_dirty.h"
 #include "ui_theme.h"
 
 // =====================================================================
-//  Dispatch core: knob events -> knob_menu step -> Action -> SignalK PUT
-//  / remote view switch / overlay toggle. Runs entirely on the UI task
-//  (called from app::pump()), so it is safe to mutate LVGL here.
+//  Dispatch core: knob events -> knob_menu step -> Action -> MIDL screen
+//  navigation / SignalK PUT / remote view switch / overlay toggle. Runs
+//  entirely on the UI task (called from app::pump()), so it is safe to
+//  mutate LVGL here.
+//
+//  The knob shows its embedded round-360 MIDL records (ap_hud,
+//  knob_compass, knob_wind, knob_big). The rotary menu is system UI on
+//  lv_layer_top() (like settings on the square boards): Home turns
+//  through the MIDL carousel; Menu/Steer/ModePicker/Displays are overlay
+//  levels (see knob_menu.h).
 // =====================================================================
 
 namespace knob_ui {
@@ -74,6 +81,15 @@ void perform(const knob::Action &a) {
     case knob::ActionType::SwitchView:
         knob_remote::switch_view(a.arg_dev_idx, a.arg_view_idx);
         break;
+    case knob::ActionType::NextScreen:
+        midl::store_ui::next();
+        break;
+    case knob::ActionType::PrevScreen:
+        midl::store_ui::prev();
+        break;
+    case knob::ActionType::HomeScreen:
+        midl::store_ui::home();
+        break;
     case knob::ActionType::NoAction:
         break;
     }
@@ -92,6 +108,13 @@ void setup() {
     ui::knob_menu_overlay::show(false);
 }
 
+// Steer level: the autopilot HUD is the screen being steered, so show the
+// ap_hud MIDL screen (a no-op when no record owns it) and keep the overlay
+// hidden; a small STEER badge says the knob now moves the AP target.
+static void on_enter_steer() {
+    midl::store_ui::show("ap_hud");
+}
+
 void apply_event(int ev, bool held) {
     knob::Level prev = s_model.level;
     int prev_display = s_model.entered_display;
@@ -105,350 +128,22 @@ void apply_event(int ev, bool held) {
         (prev != knob::Level::SelectView || prev_display != s_model.entered_display)) {
         knob_remote::request_views_fetch(s_model.entered_display);
     }
-    // Overlay visible whenever we're not on the autopilot Home level.
-    ui::knob_menu_overlay::show(s_model.level != knob::Level::Home);
+    if (s_model.level == knob::Level::Steer && prev != knob::Level::Steer) on_enter_steer();
+    // The list overlay covers the screen on the menu levels only: Home shows
+    // the MIDL screen, Steer shows the ap_hud screen + the STEER badge.
+    ui::knob_menu_overlay::show(s_model.level != knob::Level::Home &&
+                                s_model.level != knob::Level::Steer);
     ui::knob_menu_overlay::refresh();
 }
 
 }  // namespace knob_ui
-
-// =====================================================================
-//  Round views. All content stays inside the inscribed usable_* rect so
-//  nothing clips on the round panel. Follows the screen_autopilot.cpp
-//  pattern: build() once, refresh() with dirty-value caches.
-// =====================================================================
-
-namespace {
-
-// Common round-screen root: full panel, themed bg, no scroll.
-lv_obj_t *make_round_root(lv_obj_t *parent) {
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(ui::theme.bg), 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_radius(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-    return root;
-}
-
-}  // namespace
-
-// ---------------- ap_hud: mode badge + big target + HDG + delta ----------
-namespace ui::ap_hud {
-
-static lv_obj_t *s_root = nullptr;
-static lv_obj_t *lbl_state, *lbl_target, *lbl_hdg, *lbl_delta;
-
-static const char *kModeState[4] = {"standby", "auto", "wind", "route"};
-
-static void reset_caches();
-
-lv_obj_t *build(lv_obj_t *parent) {
-    reset_caches();
-    s_root = make_round_root(parent);
-
-    lbl_state = lv_label_create(s_root);
-    lv_label_set_text(lbl_state, "STANDBY");
-    lv_obj_set_style_text_font(lbl_state, &font_b612_28, 0);
-    lv_obj_set_style_text_color(lbl_state, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_state, LV_ALIGN_CENTER, 0, -90);
-
-    lv_obj_t *cap = lv_label_create(s_root);
-    lv_label_set_text(cap, "TARGET");
-    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap, LV_ALIGN_CENTER, 0, -48);
-
-    lbl_target = lv_label_create(s_root);
-    lv_label_set_text(lbl_target, "---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_target, &font_b612_48, 0);
-    lv_obj_set_style_text_color(lbl_target, lv_color_hex(theme.warn), 0);
-    lv_obj_align(lbl_target, LV_ALIGN_CENTER, 0, -8);
-
-    lbl_hdg = lv_label_create(s_root);
-    lv_label_set_text(lbl_hdg, "HDG ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg, &font_b612_20, 0);
-    lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_hdg, LV_ALIGN_CENTER, -55, 56);
-
-    // "TURN" = target - heading (the turn still to make). ASCII on purpose:
-    // the Greek Δ (U+0394) is not in the Montserrat ranges LVGL bundles and
-    // rendered as a tofu box between the HDG and delta readouts.
-    lbl_delta = lv_label_create(s_root);
-    lv_label_set_text(lbl_delta, "TURN ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_delta, &font_b612_20, 0);
-    lv_obj_set_style_text_color(lbl_delta, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_delta, LV_ALIGN_CENTER, 55, 56);
-
-    return s_root;
-}
-
-static char s_last_state[16] = {(char)0xFF};
-static char s_last_target[16] = {(char)0xFF};
-static char s_last_hdg[16] = {(char)0xFF};
-static char s_last_delta[16] = {(char)0xFF};
-static uint32_t s_last_state_color = 0xFFFFFFFF;
-
-// A rebuilt screen (theme switch / config push -> reset_screens -> build)
-// starts with placeholder text, so forget what the previous widgets showed:
-// otherwise any value that has not changed since is never redrawn.
-static void reset_caches() {
-    s_last_state[0] = (char)0xFF;
-    s_last_target[0] = (char)0xFF;
-    s_last_hdg[0] = (char)0xFF;
-    s_last_delta[0] = (char)0xFF;
-    s_last_state_color = 0xFFFFFFFF;
-}
-
-void refresh() {
-    boat::View d;
-    boat::current_view(d);
-    char buf[32];
-
-    int active = -1;
-    for (int i = 0; i < 4; ++i)
-        if (d.apState[0] && strcmp(d.apState, kModeState[i]) == 0) active = i;
-
-    if (d.apState[0]) {
-        char up[16];
-        size_t i = 0;
-        for (; d.apState[i] && i < sizeof(up) - 1; ++i)
-            up[i] = (char)toupper((unsigned char)d.apState[i]);
-        up[i] = 0;
-        set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), up);
-        set_text_color_if_changed(lbl_state, &s_last_state_color,
-                                  active >= 1 ? theme.good : theme.fg_dim);
-    } else {
-        set_text_if_changed(lbl_state, s_last_state, sizeof(s_last_state), "OFFLINE");
-        set_text_color_if_changed(lbl_state, &s_last_state_color, theme.fg_dim);
-    }
-
-    double target = d.apTargetHdg;
-    if (!isnan(target)) {
-        snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(target));
-        set_text_if_changed(lbl_target, s_last_target, sizeof(s_last_target), buf);
-    } else {
-        set_text_if_changed(lbl_target, s_last_target, sizeof(s_last_target), "---\xC2\xB0");
-    }
-
-    if (!isnan(d.headingTrue)) {
-        snprintf(buf, sizeof(buf), "HDG %03.0f\xC2\xB0", rad_to_deg_pos(d.headingTrue));
-        set_text_if_changed(lbl_hdg, s_last_hdg, sizeof(s_last_hdg), buf);
-    } else {
-        set_text_if_changed(lbl_hdg, s_last_hdg, sizeof(s_last_hdg), "HDG ---\xC2\xB0");
-    }
-
-    if (!isnan(target) && !isnan(d.headingTrue)) {
-        double delta = (target - d.headingTrue) * 180.0 / M_PI;
-        while (delta > 180)
-            delta -= 360;
-        while (delta < -180)
-            delta += 360;
-        snprintf(buf, sizeof(buf), "TURN %+.0f\xC2\xB0", delta);
-        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), buf);
-    } else {
-        set_text_if_changed(lbl_delta, s_last_delta, sizeof(s_last_delta), "TURN ---\xC2\xB0");
-    }
-}
-
-}  // namespace ui::ap_hud
-
-// ---------------- knob_compass: heading + COG -----------------------------
-namespace ui::knob_compass {
-
-static lv_obj_t *s_root = nullptr;
-static lv_obj_t *lbl_hdg, *lbl_cog;
-
-static void reset_caches();
-
-lv_obj_t *build(lv_obj_t *parent) {
-    reset_caches();
-    s_root = make_round_root(parent);
-
-    lv_obj_t *cap = lv_label_create(s_root);
-    lv_label_set_text(cap, "HEADING");
-    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap, LV_ALIGN_CENTER, 0, -64);
-
-    lbl_hdg = lv_label_create(s_root);
-    lv_label_set_text(lbl_hdg, "---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_hdg, &font_b612_48, 0);
-    lv_obj_set_style_text_color(lbl_hdg, lv_color_hex(theme.accent), 0);
-    lv_obj_align(lbl_hdg, LV_ALIGN_CENTER, 0, -16);
-
-    lbl_cog = lv_label_create(s_root);
-    lv_label_set_text(lbl_cog, "COG ---\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_cog, &font_b612_20, 0);
-    lv_obj_set_style_text_color(lbl_cog, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_cog, LV_ALIGN_CENTER, 0, 56);
-
-    return s_root;
-}
-
-static char s_last_hdg[16] = {(char)0xFF};
-static char s_last_cog[16] = {(char)0xFF};
-
-// A rebuilt screen (theme switch / config push -> reset_screens -> build)
-// starts with placeholder text, so forget what the previous widgets showed:
-// otherwise any value that has not changed since is never redrawn.
-static void reset_caches() {
-    s_last_hdg[0] = (char)0xFF;
-    s_last_cog[0] = (char)0xFF;
-}
-
-void refresh() {
-    boat::View d;
-    boat::current_view(d);
-    char buf[32];
-
-    if (!isnan(d.headingTrue)) {
-        snprintf(buf, sizeof(buf), "%03.0f\xC2\xB0", rad_to_deg_pos(d.headingTrue));
-        set_text_if_changed(lbl_hdg, s_last_hdg, sizeof(s_last_hdg), buf);
-    } else {
-        set_text_if_changed(lbl_hdg, s_last_hdg, sizeof(s_last_hdg), "---\xC2\xB0");
-    }
-
-    if (!isnan(d.cogTrue)) {
-        snprintf(buf, sizeof(buf), "COG %03.0f\xC2\xB0", rad_to_deg_pos(d.cogTrue));
-        set_text_if_changed(lbl_cog, s_last_cog, sizeof(s_last_cog), buf);
-    } else {
-        set_text_if_changed(lbl_cog, s_last_cog, sizeof(s_last_cog), "COG ---\xC2\xB0");
-    }
-}
-
-}  // namespace ui::knob_compass
-
-// ---------------- knob_wind: AWS + apparent angle -------------------------
-namespace ui::knob_wind {
-
-static lv_obj_t *s_root = nullptr;
-static lv_obj_t *lbl_aws, *lbl_awa;
-
-static void reset_caches();
-
-lv_obj_t *build(lv_obj_t *parent) {
-    reset_caches();
-    s_root = make_round_root(parent);
-
-    lv_obj_t *cap = lv_label_create(s_root);
-    lv_label_set_text(cap, "APP WIND");
-    lv_obj_set_style_text_font(cap, &font_b612_14, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap, LV_ALIGN_CENTER, 0, -64);
-
-    lbl_aws = lv_label_create(s_root);
-    lv_label_set_text(lbl_aws, "--.- kn");
-    lv_obj_set_style_text_font(lbl_aws, &font_b612_48, 0);
-    lv_obj_set_style_text_color(lbl_aws, lv_color_hex(theme.accent), 0);
-    lv_obj_align(lbl_aws, LV_ALIGN_CENTER, 0, -16);
-
-    lbl_awa = lv_label_create(s_root);
-    lv_label_set_text(lbl_awa, "--\xC2\xB0");
-    lv_obj_set_style_text_font(lbl_awa, &font_b612_28, 0);
-    lv_obj_set_style_text_color(lbl_awa, lv_color_hex(theme.fg), 0);
-    lv_obj_align(lbl_awa, LV_ALIGN_CENTER, 0, 56);
-
-    return s_root;
-}
-
-static char s_last_aws[16] = {(char)0xFF};
-static char s_last_awa[16] = {(char)0xFF};
-
-// A rebuilt screen (theme switch / config push -> reset_screens -> build)
-// starts with placeholder text, so forget what the previous widgets showed:
-// otherwise any value that has not changed since is never redrawn.
-static void reset_caches() {
-    s_last_aws[0] = (char)0xFF;
-    s_last_awa[0] = (char)0xFF;
-}
-
-void refresh() {
-    boat::View d;
-    boat::current_view(d);
-    char buf[32];
-
-    if (!isnan(d.aws)) {
-        snprintf(buf, sizeof(buf), "%.1f kn", mps_to_kn(d.aws));
-        set_text_if_changed(lbl_aws, s_last_aws, sizeof(s_last_aws), buf);
-    } else {
-        set_text_if_changed(lbl_aws, s_last_aws, sizeof(s_last_aws), "--.- kn");
-    }
-
-    if (!isnan(d.awa)) {
-        double a = rad_to_deg_pm(d.awa);
-        snprintf(buf, sizeof(buf), "%.0f\xC2\xB0 %s", fabs(a), a >= 0 ? "STBD" : "PORT");
-        set_text_if_changed(lbl_awa, s_last_awa, sizeof(s_last_awa), buf);
-    } else {
-        set_text_if_changed(lbl_awa, s_last_awa, sizeof(s_last_awa), "--\xC2\xB0");
-    }
-}
-
-}  // namespace ui::knob_wind
-
-// ---------------- knob_big: one large value (depth) -----------------------
-namespace ui::knob_big {
-
-static lv_obj_t *s_root = nullptr;
-static lv_obj_t *lbl_cap, *lbl_value, *lbl_unit;
-
-static void reset_caches();
-
-lv_obj_t *build(lv_obj_t *parent) {
-    reset_caches();
-    s_root = make_round_root(parent);
-
-    lbl_cap = lv_label_create(s_root);
-    lv_label_set_text(lbl_cap, "DEPTH");
-    lv_obj_set_style_text_font(lbl_cap, &font_b612_20, 0);
-    lv_obj_set_style_text_color(lbl_cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_cap, LV_ALIGN_CENTER, 0, -72);
-
-    lbl_value = lv_label_create(s_root);
-    lv_label_set_text(lbl_value, "--.-");
-    lv_obj_set_style_text_font(lbl_value, &font_b612_48, 0);
-    lv_obj_set_style_text_color(lbl_value, lv_color_hex(theme.accent), 0);
-    lv_obj_align(lbl_value, LV_ALIGN_CENTER, 0, 0);
-
-    lbl_unit = lv_label_create(s_root);
-    lv_label_set_text(lbl_unit, "m");
-    lv_obj_set_style_text_font(lbl_unit, &font_b612_28, 0);
-    lv_obj_set_style_text_color(lbl_unit, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(lbl_unit, LV_ALIGN_CENTER, 0, 64);
-
-    return s_root;
-}
-
-static char s_last_value[16] = {(char)0xFF};
-
-// A rebuilt screen (theme switch / config push -> reset_screens -> build)
-// starts with placeholder text, so forget what the previous widgets showed:
-// otherwise any value that has not changed since is never redrawn.
-static void reset_caches() {
-    s_last_value[0] = (char)0xFF;
-}
-
-void refresh() {
-    boat::View d;
-    boat::current_view(d);
-    char buf[16];
-    if (!isnan(d.depth)) {
-        snprintf(buf, sizeof(buf), "%.1f", d.depth);
-        set_text_if_changed(lbl_value, s_last_value, sizeof(s_last_value), buf);
-    } else {
-        set_text_if_changed(lbl_value, s_last_value, sizeof(s_last_value), "--.-");
-    }
-}
-
-}  // namespace ui::knob_big
 
 // ---------------- knob_menu_overlay: list on lv_layer_top() ---------------
 namespace ui::knob_menu_overlay {
 
 static lv_obj_t *s_root = nullptr;   // overlay container on layer_top
 static lv_obj_t *s_title = nullptr;  // level title
+static lv_obj_t *s_badge = nullptr;  // "STEER" chip while the knob moves the AP target
 static constexpr int kMaxRows = 6;
 static lv_obj_t *s_rows[kMaxRows] = {nullptr};
 
@@ -457,12 +152,10 @@ lv_obj_t *build(lv_obj_t * /*parent*/) {
     lv_obj_t *top = lv_layer_top();
 
     s_root = lv_obj_create(top);
-    // Backdrop that fills the WHOLE panel with the theme ground, exactly like
-    // make_round_root() does for the views: full opacity, no corner radius.
-    // The old LV_OPA_90 rounded circle left the corners un-painted and dimmed
-    // the fill 10% toward black, so menu levels rendered darker than every
-    // other knob screen (grey-beige instead of cream on classic). Content
-    // still stays inside the usable inscribed rect.
+    // Backdrop that fills the WHOLE panel with the theme ground: full
+    // opacity, no corner radius (a rounded LV_OPA_90 circle left the corners
+    // un-painted and dimmed the fill). Content stays inside the usable
+    // inscribed rect.
     lv_obj_set_size(s_root, LCD_W, LCD_H);
     lv_obj_center(s_root);
     lv_obj_set_style_bg_color(s_root, lv_color_hex(theme.bg), 0);
@@ -488,6 +181,19 @@ lv_obj_t *build(lv_obj_t * /*parent*/) {
     }
 
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_HIDDEN);
+
+    // Separate from s_root (which hides on Steer): a small chip at the top of
+    // the round panel, inside the usable rect.
+    s_badge = lv_label_create(top);
+    lv_label_set_text(s_badge, " STEER ");
+    lv_obj_set_style_text_font(s_badge, &font_b612_14, 0);
+    lv_obj_set_style_text_color(s_badge, lv_color_hex(theme.button_active_fg), 0);
+    lv_obj_set_style_bg_color(s_badge, lv_color_hex(theme.button_active_bg), 0);
+    lv_obj_set_style_bg_opa(s_badge, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(s_badge, 4, 0);
+    lv_obj_set_style_pad_all(s_badge, 3, 0);
+    lv_obj_align(s_badge, LV_ALIGN_TOP_MID, 0, board::geometry().usable_y + 4);
+    lv_obj_add_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
     return s_root;
 }
 
@@ -524,7 +230,24 @@ void refresh() {
     const knob::Model &m = knob_ui::model();
     char buf[48];
 
+    if (s_badge) {
+        if (m.level == knob::Level::Steer)
+            lv_obj_clear_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
+        else
+            lv_obj_add_flag(s_badge, LV_OBJ_FLAG_HIDDEN);
+    }
+
     switch (m.level) {
+    case knob::Level::Menu: {
+        lv_label_set_text(s_title, "MENU");
+        for (int i = 0; i < kMaxRows; ++i) {
+            if (i < knob::kMenuCount)
+                set_row(i, knob::menu_item_label(i), i == m.highlight);
+            else
+                set_row(i, "", false);
+        }
+        break;
+    }
     case knob::Level::ModePicker: {
         lv_label_set_text(s_title, "MODE");
         static const char *kModeName[knob::kModeCount] = {"STANDBY", "COMPASS", "WIND", "ROUTE"};
@@ -572,6 +295,7 @@ void refresh() {
         break;
     }
     case knob::Level::Home:
+    case knob::Level::Steer:
     default:
         lv_label_set_text(s_title, "");
         for (int i = 0; i < kMaxRows; ++i)

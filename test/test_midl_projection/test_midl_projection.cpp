@@ -89,23 +89,11 @@ void test_manifest_within_firmware_limits() {
     TEST_ASSERT_TRUE_MESSAGE(sawSquare, "square-480 class missing from embedded manifest");
 }
 
-// The live layout::Config is PSRAM-allocated, but its size still bounds the
-// PSRAM apply blob and the projection the device holds. Plan 6 will add a
-// node-tree representation; this guard records today's size so that growth is
-// a conscious, reviewed change rather than an accident. Update the ceiling in
-// the SAME commit that grows the POD, with a note why.
-void test_config_pod_size_budget() {
-    // Today ~34 KB. Ceiling set with headroom for Plan 6's node tree.
-    TEST_ASSERT_LESS_OR_EQUAL_UINT(48u * 1024u, (unsigned)sizeof(layout::Config));
-    printf("[midl] sizeof(layout::Config) = %u bytes\n", (unsigned)sizeof(layout::Config));
-}
-
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_full_1tile_fits);
     RUN_TEST(test_hero_split_fits);
     RUN_TEST(test_steering_4tile_fits);
     RUN_TEST(test_manifest_within_firmware_limits);
-    RUN_TEST(test_config_pod_size_budget);
     return UNITY_END();
 }

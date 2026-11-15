@@ -21,7 +21,6 @@ enum class MutationKind : uint8_t {
     SetTheme,
     SetBrightness,
     SetPosFormat,
-    SetDefaultScreen,
     SetDepthAlarm,
     SetBatteryAlarm,
     SetSignalKTarget,  // host + port

@@ -146,11 +146,7 @@ bool switch_view(int dev_idx, int view_idx) {
         lock();
         if (dev_idx >= 0 && dev_idx < s_count) displays()[dev_idx].current_view = view_idx;
         unlock();
-#if YEYBOATS_MIDL_RECORDS
         return midl::store_ui::show(e.view_id[view_idx]);  // loads the owning record
-#else
-        return ui::show_by_id(e.view_id[view_idx]);
-#endif
     }
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
     // Remote: queue the manager screen.set for the worker. The blocking POST

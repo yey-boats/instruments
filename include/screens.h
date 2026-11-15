@@ -4,45 +4,13 @@
 
 #include "proto/proto.h"  // proto::Session for the control-frame overlay
 
-// Every screen module exposes build() (one-time UI construction, returns the
-// root object) and refresh() (called from the global 5 Hz tick when the
-// screen is visible).
+// System UI screens (docs/midl/midl-only.md): settings, Wi-Fi setup, touch
+// calibration and touch grid, plus the knob menu and control-frame overlays.
+// Content screens are MIDL records (midl_store.h). Every screen module
+// exposes build() (one-time UI construction, returns the root object) and
+// refresh() (called from the global 5 Hz tick when the screen is visible).
 
 namespace ui {
-
-namespace dashboard {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace dashboard
-
-// Full-screen single-value view, opened by tapping a dashboard tile.
-namespace zoom {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace zoom
-
-namespace wind {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-void set_refresh_enabled(bool e);
-bool refresh_enabled();
-}  // namespace wind
-
-// Original (pre-2026-06 reference redesign) wind dial, kept registered as a
-// second screen so the two designs can be compared side by side on device.
-namespace wind_classic {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-void set_refresh_enabled(bool e);
-bool refresh_enabled();
-}  // namespace wind_classic
-
-// Wind-steering sailing aid: TWA hero, tack/gybe angles + target headings,
-// true wind direction, and apparent/true wind angles + speeds.
-namespace wind_steer {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace wind_steer
 
 namespace touch_cal_screen {
 lv_obj_t *build(lv_obj_t *parent);
@@ -54,47 +22,6 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace touch_grid_screen
 
-namespace demo_grid {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace demo_grid
-
-namespace nav {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace nav
-
-namespace depth {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace depth
-
-namespace status_panel {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace status_panel
-
-namespace steering {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace steering
-
-namespace trip {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-void reset();  // zero trip counters via console / BLE
-}  // namespace trip
-
-namespace route {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace route
-
-namespace autopilot {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace autopilot
-
 namespace wifi_setup {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();
@@ -105,23 +32,6 @@ lv_obj_t *build(lv_obj_t *parent);
 void refresh();
 }  // namespace settings
 
-// --- Waveshare knob (round 360x360) dedicated views + menu overlay ---
-namespace ap_hud {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace ap_hud
-namespace knob_compass {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace knob_compass
-namespace knob_wind {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace knob_wind
-namespace knob_big {
-lv_obj_t *build(lv_obj_t *parent);
-void refresh();
-}  // namespace knob_big
 namespace knob_menu_overlay {
 lv_obj_t *build(lv_obj_t *parent);
 void refresh();

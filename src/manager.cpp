@@ -33,7 +33,6 @@
 #include "board.h"
 #include "boat_data.h"
 #include "device_identity.h"
-#include "font_resolver.h"
 #include "error_log.h"
 #include "hostname_check.h"
 #include "log_level_check.h"
@@ -41,10 +40,7 @@
 #include "storage.h"
 #include "ui_config_check.h"
 #include "manager_endpoint.h"
-#include "manager_config.h"
-#include "capabilities.h"
 #include "config_persist.h"
-#include "manager_screens.h"
 #include "manager_url.h"
 #include "net.h"
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
@@ -192,25 +188,6 @@ uint32_t s_command_poll_interval_ms = DEFAULT_COMMAND_POLL_MS;
 // the worker fetches /devices/:id/config and applies it.
 String s_applied_config_version = "v0";
 String s_applied_config_hash = "";
-// Parsed RenderPlan from the last successfully-validated config.
-// Read by D7 diagnostic commands and (future D5) by the screen
-// builder. Lazily PSRAM-allocated on first parse — keeping a ~12 KB
-// `RenderPlan` in .bss starved internal SRAM (~30 KB documented
-// healthy → ~4 KB observed on May-30 build). The parser temporary
-// at the apply site already went to PSRAM for the same reason; this
-// matches that for the resident copy. All reads gate on
-// `s_render_plan_valid` so the nullptr-until-allocated transition is
-// already covered.
-manager_config::RenderPlan *s_render_plan = nullptr;
-bool s_render_plan_valid = false;
-
-static manager_config::RenderPlan *ensure_render_plan() {
-    if (!s_render_plan) {
-        s_render_plan = (manager_config::RenderPlan *)heap_caps_calloc(
-            1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
-    }
-    return s_render_plan;
-}
 String s_desired_config_version = "";
 String s_desired_config_hash = "";
 volatile bool s_config_fetch_pending = false;
@@ -639,7 +616,6 @@ void build_status_body(JsonDocument &doc) {
     JsonObject ui_o = doc["ui"].to<JsonObject>();
     ui_o["uptime_ms"] = millis();
     ui_o["screen"] = ui::current_id();
-#if YEYBOATS_MIDL_RECORDS
     // MIDL records (docs/midl/midl-only.md): ui.record = active record,
     // ui.screens = every screen of the visible records in carousel order
     // ({id,title,record}); `midl` = {version,class,indexHash,records[{id,hash,
@@ -648,35 +624,6 @@ void build_status_body(JsonDocument &doc) {
     ui_o["theme"] = theme_name;
     ui_o["brightness"] = ui::brightness();
     midl::store::heartbeat_midl(doc["midl"].to<JsonObject>());
-#else
-    // Full switchable-view list so the manager can offer the device's REAL
-    // screens instead of a guessed/generated set (the firmware's loaded layout
-    // can diverge from the manager-generated config). Non-hidden screens only:
-    // hidden utility screens (settings, touch-cal, wifi) are not user switch
-    // targets. The doc is ArduinoJson v7 (elastic), so this small array grows
-    // on the heap and is freed with the doc after serialization.
-    {
-        JsonArray screens_a = ui_o["screens"].to<JsonArray>();
-        size_t n = ui::screen_count();
-        for (size_t i = 0; i < n; ++i) {
-            const char *sid = nullptr, *stitle = nullptr;
-            bool shidden = false;
-            if (!ui::screen_info((int)i, &sid, &stitle, &shidden)) continue;
-            if (shidden || !sid) continue;
-            JsonObject so = screens_a.add<JsonObject>();
-            so["id"] = sid;
-            so["title"] = stitle ? stitle : sid;
-        }
-    }
-    ui_o["theme"] = theme_name;
-    ui_o["brightness"] = ui::brightness();
-    ui_o["layoutVariant"] = s_render_plan_valid ? s_render_plan->layout_variant : "";
-    ui_o["widgetVariant"] = s_render_plan_valid ? s_render_plan->widget_variant : "";
-    ui_o["widgetConfigHash"] = s_applied_config_hash;
-    // Capability manifest: per-view-type limits/attrs the layout editor gates
-    // to. Self-describing so the manager needs no per-firmware-version table.
-    capabilities::build_manifest(ui_o["capabilities"].to<JsonObject>());
-#endif
 
     JsonObject display_o = doc["display"].to<JsonObject>();
     display_o["width"] = g.width_px;
@@ -1709,7 +1656,6 @@ uint8_t *read_persisted_config(size_t *out_len) {
 //   new_version    : version label for this config
 //   new_hash       : hash for this config (drift key + reported hash)
 // Returns true iff apply_config honored every field.
-#if YEYBOATS_MIDL_RECORDS
 // ---- MIDL records pull (docs/midl/midl-only.md) ---------------------------
 // cfg["midl"] = {index:{order,defaultScreen,hidden}, records:[{id,title,hash,
 // url}]}. Records whose hash differs from the store are fetched (GET url,
@@ -1772,54 +1718,11 @@ void pull_midl_records(JsonVariantConst blk) {
     net::logf("[mgr] midl pull: %u listed, %u/%u fetched, %u removed", (unsigned)plan.count,
               fetched, (unsigned)acts.fetch_count, (unsigned)acts.remove_count);
 }
-#endif  // YEYBOATS_MIDL_RECORDS
 
 bool apply_config_object(JsonDocument &cfg, const String &new_version, const String &new_hash) {
-#if YEYBOATS_MIDL_RECORDS
-    // MIDL records build: screens come ONLY from the `midl` block; the
-    // legacy `layout`/`widgets` keys (managed screens) are ignored.
+    // Screens come ONLY from the `midl` block (docs/midl/midl-only.md); the
+    // retired `layout`/`widgets` keys are ignored.
     if (cfg["midl"].is<JsonObject>()) pull_midl_records(cfg["midl"].as<JsonVariantConst>());
-#else
-    board::Geometry g = board::geometry();
-    // RenderPlan is ~12 KB - heap/PSRAM, never the worker stack.
-    auto *plan_p = (manager_config::RenderPlan *)heap_caps_calloc(
-        1, sizeof(manager_config::RenderPlan), MALLOC_CAP_SPIRAM);
-    if (!plan_p) {
-        record_error("[mgr] render plan alloc failed");
-    } else {
-        manager_config::ParseError perr;
-        bool parsed = manager_config::parse(cfg.as<JsonObjectConst>(), g.width_px, g.height_px,
-                                            *plan_p, perr);
-        if (parsed) {
-            if (ensure_render_plan()) {
-                *s_render_plan = *plan_p;
-                s_render_plan_valid = true;
-            } else {
-                record_error("[mgr] resident render plan alloc failed");
-            }
-            net::logf("[mgr] render plan: widgets=%u screens=%u variant=%s",
-                      (unsigned)plan_p->widget_count, (unsigned)plan_p->screen_count,
-                      plan_p->layout_variant[0] ? plan_p->layout_variant : "(none)");
-        } else {
-            record_error("[mgr] render plan parse failed: %s at %s",
-                         manager_config::parse_code_to_string(perr.code),
-                         perr.path[0] ? perr.path : "(root)");
-        }
-        if (parsed && plan_p->screen_count > 0) {
-            app::Command c;
-            c.type = app::CommandType::ApplyManagedScreens;
-            c.blob = plan_p;
-            c.blob_len = sizeof(manager_config::RenderPlan);
-            if (!app::post(c, 100)) {
-                net::logf("[mgr] ApplyManagedScreens post failed");
-                heap_caps_free(plan_p);
-            }
-            // ownership transferred to the queue on success
-        } else {
-            heap_caps_free(plan_p);
-        }
-    }
-#endif  // YEYBOATS_MIDL_RECORDS
     bool ok = apply_config(cfg);
     if (ok) {
         lock_state();
@@ -1925,11 +1828,9 @@ ManagerCall fetch_config() {
                 // gate compares against what is actually on flash, not the
                 // value we are about to overwrite in s_applied_config_hash.
                 String prev_hash = s_applied_config_hash;
-                // Spec 19 D2 -> D5 + Slice 4: build the RenderPlan, apply
-                // the config, and (on success) update the resident hash /
-                // version - all via the shared helper that boot-from-flash
-                // reuses. Failures don't block the legacy ui/sk/network
-                // apply; those are honored inside apply_config.
+                // Pull the MIDL records, apply the non-screen config, and
+                // (on success) update the resident hash / version - all via
+                // the shared helper that boot-from-flash reuses.
                 bool ok = apply_config_object(cfg, new_version, new_hash);
                 if (ok) {
                     net::logf("[mgr] config applied: version=%s hash=%s", new_version.c_str(),
@@ -2672,78 +2573,16 @@ bool handleSerialCommand(const String &line) {
         net::logf("[mgr] errors cleared");
         return true;
     }
-    // ---- spec 19 D7 diagnostic commands -------------------------------
-    if (line == "manager-layout") {
-        if (!s_render_plan_valid) {
-            net::logf("[mgr] no render plan applied yet");
-            return true;
-        }
-        net::logf("[mgr] layout variant=%s widgets=%u screens=%u "
-                  "(%ux%u) hash=%s mgr_screens_built=%u",
-                  s_render_plan->layout_variant[0] ? s_render_plan->layout_variant : "(none)",
-                  (unsigned)s_render_plan->widget_count, (unsigned)s_render_plan->screen_count,
-                  (unsigned)s_render_plan->display_width, (unsigned)s_render_plan->display_height,
-                  s_applied_config_hash.length() ? s_applied_config_hash.c_str() : "(none)",
-                  (unsigned)manager_screens::managed_count());
-        for (uint8_t i = 0; i < s_render_plan->screen_count; ++i) {
-            const auto &sc = s_render_plan->screens[i];
-            net::logf("[mgr]   screen[%u] id=%s tiles=%u", (unsigned)i, sc.id,
-                      (unsigned)sc.tile_count);
-        }
-        return true;
-    }
-    if (line == "manager-widgets") {
-        if (!s_render_plan_valid) {
-            net::logf("[mgr] no render plan applied yet");
-            return true;
-        }
-        for (uint8_t i = 0; i < s_render_plan->widget_count; ++i) {
-            const auto &w = s_render_plan->widgets[i];
-            net::logf("[mgr] widget[%u] id=%s type=%s path=%s "
-                      "title=%s unit=%s prec=%u fs=%u",
-                      (unsigned)i, w.id, manager_config::widget_type_to_string(w.type), w.path,
-                      w.title, w.unit, (unsigned)w.precision,
-                      (unsigned)(w.style.font_size ? w.style.font_size : w.style.value_font_size));
-        }
-        return true;
-    }
     if (line == "manager-config-dump") {
-        if (!s_render_plan_valid) {
-            net::logf("[mgr] no render plan applied yet");
-            return true;
-        }
-        JsonDocument out(&s_json_allocator);
-        out["layout_variant"] = s_render_plan->layout_variant;
-        out["widget_variant"] = s_render_plan->widget_variant;
-        out["display"]["width"] = s_render_plan->display_width;
-        out["display"]["height"] = s_render_plan->display_height;
-        out["widget_count"] = s_render_plan->widget_count;
-        out["screen_count"] = s_render_plan->screen_count;
-        out["config_version"] = s_applied_config_version;
-        out["config_hash"] = s_applied_config_hash;
-        String s;
-        serializeJson(out, s);
-        net::logf("[mgr] config: %s", s.c_str());
-        return true;
-    }
-    if (line == "font-dump") {
-        net::logf("[font] compiled sizes:");
-        for (size_t i = 0; i < font_resolver::DEFAULT_COUNT; ++i) {
-            net::logf("[font]   [%u] = %u", (unsigned)i, (unsigned)font_resolver::DEFAULT_SIZES[i]);
-        }
-        // Demo a few resolve calls.
-        uint16_t probes[] = {10, 16, 22, 30, 42, 80};
-        for (uint16_t p : probes) {
-            net::logf("[font]   resolve(%u) -> %u", (unsigned)p,
-                      (unsigned)font_resolver::resolve_default(p));
-        }
+        net::logf("[mgr] config version=%s hash=%s (screens: MIDL records, see `screen`)",
+                  s_applied_config_version.c_str(),
+                  s_applied_config_hash.length() ? s_applied_config_hash.c_str() : "(none)");
         return true;
     }
     net::logf("[mgr] usage: manager-status | manager-register <url> | "
               "manager-token <jwt|clear> | manager-sk-token <jwt|clear> | "
               "manager-forget | manager-discover | manager-errors[ clear] | "
-              "manager-layout | "
-              "manager-widgets | manager-config-dump | font-dump");
+              "manager-config-dump");
     return true;
 }
 

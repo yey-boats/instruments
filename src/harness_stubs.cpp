@@ -1,7 +1,7 @@
 // Headless harness display/UI stubs.
 //
 // The harness links the SAME base infrastructure as the firmware (net.cpp and
-// its dependency closure: app_events, manager, manager_screens, knob_remote,
+// its dependency closure: app_events, manager, knob_remote, midl_store,
 // ...). A few of those infra modules reference display / LVGL symbols that
 // normally come from src/main.cpp and src/ui/*.cpp -- TUs the harness
 // deliberately excludes (no LVGL / Arduino_GFX on a headless DevKitC). This
@@ -19,7 +19,7 @@
 // ---------------------------------------------------------------------------
 // ui:: screen-manager + theme + data surface (declared in ui_screens.h,
 // ui_theme.h, ui_data.h). Referenced by app_events.cpp, manager.cpp,
-// manager_screens.cpp, knob_remote.cpp. All no-ops on a headless build.
+// knob_remote.cpp, ble_config.cpp. All no-ops on a headless build.
 // We re-declare the minimal signatures here rather than include the ui_*.h
 // headers, because those headers pull in <lvgl.h> (ui_screens.h) which is not
 // available in the headless link. The signatures must match exactly.
@@ -82,18 +82,6 @@ void use_night() {
 }  // namespace ui
 
 // ---------------------------------------------------------------------------
-// ui::layout_render::apply() - app_events.cpp ConfigApplyLayout path. Lives in
-// the layout renderer (LVGL) on-device; no-op here.
-// ---------------------------------------------------------------------------
-namespace ui {
-namespace layout_render {
-size_t apply() {
-    return 0;
-}
-}  // namespace layout_render
-}  // namespace ui
-
-// ---------------------------------------------------------------------------
 // knob_ui:: - app_events.cpp KnobEvent path (knob_ui::apply_event). Round-panel
 // UI; no-op headless.
 // ---------------------------------------------------------------------------
@@ -101,28 +89,5 @@ namespace knob_ui {
 void apply_event(int, bool) {
 }
 }  // namespace knob_ui
-
-// ---------------------------------------------------------------------------
-// manager_screens:: - manager.cpp applies validated RenderPlans by building
-// LVGL screens. The real impl (src/manager_screens.cpp) is LVGL-coupled and
-// excluded from the headless build; these no-ops let manager.cpp link. We
-// forward-declare the RenderPlan type only (its header pulls in <lvgl.h>).
-// ---------------------------------------------------------------------------
-namespace manager_config {
-struct RenderPlan;
-}
-namespace manager_screens {
-bool apply(const manager_config::RenderPlan &) {
-    return false;
-}
-uint8_t managed_count() {
-    return 0;
-}
-void refresh() {
-}
-bool is_applied() {
-    return false;
-}
-}  // namespace manager_screens
 
 #endif  // YEYBOATS_HARNESS

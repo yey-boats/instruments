@@ -13,7 +13,6 @@
 #include "net.h"
 #include "build_config.h"  // YEYBOATS_RELEASE_BUILD default, tested by value below (#56)
 #include "signalk.h"
-#include "layout_loader.h"
 #include "ui_screens.h"
 #include "board.h"
 #include "board_pins.h"
@@ -38,13 +37,11 @@
 #include "midl_render.h"
 #include "midl_kinds.h"
 #include "midl_validate.h"
-#include "midl_demo_doc.h"
 #include "midl_store.h"
 #include "web_auth_policy.h"
 #include "web_pw.h"
 #include "web_pw_store.h"
 #include <mbedtls/base64.h>
-#include <freertos/semphr.h>
 
 // Gesture diagnostics live in main.cpp (top-level - not in any namespace).
 extern "C" {
@@ -439,22 +436,42 @@ static void handle_diag() {
 
 // ---- /api/screens, /api/screen/<id> ------------------------------------
 
+// Every screen the display can show: the MIDL carousel across the visible
+// records (in carousel order, `record` = owning record; switching to one in
+// another record loads that record), then the hidden system screens
+// (settings, wifi, touch_cal, touch_grid). `index` is the position in this
+// list; navigate by id (POST /api/screen/<id>).
 static void handle_screens() {
     if (!require_api_auth()) return;
     JsonDocument doc(&yeyboats::psram_json);
     JsonArray arr = doc.to<JsonArray>();
-    int active = ui::current_index();
+    const char *cur = ui::current_id();
+    JsonDocument tmp(&yeyboats::psram_json);
+    midl::store::heartbeat_ui(tmp.to<JsonObject>());
+    uint32_t idx = 0;
+    for (JsonObjectConst so : tmp["screens"].as<JsonArrayConst>()) {
+        const char *id = so["id"] | "?";
+        JsonObject s = arr.add<JsonObject>();
+        s["index"] = idx++;
+        s["id"] = id;
+        s["title"] = so["title"] | id;
+        s["record"] = so["record"] | "";
+        s["hidden"] = false;
+        s["active"] = cur && strcmp(cur, id) == 0;
+    }
     for (size_t i = 0; i < ui::screen_count(); ++i) {
         const char *id = "?";
         const char *title = "?";
         bool hidden = false;
         ui::screen_info((int)i, &id, &title, &hidden);
+        if (!hidden) continue;                       // carousel screens are listed above
+        if (id[0] == '_' && id[1] == '_') continue;  // transient (__zoom__)
         JsonObject s = arr.add<JsonObject>();
-        s["index"] = (uint32_t)i;
+        s["index"] = idx++;
         s["id"] = id;
         s["title"] = title;
-        s["hidden"] = hidden;
-        s["active"] = (active == (int)i);
+        s["hidden"] = true;
+        s["active"] = cur && strcmp(cur, id) == 0;
     }
     send_json(200, doc);
 }
@@ -734,7 +751,6 @@ static void send_err(int code, const char *msg) {
     send_json(code, doc);
 }
 
-#if YEYBOATS_MIDL_RECORDS
 // ---- MIDL records push API (docs/midl/midl-only.md) ----------------------
 // The display renders MIDL records only. Display Manager pushes records with
 // its device token (X-YeyBoats-Authorization: Bearer <manager device token>,
@@ -955,309 +971,6 @@ static void handle_midl_reset() {
     send_json(200, out);
 }
 
-#else  // YEYBOATS_LEGACY_SCREENS: the old RAM-only single-doc delivery
-// ---- MIDL current-doc store (legacy) --------------------------------------------
-// Holds the most-recently-applied MIDL document verbatim (and the one
-// before it) as PSRAM char* buffers, mirroring layout_loader.cpp's
-// s_last_json pattern. set_current rotates current -> previous so
-// /api/midl/reset?to=previous can roll back one step.
-//
-// IN-RAM ONLY for now: these buffers do NOT survive a reboot. Flash
-// persistence of the current MIDL doc is a later phase; on boot the
-// device renders the baked factory doc (midl::demo::SQUARE_480_JSON) until
-// a new doc is delivered. The mutex guards both buffers + lengths so the
-// web task (set/copy) and any future reader don't race.
-namespace midl_doc {
-
-static char *s_current = nullptr;
-static size_t s_current_len = 0;
-static char *s_previous = nullptr;
-static size_t s_previous_len = 0;
-static SemaphoreHandle_t s_mtx = nullptr;
-
-static inline SemaphoreHandle_t mtx() {
-    if (!s_mtx) s_mtx = xSemaphoreCreateMutex();
-    return s_mtx;
-}
-
-// Rotate current -> previous, then store a fresh PSRAM copy of [bytes,len)
-// as the new current. Returns false (and leaves the store unchanged
-// except for the rotation already performed) if the PSRAM alloc fails.
-static bool set_current(const char *bytes, size_t len) {
-    xSemaphoreTake(mtx(), portMAX_DELAY);
-    // Rotate: free the doc two-back, current becomes previous.
-    if (s_previous) {
-        heap_caps_free(s_previous);
-        s_previous = nullptr;
-        s_previous_len = 0;
-    }
-    s_previous = s_current;
-    s_previous_len = s_current_len;
-    s_current = (char *)heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM);
-    if (!s_current) {
-        s_current_len = 0;
-        xSemaphoreGive(s_mtx);
-        net::logf("[midl] doc store: PSRAM alloc failed (%u bytes)", (unsigned)len);
-        return false;
-    }
-    memcpy(s_current, bytes, len);
-    s_current[len] = 0;
-    s_current_len = len;
-    xSemaphoreGive(s_mtx);
-    return true;
-}
-
-// Copy the current doc into `out`. Returns false if no current doc.
-static bool copy_current(String &out) {
-    xSemaphoreTake(mtx(), portMAX_DELAY);
-    bool ok = s_current && s_current_len;
-    if (ok) out = String(s_current);
-    xSemaphoreGive(s_mtx);
-    return ok;
-}
-
-// Copy the previous doc into `out`. Returns false if no previous doc.
-static bool copy_previous(String &out) {
-    xSemaphoreTake(mtx(), portMAX_DELAY);
-    bool ok = s_previous && s_previous_len;
-    if (ok) out = String(s_previous);
-    xSemaphoreGive(s_mtx);
-    return ok;
-}
-
-}  // namespace midl_doc
-
-// ---- /api/midl/config (POST / GET) + /api/midl/reset (POST) ------------
-// Device-hosted MIDL delivery. The web handler runs on the WebServer task,
-// so it MUST NOT touch LVGL or call midl::render::apply_all directly. It
-// only parses + validates the doc (in PSRAM) and queues a ConfigApplyMidl
-// app::Command whose blob it hands to the UI task; the pump (app_events.cpp)
-// frees the blob after apply. Returning 200 means "accepted + queued +
-// stored", not "rendered" — apply is async on the UI task.
-
-// Queue a ConfigApplyMidl command carrying a PSRAM copy of [body,len).
-// On success ownership of the blob transfers to the queue (pump frees it).
-// Returns 0 on success, or an HTTP status to send on failure.
-static int queue_midl_apply(const char *body, size_t len) {
-    void *blob = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!blob) return 503;
-    memcpy(blob, body, len);
-    app::Command cmd;
-    cmd.type = app::CommandType::ConfigApplyMidl;
-    cmd.blob = blob;
-    cmd.blob_len = len;
-    if (!app::post(cmd, 50)) {
-        heap_caps_free(blob);
-        return 503;
-    }
-    return 0;
-}
-
-// The embedded capability manifest (midl_manifest::JSON), parsed once into
-// PSRAM on first use. Web callbacks run serially, so the lazy init is safe.
-static JsonVariantConst embedded_manifest() {
-    static JsonDocument *m = nullptr;
-    if (!m) {
-        m = new JsonDocument(&yeyboats::psram_json);
-        if (deserializeJson(*m, midl_manifest::JSON)) m->clear();
-    }
-    return m->as<JsonVariantConst>();
-}
-
-static void handle_midl_config_post() {
-    if (!require_api_auth()) return;
-    if (!server.hasArg("plain")) {
-        send_err(400, "empty body");
-        return;
-    }
-    const String &body = server.arg("plain");
-    size_t len = body.length();
-    if (len == 0) {
-        send_err(400, "empty body");
-        return;
-    }
-    if (len > 48 * 1024) {
-        send_err(413, "midl doc too large (48 KB max)");
-        return;
-    }
-    // Parse into a PSRAM-backed document — never on the web-task stack.
-    JsonDocument doc(&yeyboats::psram_json);
-    DeserializationError perr = deserializeJson(doc, body.c_str(), len);
-    if (perr) {
-        String e = String("parse: ") + perr.c_str();
-        send_err(400, e.c_str());
-        return;
-    }
-    // Lightweight render-safety check (NOT a full schema gate): require a
-    // top-level "midl" version marker and at least one usable screen.
-    if (doc["midl"].isNull()) {
-        send_err(400, "no usable screen / missing 'screens' array");
-        return;
-    }
-    JsonVariantConst screen =
-        midl::render::select_screen(doc.as<JsonVariantConst>(), nullptr, nullptr);
-    if (screen.isNull()) {
-        send_err(400, "no usable screen / missing 'screens' array");
-        return;
-    }
-    // instruments#20: full on-device MIDL validation against the embedded
-    // capability manifest (the same pipeline as midl's TS/Python validators:
-    // structure, meaning, version, class limits, element kinds, bindings,
-    // actions) plus this firmware's storage limits. instruments#23's kind
-    // check is part of it. Rejects with 422 and the JSON pointer of the first
-    // problem, e.g. {"ok":false,"error":"too many tiles: 5 > 4","path":"/screens/0/layout"}.
-    {
-        static midl::validate::Issue issue;  // web callbacks run serially; keep off the stack
-        if (!midl::validate::admit(doc.as<JsonVariantConst>(), embedded_manifest(),
-                                   midl_manifest::CLASS_ID, issue)) {
-            JsonDocument out(&yeyboats::psram_json);
-            out["ok"] = false;
-            out["error"] = issue.message;
-            out["path"] = issue.path;
-            send_json(422, out);
-            return;
-        }
-    }
-    // Queue the apply on the UI task (carries a PSRAM blob; pump frees it).
-    int qrc = queue_midl_apply(body.c_str(), len);
-    if (qrc != 0) {
-        send_err(qrc, qrc == 503 ? "ui queue full / blob alloc failed" : "queue failed");
-        return;
-    }
-    // Store the verbatim body as the new current doc (rotates previous).
-    midl_doc::set_current(body.c_str(), len);
-    JsonDocument out(&yeyboats::psram_json);
-    out["ok"] = true;
-    out["screens"] = (uint32_t)(doc["screens"].is<JsonArrayConst>() ? doc["screens"].size() : 0);
-    send_json(200, out);
-}
-
-static void handle_midl_config_get() {
-    if (!require_api_auth()) return;
-    String body;
-    if (!midl_doc::copy_current(body)) {
-        send_err(404, "no current doc");
-        return;
-    }
-    server.sendHeader("Cache-Control", "no-store");
-    server.send(200, "application/json", body);
-}
-
-static void handle_midl_reset() {
-    if (!require_api_auth()) return;
-    String to = server.hasArg("to") ? server.arg("to") : String("default");
-    if (to == "previous") {
-        String prev;
-        if (!midl_doc::copy_previous(prev)) {
-            send_err(409, "no previous doc");
-            return;
-        }
-        int qrc = queue_midl_apply(prev.c_str(), prev.length());
-        if (qrc != 0) {
-            send_err(qrc, "ui queue full / blob alloc failed");
-            return;
-        }
-        // Re-applying previous makes it current again (swap current/previous).
-        midl_doc::set_current(prev.c_str(), prev.length());
-        JsonDocument out(&yeyboats::psram_json);
-        out["ok"] = true;
-        out["reset"] = "previous";
-        send_json(200, out);
-        return;
-    }
-    // Default (or any unrecognized "to"): the baked factory doc.
-    const char *def = midl::demo::SQUARE_480_JSON;
-    size_t len = strlen(def);
-    int qrc = queue_midl_apply(def, len);
-    if (qrc != 0) {
-        send_err(qrc, "ui queue full / blob alloc failed");
-        return;
-    }
-    midl_doc::set_current(def, len);
-    JsonDocument out(&yeyboats::psram_json);
-    out["ok"] = true;
-    out["reset"] = "default";
-    send_json(200, out);
-}
-
-#endif  // YEYBOATS_MIDL_RECORDS
-
-// ---- /api/layout (GET / PUT) -------------------------------------------
-
-static void handle_layout_get() {
-    if (!require_api_auth()) return;
-    String body;
-    if (!layout::copy_last_json(body)) {
-        server.send(404, "text/plain", "no layout loaded");
-        return;
-    }
-    server.send(200, "application/json", body);
-}
-
-static void handle_layout_put() {
-    if (!require_api_auth()) return;
-    if (!server.hasArg("plain")) {
-        server.send(400, "text/plain", "empty body");
-        return;
-    }
-    const String &body = server.arg("plain");
-    size_t len = body.length();
-    if (len == 0) {
-        server.send(400, "text/plain", "empty body");
-        return;
-    }
-    if (len > 32 * 1024) {
-        server.send(413, "text/plain", "layout too large (32 KB max)");
-        return;
-    }
-    // Copy into a PSRAM-backed buffer; ownership transfers to the queue.
-    // Pump frees on completion.
-    void *blob = heap_caps_malloc(len, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!blob) {
-        server.send(503, "text/plain", "blob alloc failed");
-        return;
-    }
-    memcpy(blob, body.c_str(), len);
-    app::Command cmd;
-    cmd.type = app::CommandType::ApplyLayout;
-    cmd.blob = blob;
-    cmd.blob_len = len;
-    if (!app::post(cmd, 50)) {
-        heap_caps_free(blob);
-        server.send(503, "text/plain", "ui queue full");
-        return;
-    }
-    JsonDocument doc(&yeyboats::psram_json);
-    doc["queued"] = true;
-    doc["size"] = (uint32_t)len;
-    send_json(202, doc);
-}
-
-// ---- /api/dashboard/config.{json,yaml} --------------------------------
-// Dashboard config is the operator-facing name for the same layout document
-// consumed by /api/layout. JSON is canonical on-device. The .yaml endpoint
-// serves and accepts JSON-compatible YAML (JSON syntax is valid YAML 1.2),
-// keeping the ESP32 parser small and deterministic.
-
-static void handle_dashboard_config_get_json() {
-    handle_layout_get();
-}
-
-static void handle_dashboard_config_get_yaml() {
-    if (!require_api_auth()) return;
-    String body;
-    if (!layout::copy_last_json(body)) {
-        server.send(404, "text/plain", "no dashboard config loaded");
-        return;
-    }
-    server.sendHeader("Cache-Control", "no-store");
-    server.send(200, "application/yaml", body);
-}
-
-static void handle_dashboard_config_put() {
-    handle_layout_put();
-}
-
 static void handle_security() {
     if (!require_api_auth()) return;
     JsonDocument doc(&yeyboats::psram_json);
@@ -1269,13 +982,12 @@ static void handle_security() {
     web["intended_network"] = "trusted LAN or temporary setup AP";
     web["secrets_echoed"] = false;
     JsonArray webWrite = web["write_endpoints"].to<JsonArray>();
-    webWrite.add("/api/dashboard/config.json");
-    webWrite.add("/api/dashboard/config.yaml");
-    webWrite.add("/api/layout");
     webWrite.add("/api/wifi/connect");
     webWrite.add("/api/cmd");
     webWrite.add("/api/midl/config");
     webWrite.add("/api/midl/reset");
+    webWrite.add("/api/midl/records/<id>");
+    webWrite.add("/api/midl/index");
     web["touch_injection_over_http"] = false;
 
     JsonObject ble = doc["ble"].to<JsonObject>();
@@ -1287,7 +999,7 @@ static void handle_security() {
     ble["intended_range"] = "local physical proximity";
     ble["configuration_characteristic"] = "boat-mfd CONFIGURATION";
     ble["max_single_write_bytes"] = 512;
-    ble["large_dashboard_import"] = "use web or SignalK manager";
+    ble["large_dashboard_import"] = "push MIDL records over HTTP (Display Manager)";
 
     JsonObject signalk = doc["signalk"].to<JsonObject>();
     signalk["manager_auth"] = "SignalK bearer token plus device token";
@@ -1497,7 +1209,6 @@ static void handle_config() {
     ui_v["theme"] = ::config::theme_name(ui.theme);
     ui_v["brightness"] = ui.brightness;
     ui_v["pos_format"] = ::config::pos_format_name(ui.pos_format);
-    ui_v["default_screen"] = ui.default_screen;
     JsonObject ui_m = ui_obj["meta"].to<JsonObject>();
     emit_meta(ui_m, ::config::Domain::Ui);
 
@@ -1717,7 +1428,6 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   .v{font-size:18px;margin-bottom:6px}
   button{background:#3b6294;color:white;border:0;padding:6px 12px;border-radius:6px;cursor:pointer;margin:2px;font:inherit}
   button.active{background:#9ec5fe;color:#0a1a2b;font-weight:600}
-  textarea{width:100%;height:200px;background:#05101c;color:#eaf2ff;border:1px solid #223a55;border-radius:6px;padding:8px;font-family:monospace;font-size:12px;box-sizing:border-box}
   pre{background:#05101c;border:1px solid #223a55;border-radius:6px;padding:8px;overflow:auto;max-height:180px;font-size:12px;margin:0}
   #liveLog{max-height:320px;white-space:pre-wrap}
   input{background:#05101c;color:#eaf2ff;border:1px solid #223a55;border-radius:4px;padding:4px 8px;font-family:monospace}
@@ -1783,16 +1493,9 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
 </div>
 <div class=row>
   <div class=card style="flex:1 0 100%">
-    <div class=k>DASHBOARD CONFIG</div>
-    <div style="margin:4px 0 8px 0">
-      <button id=dashboardJson>export json</button>
-      <button id=dashboardYaml>export yaml</button>
-      <span class=k>YAML on-device uses JSON-compatible YAML syntax.</span>
-    </div>
-    <textarea id=layout></textarea>
-    <button id=layoutApply>import/apply</button>
-    <button id=layoutLoad>refresh</button>
-    <span id=layoutMsg></span>
+    <div class=k>MIDL RECORDS  (Display Manager pushes these; screens above)</div>
+    <div id=midlRecords></div>
+    <button id=midlLoad>refresh</button>
   </div>
 </div>
 
@@ -1819,25 +1522,18 @@ async function refresh(){
     }
   }catch(e){ /* swallow transient errors during reload */ }
 }
-async function loadLayout(){
+async function loadRecords(){
+  const el = document.getElementById('midlRecords');
   try{
-    const r = await fetch('/api/dashboard/config.json');
-    if (!r.ok) { document.getElementById('layoutMsg').textContent = 'no layout'; return; }
-    const t = await r.text();
-    document.getElementById('layout').value = JSON.stringify(JSON.parse(t), null, 2);
-    document.getElementById('layoutMsg').textContent = '';
-  }catch(e){ document.getElementById('layoutMsg').textContent = String(e.message||e); }
-}
-async function saveLayout(){
-  const t = document.getElementById('layout').value;
-  const r = await fetch('/api/dashboard/config.json', {method:'PUT', headers:{'Content-Type':'application/json'}, body:t});
-  document.getElementById('layoutMsg').textContent = (r.ok?'ok ':'fail ') + r.status;
-}
-async function exportDashboard(kind){
-  const url = kind === 'yaml' ? '/api/dashboard/config.yaml' : '/api/dashboard/config.json';
-  const r = await fetch(url);
-  document.getElementById('layout').value = await r.text();
-  document.getElementById('layoutMsg').textContent = kind + ' export loaded';
+    const j = await (await fetch('/api/midl/records')).json();
+    el.replaceChildren();
+    for (const r of (j.records||[])) {
+      const d = document.createElement('div');
+      d.textContent = (r.id === j.active ? '* ' : '  ') + r.id + '  [' + r.source + ']  ' +
+        (r.screens||[]).map(s => s.id).join(', ');
+      el.appendChild(d);
+    }
+  }catch(e){ el.textContent = String(e.message||e); }
 }
 async function runCmd(){
   const c = document.getElementById('cmd').value;
@@ -1851,10 +1547,7 @@ async function sendCmd(c){
 }
 document.getElementById('cmdSend').addEventListener('click', runCmd);
 document.getElementById('cmd').addEventListener('keydown', e => { if (e.key === 'Enter') runCmd(); });
-document.getElementById('layoutApply').addEventListener('click', saveLayout);
-document.getElementById('layoutLoad').addEventListener('click', loadLayout);
-document.getElementById('dashboardJson').addEventListener('click', () => exportDashboard('json'));
-document.getElementById('dashboardYaml').addEventListener('click', () => exportDashboard('yaml'));
+document.getElementById('midlLoad').addEventListener('click', loadRecords);
 for (const b of document.querySelectorAll('button[data-cmd]')) {
   b.addEventListener('click', () => sendCmd(b.getAttribute('data-cmd')));
 }
@@ -1980,7 +1673,7 @@ document.getElementById('brightSlider').addEventListener('input', e => {
 });
 
 refresh();
-loadLayout();
+loadRecords();
 wifiSavedRefresh();
 refreshLogs();
 setInterval(refresh, 5000);
@@ -2173,21 +1866,13 @@ static void bind_routes() {
     server.on("/api/logs", HTTP_GET, handle_logs);
     server.on("/api/commands", HTTP_GET, handle_commands_json);
     server.on("/help/commands", HTTP_GET, handle_commands_html);
-    server.on("/api/layout", HTTP_GET, handle_layout_get);
-    server.on("/api/layout", HTTP_PUT, handle_layout_put);
     server.on("/api/midl/manifest", HTTP_GET, handle_midl_manifest);
     server.on("/api/midl/config", HTTP_POST, handle_midl_config_post);
     server.on("/api/midl/config", HTTP_GET, handle_midl_config_get);
     server.on("/api/midl/reset", HTTP_POST, handle_midl_reset);
-#if YEYBOATS_MIDL_RECORDS
     server.on("/api/midl/records", HTTP_GET, handle_midl_records_list);
     server.on("/api/midl/index", HTTP_GET, handle_midl_index_get);
     server.on("/api/midl/index", HTTP_PUT, handle_midl_index_put);
-#endif
-    server.on("/api/dashboard/config.json", HTTP_GET, handle_dashboard_config_get_json);
-    server.on("/api/dashboard/config.json", HTTP_PUT, handle_dashboard_config_put);
-    server.on("/api/dashboard/config.yaml", HTTP_GET, handle_dashboard_config_get_yaml);
-    server.on("/api/dashboard/config.yaml", HTTP_PUT, handle_dashboard_config_put);
     server.on("/api/cmd", HTTP_POST, handle_cmd);
     server.on("/api/wifi/scan", HTTP_POST, handle_wifi_scan);
     server.on("/api/wifi/networks", HTTP_GET, handle_wifi_networks);
@@ -2202,14 +1887,12 @@ static void bind_routes() {
     server.collectHeaders(kHeaders, 1);
 
     server.onNotFound([]() {
-#if YEYBOATS_MIDL_RECORDS
         if (server.uri().startsWith("/api/midl/records/") &&
             (server.method() == HTTP_GET || server.method() == HTTP_PUT ||
              server.method() == HTTP_DELETE)) {
             handle_midl_record();
             return;
         }
-#endif
         if (server.method() == HTTP_POST && server.uri().startsWith("/api/screen/")) {
             handle_screen_set();
             return;
@@ -2250,7 +1933,7 @@ static void bind_routes() {
 // task as LVGL, a slow socket flush blocks UI rendering. Run the server on
 // its own FreeRTOS task pinned to core 0 (Arduino loop runs on core 1).
 // All handlers above touch only thread-safe accessors (no direct LVGL
-// drawing). ui::show / layout::apply_json toggle flags / PSRAM buffers
+// drawing). ui::show / midl::store toggle flags / PSRAM buffers
 // that the LVGL render loop reads atomically enough for our use - worst
 // case is one frame of mismatched state, never a crash.
 

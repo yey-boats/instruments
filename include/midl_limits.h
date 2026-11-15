@@ -29,11 +29,8 @@ constexpr int MAX_LAYOUT_DEPTH = midl_gen::MAX_DEPTH;
 // max_tiles_per_screen / max_depth come from the capability spec (midl_gen::*,
 // generated from midl/schemas/gen/yb-midl-capabilities.<class>.json) so the
 // firmware's fixed-array bounds and the advertised/validated manifest share ONE
-// source of truth. This is INTENTIONALLY DECOUPLED from the legacy
-// layout::MAX_TILES_PER_SCREEN (still 4): the legacy layout::Config POD is guarded
-// to <=48 KB (test_midl_projection), and raising its tile count would blow that
-// guard. The MIDL render path (solver PlacementSet, MidlScreenArena, freeform
-// tiles) sizes from here instead.
+// source of truth. The MIDL render path (solver PlacementSet, MidlScreenArena,
+// freeform tiles) sizes from here.
 struct FirmwareLimits {
     static constexpr size_t max_screens = layout::MAX_SCREENS;           // 8
     static constexpr size_t max_tiles_per_screen = midl_gen::MAX_TILES;  // per class (4..9)

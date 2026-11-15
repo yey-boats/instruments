@@ -48,16 +48,12 @@ drain(4, "sk")
 screens = ["nav", "wind", "depth", "steering", "wind_steer", "autopilot", "nav"]
 print("\n=== S3: per-screen subscribe/unsubscribe ===", flush=True)
 for s in screens:
-    cmd("view " + s)
-    print(f"\n--- view {s} ---", flush=True)
+    cmd("screen " + s)
+    print(f"\n--- screen {s} ---", flush=True)
     drain(3, s, keep_substr=SUBS + ["[sk]"])
     cmd("sk-status")
     drain(2, s + ":sk", keep_substr=["connected=", "lastUpdate"])
 
-# S6: zoom screen reachable.
-print("\n=== S6: zoom screen reachable ===", flush=True)
-cmd("view zoom")
-drain(2, "zoom")
 cmd("screen")
 drain(2, "screen")
 

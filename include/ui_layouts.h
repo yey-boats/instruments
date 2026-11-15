@@ -1,24 +1,17 @@
 #pragma once
 
-// Layout templates per docs/specs/11-layout-templates-screen-variants.md.
+// MIDL tile painters (the device half of the MIDL render path).
 //
-// A screen becomes a variant of a small template catalog:
+// midl_render_apply.cpp maps each MIDL element to a MetricBinding and the
+// solver's pixel rect, then builds the screen with create_freeform() and
+// refreshes it with update_freeform(). The per-kind painters (numeric,
+// compass, gauge, bar, windrose + the winddial / windsteer / aphud HUD
+// composites, text, button, autopilot, trend, clinometer) live in
+// ui_layouts.cpp.
 //
-//   screen = template + metric bindings + tap commands
-//
-// This file declares the template ids, metric binding shape, and the
-// factory entry points. Each template lives in ui_layouts.cpp (or
-// later, in dedicated layout_<name>.cpp files).
-//
-// Phase 1 lands the framework + the `quad_grid` template (2x2 tile
-// dashboard). Other templates are stubbed and registered as they're
-// implemented; un-implemented ones return NULL so callers can decide
-// whether to fall back to a hand-built screen.
-//
-// POD types (TemplateId, MetricSource, MetricRow, WidgetKind,
-// MetricBinding, ScreenVariantSpec) are defined in ui_layouts_types.h
-// so that host-only TUs (midl_render, tests) can include the enums
-// without pulling in <lvgl.h>.
+// POD types (MetricSource, MetricRow, WidgetKind, MetricBinding,
+// ScreenVariantSpec) are defined in ui_layouts_types.h so that host-only TUs
+// (midl_render, tests) can include the enums without pulling in <lvgl.h>.
 
 #include <lvgl.h>
 #include <stdint.h>
@@ -31,30 +24,14 @@ class SubscriptionSet;
 
 namespace ui::layouts {
 
-// Build the screen widget tree for `spec`. Returns NULL if the
-// template isn't implemented yet. Caller passes the returned root to
-// ui::register_screen.
-lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec);
-
-// Update displayed values from a snapshot. Idempotent and uses the
-// dirty-value caches in include/ui_dirty.h so the partial-render path
-// stays cold when nothing changed.
-void update(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data);
-
-// Drive the full-screen "zoom" view to a chosen metric (normally set by a tile
-// tap; also used by the sim harness and remote controllers).
-void set_zoom_target(const MetricBinding &m);
-
-// Fullscreen-zoom handler hook. When set (by the MIDL render layer), a tap on a
-// fullscreen-self zoomable tile (zoom_target == nullptr / "auto"/"") routes to
-// this handler instead of the built-in "zoom" screen — so the MIDL build, which
-// has no "zoom" screen registered, can build a transient single-element
-// full-screen render of the tapped metric. NULL (the default) keeps the legacy
-// behavior of showing the registered "zoom" screen. Runs on the UI/LVGL task.
+// Fullscreen-zoom handler hook, set by the MIDL render layer: a tap on a
+// fullscreen-self zoomable tile (zoom_target == nullptr / "auto"/"") builds a
+// transient single-element full-screen render of the tapped metric. NULL (the
+// default) makes such a tap a no-op. Runs on the UI/LVGL task.
 typedef void (*ZoomFullscreenFn)(const MetricBinding &m);
 void set_zoom_fullscreen_handler(ZoomFullscreenFn fn);
 
-// Reverse of layout_renderer's path_to_source(): the canonical SignalK path a
+// Reverse of ui::metric_map::path_to_source(): the canonical SignalK path a
 // MetricSource consumes, or nullptr for non-path sources (None). Position and
 // APState ARE real paths a screen subscribes (navigation.position /
 // steering.autopilot.state) and so map to their strings. Used by the per-screen
@@ -68,10 +45,8 @@ const char *source_to_path(MetricSource s);
 void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out);
 
 // Freeform layout: one tile per (MetricBinding, Rect) pair, placed at the
-// caller's solved pixel rect. Reuses the per-tile painters from the QuadGrid
-// template. `spec.metrics` has `spec.metric_count` entries; `rects[i]` is the
-// pixel rect for metric i (x, y, w, h). Called directly by midl_render — NOT
-// routed through create() — so no TemplateId enum churn is needed.
+// caller's solved pixel rect. `spec.metrics` has `spec.metric_count` entries;
+// `rects[i]` is the pixel rect for metric i (x, y, w, h).
 lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const Rect *rects);
 void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data);
 

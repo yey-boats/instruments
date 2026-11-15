@@ -27,7 +27,6 @@
 #include "psram_json.h"
 #include "secrets.h"
 #include "signalk.h"
-#include "layout_loader.h"
 #include "ble_config.h"
 #include "ble_hid_host.h"
 #include "wifi_store.h"
@@ -1108,7 +1107,6 @@ bool dispatchCommand(const String &line) {
     if (manager::handleSerialCommand(line)) return true;
     if (beeper::handleSerialCommand(line)) return true;
     if (autopilot::handleSerialCommand(line)) return true;
-    if (layout::handleSerialCommand(line)) return true;
     if (s_extra && s_extra(line)) return true;
     return false;
 }
