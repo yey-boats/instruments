@@ -103,6 +103,9 @@ bool isAutoMode();
 bool tryAutoDiscover(uint32_t now_ms);  // safe to call from sk_task; returns true if a host was set
 String targetHost();
 uint16_t targetPort();
+// The stored SignalK token (empty when none): the WS ?token= and the REST
+// Authorization: Bearer value (PUTs, History API backfill).
+String authToken();
 
 }  // namespace sk
 

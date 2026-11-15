@@ -21,6 +21,7 @@
 
 #include "midl_kinds.h"
 #include "midl_limits.h"
+#include "trend_history.h"  // trend::parse_window (history.window durations)
 
 namespace midl::validate {
 
@@ -341,6 +342,40 @@ bool s_format(Ctx &c, JsonObjectConst el) {
     return ok;
 }
 
+// The schema's ^\\d+[smh]$ (a "0m" passes here; semantics reject it).
+bool window_pattern_ok(const char *w) {
+    size_t n = strlen(w), d = strspn(w, "0123456789");
+    return d > 0 && d + 1 == n && strchr("smh", w[d]) != nullptr;
+}
+
+// $defs/element.history: {window?: "^\\d+[smh]$" | integer >= 1, agg?: enum},
+// additionalProperties false (midl docs/specs/2026-11-15-trend-history.md).
+bool s_history(Ctx &c, JsonObjectConst el) {
+    if (!has(el, "history")) return true;
+    size_t s = push(c, "history");
+    bool ok = is_obj(el["history"]) ? true : fail(c, "history must be object");
+    if (ok) {
+        static const char *const KEYS[] = {"window", "agg", nullptr};
+        static const char *const AGGS[] = {"avg", "min", "max", "last", nullptr};
+        JsonObjectConst h = el["history"].as<JsonObjectConst>();
+        for (JsonPairConst kv : h) {
+            if (!one_of(kv.key().c_str(), KEYS)) {
+                ok = fail(c, "history must NOT have additional properties");
+                break;
+            }
+        }
+        if (ok && has(h, "window")) {
+            JsonVariantConst w = h["window"];
+            bool shape = is_str(w) ? window_pattern_ok(w.as<const char *>())
+                                   : (is_int(w) && w.as<double>() >= 1);
+            if (!shape) ok = fail_at(c, "window", "window must match exactly one schema in oneOf");
+        }
+        ok = ok && s_enum(c, h, "agg", AGGS);
+    }
+    pop(c, s);
+    return ok;
+}
+
 bool s_element(Ctx &c, JsonVariantConst v) {
     if (!is_obj(v)) return fail(c, "element must be object");
     JsonObjectConst el = v.as<JsonObjectConst>();
@@ -359,7 +394,7 @@ bool s_element(Ctx &c, JsonVariantConst v) {
         pop(c, s);
         if (!ok) return false;
     }
-    if (!s_style(c, el) || !s_format(c, el)) return false;
+    if (!s_style(c, el) || !s_format(c, el) || !s_history(c, el)) return false;
     static const char *const MARKER_KINDS[] = {"rim", "vector", nullptr};
     if (!s_array_of(c, el, "markers", [&](JsonVariantConst m) {
             if (!is_obj(m)) return fail(c, "marker must be object");
@@ -641,6 +676,33 @@ bool sem_element(Ctx &c, const char *id, JsonObjectConst el) {
                          (unsigned)midl::kinds::ACTION_TARGET_MAX);
         pop(c, s);
         if (!ok) return false;
+    }
+    // Trend history: only a trend records history; window >= 60 s (the upper
+    // bound is the device's, checked by the capability pass).
+    if (has(el, "history")) {
+        if (strcmp(str(el["type"]), "trend") != 0)
+            return fail_at(c, "history",
+                           "element \"%s\" of type \"%s\" cannot have history; only a trend "
+                           "records history",
+                           id, str(el["type"]));
+        uint32_t secs = 0;
+        if (is_obj(el["history"]) && has(el["history"].as<JsonObjectConst>(), "window")) {
+            bool parsed = trend::parse_window_json(el["history"]["window"], secs);
+            if (!parsed || secs < trend::MIN_WINDOW_S) {
+                size_t s = push(c, "history");
+                bool ok = parsed
+                              ? fail_at(c, "window",
+                                        "element \"%s\" history window is %lu s; it must be "
+                                        "at least %lu s",
+                                        id, (unsigned long)secs, (unsigned long)trend::MIN_WINDOW_S)
+                              : fail_at(c, "window",
+                                        "element \"%s\" history window is not a duration; "
+                                        "use e.g. \"10m\", \"1h\" or a number of seconds",
+                                        id);
+                pop(c, s);
+                return ok;
+            }
+        }
     }
     JsonVariantConst range = el["style"]["range"];
     if (is_arr(range) && range.size() == 2 && is_num(range[0]) && is_num(range[1])) {
@@ -959,6 +1021,20 @@ bool cap_element(Ctx &c, const Caps &k, JsonObjectConst el) {
     }
     pop(c, s);
     if (!ok) return false;
+    // Trend history window above the device's recording limit (manifest
+    // history.maxWindowS; 86400 when the manifest is silent).
+    if (!strcmp(type, "trend") && is_obj(el["history"])) {
+        uint32_t secs = 0;
+        double max_w = k.manifest["history"]["maxWindowS"] | 86400.0;
+        if (trend::parse_window_json(el["history"]["window"], secs) && secs > max_w) {
+            size_t h = push(c, "history");
+            bool hok =
+                fail_at(c, "window", "history window %lu s exceeds the device maximum %.0f s",
+                        (unsigned long)secs, max_w);
+            pop(c, h);
+            return hok;
+        }
+    }
     if (is_obj(el["action"]) && k.actions.size() > 0 &&
         !in_list(k.actions, str(el["action"]["kind"])))
         return fail_at(c, "action", "action kind not supported: %s", str(el["action"]["kind"]));

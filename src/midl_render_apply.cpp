@@ -588,8 +588,17 @@ static bool midl_local_text_resolve(const char *id, char *out, size_t cap) {
     return midl::local_dev::text(id, out, cap, cache);
 }
 
+// Trend history backfill (SignalK History API worker) + its monotonic clock.
+static const ui::layouts::TrendBackfillOps s_trend_backfill_ops = {
+    trend::backfill::now_s, trend::backfill::begin, trend::backfill::enqueue,
+    trend::backfill::poll,  trend::backfill::done,
+};
+
 size_t apply_all(JsonVariantConst doc) {
     if (!arenas()) return 0;  // PSRAM alloc failed; logged in arenas()
+
+    // Trend tiles backfill from the SignalK server this display uses.
+    ui::layouts::set_trend_backfill(&s_trend_backfill_ops);
 
     // Install the dynamic-path resolver so bindings outside the enum bridge
     // (MetricBinding.path) render through the PathStore instead of "--".

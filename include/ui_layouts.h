@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include "signalk_parser.h"
 #include "ui_layouts_types.h"
+#include "trend_backfill.h"  // trend::backfill::Result (pure header)
 
 namespace sk {
 class SubscriptionSet;
@@ -49,5 +50,25 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out);
 // `rects[i]` is the pixel rect for metric i (x, y, w, h).
 lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const Rect *rects);
 void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data);
+
+// Trend history backfill + clock, injected by the MIDL render layer (device:
+// trend::backfill, src/trend_backfill.cpp). NULL (host/sim builds) records live
+// samples only, against the LVGL tick.
+struct TrendBackfillOps {
+    double (*now_s)();
+    uint32_t (*begin)();
+    bool (*enqueue)(uint32_t gen, uint8_t series, const char *path, trend::Agg agg,
+                    uint32_t window_s, double step_s);
+    bool (*poll)(uint32_t gen, trend::backfill::Result &out);
+    void (*done)();
+};
+void set_trend_backfill(const TrendBackfillOps *ops);
+
+// The active screen changed (UI task): drops the trend series of a screen that
+// is no longer shown. History records only for the screen on display.
+void trend_screen_changed();
+
+// Trend history footprint for the perf/heap log: series in use and bytes held.
+void trend_stats(int &series, size_t &bytes);
 
 }  // namespace ui::layouts

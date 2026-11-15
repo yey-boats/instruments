@@ -81,6 +81,25 @@ def out_dir(class_id):
     return os.path.join(REPO_ROOT, "include", "midl_gen", class_id)
 
 
+# Trend-history class defaults (midl spec 2026-11-15 §2), used only while the
+# pinned midl manifest predates the top-level "history" object.
+HISTORY_DEFAULTS = {
+    "round-360": {"points": 90, "maxSeries": 2, "maxWindowS": 86400},
+}
+HISTORY_DEFAULT = {"points": 120, "maxSeries": 6, "maxWindowS": 86400}
+
+
+def history_caps(manifest, class_id):
+    """{points, maxSeries, maxWindowS} from the manifest's "history" object."""
+    out = dict(HISTORY_DEFAULTS.get(class_id, HISTORY_DEFAULT))
+    hist = manifest.get("history")
+    if isinstance(hist, dict):
+        for key in out:
+            if key in hist:
+                out[key] = int(hist[key])
+    return out
+
+
 def render(class_id):
     """Return (manifest_header_text, limits_header_text) for a class."""
     if class_id not in VALID_CLASSES:
@@ -113,6 +132,7 @@ inline constexpr const char *JSON = R"{DELIMITER}({json_text}){DELIMITER}";
         raise ValueError(f"no '{class_id}' class entry in {src}")
     max_tiles = int(cls["maxTiles"])
     max_depth = int(cls["maxDepth"])
+    hist = history_caps(manifest, class_id)
 
     limits_h = f"""\
 #pragma once
@@ -129,6 +149,11 @@ namespace midl_gen {{
 inline constexpr const char *CLASS_ID = "{class_id}";
 inline constexpr int MAX_TILES = {max_tiles};
 inline constexpr int MAX_DEPTH = {max_depth};
+// Trend history (midl docs/specs/2026-11-15-trend-history.md): points per
+// chart, trend tiles with history per screen, longest window.
+inline constexpr int HISTORY_POINTS = {hist["points"]};
+inline constexpr int HISTORY_MAX_SERIES = {hist["maxSeries"]};
+inline constexpr long HISTORY_MAX_WINDOW_S = {hist["maxWindowS"]};
 }}  // namespace midl_gen
 """
     return manifest_h, limits_h

@@ -151,9 +151,12 @@
      ],
      "attrs": [
       "title",
+      "format",
       "size",
       "unit",
-      "color"
+      "color",
+      "range",
+      "history"
      ]
     },
     {
@@ -261,7 +264,20 @@
     20,
     28,
     48
-   ]
+   ],
+   "history": {
+    "points": 120,
+    "maxSeries": 6,
+    "maxWindowS": 86400,
+    "windows": [
+     "10m",
+     "30m",
+     "1h",
+     "6h",
+     "24h"
+    ],
+    "backfill": true
+   }
   },
   "landscape-800x480": {
    "midl": "1.0.0",
@@ -413,9 +429,12 @@
      ],
      "attrs": [
       "title",
+      "format",
       "size",
       "unit",
-      "color"
+      "color",
+      "range",
+      "history"
      ]
     },
     {
@@ -523,7 +542,20 @@
     20,
     28,
     48
-   ]
+   ],
+   "history": {
+    "points": 120,
+    "maxSeries": 6,
+    "maxWindowS": 86400,
+    "windows": [
+     "10m",
+     "30m",
+     "1h",
+     "6h",
+     "24h"
+    ],
+    "backfill": true
+   }
   },
   "round-360": {
    "midl": "1.0.0",
@@ -675,9 +707,12 @@
      ],
      "attrs": [
       "title",
+      "format",
       "size",
       "unit",
-      "color"
+      "color",
+      "range",
+      "history"
      ]
     },
     {
@@ -785,7 +820,20 @@
     20,
     28,
     48
-   ]
+   ],
+   "history": {
+    "points": 90,
+    "maxSeries": 2,
+    "maxWindowS": 86400,
+    "windows": [
+     "10m",
+     "30m",
+     "1h",
+     "6h",
+     "24h"
+    ],
+    "backfill": true
+   }
   },
   "square-480": {
    "midl": "1.0.0",
@@ -937,9 +985,12 @@
      ],
      "attrs": [
       "title",
+      "format",
       "size",
       "unit",
-      "color"
+      "color",
+      "range",
+      "history"
      ]
     },
     {
@@ -1047,7 +1098,20 @@
     20,
     28,
     48
-   ]
+   ],
+   "history": {
+    "points": 120,
+    "maxSeries": 6,
+    "maxWindowS": 86400,
+    "windows": [
+     "10m",
+     "30m",
+     "1h",
+     "6h",
+     "24h"
+    ],
+    "backfill": true
+   }
   }
  },
  "cases": [
@@ -9092,6 +9156,231 @@
    "expected": {
     "ok": true,
     "paths": []
+   }
+  },
+  {
+   "name": "valid-trend-history",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "tws": {
+        "type": "trend",
+        "format": {
+         "unit": "kn",
+         "decimals": 1
+        },
+        "history": {
+         "window": "10m",
+         "agg": "max"
+        },
+        "style": {
+         "range": [
+          0,
+          30
+         ]
+        },
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.wind.speedTrue"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "tws"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "paths": []
+   }
+  },
+  {
+   "name": "valid-trend-history-seconds",
+   "targetClass": "round-360",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "t": {
+        "type": "trend",
+        "history": {
+         "window": 3600
+        },
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.depth.belowTransducer"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "t"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "paths": []
+   }
+  },
+  {
+   "name": "invalid-trend-history-window-short",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "t": {
+        "type": "trend",
+        "history": {
+         "window": "30s"
+        },
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.wind.speedTrue"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "t"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/elements/t/history/window"
+    ]
+   }
+  },
+  {
+   "name": "invalid-trend-history-window-shape",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "t": {
+        "type": "trend",
+        "history": {
+         "window": "10min",
+         "agg": "median"
+        },
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.wind.speedTrue"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "t"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/elements/t/history/window",
+     "/screens/0/elements/t/history/agg"
+    ]
+   }
+  },
+  {
+   "name": "invalid-history-not-trend",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "v": {
+        "type": "single-value",
+        "history": {
+         "window": "10m"
+        },
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.wind.speedTrue"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "v"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/elements/v/history"
+    ]
+   }
+  },
+  {
+   "name": "invalid-trend-history-over-device-max",
+   "targetClass": "square-480",
+   "manifestOverrides": {},
+   "doc": {
+    "midl": "1.0.0",
+    "screens": [
+     {
+      "id": "s",
+      "elements": {
+       "t": {
+        "type": "trend",
+        "history": {
+         "window": "25h"
+        },
+        "bindings": {
+         "value": {
+          "kind": "signalk",
+          "path": "environment.wind.speedTrue"
+         }
+        }
+       }
+      },
+      "layout": {
+       "element": "t"
+      }
+     }
+    ]
+   },
+   "expected": {
+    "ok": false,
+    "paths": [
+     "/screens/0/elements/t/history/window"
+    ]
    }
   }
  ]

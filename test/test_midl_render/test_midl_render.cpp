@@ -940,6 +940,49 @@ void setUp() {
 void tearDown() {
 }
 
+// ---- trend history (midl spec 2026-11-15) ----
+void test_trend_history_absent_defaults() {
+    MetricBinding m = mapOne(
+        R"({"type":"trend","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedTrue"}}})",
+        "tws");
+    TEST_ASSERT_EQUAL(WidgetKind::Trend, m.kind);
+    TEST_ASSERT_EQUAL_UINT32(0, m.history_window_s);    // 0 -> the 10m default
+    TEST_ASSERT_EQUAL_UINT8(0, m.history_agg);          // avg
+    TEST_ASSERT_EQUAL_FLOAT(m.range_min, m.range_max);  // no range = auto
+}
+
+void test_trend_history_window_agg_range() {
+    MetricBinding m = mapOne(
+        R"({"type":"trend","format":{"unit":"kn","decimals":1},
+            "history":{"window":"30m","agg":"max"},"style":{"range":[0,30]},
+            "bindings":{"value":{"kind":"signalk","path":"environment.wind.speedTrue"}}})",
+        "tws");
+    TEST_ASSERT_EQUAL_UINT32(1800, m.history_window_s);
+    TEST_ASSERT_EQUAL_UINT8(2, m.history_agg);  // trend::Agg::Max
+    TEST_ASSERT_EQUAL_FLOAT(0.0f, m.range_min);
+    TEST_ASSERT_EQUAL_FLOAT(30.0f, m.range_max);
+    MetricBinding n = mapOne(
+        R"({"type":"trend","history":{"window":3600,"agg":"last"},
+            "bindings":{"value":{"kind":"signalk","path":"environment.wind.speedTrue"}}})",
+        "tws");
+    TEST_ASSERT_EQUAL_UINT32(3600, n.history_window_s);
+    TEST_ASSERT_EQUAL_UINT8(3, n.history_agg);
+}
+
+void test_trend_history_invalid_keeps_defaults() {
+    MetricBinding m = mapOne(
+        R"({"type":"trend","history":{"window":"10 minutes","agg":"median"},
+            "bindings":{"value":{"kind":"signalk","path":"environment.wind.speedTrue"}}})",
+        "tws");
+    TEST_ASSERT_EQUAL_UINT32(0, m.history_window_s);
+    TEST_ASSERT_EQUAL_UINT8(0, m.history_agg);
+    MetricBinding n = mapOne(
+        R"({"type":"trend","history":"10m",
+            "bindings":{"value":{"kind":"signalk","path":"environment.wind.speedTrue"}}})",
+        "tws");
+    TEST_ASSERT_EQUAL_UINT32(0, n.history_window_s);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
     RUN_TEST(test_token_to_kind);
@@ -1009,5 +1052,8 @@ int main(int, char **) {
     RUN_TEST(test_local_without_pathbuf_degrades);
     RUN_TEST(test_action_value_number_string_bool);
     RUN_TEST(test_action_value_absent_stays_null);
+    RUN_TEST(test_trend_history_absent_defaults);
+    RUN_TEST(test_trend_history_window_agg_range);
+    RUN_TEST(test_trend_history_invalid_keeps_defaults);
     return UNITY_END();
 }

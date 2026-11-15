@@ -349,6 +349,11 @@ struct MetricBinding {
     // Literal = an authored hex literal held in `accent` (so #000000 is black,
     // not "unset"). A named token resolves against the live theme at paint time.
     ZoneColor style_color;
+    // Trend history (midl spec 2026-11-15): history.window in seconds (0 =
+    // absent -> the 10m default) and history.agg (trend::Agg ordinal, 0 =
+    // avg). Additive trailing, no default initializers (aggregate rule above).
+    uint32_t history_window_s;
+    uint8_t history_agg;
 };
 
 // The element's own colour (style.color), else `fallback` (the painter's theme

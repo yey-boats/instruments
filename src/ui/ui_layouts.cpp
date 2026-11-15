@@ -2201,16 +2201,135 @@ static void update_gauge_bar(TileState &t, const MetricBinding &m, const boat::V
     }
 }
 
-// Trend widget: current reading (hero number) above a rolling sparkline. The
-// sparkline is a tile-sized lv_chart LINE series with no axes/markers — distinct
-// from the fullscreen TrendChartState used as a standalone screen template.
+// Trend widget: current reading (hero number) above a time-windowed chart
+// (midl docs/specs/2026-11-15-trend-history.md). The chart spans exactly the
+// element's history.window with its right edge at "now": one point per time
+// bucket (floor(t / step), step = window / points), a gap where a bucket has no
+// samples, and it scrolls one bucket per step even when the value is steady.
 //
-// History is the chart's own point ring: update pushes one normalized sample
-// (0..100 via binding_unit_fraction, the same scale as the gauge/bar fill) with
-// lv_chart_set_next_value, so no separate per-tile sample buffer is needed. A
-// ranged element (format.range) normalizes against its [min,max]; legacy tiles
-// use the per-source heuristic. Samples are pushed on value-change only, matching
-// the fullscreen trend (a steady reading holds the line rather than scrolling it).
+// Samples live in a trend::Store (PSRAM) that holds series ONLY for the screen
+// on display: they are created (and backfilled from the SignalK History API)
+// when the screen is shown and freed when it is left. Values are stored in SI
+// and converted at draw time with the hero number's own conversion. The y
+// range is style.range (display units) or auto (visible min/max + 10 %); two
+// dim labels at the chart's left edge show its max (top) and min (bottom).
+
+static constexpr int TREND_Y_SCALE = 1000;         // chart y axis 0..1000
+static constexpr uint32_t TREND_REDRAW_MS = 1000;  // in-bucket redraw throttle
+
+struct TrendTileState {
+    int8_t series;      // trend::Store index; -1 = no history (over maxSeries)
+    bool primary;       // the first tile of a shared series records the samples
+    uint32_t last_ver;  // series version last drawn
+    int64_t last_head;  // series head bucket last drawn
+    uint32_t last_draw_ms;
+    lv_obj_t *chart;
+    lv_obj_t *lbl_hi, *lbl_lo;
+    char hi_txt[16], lo_txt[16];
+};
+
+static trend::Store s_trend;
+static lv_obj_t *s_trend_owner = nullptr;  // freeform root whose series are live
+static uint32_t s_trend_gen = 0;           // backfill generation of the owner
+static const TrendBackfillOps *s_trend_ops = nullptr;
+static float *s_trend_disp = nullptr;  // [points] display-unit scratch (PSRAM)
+
+void set_trend_backfill(const TrendBackfillOps *ops) {
+    s_trend_ops = ops;
+}
+
+static void *trend_alloc(size_t n) {
+    void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM);
+    if (!p) p = heap_caps_malloc(n, MALLOC_CAP_DEFAULT);
+    return p;
+}
+static void trend_free(void *p) {
+    heap_caps_free(p);
+}
+
+static double trend_now_s() {
+    if (s_trend_ops && s_trend_ops->now_s) return s_trend_ops->now_s();
+    return (double)lv_tick_get() / 1000.0;
+}
+
+static bool trend_store_ready() {
+    if (!s_trend.init((uint16_t)midl_gen::HISTORY_POINTS, (uint8_t)midl_gen::HISTORY_MAX_SERIES,
+                      trend_alloc, trend_free))
+        return false;
+    if (!s_trend_disp)
+        s_trend_disp = (float *)trend_alloc(sizeof(float) * (size_t)midl_gen::HISTORY_POINTS);
+    return s_trend_disp != nullptr;
+}
+
+void trend_stats(int &series, size_t &bytes) {
+    series = s_trend.series_count();
+    bytes = (size_t)series * s_trend.points() * (sizeof(float) + sizeof(uint16_t));
+}
+
+// SI value of the trend's binding (const/local are display units already).
+static double trend_si(const MetricBinding &m, const boat::View &d) {
+    if (m.source != MetricSource::None) return metric_si(m.source, d);
+    if (m.value_kind != BindKind::PathBind) return bound_value(m, d);
+    if (!m.path || !m.path[0] || !s_dynamic_resolver) return NAN;
+    return s_dynamic_resolver(m.path, d);
+}
+
+// SI -> display units: the same conversion the hero number uses.
+static double trend_display(const MetricBinding &m, double si) {
+    if (isnan(si)) return NAN;
+    if (m.source != MetricSource::None) return metric_display_from_si(m.source, si);
+    if (m.value_kind != BindKind::PathBind) return si;
+    return convert_si_display(si, m.unit);
+}
+
+// Series key (path + agg + window share a series) and the backfill path
+// (nullptr for const/local bindings, which are never backfilled).
+static const char *trend_key(const MetricBinding &m, char *buf, size_t cap) {
+    const char *p = source_to_path(m.source);
+    if (p) return p;
+    if (m.value_kind == BindKind::LocalBind && m.local_id) {
+        snprintf(buf, cap, "local:%s", m.local_id);
+        return buf;
+    }
+    if (m.value_kind == BindKind::ConstBind) {
+        snprintf(buf, cap, "const:%g", (double)m.const_value);
+        return buf;
+    }
+    return (m.path && m.path[0]) ? m.path : nullptr;
+}
+
+static void trend_reset_chart(TrendTileState *ts) {
+    if (!ts || !ts->chart) return;
+    lv_chart_series_t *ser = lv_chart_get_series_next(ts->chart, NULL);
+    if (ser) lv_chart_set_all_values(ts->chart, ser, LV_CHART_POINT_NONE);
+    if (ts->lbl_hi) lv_obj_add_flag(ts->lbl_hi, LV_OBJ_FLAG_HIDDEN);
+    if (ts->lbl_lo) lv_obj_add_flag(ts->lbl_lo, LV_OBJ_FLAG_HIDDEN);
+    ts->hi_txt[0] = ts->lo_txt[0] = 0;
+    ts->last_ver = 0;
+    ts->last_head = INT64_MIN;
+    ts->last_draw_ms = 0;
+}
+
+static void trend_release() {
+    s_trend.release_all();
+    s_trend_owner = nullptr;
+    if (s_trend_gen && s_trend_ops && s_trend_ops->begin) s_trend_ops->begin();  // cancel
+    s_trend_gen = 0;
+}
+
+void trend_screen_changed() {
+    if (s_trend_owner && lv_screen_active() != s_trend_owner) trend_release();
+}
+
+static void trend_root_deleted_cb(lv_event_t *e) {
+    if ((lv_obj_t *)lv_event_get_target(e) == s_trend_owner) trend_release();
+}
+
+static TrendTileState *trend_state(const TileState &t) {
+    if (t.kind != WidgetKind::Trend || !t.aux) return nullptr;
+    return (TrendTileState *)lv_obj_get_user_data(t.aux);
+}
+
 static void paint_trend_body(TileState &t, const MetricBinding &m, int w, int h) {
     // Current reading: hero number, upper third of the tile.
     // Value + format.unit share a bottom-aligned flex row, like a
@@ -2243,7 +2362,7 @@ static void paint_trend_body(TileState &t, const MetricBinding &m, int w, int h)
         lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
     }
 
-    // Sparkline fills the lower half of the tile.
+    // Chart fills the lower half of the tile: one point per history bucket.
     int chart_w = w - 24;
     int chart_h = h / 2 - 12;
     if (chart_h < 36) chart_h = 36;
@@ -2251,9 +2370,9 @@ static void paint_trend_body(TileState &t, const MetricBinding &m, int w, int h)
     lv_obj_set_size(chart, chart_w, chart_h);
     lv_obj_align(chart, LV_ALIGN_BOTTOM_MID, 0, -10);
     lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
-    lv_chart_set_point_count(chart, 30);
+    lv_chart_set_point_count(chart, (uint32_t)midl_gen::HISTORY_POINTS);
     lv_chart_set_div_line_count(chart, 0, 0);
-    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
+    lv_chart_set_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, TREND_Y_SCALE);
     lv_chart_set_update_mode(chart, LV_CHART_UPDATE_MODE_SHIFT);
     lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(chart, 0, 0);
@@ -2267,10 +2386,151 @@ static void paint_trend_body(TileState &t, const MetricBinding &m, int w, int h)
     uint32_t accent = m.accent ? m.accent : theme.accent;
     lv_chart_series_t *s =
         lv_chart_add_series(chart, lv_color_hex(accent), LV_CHART_AXIS_PRIMARY_Y);
-    // Start empty so the line grows in from the right instead of sitting at 0.
+    // Before any data: an empty chart (every bucket a gap) and no labels.
     lv_chart_set_all_values(chart, s, LV_CHART_POINT_NONE);
     t.aux = chart;
-    t.last_aux_pct = -1;  // unset; first real sample always pushes
+    t.last_aux_pct = -1;
+
+    // y-range labels: max top-left, min bottom-left, dim, display units.
+    auto range_label = [&](lv_align_t al) {
+        lv_obj_t *l = lv_label_create(t.root);
+        lv_label_set_text(l, "");
+        lv_obj_set_style_text_font(l, &font_b612_14, 0);
+        lv_obj_set_style_text_color(l, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_clear_flag(l, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align_to(l, chart, al, 0, 0);
+        return l;
+    };
+    TrendTileState *ts =
+        (TrendTileState *)heap_caps_calloc(1, sizeof(TrendTileState), MALLOC_CAP_SPIRAM);
+    if (!ts) return;  // number only; update finds no state
+    ts->series = -1;
+    ts->chart = chart;
+    ts->lbl_hi = range_label(LV_ALIGN_TOP_LEFT);
+    ts->lbl_lo = range_label(LV_ALIGN_BOTTOM_LEFT);
+    ts->last_head = INT64_MIN;
+    lv_obj_set_user_data(chart, ts);
+    lv_obj_add_event_cb(chart, free_user_data_cb, LV_EVENT_DELETE, nullptr);
+}
+
+// Bind the shown screen's trend tiles to fresh series and queue their
+// backfill (one request per series). Drops the previous screen's series.
+static void trend_activate(lv_obj_t *root, TileState *const *tiles, int count,
+                           const ScreenVariantSpec &spec) {
+    trend_release();
+    s_trend_owner = root;
+    bool any = false;
+    for (int i = 0; i < count; ++i)
+        if (trend_state(*tiles[i])) any = true;
+    if (!any || !trend_store_ready()) return;
+    if (s_trend_ops && s_trend_ops->begin) s_trend_gen = s_trend_ops->begin();
+    for (int i = 0; i < count; ++i) {
+        TrendTileState *ts = trend_state(*tiles[i]);
+        if (!ts || tiles[i]->idx < 0 || tiles[i]->idx >= spec.metric_count) continue;
+        const MetricBinding &m = spec.metrics[tiles[i]->idx];
+        trend_reset_chart(ts);
+        char kbuf[trend::KEY_MAX];
+        const char *key = trend_key(m, kbuf, sizeof(kbuf));
+        uint32_t window =
+            trend::effective_window(m.history_window_s, (uint32_t)midl_gen::HISTORY_MAX_WINDOW_S);
+        trend::Agg agg =
+            (trend::Agg)(m.history_agg <= (uint8_t)trend::Agg::Last ? m.history_agg : 0);
+        bool created = false;
+        int sidx = key ? s_trend.acquire(key, agg, window, &created) : -1;
+        ts->series = (int8_t)sidx;
+        ts->primary = created;
+        // Over maxSeries (or no binding): the tile shows the number only.
+        if (sidx < 0) {
+            lv_obj_add_flag(ts->chart, LV_OBJ_FLAG_HIDDEN);
+            continue;
+        }
+        lv_obj_clear_flag(ts->chart, LV_OBJ_FLAG_HIDDEN);
+        const char *bf_path = source_to_path(m.source);
+        if (!bf_path && m.value_kind == BindKind::PathBind && m.path && m.path[0]) bf_path = m.path;
+        if (created && bf_path && s_trend_gen && s_trend_ops && s_trend_ops->enqueue)
+            s_trend_ops->enqueue(s_trend_gen, (uint8_t)sidx, bf_path, agg, window,
+                                 s_trend.series(sidx)->step_s);
+    }
+    net::logf("[trend] screen %p: %d series x %u points", (void *)root, s_trend.series_count(),
+              (unsigned)s_trend.points());
+}
+
+// Merge a finished backfill (at most one per refresh) into its series.
+static void trend_poll_backfill() {
+    if (!s_trend_gen || !s_trend_ops || !s_trend_ops->poll) return;
+    trend::backfill::Result r;
+    if (!s_trend_ops->poll(s_trend_gen, r)) return;
+    int n = s_trend.merge_backfill(r.series, r.t_resp_s, r.age, r.val, r.n);
+    if (s_trend_ops->done) s_trend_ops->done();
+    net::logf("[trend] backfill merged series %u: %d bucket(s) from %d row(s)", (unsigned)r.series,
+              n, r.n);
+}
+
+static void trend_draw(TrendTileState *ts, const MetricBinding &m) {
+    const int P = s_trend.points();
+    int s = ts->series;
+    for (int i = 0; i < P; ++i) {
+        float v = s_trend.value_at(s, i);
+        s_trend_disp[i] = isnan(v) ? NAN : (float)trend_display(m, v);
+    }
+    double lo = 0, hi = 0;
+    bool have = trend::auto_range(s_trend_disp, P, lo, hi);  // false: no data yet
+    if (have && m.range_min != m.range_max) {
+        lo = m.range_min;
+        hi = m.range_max;
+    }
+    lv_chart_series_t *ser = lv_chart_get_series_next(ts->chart, NULL);
+    if (!ser) return;
+    int32_t *y = lv_chart_get_y_array(ts->chart, ser);
+    if (!y) return;
+    double span = hi - lo;
+    for (int i = 0; i < P; ++i) {
+        float v = s_trend_disp[i];
+        if (!have || isnan(v) || !(span > 0)) {
+            y[i] = LV_CHART_POINT_NONE;
+            continue;
+        }
+        double f = (v - lo) / span;
+        if (f < 0) f = 0;
+        if (f > 1) f = 1;
+        y[i] = (int32_t)lround(f * TREND_Y_SCALE);
+    }
+    lv_chart_refresh(ts->chart);
+    if (!have) {
+        lv_obj_add_flag(ts->lbl_hi, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(ts->lbl_lo, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    int dp = m.precision >= 0 ? m.precision : (fabs(span) < 10.0 ? 1 : 0);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.*f", dp, hi);
+    ui::set_text_if_changed(ts->lbl_hi, ts->hi_txt, sizeof(ts->hi_txt), buf);
+    snprintf(buf, sizeof(buf), "%.*f", dp, lo);
+    ui::set_text_if_changed(ts->lbl_lo, ts->lo_txt, sizeof(ts->lo_txt), buf);
+    lv_obj_clear_flag(ts->lbl_hi, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(ts->lbl_lo, LV_OBJ_FLAG_HIDDEN);
+}
+
+// Per-refresh trend update: record the sample, scroll on the step, redraw
+// when the visible series changed (a scroll redraws at once; a change inside
+// the current bucket at most once per TREND_REDRAW_MS).
+static void update_trend(TileState &t, const MetricBinding &m, const boat::View &d, double now) {
+    TrendTileState *ts = trend_state(t);
+    if (!ts || ts->series < 0) return;
+    if (ts->primary)
+        s_trend.sample(ts->series, now, (float)trend_si(m, d));
+    else
+        s_trend.advance(ts->series, now);
+    const trend::Series *se = s_trend.series(ts->series);
+    if (!se || se->version == ts->last_ver) return;
+    uint32_t ms = lv_tick_get();
+    bool scrolled = se->head != ts->last_head;
+    if (!scrolled && ts->last_draw_ms && ms - ts->last_draw_ms < TREND_REDRAW_MS) return;
+    trend_draw(ts, m);
+    ts->last_ver = se->version;
+    ts->last_head = se->head;
+    ts->last_draw_ms = ms ? ms : 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -4762,6 +5022,7 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
     // push / theme switch) — without this every rebuild leaked one
     // FreeformState per screen.
     lv_obj_add_event_cb(root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
+    lv_obj_add_event_cb(root, trend_root_deleted_cb, LV_EVENT_DELETE, nullptr);
     return root;
 }
 
@@ -4770,6 +5031,17 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
     auto *st = (FreeformState *)lv_obj_get_user_data(root);
     if (!st) return;
     s_fmt = config::format();  // snapshot display formatting for this refresh
+    // Trend history records only for the screen on display: (re)bind its
+    // series when this root becomes the shown one. Every refresh merges at
+    // most one finished backfill.
+    if (s_trend_owner != root) {
+        TileState *tiles[FREEFORM_MAX_TILES];
+        for (int i = 0; i < st->count; ++i)
+            tiles[i] = &st->tiles[i].tile;
+        trend_activate(root, tiles, st->count, spec);
+    }
+    trend_poll_backfill();
+    const double trend_now = trend_now_s();
 
     for (int i = 0; i < st->count; ++i) {
         TileState &t = st->tiles[i].tile;
@@ -4868,26 +5140,12 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
             update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
                                t.sector_last_hidden);
             break;
-        case WidgetKind::Trend: {
-            // Hero number is the live reading; the
-            // sparkline gets one normalized 0..100 sample on value-change.
+        case WidgetKind::Trend:
+            // Hero number is the live reading; the chart is the time-windowed
+            // history of the same value (update_trend).
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
-            if (t.aux) {
-                double frac = binding_unit_fraction(m, metric_scalar(m, data));
-                if (!isnan(frac)) {
-                    int v = (int)(frac * 100.0 + 0.5);
-                    if (v != t.last_aux_pct) {
-                        lv_chart_series_t *s = lv_chart_get_series_next(t.aux, NULL);
-                        if (s) {
-                            lv_chart_set_next_value(t.aux, s, v);
-                            lv_chart_refresh(t.aux);
-                        }
-                        t.last_aux_pct = v;
-                    }
-                }
-            }
+            update_trend(t, m, data, trend_now);
             break;
-        }
         case WidgetKind::Clinometer:
             update_clinometer(t, m, data);
             break;

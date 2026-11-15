@@ -12,4 +12,9 @@ namespace midl_gen {
 inline constexpr const char *CLASS_ID = "landscape-800x480";
 inline constexpr int MAX_TILES = 6;
 inline constexpr int MAX_DEPTH = 3;
+// Trend history (midl docs/specs/2026-11-15-trend-history.md): points per
+// chart, trend tiles with history per screen, longest window.
+inline constexpr int HISTORY_POINTS = 120;
+inline constexpr int HISTORY_MAX_SERIES = 6;
+inline constexpr long HISTORY_MAX_WINDOW_S = 86400;
 }  // namespace midl_gen
