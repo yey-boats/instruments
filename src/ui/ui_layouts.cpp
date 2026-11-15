@@ -272,6 +272,7 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
             out.add("navigation.speedOverGround");
             out.add("navigation.courseRhumbline.bearingTrackTrue");
             out.add("steering.autopilot.target.headingTrue");
+            out.add("steering.autopilot.state");  // mode badge (d.apState)
             out.add("steering.rudderAngle");
             out.add("environment.depth.belowKeel");
             out.add("navigation.speedThroughWater");
@@ -321,6 +322,10 @@ void set_dynamic_resolver(DynamicResolveFn fn) {
 static LocalResolveFn s_local_resolver = nullptr;
 void set_local_resolver(LocalResolveFn fn) {
     s_local_resolver = fn;
+}
+static LocalTextResolveFn s_local_text_resolver = nullptr;
+void set_local_text_resolver(LocalTextResolveFn fn) {
+    s_local_text_resolver = fn;
 }
 
 // Display value of a const/local binding; NaN for PathBind (caller handles) or
@@ -667,6 +672,9 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
         if (m.value_kind == BindKind::ConstBind && m.const_text && m.const_text[0]) {
             // Const STRING literal: rendered verbatim (Text/Button captions).
             snprintf(primary, pcap, "%s", m.const_text);
+        } else if (m.value_kind == BindKind::LocalBind && m.local_id && s_local_text_resolver &&
+                   s_local_text_resolver(m.local_id, primary, pcap)) {
+            // Text-valued local id (net.ip, sk.state, ...): rendered verbatim.
         } else if (m.value_kind != BindKind::PathBind) {
             // Const numeric / local device metric. Display units already; only
             // format.decimals applies (const default: %g renders the literal
@@ -3099,12 +3107,12 @@ static void on_engage_short(lv_event_t *e) {
     put_state(engaged ? "standby" : st->s_last_engage);
 }
 
-// HOME chip handler: post ShowScreen "dashboard" (mirrors tile_clicked_cb).
+// HOME chip handler: post ShowScreen "home" (the index defaultScreen) (mirrors tile_clicked_cb).
 static void on_home(lv_event_t *e) {
     (void)e;
     app::Command c;
     c.type = app::CommandType::ShowScreen;
-    strncpy(c.a, "dashboard", sizeof(c.a) - 1);
+    strncpy(c.a, "home", sizeof(c.a) - 1);  // index defaultScreen
     c.t_post_us = micros();
     app::post(c, 0);
 }
@@ -3624,12 +3632,12 @@ static bool set_sector(lv_obj_t *a, double t0, double t1, int *last_s, int *last
     return true;
 }
 
-// HOME chip handler: post ShowScreen "dashboard" (mirrors aphud::on_home).
+// HOME chip handler: post ShowScreen "home" (the index defaultScreen) (mirrors aphud::on_home).
 static void on_home(lv_event_t *e) {
     (void)e;
     app::Command c;
     c.type = app::CommandType::ShowScreen;
-    strncpy(c.a, "dashboard", sizeof(c.a) - 1);
+    strncpy(c.a, "home", sizeof(c.a) - 1);  // index defaultScreen
     c.t_post_us = micros();
     app::post(c, 0);
 }
@@ -3749,7 +3757,7 @@ static WindSteerState *build(lv_obj_t *parent, int w, int h, uint32_t engaged_rg
     lv_obj_center(st->lbl_engage);
     lv_obj_add_event_cb(st->btn_engage, on_engage_short, LV_EVENT_SHORT_CLICKED, st);
 
-    // --- HOME chip (top-RIGHT): posts ShowScreen "dashboard" ---
+    // --- HOME chip (top-RIGHT): posts ShowScreen "home" ---
     lv_obj_t *btn_home = lv_button_create(r);
     lv_obj_set_size(btn_home, 110, 40);
     lv_obj_align(btn_home, LV_ALIGN_TOP_RIGHT, -8, 8);

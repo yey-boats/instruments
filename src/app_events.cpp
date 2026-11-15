@@ -26,6 +26,7 @@
 #include "screens.h"
 #include "config_runtime.h"
 #include "build_config.h"
+#include "midl_store.h"
 
 namespace app {
 
@@ -193,7 +194,7 @@ static void remember_midl_doc(const char *bytes, size_t len, const char *sid) {
     s_layout_applied = false;
 }
 
-#ifndef YEYBOATS_MIDL_ONLY
+#if YEYBOATS_LEGACY_SCREENS
 // Mirror of main.cpp setup()'s screen registration (ids/titles/builders/
 // hidden flags and order must stay in lockstep). All lazy: after a theme
 // flip only the screen being shown rebuilds now, the rest on first visit.
@@ -238,10 +239,15 @@ static void register_boot_screens() {
                              true);
 #endif  // BOARD_ID_WAVESHARE_KNOB_1_8
 }
-#endif  // !YEYBOATS_MIDL_ONLY
+#endif  // YEYBOATS_LEGACY_SCREENS
 
 // Rebuild the built screens after a palette flip. UI/LVGL task only.
 static void retheme_screens() {
+#if YEYBOATS_MIDL_RECORDS
+    // MIDL records: re-render the active record (and rebuild the system
+    // screens lazily) with the new palette, staying on the current screen.
+    midl::store_ui::rebuild();
+#else
     // The current id points into the registry we are about to reset — copy it.
     char cur[32] = "";
     strncpy(cur, ui::current_id(), sizeof(cur) - 1);
@@ -258,24 +264,16 @@ static void retheme_screens() {
         if (!midl_set) net::logf("[app] retheme: midl re-apply failed");
     }
     if (!midl_set) {
-#ifdef YEYBOATS_MIDL_ONLY
-        // MIDL-only boot renders the baked demo doc directly from setup(),
-        // bypassing the pump — rebuild from the same baked doc.
-        JsonDocument doc(&yeyboats::psram_json);
-        if (deserializeJson(doc, midl::demo::SQUARE_480_JSON) == DeserializationError::Ok) {
-            midl_set = midl::render::apply_doc(doc.as<JsonVariantConst>(), nullptr);
-        }
-#else
         // Classic boot set: drop every built root and re-register lazily.
-        ui::reset_screens();
+        ui::reset_screens(true);
         register_boot_screens();
-#endif
     }
     // Editor layout screens replace matching ids in place (same entry point
     // as the ApplyLayout pump case / layout-fetch).
     if (s_layout_applied) ui::layout_render::apply();
     // Return to where the user was; the apply/registration default otherwise.
     if (!ui::show_by_id(cur) && !midl_set) ui::show(0);
+#endif
     // lv_layer_top() overlays (MOB, alarm banner) are not part of any screen,
     // so the rebuild above never reaches them: repaint them in place (#67).
     ui::overlay_restyle();
@@ -308,29 +306,56 @@ void pump() {
             // screen must RETURN to the launching screen, not navigate to a
             // sibling. The zoom is a hidden registered screen, so the swipe
             // detector's next()/prev() would skip past it and up=settings /
-            // down=dashboard would navigate away. Intercept the swipe-nav verbs
-            // (next/prev/settings/dashboard) here: if the zoom view is current,
+            // down=home would navigate away. Intercept the swipe-nav verbs
+            // (next/prev/settings/home) here: if the zoom view is current,
             // dismiss_zoom() returns to the captured return id and we stop. A
             // direct id nav is left alone. Runs on the UI task (this pump), so
             // dismiss_zoom()'s ui::show is safe. Tap-to-return is unaffected
             // (it fires zoom_back_cb on LV_EVENT_CLICKED, not a ShowScreen).
+            bool going_home = (strcmp(id, "home") == 0);
+#if YEYBOATS_LEGACY_SCREENS
+            if (strcmp(id, "dashboard") == 0) going_home = true;  // legacy home
+#endif
             bool swipe_nav = (strcmp(id, "next") == 0 || strcmp(id, "prev") == 0 ||
-                              strcmp(id, "settings") == 0 || strcmp(id, "dashboard") == 0);
+                              strcmp(id, "settings") == 0 || going_home);
             if (swipe_nav && midl::render::dismiss_zoom()) break;
             // Track the screen the user was on before opening settings so
-            // a "close settings" swipe-down (which posts "dashboard")
-            // returns to that screen instead of always Dashboard.
-            static int s_prev_before_settings = -1;
+            // a "close settings" swipe-down (which posts "home") returns to
+            // that screen instead of always going home. Kept by id: a record
+            // switch while settings is open re-indexes the registry.
+            static char s_prev_before_settings[32] = "";
             const char *cur = ui::current_id();
             bool on_settings = (cur && strcmp(cur, "settings") == 0);
             bool going_settings = (strcmp(id, "settings") == 0);
-            bool going_dashboard = (strcmp(id, "dashboard") == 0);
             if (going_settings && !on_settings) {
-                s_prev_before_settings = ui::current_index();
+                strncpy(s_prev_before_settings, cur ? cur : "", sizeof(s_prev_before_settings) - 1);
             }
-            if (going_dashboard && on_settings && s_prev_before_settings >= 0) {
-                ui::show(s_prev_before_settings);
-                s_prev_before_settings = -1;
+            if (going_home && on_settings && s_prev_before_settings[0]) {
+                char back[32];
+                memcpy(back, s_prev_before_settings, sizeof(back));
+                s_prev_before_settings[0] = 0;
+#if YEYBOATS_MIDL_RECORDS
+                if (!midl::store_ui::show(back)) midl::store_ui::home();
+#else
+                if (!ui::show_by_id(back)) ui::show(0);
+#endif
+                break;
+            }
+#if YEYBOATS_MIDL_RECORDS
+            if (strcmp(id, "next") == 0) {
+                midl::store_ui::next();
+            } else if (strcmp(id, "prev") == 0) {
+                midl::store_ui::prev();
+            } else if (going_home) {
+                midl::store_ui::home();
+            } else if (isdigit((unsigned char)id[0])) {
+                ui::show(atoi(id));
+            } else {
+                midl::store_ui::show(id);  // loads the owning record when needed
+            }
+#else
+            if (going_home) {
+                ui::show_by_id("dashboard");
             } else if (strcmp(id, "next") == 0) {
                 ui::next();
             } else if (strcmp(id, "prev") == 0) {
@@ -340,10 +365,24 @@ void pump() {
             } else {
                 ui::show_by_id(id);
             }
+#endif
+            break;
+        }
+        case CommandType::MidlActivate: {
+#if YEYBOATS_MIDL_RECORDS
+            midl::store_ui::activate(cmd.a, cmd.i == 1 ? nullptr : cmd.b);
+#endif
             break;
         }
         case CommandType::ApplyLayout: {
+#if YEYBOATS_MIDL_RECORDS
+            // MIDL-only display (docs/midl/midl-only.md): editor layouts are
+            // not rendered. The blob is freed below.
+            net::logf("[app] apply_layout ignored (MIDL records build)");
+            if (false) {
+#else
             if (cmd.blob && cmd.blob_len) {
+#endif
                 bool ok = layout::apply_json((const char *)cmd.blob, cmd.blob_len);
                 net::logf("[app] apply_layout %u bytes -> %s", (unsigned)cmd.blob_len,
                           ok ? "ok" : "fail");
@@ -432,10 +471,10 @@ void pump() {
             // hand it to manager_screens::apply() and free below.
             if (cmd.blob) {
                 const auto *plan_p = static_cast<const manager_config::RenderPlan *>(cmd.blob);
-#ifndef YEYBOATS_MIDL_ONLY
+#if YEYBOATS_LEGACY_SCREENS
                 manager_screens::apply(*plan_p);
 #else
-                (void)plan_p;  // MIDL-only boot: ignore manager screens (blob freed below)
+                (void)plan_p;  // MIDL records: ignore manager screens (blob freed below)
 #endif
             }
             break;
@@ -487,18 +526,34 @@ void pump() {
             // Enter). Priority 1: a MIDL fullscreen-zoom overlay eats the
             // press as a dismiss, same as the swipe-nav intercept above.
             if (midl::render::dismiss_zoom()) break;
-            // Otherwise: a simple toggle to/from the dashboard, mirroring
-            // the settings return-tracking above (remember where we came
-            // from, then hop back on the next Select).
-            static int s_prev_before_select = -1;
+            // Otherwise: a simple toggle to/from home (the index
+            // defaultScreen), remembering where we came from (by id: a record
+            // switch re-indexes the registry), then hop back on the next Select.
+            static char s_prev_before_select[32] = "";
             const char *cur = ui::current_id();
-            bool on_dashboard = (cur && strcmp(cur, "dashboard") == 0);
-            if (!on_dashboard) {
-                s_prev_before_select = ui::current_index();
-                ui::show_by_id("dashboard");
-            } else if (s_prev_before_select >= 0) {
-                ui::show(s_prev_before_select);
-                s_prev_before_select = -1;
+#if YEYBOATS_MIDL_RECORDS
+            char home_id[midl::records::SCREEN_ID_LEN], owner[midl::records::ID_LEN];
+            midl::store::home(home_id, sizeof(home_id), owner, sizeof(owner));
+#else
+            const char *home_id = "dashboard";
+#endif
+            bool on_home = (cur && strcmp(cur, home_id) == 0);
+            if (!on_home) {
+                strncpy(s_prev_before_select, cur ? cur : "", sizeof(s_prev_before_select) - 1);
+#if YEYBOATS_MIDL_RECORDS
+                midl::store_ui::home();
+#else
+                ui::show_by_id(home_id);
+#endif
+            } else if (s_prev_before_select[0]) {
+                char back[32];
+                memcpy(back, s_prev_before_select, sizeof(back));
+                s_prev_before_select[0] = 0;
+#if YEYBOATS_MIDL_RECORDS
+                midl::store_ui::show(back);
+#else
+                ui::show_by_id(back);
+#endif
             }
             break;
         }

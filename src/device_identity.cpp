@@ -1,4 +1,6 @@
 #include "device_identity.h"
+#include "build_config.h"
+#include "midl_store.h"
 
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -186,6 +188,11 @@ void to_json_doc(JsonDocument &doc) {
     touch["controller"] = board::touch_kind_name(bc.touch);
     touch["interrupt"] = bc.touch_interrupt;
 
+#if YEYBOATS_MIDL_RECORDS
+    // MIDL-only display (docs/midl/midl-only.md): the screen capability is the
+    // MIDL class manifest (GET /api/midl/manifest) + record push/pull.
+    midl::store::identity_caps(caps["midl"].to<JsonObject>());
+#else
     // Widget capability flags. Maps directly to the 10 spec-11
     // templates + future map support.
     JsonObject widgets = caps["widgets"].to<JsonObject>();
@@ -200,6 +207,7 @@ void to_json_doc(JsonDocument &doc) {
     widgets["autopilot"] = true;  // ControlConsole
     widgets["map"] = false;
 
+#endif
     // Compiled font sizes. Hardcoded to match the LVGL fonts the
     // firmware actually links (font_b612_*, tools/fonts/gen_fonts.sh) -
     // keep this array in sync with the generated sizes.
@@ -213,6 +221,7 @@ void to_json_doc(JsonDocument &doc) {
     JsonArray families = fonts["families"].to<JsonArray>();
     families.add("default");  // B612
 
+#if YEYBOATS_LEGACY_SCREENS
     JsonObject layout = caps["layout"].to<JsonObject>();
     layout["grid"] = true;       // QuadGrid, StatusList, ControlConsole
     layout["absolute"] = false;  // not in v1
@@ -221,6 +230,7 @@ void to_json_doc(JsonDocument &doc) {
     if (g.layout_class == board::LayoutClass::LandscapeWide) {
         variants.add("landscape-800x480");
     }
+#endif
 }
 
 }  // namespace device_identity

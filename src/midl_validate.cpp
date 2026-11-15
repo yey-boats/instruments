@@ -580,7 +580,7 @@ bool structural(Ctx &c, JsonVariantConst doc) {
 bool requires_value(const char *type, bool &registered) {
     static const char *const VALUE_TYPES[] = {"single-value", "text",      "gauge",   "bar",
                                               "trend",        "autopilot", "compass", "windrose",
-                                              "clinometer",   nullptr};
+                                              "clinometer",   "windsteer", nullptr};
     registered = one_of(type, VALUE_TYPES) || !strcmp(type, "button");
     return one_of(type, VALUE_TYPES);
 }

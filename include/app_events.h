@@ -19,7 +19,7 @@ namespace app {
 
 enum class CommandType : uint8_t {
     None = 0,
-    ShowScreen,     // a = id ("wind", "next", "prev") or numeric
+    ShowScreen,     // a = id ("wind", "next", "prev", "home") or numeric
     ApplyLayout,    // blob = JSON bytes; blob_len = length; consumer frees
     SetTheme,       // a = "day" or "night"
     SetBrightness,  // i = 0..255
@@ -34,7 +34,9 @@ enum class CommandType : uint8_t {
     Knob,                 // i = knob::Event value; b[0] = '1' if button held during detent
     ConfigApplyMidl,      // blob = MIDL JSON bytes; a = screen_id (or "" -> "midl"); consumer frees
     Select,               // "OK/Enter" verb: dismiss an active MIDL zoom overlay; else
-                          // toggle between the current screen and the dashboard.
+                          // toggle between the current screen and home.
+    MidlActivate,         // a = record id ("" = owner of the home screen), b = screen id;
+                          // i = 1: keep the current screen when still present (b ignored).
 };
 
 struct Command {

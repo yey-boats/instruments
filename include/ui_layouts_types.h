@@ -416,6 +416,12 @@ void set_dynamic_resolver(DynamicResolveFn fn);  // defined in ui_layouts.cpp
 using LocalResolveFn = double (*)(const char *id);
 void set_local_resolver(LocalResolveFn fn);  // defined in ui_layouts.cpp
 
+// Text-valued local ids (net.ip, sk.state, sys.uptime, ... see
+// midl_local_ids.h). Returns true and fills `out` when `id` is a text id; the
+// painter then renders the text verbatim. Tried before the numeric resolver.
+using LocalTextResolveFn = bool (*)(const char *id, char *out, size_t cap);
+void set_local_text_resolver(LocalTextResolveFn fn);  // defined in ui_layouts.cpp
+
 // ---------------------------------------------------------------------------
 // Pure presentation helpers shared by the MIDL mapper, the painters, and the
 // native unit tests (header-inline so no extra TU joins any build filter).

@@ -39,6 +39,7 @@
 #include "midl_kinds.h"
 #include "midl_validate.h"
 #include "midl_demo_doc.h"
+#include "midl_store.h"
 #include "web_auth_policy.h"
 #include "web_pw.h"
 #include "web_pw_store.h"
@@ -726,7 +727,236 @@ static void handle_midl_manifest() {
     server.send(200, "application/json", midl_manifest::JSON);
 }
 
-// ---- MIDL current-doc store --------------------------------------------
+static void send_err(int code, const char *msg) {
+    JsonDocument doc(&yeyboats::psram_json);
+    doc["ok"] = false;
+    doc["error"] = msg;
+    send_json(code, doc);
+}
+
+#if YEYBOATS_MIDL_RECORDS
+// ---- MIDL records push API (docs/midl/midl-only.md) ----------------------
+// The display renders MIDL records only. Display Manager pushes records with
+// its device token (X-YeyBoats-Authorization: Bearer <manager device token>,
+// stored as source "manager"); a web Basic-auth write stores source "local".
+// Handlers run on the WebServer task: they validate + persist through
+// midl::store (mutex-guarded, PSRAM) and never touch LVGL — rendering is
+// queued to the UI task (app::CommandType::MidlActivate).
+
+constexpr size_t MIDL_BODY_MAX = midl::records::MAX_DOC_BYTES + 1024;  // {title, doc} envelope
+
+// Authenticate a MIDL write/read. A request carrying X-YeyBoats-Authorization
+// must present the manager device token (a wrong one is a 401: DM then falls
+// back to config.reload + pull); otherwise the web Basic-auth policy applies.
+static bool midl_auth(midl::records::Source &src) {
+    if (server.hasHeader("X-YeyBoats-Authorization") &&
+        server.header("X-YeyBoats-Authorization").length()) {
+        String h = server.header("X-YeyBoats-Authorization");
+        h.trim();
+        if (h.startsWith("Bearer ")) {
+            String tok = h.substring(7);
+            tok.trim();
+            // A valid device token wins even when Basic auth is sent too.
+            if (manager::device_token_matches(tok.c_str(), tok.length())) {
+                src = midl::records::Source::Manager;
+                return true;
+            }
+        }
+        // Bad/stale token: still a local write when valid Basic credentials
+        // came along; otherwise refuse (DM falls back to config.reload).
+        if (basic_auth_ok()) {
+            src = midl::records::Source::Local;
+            return true;
+        }
+        server.sendHeader("Cache-Control", "no-store");
+        server.send(401, "application/json", "{\"ok\":false,\"error\":\"bad_manager_token\"}");
+        return false;
+    }
+    if (!require_api_auth()) return false;
+    src = midl::records::Source::Local;
+    return true;
+}
+
+static void send_store_error(const midl::store::Result &r, const char *id) {
+    JsonDocument out(&yeyboats::psram_json);
+    out["ok"] = false;
+    out["error"] = r.code;
+    out["message"] = r.message;
+    if (id) out["record"] = id;
+    if (r.path[0]) out["path"] = r.path;
+    if (r.other[0]) {
+        out["conflictWith"] = r.other;
+        out["screen"] = r.screen;
+    }
+    send_json(r.http ? r.http : 500, out);
+}
+
+// Parse the request body into `doc` (PSRAM). Sends the error and returns
+// false on an empty / oversized / malformed body.
+static bool midl_read_body(JsonDocument &doc) {
+    if (!server.hasArg("plain") || server.arg("plain").length() == 0) {
+        send_err(400, "empty body");
+        return false;
+    }
+    const String &body = server.arg("plain");
+    if (body.length() > MIDL_BODY_MAX) {
+        send_err(413, "midl doc too large (48 KB max)");
+        return false;
+    }
+    DeserializationError perr = deserializeJson(doc, body.c_str(), body.length());
+    if (perr) {
+        String e = String("parse: ") + perr.c_str();
+        send_err(400, e.c_str());
+        return false;
+    }
+    return true;
+}
+
+// Store `doc` as record `id`, answer {ok,id,hash,screens}, optionally activate.
+static void midl_put(const char *id, const char *title, JsonVariantConst doc,
+                     midl::records::Source src, bool activate, const char *screen,
+                     const char *hash = nullptr) {
+    static midl::store::Result r;  // web callbacks run serially; keep off the stack
+    if (!midl::store::put_record(id, title, doc, src, r, hash)) {
+        send_store_error(r, id);
+        return;
+    }
+    if (activate) midl::store::request_activate(id, screen ? screen : "");
+    JsonDocument out(&yeyboats::psram_json);
+    out["ok"] = true;
+    out["id"] = id;
+    out["hash"] = r.hash;
+    out["source"] = midl::records::source_name(src);
+    JsonArray sc = out["screens"].to<JsonArray>();
+    for (JsonVariantConst s : doc["screens"].as<JsonArrayConst>())
+        if (s["id"].is<const char *>()) sc.add(s["id"].as<const char *>());
+    send_json(200, out);
+}
+
+// GET /api/midl/records
+static void handle_midl_records_list() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    JsonDocument out(&yeyboats::psram_json);
+    midl::store::list_json(out.to<JsonObject>());
+    send_json(200, out);
+}
+
+// GET|PUT|DELETE /api/midl/records/<id> (routed from onNotFound).
+static void handle_midl_record() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    String id = server.uri().substring(strlen("/api/midl/records/"));
+    if (!midl::records::valid_id(id.c_str())) {
+        send_err(400, "record id must match [a-z0-9_-]{1,32}");
+        return;
+    }
+    if (server.method() == HTTP_GET) {
+        String body;
+        if (!midl::store::record_json(id.c_str(), body)) {
+            send_err(404, "no such record");
+            return;
+        }
+        send_json(200, body);
+        return;
+    }
+    if (server.method() == HTTP_DELETE) {
+        static midl::store::Result r;
+        if (!midl::store::delete_record(id.c_str(), r)) {
+            send_store_error(r, id.c_str());
+            return;
+        }
+        JsonDocument out(&yeyboats::psram_json);
+        out["ok"] = true;
+        out["id"] = id;
+        send_json(200, out);
+        return;
+    }
+    // PUT {title, doc, hash?}; ?activate=1&screen=<sid>
+    JsonDocument body(&yeyboats::psram_json);
+    if (!midl_read_body(body)) return;
+    String screen = server.hasArg("screen") ? server.arg("screen") : String();
+    bool activate = server.hasArg("activate") && server.arg("activate") != "0";
+    midl_put(id.c_str(), body["title"] | (const char *)nullptr, body["doc"], src, activate,
+             screen.length() ? screen.c_str() : nullptr, body["hash"] | (const char *)nullptr);
+}
+
+// GET|PUT /api/midl/index
+static void handle_midl_index_get() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    JsonDocument out(&yeyboats::psram_json);
+    JsonDocument all(&yeyboats::psram_json);
+    midl::store::list_json(all.to<JsonObject>());
+    out.set(all["index"]);
+    send_json(200, out);
+}
+
+static void handle_midl_index_put() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    JsonDocument body(&yeyboats::psram_json);
+    if (!midl_read_body(body)) return;
+    static midl::store::Result r;
+    if (!midl::store::put_index(body.as<JsonVariantConst>(), r)) {
+        send_store_error(r, nullptr);
+        return;
+    }
+    JsonDocument out(&yeyboats::psram_json);
+    out["ok"] = true;
+    out["indexHash"] = r.hash;
+    send_json(200, out);
+}
+
+// POST /api/midl/config: kept as an alias of PUT /api/midl/records/local
+// ?activate=1 with a bare MIDL doc as the body.
+static void handle_midl_config_post() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    JsonDocument doc(&yeyboats::psram_json);
+    if (!midl_read_body(doc)) return;
+    midl_put("local", nullptr, doc.as<JsonVariantConst>(), src, true, nullptr);
+}
+
+// GET /api/midl/config: the active record's doc.
+static void handle_midl_config_get() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    char act[midl::records::ID_LEN];
+    midl::store::active(act, sizeof(act));
+    String rec;
+    if (!act[0] || !midl::store::record_json(act, rec)) {
+        send_err(404, "no active record");
+        return;
+    }
+    JsonDocument d(&yeyboats::psram_json);
+    if (deserializeJson(d, rec)) {
+        send_err(500, "record unreadable");
+        return;
+    }
+    String out;
+    serializeJson(d["doc"], out);
+    send_json(200, out);
+}
+
+// POST /api/midl/reset?to=factory: delete /midl/ and render the embedded default.
+static void handle_midl_reset() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    String to = server.hasArg("to") ? server.arg("to") : String("factory");
+    if (to != "factory" && to != "default") {
+        send_err(400, "to must be 'factory'");
+        return;
+    }
+    midl::store::factory_reset();
+    JsonDocument out(&yeyboats::psram_json);
+    out["ok"] = true;
+    out["reset"] = "factory";
+    send_json(200, out);
+}
+
+#else  // YEYBOATS_LEGACY_SCREENS: the old RAM-only single-doc delivery
+// ---- MIDL current-doc store (legacy) --------------------------------------------
 // Holds the most-recently-applied MIDL document verbatim (and the one
 // before it) as PSRAM char* buffers, mirroring layout_loader.cpp's
 // s_last_json pattern. set_current rotates current -> previous so
@@ -821,13 +1051,6 @@ static int queue_midl_apply(const char *body, size_t len) {
         return 503;
     }
     return 0;
-}
-
-static void send_err(int code, const char *msg) {
-    JsonDocument doc(&yeyboats::psram_json);
-    doc["ok"] = false;
-    doc["error"] = msg;
-    send_json(code, doc);
 }
 
 // The embedded capability manifest (midl_manifest::JSON), parsed once into
@@ -956,6 +1179,8 @@ static void handle_midl_reset() {
     out["reset"] = "default";
     send_json(200, out);
 }
+
+#endif  // YEYBOATS_MIDL_RECORDS
 
 // ---- /api/layout (GET / PUT) -------------------------------------------
 
@@ -1954,6 +2179,11 @@ static void bind_routes() {
     server.on("/api/midl/config", HTTP_POST, handle_midl_config_post);
     server.on("/api/midl/config", HTTP_GET, handle_midl_config_get);
     server.on("/api/midl/reset", HTTP_POST, handle_midl_reset);
+#if YEYBOATS_MIDL_RECORDS
+    server.on("/api/midl/records", HTTP_GET, handle_midl_records_list);
+    server.on("/api/midl/index", HTTP_GET, handle_midl_index_get);
+    server.on("/api/midl/index", HTTP_PUT, handle_midl_index_put);
+#endif
     server.on("/api/dashboard/config.json", HTTP_GET, handle_dashboard_config_get_json);
     server.on("/api/dashboard/config.json", HTTP_PUT, handle_dashboard_config_put);
     server.on("/api/dashboard/config.yaml", HTTP_GET, handle_dashboard_config_get_yaml);
@@ -1966,7 +2196,20 @@ static void bind_routes() {
     server.on("/api/wifi/saved", HTTP_GET, handle_wifi_saved_get);
     server.on("/api/screenshot.bmp", HTTP_GET, handle_screenshot);
     server.on("/api/screenshot.png", HTTP_GET, handle_screenshot_png);
+    // Custom request headers WebServer must keep (Authorization is always
+    // collected): the manager device token on the MIDL records API.
+    static const char *kHeaders[] = {"X-YeyBoats-Authorization"};
+    server.collectHeaders(kHeaders, 1);
+
     server.onNotFound([]() {
+#if YEYBOATS_MIDL_RECORDS
+        if (server.uri().startsWith("/api/midl/records/") &&
+            (server.method() == HTTP_GET || server.method() == HTTP_PUT ||
+             server.method() == HTTP_DELETE)) {
+            handle_midl_record();
+            return;
+        }
+#endif
         if (server.method() == HTTP_POST && server.uri().startsWith("/api/screen/")) {
             handle_screen_set();
             return;

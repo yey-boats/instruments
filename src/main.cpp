@@ -50,6 +50,8 @@
 #include "storage.h"
 #include "midl_demo_doc.h"
 #include "midl_render.h"
+#include "midl_store.h"
+#include "trip_log.h"
 #include "psram_json.h"
 #include <math.h>
 #include <string.h>
@@ -755,7 +757,7 @@ static void detect_swipe_release(int16_t down_x, int16_t down_y, uint32_t down_m
             cmd = "settings";
             dir = "up";
         } else {
-            cmd = "dashboard";
+            cmd = "home";  // index defaultScreen
             dir = "down";
         }
     }
@@ -978,7 +980,7 @@ bool post_gesture(const char *dir) {
     else if (!strcmp(dir, "up"))
         cmd = "settings";
     else if (!strcmp(dir, "down"))
-        cmd = "dashboard";
+        cmd = "home";
     else
         return false;
     app::Command c;
@@ -1475,7 +1477,11 @@ void overlay_clear() {
 // ----- Demo / fps -------------------------------------------------------
 
 static void demo_tick(lv_timer_t *) {
+#if YEYBOATS_MIDL_RECORDS
+    midl::store_ui::next();  // walks the whole carousel, across records
+#else
     ui::next();
+#endif
 }
 
 static void demo_start(uint32_t period_ms) {
@@ -1505,7 +1511,11 @@ static void demo_stop() {
         g_demo_timer = nullptr;
     }
     if (g_demo_badge) lv_obj_add_flag(g_demo_badge, LV_OBJ_FLAG_HIDDEN);
+#if YEYBOATS_MIDL_RECORDS
+    midl::store_ui::home();
+#else
     ui::show(0);
+#endif
     net::logf("[demo] stopped");
 }
 
@@ -1903,6 +1913,16 @@ static void screen_gesture_handler(lv_event_t *e) {
         return;
     }
 
+#if YEYBOATS_MIDL_RECORDS
+    if (dir == LV_DIR_LEFT)
+        midl::store_ui::next();
+    else if (dir == LV_DIR_RIGHT)
+        midl::store_ui::prev();
+    else if (dir == LV_DIR_TOP)
+        ui::show_by_id("settings");
+    else if (dir == LV_DIR_BOTTOM)
+        midl::store_ui::home();
+#else
     if (dir == LV_DIR_LEFT)
         ui::next();
     else if (dir == LV_DIR_RIGHT)
@@ -1911,6 +1931,7 @@ static void screen_gesture_handler(lv_event_t *e) {
         ui::show_by_id("settings");
     else if (dir == LV_DIR_BOTTOM)
         ui::show(0);
+#endif
 }
 
 // ----- Command handler --------------------------------------------------
@@ -2103,6 +2124,17 @@ static bool handleMainCommand(const String &line) {
     if (line.startsWith("screen ")) {
         String v = line.substring(7);
         v.trim();
+#if YEYBOATS_MIDL_RECORDS
+        // Through the UI-task funnel: record-aware (loads the owning record),
+        // and safe from any caller task (serial/BLE/HTTP).
+        if (v.length()) {
+            app::Command c;
+            c.type = app::CommandType::ShowScreen;
+            strncpy(c.a, v.c_str(), sizeof(c.a) - 1);
+            app::post(c, 50);
+        }
+        return true;
+#endif
         if (v == "next") {
             ui::next();
         } else if (v == "prev") {
@@ -2310,6 +2342,7 @@ static void ui_refresh(lv_timer_t *) {
     uint32_t t = micros();
     app::pump();
     note_slow_section("ui:pump", micros() - t);
+    trip_log::tick();  // odometer integrates whatever screen is shown
 
     // SK-age channel: record how stale sk::data was at the moment the
     // active screen read it. Only sample when SK has produced at least
@@ -2570,7 +2603,8 @@ void setup() {
     // get allocated when the operator navigates to them, freeing boot heap
     // for SK websocket buffers and OTA. Once visited, the root is cached
     // for the session - no rebuild on subsequent visits.
-#ifndef YEYBOATS_MIDL_ONLY
+    trip_log::setup();  // screen-independent trip odometer (ticked in ui_refresh)
+#if YEYBOATS_LEGACY_SCREENS
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
     // Waveshare knob: dedicated round views only. The autopilot HUD is the
     // first/home view; the rotary menu (knob_ui) drives mode + view switching.
@@ -2621,22 +2655,31 @@ void setup() {
     ui::register_screen_lazy("demo_grid", "Demo Grid", ui::demo_grid::build, ui::demo_grid::refresh,
                              true);
 #endif  // BOARD_ID_WAVESHARE_KNOB_1_8 (else: Sunton screen registration)
-#else   // YEYBOATS_MIDL_ONLY
-    {
-        // MIDL-only boot: the device's UI is the baked MIDL demo doc.
-        // setup() runs on the LVGL/loop task, so building LVGL here is safe.
-        // apply_all() registers ALL screens in the doc (Dashboard/Navigation/
-        // Speed) so `screen <id|next|prev>` navigation works; it also shows the
-        // settings.defaultScreen ("dash"), so no explicit show_by_id is needed.
-        JsonDocument midlDoc(&yeyboats::psram_json);  // pool in PSRAM, not internal heap
-        if (deserializeJson(midlDoc, midl::demo::SQUARE_480_JSON) == DeserializationError::Ok) {
-            size_t n = midl::render::apply_all(midlDoc.as<JsonVariantConst>());
-            net::logf("[midl-only] apply_all registered %u screen(s)", (unsigned)n);
-        } else {
-            net::logf("[midl-only] baked doc parse failed");
-        }
-    }
-#endif  // YEYBOATS_MIDL_ONLY
+#else   // MIDL records (docs/midl/midl-only.md)
+    // System UI first: registered as SYSTEM screens so every MIDL apply
+    // (ui::reset_screens) keeps them; hidden, so never in the carousel.
+#if !defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    ui::register_screen_lazy("wifi", "WiFi Setup", ui::wifi_setup::build, ui::wifi_setup::refresh,
+                             true, true);
+    ui::register_screen_lazy("settings", "Settings", ui::settings::build, ui::settings::refresh,
+                             true, true);
+#if YEYBOATS_ENABLE_TOUCH_CAL_UI
+    ui::register_screen_lazy("touch_cal", "Touch Cal", ui::touch_cal_screen::build,
+                             ui::touch_cal_screen::refresh, true, true);
+#endif
+    ui::register_screen_lazy("touch_grid", "Touch Grid", ui::touch_grid_screen::build,
+                             ui::touch_grid_screen::refresh, true, true);
+#endif
+    // Content: the record store (embedded records + LittleFS records). Boot
+    // renders the record owning index.defaultScreen, with the fallback chain
+    // record -> LKG -> embedded -> default embedded. setup() runs on the
+    // loopTask before the LVGL task starts, so building LVGL here is safe.
+    midl::store::setup();
+    midl::store_ui::boot();
+#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
+    knob_ui::setup();  // rotary menu overlay + knob_remote registry (views = knob records)
+#endif
+#endif  // YEYBOATS_LEGACY_SCREENS
 
     // Attach the gesture handler to EVERY screen root via a post-build
     // hook. LVGL routes LV_EVENT_GESTURE to the currently loaded screen

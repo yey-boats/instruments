@@ -236,6 +236,11 @@ jobs:
       - name: Check test/fixtures/yb-midl/conformance/cases.json matches the pinned midl corpus
         run: python3 tools/gen_midl_conformance.py --check
 
+      # docs/midl/midl-only.md: the embedded built-in records must match the
+      # pinned midl/library/builtin files.
+      - name: Check include/midl_gen/*/builtin_records.h match the pinned midl library
+        run: python3 tools/embed_builtin_records.py --check
+
   midl-class-map:
     name: MIDL display class per env
     runs-on: ubuntu-latest

@@ -46,3 +46,16 @@
 #ifndef MANAGER_PROVISION_TOKEN
 #define MANAGER_PROVISION_TOKEN "yeyboats-dev"
 #endif
+
+// Screen pipeline (docs/midl/midl-only.md). The default build renders MIDL
+// RECORDS only: built-in screens are embedded MIDL records (the round-360
+// class, i.e. the Waveshare knob, gets the knob views ap_hud / knob_compass /
+// knob_wind / knob_big), Display Manager pushes/pulls records, and the
+// hand-written C++ content screens, the manager-config `layout`/`widgets`
+// (managed screens) and the editor layout pipeline are not used.
+// -D YEYBOATS_LEGACY_SCREENS=1 restores the old C++ screen registration +
+// managed screens (kept compiling until the removal follow-up).
+#ifndef YEYBOATS_LEGACY_SCREENS
+#define YEYBOATS_LEGACY_SCREENS 0
+#endif
+#define YEYBOATS_MIDL_RECORDS (!YEYBOATS_LEGACY_SCREENS)

@@ -2,6 +2,7 @@
 #include "ui_theme.h"
 #include "ui_data.h"
 #include "ui_screens.h"
+#include "app_events.h"
 #include "net.h"
 #include "theme_choice.h"
 
@@ -250,7 +251,12 @@ static void on_open_touch_cal(lv_event_t *e) {
 
 static void on_close(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ui::show_by_id("dashboard");
+    // "home" = the index defaultScreen (MIDL records); the funnel returns to
+    // the screen settings was opened from when there is one.
+    app::Command c;
+    c.type = app::CommandType::ShowScreen;
+    strncpy(c.a, "home", sizeof(c.a) - 1);
+    app::post(c, 0);
 }
 
 lv_obj_t *build(lv_obj_t *parent) {
