@@ -377,7 +377,7 @@ clean:  ## Remove build artifacts (keeps include/secrets.h)
         demo-up demo-down demo-up-remote demo-down-remote \
         server-setup server-sk-only server-status server-teardown \
         proto lint pre-commit hooks-install format backup release-tag clean \
-        gen-manifest check-catalog embed-manifest
+        gen-manifest check-catalog embed-manifest embed-records
 
 # MIDL catalog/generator now live in the midl/ submodule (yey-boats/midl);
 # these delegate so `make gen-manifest` / `make check-catalog` still work here.
@@ -389,3 +389,6 @@ check-catalog:
 
 embed-manifest:  ## Regenerate the per-class MIDL manifest/limits headers (include/midl_gen/)
 	python3 tools/embed_manifest.py
+
+embed-records:  ## Regenerate the per-class embedded built-in MIDL records (include/midl_gen/)
+	python3 tools/embed_builtin_records.py

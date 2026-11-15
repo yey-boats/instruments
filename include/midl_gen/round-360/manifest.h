@@ -16,7 +16,7 @@ inline constexpr const char *JSON = R"midljson({
       "maxTiles": 4,
       "maxDepth": 2,
       "presets": ["full", "hero-split"],
-      "elements": ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button", "clinometer"]
+      "elements": ["single-value", "text", "gauge", "bar", "compass", "windrose", "trend", "autopilot", "button", "clinometer", "windsteer"]
     }
   ],
   "elements": [
@@ -29,7 +29,8 @@ inline constexpr const char *JSON = R"midljson({
     { "type": "trend", "bindings": ["value"], "attrs": ["title", "size", "unit", "color"] },
     { "type": "autopilot", "bindings": ["value"], "attrs": ["title", "size", "color"] },
     { "type": "button", "bindings": [], "attrs": ["title", "size", "color"] },
-    { "type": "clinometer", "bindings": ["value"], "attrs": ["title", "format", "size", "unit", "color", "zones", "range"] }
+    { "type": "clinometer", "bindings": ["value"], "attrs": ["title", "format", "size", "unit", "color", "zones", "range"] },
+    { "type": "windsteer", "bindings": ["value", "dir"], "attrs": ["title", "format", "size", "unit", "color", "side", "sectors", "hull", "shape"], "glyphs": ["triangle", "diamond", "circle", "bar", "cross", "chevron_in", "chevron_out", "chevron_left", "chevron_right", "chevron_double"] }
   ],
   "sources": ["signalk", "local", "const"],
   "actionKinds": ["nav", "command", "put"],

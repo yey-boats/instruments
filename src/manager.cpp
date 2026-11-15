@@ -61,6 +61,10 @@ extern "C" const char *main_touch_mode();
 #include "source_nmea_wifi.h"
 #include "ui_data.h"
 #include "ui_screens.h"
+#include "build_config.h"
+#include "midl_store.h"
+#include "psram_static.h"
+#include "web_pw.h"
 
 namespace manager {
 
@@ -635,6 +639,16 @@ void build_status_body(JsonDocument &doc) {
     JsonObject ui_o = doc["ui"].to<JsonObject>();
     ui_o["uptime_ms"] = millis();
     ui_o["screen"] = ui::current_id();
+#if YEYBOATS_MIDL_RECORDS
+    // MIDL records (docs/midl/midl-only.md): ui.record = active record,
+    // ui.screens = every screen of the visible records in carousel order
+    // ({id,title,record}); `midl` = {version,class,indexHash,records[{id,hash,
+    // source}]} — what Display Manager diffs to decide what to push.
+    midl::store::heartbeat_ui(ui_o);
+    ui_o["theme"] = theme_name;
+    ui_o["brightness"] = ui::brightness();
+    midl::store::heartbeat_midl(doc["midl"].to<JsonObject>());
+#else
     // Full switchable-view list so the manager can offer the device's REAL
     // screens instead of a guessed/generated set (the firmware's loaded layout
     // can diverge from the manager-generated config). Non-hidden screens only:
@@ -662,6 +676,7 @@ void build_status_body(JsonDocument &doc) {
     // Capability manifest: per-view-type limits/attrs the layout editor gates
     // to. Self-describing so the manager needs no per-firmware-version table.
     capabilities::build_manifest(ui_o["capabilities"].to<JsonObject>());
+#endif
 
     JsonObject display_o = doc["display"].to<JsonObject>();
     display_o["width"] = g.width_px;
@@ -1694,7 +1709,77 @@ uint8_t *read_persisted_config(size_t *out_len) {
 //   new_version    : version label for this config
 //   new_hash       : hash for this config (drift key + reported hash)
 // Returns true iff apply_config honored every field.
+#if YEYBOATS_MIDL_RECORDS
+// ---- MIDL records pull (docs/midl/midl-only.md) ---------------------------
+// cfg["midl"] = {index:{order,defaultScreen,hidden}, records:[{id,title,hash,
+// url}]}. Records whose hash differs from the store are fetched (GET url,
+// relative to the manager endpoint, device-token auth) and stored as source
+// "manager"; manager records the block no longer lists are deleted; embedded
+// and local records are left alone. Worker task only (serial): the plan and
+// actions are function-static PSRAM blocks, never stack locals.
+bool fetch_midl_record(const midl::records::PullEntry &pe) {
+    if (!pe.url[0]) {
+        record_error("[mgr] midl record %s: no url", pe.id);
+        return false;
+    }
+    if (WiFi.status() != WL_CONNECTED || !manager_heap_ready("midl record")) return false;
+    HTTPClient http;
+    String url = strncmp(pe.url, "http", 4) == 0 ? String(pe.url) : build_url(pe.url);
+    if (!http.begin(url)) return false;
+    prepare_http(http);
+    int code = http.GET();
+    bool ok = false;
+    if (code == 200 &&
+        resp_within_cap(http, (int)midl::records::MAX_DOC_BYTES + 4096, "midl record")) {
+        JsonDocument r(&s_json_allocator);
+        if (deserialize_http_json(http, r, "midl record")) {
+            const char *rid = r["id"] | pe.id;
+            if (strcmp(rid, pe.id) != 0) {
+                record_error("[mgr] midl record %s: response names %s", pe.id, rid);
+            } else {
+                static midl::store::Result res;
+                ok = midl::store::put_record(pe.id, r["title"] | pe.title, r["doc"],
+                                             midl::records::Source::Manager, res,
+                                             r["hash"] | pe.hash);
+                if (!ok)
+                    record_error("[mgr] midl record %s rejected: %d %s %s", pe.id, res.http,
+                                 res.code, res.message);
+            }
+        }
+    } else {
+        record_error("[mgr] midl record %s fetch -> %d", pe.id, code);
+    }
+    http.end();
+    return ok;
+}
+
+void pull_midl_records(JsonVariantConst blk) {
+    static midl::records::PullPlan &plan = *yeyboats::psram_new<midl::records::PullPlan>();
+    static midl::records::PullActions &acts = *yeyboats::psram_new<midl::records::PullActions>();
+    static midl::records::Error err;
+    if (!midl::store::plan_pull(blk, plan, acts, err)) {
+        if (strcmp(err.code, "absent") != 0)
+            record_error("[mgr] config midl block rejected: %s", err.message);
+        return;
+    }
+    unsigned fetched = 0;
+    for (uint8_t i = 0; i < acts.fetch_count; ++i)
+        if (fetch_midl_record(plan.entries[acts.fetch[i]])) ++fetched;
+    static midl::store::Result res;
+    for (uint8_t i = 0; i < acts.remove_count; ++i)
+        midl::store::delete_record(acts.remove[i], res);
+    if (!midl::store::apply_pull_index(plan)) record_error("[mgr] midl index write failed");
+    net::logf("[mgr] midl pull: %u listed, %u/%u fetched, %u removed", (unsigned)plan.count,
+              fetched, (unsigned)acts.fetch_count, (unsigned)acts.remove_count);
+}
+#endif  // YEYBOATS_MIDL_RECORDS
+
 bool apply_config_object(JsonDocument &cfg, const String &new_version, const String &new_hash) {
+#if YEYBOATS_MIDL_RECORDS
+    // MIDL records build: screens come ONLY from the `midl` block; the
+    // legacy `layout`/`widgets` keys (managed screens) are ignored.
+    if (cfg["midl"].is<JsonObject>()) pull_midl_records(cfg["midl"].as<JsonVariantConst>());
+#else
     board::Geometry g = board::geometry();
     // RenderPlan is ~12 KB - heap/PSRAM, never the worker stack.
     auto *plan_p = (manager_config::RenderPlan *)heap_caps_calloc(
@@ -1734,6 +1819,7 @@ bool apply_config_object(JsonDocument &cfg, const String &new_version, const Str
             heap_caps_free(plan_p);
         }
     }
+#endif  // YEYBOATS_MIDL_RECORDS
     bool ok = apply_config(cfg);
     if (ok) {
         lock_state();
@@ -2347,6 +2433,14 @@ void setup() {
     if (!s_task) {
         xTaskCreatePinnedToCore(worker, "mgr", 16384, nullptr, 1, &s_task, 0);
     }
+}
+
+bool device_token_matches(const char *tok, size_t len) {
+    if (!tok || !len) return false;
+    lock_state();
+    bool ok = s_token.length() == len && web_pw::ct_equal(s_token.c_str(), len, tok, len);
+    unlock_state();
+    return ok;
 }
 
 bool is_provisioned() {

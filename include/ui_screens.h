@@ -18,7 +18,12 @@ class SubscriptionSet;
 
 namespace ui {
 
-constexpr size_t MAX_SCREENS = 16;
+// Registry slots: up to 16 MIDL screens of the active record
+// (midl::validate::MAX_SCREENS) + the transient MIDL zoom screen + the SYSTEM
+// screens (settings, wifi, touch_cal, touch_grid, ...).
+constexpr size_t MAX_MIDL_SCREENS = 16;
+constexpr size_t MAX_SYSTEM_SCREENS = 6;
+constexpr size_t MAX_SCREENS = MAX_MIDL_SCREENS + MAX_SYSTEM_SCREENS;
 
 // Per-screen path collector: appends the SignalK paths this screen consumes to
 // `out` (does not clear it). Template screens register one so the subscription
@@ -36,6 +41,7 @@ struct Screen {
     lv_obj_t *(*build_fn)(lv_obj_t *);  // lazy builder; NULL = eager (root pre-supplied)
     CollectPathsFn collect_paths;       // NULL = HUD fallback (full baseline)
     uint32_t build_us;                  // cold build_fn() duration (us); 0 until first build
+    bool system;                        // system UI (settings, wifi, ...): survives reset_screens()
 };
 
 // Register a fullscreen panel. Must be called after the root LVGL object
@@ -47,7 +53,7 @@ void register_screen(const Screen &s);
 // navigates to actually allocate LVGL widgets. `build_fn` is invoked the
 // first time `show()` lands on the index; the returned root is cached.
 void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_fn)(lv_obj_t *),
-                          void (*refresh_fn)(), bool hidden);
+                          void (*refresh_fn)(), bool hidden, bool system = false);
 
 // Install a callback that runs every time a screen's root is built
 // (both eager registrations and lazy ones, called once per screen).
@@ -85,7 +91,15 @@ bool set_screen_hidden(const char *id, bool hidden);
 // every dynamic root — so the live root is never the one being deleted.
 // Lazy screens (build_fn != NULL, root == NULL) have nothing to free.
 // Resets s_count / s_index to 0. Runs ON THE UI/LVGL task only.
-void reset_screens();
+//
+// SYSTEM screens (Screen.system: settings, wifi, touch_cal, touch_grid) are
+// KEPT (in registration order, at the front) so a MIDL apply never removes the
+// setup UI. With `rebuild_system` (live theme switch) their built roots are
+// freed too, so the lazy builder rebuilds them with the new palette.
+void reset_screens(bool rebuild_system = false);
+
+// True when screen `index` is a system screen (out of range -> false).
+bool is_system(int index);
 
 // Show a specific screen by index. Out-of-range indices are clamped.
 void show(int index);

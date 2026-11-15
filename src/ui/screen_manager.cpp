@@ -70,7 +70,7 @@ bool set_screen_collect_paths(const char *id, CollectPathsFn fn) {
 }
 
 void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_fn)(lv_obj_t *),
-                          void (*refresh_fn)(), bool hidden) {
+                          void (*refresh_fn)(), bool hidden, bool system) {
     if (s_count >= MAX_SCREENS || !build_fn) return;
     Screen s = {};
     s.id = id;
@@ -79,6 +79,7 @@ void register_screen_lazy(const char *id, const char *title, lv_obj_t *(*build_f
     s.refresh = refresh_fn;
     s.hidden = hidden;
     s.build_fn = build_fn;
+    s.system = system;
     s_screens[s_count++] = s;
     // Don't lv_screen_load on registration - first show() builds + loads.
 }
@@ -131,7 +132,7 @@ static bool active_is_parking() {
     return s_parking_root != nullptr && lv_screen_active() == s_parking_root;
 }
 
-void reset_screens() {
+void reset_screens(bool rebuild_system) {
     // Park on a persistent blank screen FIRST so the root we're about to delete
     // is never the active screen (LVGL must always have one loaded).
     if (!s_parking_root) {
@@ -145,23 +146,42 @@ void reset_screens() {
     // never shown have root == NULL and need no free; lazy screens that WERE
     // built cached their root and must be freed too. Guard against deleting the
     // parking root (a registered screen could never alias it, but be defensive).
-    size_t deleted = 0;
+    // System screens stay registered (compacted to the front, in order); their
+    // lazily-built roots are freed only for a rebuild (theme switch).
+    size_t deleted = 0, kept = 0;
     for (size_t i = 0; i < s_count; ++i) {
         lv_obj_t *root = s_screens[i].root;
-        if (root && root != s_parking_root) {
+        bool keep = s_screens[i].system && s_screens[i].build_fn;
+        bool free_root = root && root != s_parking_root && (!keep || rebuild_system);
+        if (free_root) {
             lv_obj_delete(root);
             ++deleted;
         }
-        s_screens[i] = Screen{};
+        if (keep) {
+            Screen sc = s_screens[i];
+            if (free_root) {
+                sc.root = nullptr;
+                sc.build_us = 0;
+            }
+            s_screens[kept++] = sc;
+        }
     }
+    for (size_t i = kept; i < s_count; ++i)
+        s_screens[i] = Screen{};
 
-    s_count = 0;
+    s_count = kept;
     s_index = 0;
     // [nav-diag] Report how many roots were freed and the parking pointer LVGL
     // is now parked on, so a post-push log shows the teardown completed and the
     // active screen is the parking root before the rebuild auto-loads screen 0.
-    net::logf("[ui] screens reset: deleted %u root(s), parked=%p active=%p", (unsigned)deleted,
-              (void *)s_parking_root, (void *)lv_screen_active());
+    net::logf("[ui] screens reset: deleted %u root(s), kept %u system, parked=%p active=%p",
+              (unsigned)deleted, (unsigned)kept, (void *)s_parking_root,
+              (void *)lv_screen_active());
+}
+
+bool is_system(int index) {
+    if (index < 0 || index >= (int)s_count) return false;
+    return s_screens[index].system;
 }
 
 bool set_screen_hidden(const char *id, bool hidden) {

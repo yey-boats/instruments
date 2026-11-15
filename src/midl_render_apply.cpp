@@ -42,6 +42,9 @@
 #include "signalk.h"               // boat::current_view, boat::View, sk::dynamicStore
 #include "widget_data_resolver.h"  // widget_data::resolve_numeric (dynamic-path fallback)
 #include "net.h"                   // net::logf
+#include "midl_local_ids.h"        // text-valued local ids (net.ip, sk.state, ...)
+#include "device_identity.h"       // firmware version / build / device id
+#include "trip_log.h"              // trip.* local ids
 
 #include "esp_heap_caps.h"
 
@@ -72,8 +75,13 @@ using ui::layouts::TemplateId;
 
 static constexpr size_t MAX_TILES = midl::FirmwareLimits::max_tiles_per_screen;  // per class (4..9)
 static constexpr size_t STR_CAP = midl::FirmwareLimits::str_len;                 // 32
-static_assert(ui::MAX_SCREENS == midl::validate::MAX_SCREENS,
+// MIDL arena slots: exactly as many screens as on-device validation admits per
+// doc. The ui registry holds those + the zoom screen + the system screens.
+static constexpr size_t MIDL_SLOTS = midl::validate::MAX_SCREENS;
+static_assert(ui::MAX_MIDL_SCREENS == MIDL_SLOTS,
               "on-device validation admits exactly as many screens as there are slots");
+static_assert(ui::MAX_SCREENS >= MIDL_SLOTS + 1 + 4,
+              "registry must fit a full MIDL record + zoom + the system screens");
 static constexpr size_t PATH_CAP = midl::FirmwareLimits::path_len;  // 96
 
 // Per-SCREEN pools for the dial-fidelity artifacts (markers + sectors +
@@ -124,11 +132,11 @@ struct MidlScreenArena {
 };
 
 // Compile-time footprint guard (Part B): the whole arena pool is
-// ui::MAX_SCREENS * sizeof(MidlScreenArena), PSRAM-allocated. Each arena grows
+// MIDL_SLOTS * sizeof(MidlScreenArena), PSRAM-allocated. Each arena grows
 // with the spec-derived tile count, so hold the pool under the budget — a bumped
 // maxTiles that would overrun fails the BUILD, not the device.
 static_assert(
-    ui::MAX_SCREENS * sizeof(MidlScreenArena) <= midl::MIDL_ARENA_PSRAM_BUDGET,
+    MIDL_SLOTS * sizeof(MidlScreenArena) <= midl::MIDL_ARENA_PSRAM_BUDGET,
     "MIDL arena pool exceeds MIDL_ARENA_PSRAM_BUDGET; raise the budget or lower maxTiles");
 
 // ---------------------------------------------------------------------------
@@ -144,11 +152,11 @@ static size_t s_arena_count = 0;  // number of arenas currently holding a live s
 
 static MidlScreenArena *arenas() {
     if (!s_arenas) {
-        s_arenas = (MidlScreenArena *)heap_caps_calloc(ui::MAX_SCREENS, sizeof(MidlScreenArena),
+        s_arenas = (MidlScreenArena *)heap_caps_calloc(MIDL_SLOTS, sizeof(MidlScreenArena),
                                                        MALLOC_CAP_SPIRAM);
         if (!s_arenas) {
             net::logf("[midl-render] PSRAM alloc of arena pool failed (%u bytes)",
-                      (unsigned)(ui::MAX_SCREENS * sizeof(MidlScreenArena)));
+                      (unsigned)(MIDL_SLOTS * sizeof(MidlScreenArena)));
         }
     }
     return s_arenas;
@@ -177,14 +185,14 @@ template <size_t N> static void midl_collect_n(sk::SubscriptionSet &out) {
 }
 
 // Trampoline tables indexed by slot. ui::MAX_SCREENS == 16.
-static void (*const s_refresh_fns[ui::MAX_SCREENS])() = {
+static void (*const s_refresh_fns[MIDL_SLOTS])() = {
     midl_refresh_n<0>,  midl_refresh_n<1>,  midl_refresh_n<2>,  midl_refresh_n<3>,
     midl_refresh_n<4>,  midl_refresh_n<5>,  midl_refresh_n<6>,  midl_refresh_n<7>,
     midl_refresh_n<8>,  midl_refresh_n<9>,  midl_refresh_n<10>, midl_refresh_n<11>,
     midl_refresh_n<12>, midl_refresh_n<13>, midl_refresh_n<14>, midl_refresh_n<15>,
 };
 
-static const ui::CollectPathsFn s_collect_fns[ui::MAX_SCREENS] = {
+static const ui::CollectPathsFn s_collect_fns[MIDL_SLOTS] = {
     midl_collect_n<0>,  midl_collect_n<1>,  midl_collect_n<2>,  midl_collect_n<3>,
     midl_collect_n<4>,  midl_collect_n<5>,  midl_collect_n<6>,  midl_collect_n<7>,
     midl_collect_n<8>,  midl_collect_n<9>,  midl_collect_n<10>, midl_collect_n<11>,
@@ -205,7 +213,7 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
         net::logf("[midl-render] screen object is not a JSON object");
         return false;
     }
-    if (refresh_index >= ui::MAX_SCREENS) {
+    if (refresh_index >= MIDL_SLOTS) {
         net::logf("[midl-render] refresh_index %u out of range", (unsigned)refresh_index);
         return false;
     }
@@ -328,7 +336,7 @@ static bool build_screen_into(JsonVariantConst screen_obj, const char *id, MidlS
 static size_t count_buildable_screens(JsonArrayConst screens) {
     size_t usable = 0;
     for (JsonVariantConst sv : screens) {
-        if (usable >= ui::MAX_SCREENS) break;
+        if (usable >= MIDL_SLOTS) break;
         if (!sv.is<JsonObjectConst>()) continue;
         midl::PlacementSet placements;
         midl::SolveStatus st = midl::solve_screen(sv["layout"], {0, 0, 480, 480}, placements);
@@ -596,7 +604,51 @@ static double midl_local_resolve(const char *id) {
         return (double)heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024.0;  // KB
     if (!strcmp(id, "rssi")) return (double)net::rssi();                     // dBm
     if (!strcmp(id, "uptime")) return (double)(millis() / 1000UL);           // s
+    // Trip log (built-in trip record), display units.
+    if (!strcmp(id, "trip.distance")) return trip_log::distance_nm(trip_log::current());  // nm
+    if (!strcmp(id, "trip.avgSpeed")) return trip_log::avg_kn(trip_log::current());       // kn
+    if (!strcmp(id, "trip.maxSpeed")) return trip_log::max_kn(trip_log::current());       // kn
     return NAN;
+}
+
+// Text-valued local ids (net.ip, sk.state, sys.uptime, ...; midl_local_ids.h).
+// The device strings are snapshotted at most once a second into small static
+// buffers (the painters call this at 5 Hz per tile; the String-returning status
+// APIs would churn the internal heap otherwise). UI task only.
+static bool midl_local_text_resolve(const char *id, char *out, size_t cap) {
+    if (!midl::local_ids::is_text_id(id)) return false;
+    static char ip[16], ssid[33], sk_state[20], sk_host[72];
+    static uint32_t last_ms = 0;
+    static bool primed = false;
+    uint32_t now = millis();
+    if (!primed || now - last_ms >= 1000) {
+        primed = true;
+        last_ms = now;
+        snprintf(ip, sizeof(ip), "%s", net::wifiUp() ? net::ipString().c_str() : "");
+        snprintf(ssid, sizeof(ssid), "%s", net::ssidString().c_str());
+        snprintf(sk_state, sizeof(sk_state), "%s", sk::connectionStatus().c_str());
+        String h = sk::targetHost();
+        if (h.length())
+            snprintf(sk_host, sizeof(sk_host), "%s:%u", h.c_str(), (unsigned)sk::targetPort());
+        else
+            sk_host[0] = 0;
+    }
+    const device_identity::Identity &di = device_identity::get();
+    midl::local_ids::Snapshot snap = {};
+    snap.ip = ip;
+    snap.ssid = ssid;
+    snap.rssi = net::wifiUp() ? net::rssi() : 0;
+    snap.sk_state = sk_state;
+    snap.sk_host = sk_host;
+    snap.build = di.build_time;
+    snap.version = di.firmware_version;
+    snap.uptime_s = millis() / 1000UL;
+    snap.heap_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    snap.psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    snap.device_id = di.device_id;
+    snap.underway_s = trip_log::current().underway_s;
+    midl::local_ids::format(id, snap, out, cap);
+    return true;
 }
 
 size_t apply_all(JsonVariantConst doc) {
@@ -609,6 +661,7 @@ size_t apply_all(JsonVariantConst doc) {
 
     // Install the device-local metric resolver ({kind:"local"} bindings).
     ui::layouts::set_local_resolver(midl_local_resolve);
+    ui::layouts::set_local_text_resolver(midl_local_text_resolve);
 
     // Install the fullscreen-zoom handler so a tap on any zoomable MIDL tile
     // (zoom_target == nullptr) builds the transient full-screen view. Idempotent;
@@ -648,9 +701,9 @@ size_t apply_all(JsonVariantConst doc) {
     // --- (3) Build the doc's screens fresh into arena slots 0..n-1. ---
     size_t built = 0;
     for (JsonVariantConst sv : screens) {
-        if (built >= ui::MAX_SCREENS) {
+        if (built >= MIDL_SLOTS) {
             net::logf("[midl-render] apply_all: more than %u screens; truncating",
-                      (unsigned)ui::MAX_SCREENS);
+                      (unsigned)MIDL_SLOTS);
             break;
         }
         if (!sv.is<JsonObjectConst>()) continue;
@@ -683,15 +736,12 @@ size_t apply_all(JsonVariantConst doc) {
     // is already showing (register_screen auto-shows index 0).
     const char *def =
         doc["settings"]["defaultScreen"] | (doc["defaultScreen"] | (const char *)nullptr);
-    if (def && def[0]) {
-        ui::show_by_id(def);
-    } else {
-        // No explicit default: make sure a registered screen is actually shown.
-        // After reset_screens() LVGL is parked on the blank root; the first
-        // register_screen() auto-loads index 0, but force it here so a live-push
-        // apply can never leave the device stranded on the parking screen (the
-        // boot path has no parking root, so this is a no-op there).
-        ui::show(0);
+    if (!(def && def[0] && ui::show_by_id(def))) {
+        // No explicit default: show the doc's FIRST built screen (never index 0:
+        // the system screens survive reset_screens() and sit at the front), so
+        // a live-push apply can never leave the device stranded on the parking
+        // screen or land on settings.
+        ui::show_by_id(s_arenas[0].screen_id);
     }
 
     net::logf("[midl-render] apply_all built %zu screen(s)", built);

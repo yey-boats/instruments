@@ -13,6 +13,8 @@
 #include <Arduino.h>  // sim clock: g_sim_millis
 #include <lvgl.h>
 
+#include "trip_log.h"
+
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -138,7 +140,10 @@ static lv_obj_t *build_screen(const char *id) {
     if (!strcmp(id, "depth")) return ui::depth::build(p);
     if (!strcmp(id, "steering")) return ui::steering::build(p);
     if (!strcmp(id, "route")) return ui::route::build(p);
-    if (!strcmp(id, "trip")) return ui::trip::build(p);
+    if (!strcmp(id, "trip")) {
+        trip_log::setup();  // SIM_TRIP_NM seeds the persisted distance
+        return ui::trip::build(p);
+    }
     if (!strcmp(id, "wind_steer")) return ui::wind_steer::build(p);
     if (!strcmp(id, "wind_classic")) return ui::wind_classic::build(p);
     if (const auto *spec = template_spec(id))

@@ -9,7 +9,7 @@
 #include <math.h>
 #include <stdio.h>
 
-#include "storage.h"
+#include "trip_log.h"
 
 // Trip / log screen: locally-integrated odometer + stats. Persists trip
 // state to NVS so it survives reboots. SignalK only provides instantaneous
@@ -22,38 +22,9 @@ static lv_obj_t *lbl_dist, *lbl_dist_unit;
 static lv_obj_t *lbl_time, *lbl_avg, *lbl_max;
 static lv_obj_t *lbl_sog_now;
 
-static double s_dist_m = 0;        // accumulated distance, meters
-static uint32_t s_underway_s = 0;  // accumulated seconds with sog > threshold
-static double s_max_sog = 0;       // m/s
-static uint32_t s_started_at_ms = 0;
-static uint32_t s_last_sample_ms = 0;
-static const double UNDERWAY_THRESHOLD = 0.5;  // m/s ~= 1 kn
-
-static void load_from_nvs() {
-    storage::Namespace p("trip", true);
-    s_dist_m = p.get_double("dist", 0);
-    s_underway_s = p.get_u32("under", 0);
-    s_max_sog = p.get_double("maxsog", 0);
-    s_started_at_ms = p.get_u32("start", 0);
-    if (s_started_at_ms == 0) s_started_at_ms = millis();
-}
-
-static void save_to_nvs() {
-    storage::Namespace p("trip", false);
-    p.put_double("dist", s_dist_m);
-    p.put_u32("under", s_underway_s);
-    p.put_double("maxsog", s_max_sog);
-    p.put_u32("start", s_started_at_ms);
-}
-
+// Trip state lives in trip_log (screen-independent; ticked from ui_refresh).
 void reset() {
-    s_dist_m = 0;
-    s_underway_s = 0;
-    s_max_sog = 0;
-    s_started_at_ms = millis();
-    s_last_sample_ms = 0;
-    save_to_nvs();
-    net::logf("[trip] reset");
+    trip_log::reset();
 }
 
 static lv_obj_t *make_stat(lv_obj_t *parent, const char *cap, int x, int y, int w, int h,
@@ -199,7 +170,6 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_text_color(lbl_sog_now, lv_color_hex(theme.accent), 0);
     lv_obj_align(lbl_sog_now, LV_ALIGN_CENTER, 0, 0);
 
-    load_from_nvs();
     return s_root;
 }
 
@@ -227,42 +197,29 @@ void refresh() {
     const boat::View &d = d_snap;
     char buf[64];
 
-    uint32_t now = millis();
-    if (s_last_sample_ms == 0) s_last_sample_ms = now;
-    if (!isnan(d.sog) && now - s_last_sample_ms >= 1000) {
-        double dt_s = (now - s_last_sample_ms) / 1000.0;
-        s_last_sample_ms = now;
-        if (d.sog > UNDERWAY_THRESHOLD) {
-            s_dist_m += d.sog * dt_s;
-            s_underway_s += (uint32_t)dt_s;
-        }
-        if (d.sog > s_max_sog) s_max_sog = d.sog;
-        if ((s_underway_s % 30) == 0) save_to_nvs();
-    }
-
-    double nm = s_dist_m / 1852.0;
+    const trip_log::Accum &t = trip_log::current();
+    double nm = trip_log::distance_nm(t);
     if (nm >= 10)
         snprintf(buf, sizeof(buf), "%.1f", nm);
     else
         snprintf(buf, sizeof(buf), "%.2f", nm);
     set_text_if_changed(lbl_dist, s_last_dist, sizeof(s_last_dist), buf);
 
-    uint32_t hh = s_underway_s / 3600;
-    uint32_t mm = (s_underway_s / 60) % 60;
-    uint32_t ss = s_underway_s % 60;
+    uint32_t hh = t.underway_s / 3600;
+    uint32_t mm = (t.underway_s / 60) % 60;
+    uint32_t ss = t.underway_s % 60;
     snprintf(buf, sizeof(buf), "%lu:%02lu:%02lu", (unsigned long)hh, (unsigned long)mm,
              (unsigned long)ss);
     set_text_if_changed(lbl_time, s_last_time, sizeof(s_last_time), buf);
 
-    if (s_underway_s > 5) {
-        double avg_kn = mps_to_kn(s_dist_m / s_underway_s);
-        snprintf(buf, sizeof(buf), "%.1f kn", avg_kn);
+    if (!isnan(trip_log::avg_kn(t))) {
+        snprintf(buf, sizeof(buf), "%.1f kn", trip_log::avg_kn(t));
     } else {
         snprintf(buf, sizeof(buf), "-.-- kn");
     }
     set_text_if_changed(lbl_avg, s_last_avg, sizeof(s_last_avg), buf);
 
-    snprintf(buf, sizeof(buf), "%.1f kn", mps_to_kn(s_max_sog));
+    snprintf(buf, sizeof(buf), "%.1f kn", trip_log::max_kn(t));
     set_text_if_changed(lbl_max, s_last_max, sizeof(s_last_max), buf);
 
     if (!isnan(d.sog))
