@@ -13,6 +13,12 @@ const char *mode_state_string(int idx) {
     return kModeState[idx];
 }
 
+const char *menu_item_label(int idx) {
+    static const char *kMenu[kMenuCount] = {"STEER", "AP MODE", "DISPLAYS", "CLOSE"};
+    if (idx < 0 || idx >= kMenuCount) return "";
+    return kMenu[idx];
+}
+
 const char *level_name(Level l) {
     switch (l) {
     case Level::Home:
@@ -23,6 +29,10 @@ const char *level_name(Level l) {
         return "display";
     case Level::SelectView:
         return "view";
+    case Level::Menu:
+        return "menu";
+    case Level::Steer:
+        return "steer";
     }
     return "?";
 }
@@ -85,6 +95,12 @@ static int wrap_idx(int i, int n) {
     return ((i % n) + n) % n;
 }
 
+static Action nav(ActionType t) {
+    Action a;
+    a.type = t;
+    return a;
+}
+
 static Action adjust(Model &m, const Inputs &in, int sign, bool held) {
     int deg = (held ? kStepBigDeg : kStepSmallDeg) * sign;
     double t = wrap_2pi(seed_target(m, in) + deg * M_PI / 180.0);
@@ -99,6 +115,57 @@ Action step(Model &m, const Inputs &in, Event ev, bool held) {
     Action a;  // NoAction
     switch (m.level) {
     case Level::Home:
+        // MIDL screen navigation (the knob's carousel).
+        if (ev == Event::DetentCW) return nav(ActionType::NextScreen);
+        if (ev == Event::DetentCCW) return nav(ActionType::PrevScreen);
+        if (ev == Event::Click) return nav(ActionType::HomeScreen);
+        if (ev == Event::LongPress) {
+            m.level = Level::Menu;
+            m.highlight = MenuSteer;
+            return a;
+        }
+        if (ev == Event::DoubleClick) {
+            m.level = Level::Steer;
+            return a;
+        }
+        break;
+
+    case Level::Menu:
+        if (ev == Event::DetentCW) {
+            m.highlight = wrap_idx(m.highlight + 1, kMenuCount);
+            return a;
+        }
+        if (ev == Event::DetentCCW) {
+            m.highlight = wrap_idx(m.highlight - 1, kMenuCount);
+            return a;
+        }
+        if (ev == Event::Click) {
+            switch (m.highlight) {
+            case MenuSteer:
+                m.level = Level::Steer;
+                break;
+            case MenuApMode:
+                m.level = Level::ModePicker;
+                m.highlight = m.last_engaged_mode;
+                break;
+            case MenuDisplays:
+                m.level = Level::SelectDisplay;
+                m.highlight = 0;
+                break;
+            default:
+                m.level = Level::Home;
+                break;
+            }
+            return a;
+        }
+        if (ev == Event::DoubleClick || ev == Event::LongPress) {
+            m.level = Level::Home;
+            return a;
+        }
+        break;
+
+    case Level::Steer:
+        // Autopilot control (the pre-MIDL Home level).
         if (ev == Event::DetentCW) return adjust(m, in, +1, held);
         if (ev == Event::DetentCCW) return adjust(m, in, -1, held);
         if (ev == Event::Click) {
@@ -115,8 +182,7 @@ Action step(Model &m, const Inputs &in, Event ev, bool held) {
             return a;
         }
         if (ev == Event::DoubleClick) {
-            m.level = Level::SelectDisplay;
-            m.highlight = 0;
+            m.level = Level::Home;
             return a;
         }
         break;
@@ -131,7 +197,7 @@ Action step(Model &m, const Inputs &in, Event ev, bool held) {
             return a;
         }
         if (ev == Event::Click) {
-            m.level = Level::Home;
+            m.level = Level::Steer;
             if (m.highlight == 0) {
                 m.engaged = false;
             } else {
@@ -141,7 +207,7 @@ Action step(Model &m, const Inputs &in, Event ev, bool held) {
             return set_state(m.highlight);
         }
         if (ev == Event::DoubleClick) {
-            m.level = Level::Home;
+            m.level = Level::Steer;
             return a;
         }
         break;

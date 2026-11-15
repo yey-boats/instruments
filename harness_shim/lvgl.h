@@ -3,11 +3,11 @@
 // Minimal <lvgl.h> shim for the HEADLESS protocol harness build only
 // (YEYBOATS_HARNESS). It is on the include path solely for that env via
 // `-I harness_shim`. The harness links NO LVGL: every LVGL-using .cpp TU
-// (src/main.cpp, src/ui/*, layout_renderer, manager_screens, ...) is excluded
+// (src/main.cpp, src/ui/*, midl_render_apply, midl_store_ui, ...) is excluded
 // from the harness build_src_filter. But several infra TUs that the harness DOES
 // link (app_events.cpp, manager.cpp, knob_remote.cpp, proto_target.cpp,
-// widget_registry.cpp) transitively #include ui_screens.h / ui_theme.h /
-// widget_registry.h, which pull in <lvgl.h> for type names in declarations.
+// ble_config.cpp) transitively #include ui_screens.h / ui_theme.h, which pull
+// in <lvgl.h> for type names in declarations.
 //
 // This shim provides just enough opaque types and trivial inline helpers for
 // those headers to PARSE. No LVGL symbol is ever referenced at link time by the

@@ -5,6 +5,7 @@
 #include "app_events.h"
 #include "net.h"
 #include "theme_choice.h"
+#include "trip_log.h"
 
 #include "board_pins.h"
 #include "build_config.h"
@@ -236,7 +237,7 @@ static void on_battery(lv_event_t *e) {
 
 static void on_trip_reset(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    ui::trip::reset();
+    trip_log::reset();
 }
 
 static void on_open_wifi(lv_event_t *e) {

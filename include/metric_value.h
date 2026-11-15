@@ -4,9 +4,8 @@
 // scalar and to a 0..1 gauge/bar fill fraction.
 //
 // Historically this lived as two file-static switches in src/ui/ui_layouts.cpp
-// (metric_scalar + scalar_unit_fraction), so the MIDL renderer, the legacy
-// template renderer, and the manager-pushed widget_registry could not share it
-// without dragging in LVGL. This header is dependency-free (units.h +
+// (metric_scalar + scalar_unit_fraction), so other renderers could not share
+// it without dragging in LVGL. This header is dependency-free (units.h +
 // boat_data.h + the MetricSource enum) so it is host-testable and reusable by
 // every renderer.
 

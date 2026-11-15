@@ -15,17 +15,9 @@
 #include "signalk.h"
 #include "ui_screens.h"
 #include "ui_theme.h"
-#include "layout_loader.h"
-#include "layout_renderer.h"
-#include "manager_config.h"
-#include "manager_screens.h"
 #include "knob_ui.h"
 #include "midl_render.h"
-#include "midl_demo_doc.h"
-#include "psram_json.h"
-#include "screens.h"
 #include "config_runtime.h"
-#include "build_config.h"
 #include "midl_store.h"
 
 namespace app {
@@ -59,7 +51,7 @@ static bool is_net_command(const char *line) {
            strcmp(line, "id") == 0 || strcmp(line, "sk-status") == 0 ||
            strcmp(line, "sk-dump") == 0 || strncmp(line, "wifi ", 5) == 0 ||
            strncmp(line, "wifi-forget ", 12) == 0 || strncmp(line, "sk ", 3) == 0 ||
-           strncmp(line, "id ", 3) == 0 || is_exact_or_arg(line, "layout-fetch");
+           strncmp(line, "id ", 3) == 0;
 }
 
 static bool forward_to_net(Command &cmd) {
@@ -153,127 +145,10 @@ bool post_net(const Command &cmd, uint32_t timeout_ms) {
 // ---- live theme switch (no reboot) --------------------------------------
 // Painters read ui::theme at build time, so flipping the palette only shows
 // up on screens whose LVGL trees are rebuilt. The pump's SetTheme case flips
-// the palette and then rebuilds the current screen set THE SAME WAY it was
-// built, using existing public entry points only (everything below runs on
-// the UI/LVGL task):
-//   - MIDL set: re-apply the last successfully applied MIDL doc (we keep a
-//     PSRAM copy; midl::render::apply_doc resets + rebuilds atomically).
-//   - Classic set: ui::reset_screens() + re-register the boot set lazily
-//     (mirror of main.cpp's registration table) — only the screen the user
-//     is on rebuilds immediately; others rebuild on first visit.
-//   - Editor layout screens: re-run ui::layout_render::apply() if an
-//     ApplyLayout happened this session (same entry point layout-fetch uses).
-
-// PSRAM copy of the last MIDL doc the pump successfully applied, so a theme
-// flip can re-apply it. Covers /api/midl/config, /api/midl/reset and the
-// `midl-render` console command (all funnel through ConfigApplyMidl).
-static char *s_midl_doc = nullptr;
-static size_t s_midl_doc_len = 0;
-static char s_midl_sid[32] = "";
-
-// True once ui::layout_render::apply() replaced screens this session (the
-// ApplyLayout pump case). A boot-time layout::load_default() alone does NOT
-// materialize editor screens, so the flag — not layout::loaded() — decides
-// whether a theme rebuild re-applies the layout.
-static bool s_layout_applied = false;
-
-static void remember_midl_doc(const char *bytes, size_t len, const char *sid) {
-    char *copy = (char *)heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    if (!copy) {
-        net::logf("[app] midl doc keep-alive alloc failed (%u bytes)", (unsigned)len);
-        return;
-    }
-    memcpy(copy, bytes, len);
-    copy[len] = 0;
-    if (s_midl_doc) heap_caps_free(s_midl_doc);
-    s_midl_doc = copy;
-    s_midl_doc_len = len;
-    strncpy(s_midl_sid, sid ? sid : "", sizeof(s_midl_sid) - 1);
-    s_midl_sid[sizeof(s_midl_sid) - 1] = 0;
-    // apply_all reset the whole screen set; any earlier layout apply is gone.
-    s_layout_applied = false;
-}
-
-#if YEYBOATS_LEGACY_SCREENS
-// Mirror of main.cpp setup()'s screen registration (ids/titles/builders/
-// hidden flags and order must stay in lockstep). All lazy: after a theme
-// flip only the screen being shown rebuilds now, the rest on first visit.
-static void register_boot_screens() {
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
-    ui::register_screen_lazy("ap_hud", "Autopilot", ui::ap_hud::build, ui::ap_hud::refresh, false);
-    ui::register_screen_lazy("knob_compass", "Compass", ui::knob_compass::build,
-                             ui::knob_compass::refresh, false);
-    ui::register_screen_lazy("knob_wind", "Wind", ui::knob_wind::build, ui::knob_wind::refresh,
-                             false);
-    ui::register_screen_lazy("knob_big", "Big", ui::knob_big::build, ui::knob_big::refresh, false);
-#else
-    ui::register_screen_lazy("dashboard", "Dashboard", ui::dashboard::build, ui::dashboard::refresh,
-                             false);
-    ui::register_screen_lazy("zoom", "Zoom", ui::zoom::build, ui::zoom::refresh, true);
-    ui::register_screen_lazy("wind", "Wind", ui::wind::build, ui::wind::refresh, false);
-    ui::register_screen_lazy("wind_classic", "Wind (classic)", ui::wind_classic::build,
-                             ui::wind_classic::refresh, false);
-    ui::register_screen_lazy("wind_steer", "Wind Steer", ui::wind_steer::build,
-                             ui::wind_steer::refresh, false);
-    ui::register_screen_lazy("nav", "Nav", ui::nav::build, ui::nav::refresh, false);
-    ui::register_screen_lazy("depth", "Depth", ui::depth::build, ui::depth::refresh, false);
-    ui::register_screen_lazy("steering", "Steering", ui::steering::build, ui::steering::refresh,
-                             false);
-    ui::register_screen_lazy("route", "Route", ui::route::build, ui::route::refresh, false);
-    ui::register_screen_lazy("autopilot", "Autopilot", ui::autopilot::build, ui::autopilot::refresh,
-                             false);
-    ui::register_screen_lazy("trip", "Trip", ui::trip::build, ui::trip::refresh, false);
-    ui::register_screen_lazy("status", "System", ui::status_panel::build, ui::status_panel::refresh,
-                             false);
-    ui::register_screen_lazy("wifi", "WiFi Setup", ui::wifi_setup::build, ui::wifi_setup::refresh,
-                             true);
-    ui::register_screen_lazy("settings", "Settings", ui::settings::build, ui::settings::refresh,
-                             true);
-#if YEYBOATS_ENABLE_TOUCH_CAL_UI
-    ui::register_screen_lazy("touch_cal", "Touch Cal", ui::touch_cal_screen::build,
-                             ui::touch_cal_screen::refresh, true);
-#endif
-    ui::register_screen_lazy("touch_grid", "Touch Grid", ui::touch_grid_screen::build,
-                             ui::touch_grid_screen::refresh, true);
-    ui::register_screen_lazy("demo_grid", "Demo Grid", ui::demo_grid::build, ui::demo_grid::refresh,
-                             true);
-#endif  // BOARD_ID_WAVESHARE_KNOB_1_8
-}
-#endif  // YEYBOATS_LEGACY_SCREENS
-
-// Rebuild the built screens after a palette flip. UI/LVGL task only.
+// the palette and then re-renders the active MIDL record (and rebuilds the
+// system screens lazily), staying on the current screen. UI/LVGL task only.
 static void retheme_screens() {
-#if YEYBOATS_MIDL_RECORDS
-    // MIDL records: re-render the active record (and rebuild the system
-    // screens lazily) with the new palette, staying on the current screen.
     midl::store_ui::rebuild();
-#else
-    // The current id points into the registry we are about to reset — copy it.
-    char cur[32] = "";
-    strncpy(cur, ui::current_id(), sizeof(cur) - 1);
-
-    bool midl_set = false;
-    if (s_midl_doc) {
-        // MIDL set active: re-apply the kept doc (apply_doc -> apply_all
-        // resets + rebuilds the whole set atomically with the new palette).
-        JsonDocument doc(&yeyboats::psram_json);
-        if (deserializeJson(doc, s_midl_doc, s_midl_doc_len) == DeserializationError::Ok) {
-            midl_set = midl::render::apply_doc(doc.as<JsonVariantConst>(),
-                                               s_midl_sid[0] ? s_midl_sid : nullptr);
-        }
-        if (!midl_set) net::logf("[app] retheme: midl re-apply failed");
-    }
-    if (!midl_set) {
-        // Classic boot set: drop every built root and re-register lazily.
-        ui::reset_screens(true);
-        register_boot_screens();
-    }
-    // Editor layout screens replace matching ids in place (same entry point
-    // as the ApplyLayout pump case / layout-fetch).
-    if (s_layout_applied) ui::layout_render::apply();
-    // Return to where the user was; the apply/registration default otherwise.
-    if (!ui::show_by_id(cur) && !midl_set) ui::show(0);
-#endif
     // lv_layer_top() overlays (MOB, alarm banner) are not part of any screen,
     // so the rebuild above never reaches them: repaint them in place (#67).
     ui::overlay_restyle();
@@ -313,9 +188,6 @@ void pump() {
             // dismiss_zoom()'s ui::show is safe. Tap-to-return is unaffected
             // (it fires zoom_back_cb on LV_EVENT_CLICKED, not a ShowScreen).
             bool going_home = (strcmp(id, "home") == 0);
-#if YEYBOATS_LEGACY_SCREENS
-            if (strcmp(id, "dashboard") == 0) going_home = true;  // legacy home
-#endif
             bool swipe_nav = (strcmp(id, "next") == 0 || strcmp(id, "prev") == 0 ||
                               strcmp(id, "settings") == 0 || going_home);
             if (swipe_nav && midl::render::dismiss_zoom()) break;
@@ -334,14 +206,9 @@ void pump() {
                 char back[32];
                 memcpy(back, s_prev_before_settings, sizeof(back));
                 s_prev_before_settings[0] = 0;
-#if YEYBOATS_MIDL_RECORDS
                 if (!midl::store_ui::show(back)) midl::store_ui::home();
-#else
-                if (!ui::show_by_id(back)) ui::show(0);
-#endif
                 break;
             }
-#if YEYBOATS_MIDL_RECORDS
             if (strcmp(id, "next") == 0) {
                 midl::store_ui::next();
             } else if (strcmp(id, "prev") == 0) {
@@ -353,51 +220,10 @@ void pump() {
             } else {
                 midl::store_ui::show(id);  // loads the owning record when needed
             }
-#else
-            if (going_home) {
-                ui::show_by_id("dashboard");
-            } else if (strcmp(id, "next") == 0) {
-                ui::next();
-            } else if (strcmp(id, "prev") == 0) {
-                ui::prev();
-            } else if (isdigit((unsigned char)id[0])) {
-                ui::show(atoi(id));
-            } else {
-                ui::show_by_id(id);
-            }
-#endif
             break;
         }
         case CommandType::MidlActivate: {
-#if YEYBOATS_MIDL_RECORDS
             midl::store_ui::activate(cmd.a, cmd.i == 1 ? nullptr : cmd.b);
-#endif
-            break;
-        }
-        case CommandType::ApplyLayout: {
-#if YEYBOATS_MIDL_RECORDS
-            // MIDL-only display (docs/midl/midl-only.md): editor layouts are
-            // not rendered. The blob is freed below.
-            net::logf("[app] apply_layout ignored (MIDL records build)");
-            if (false) {
-#else
-            if (cmd.blob && cmd.blob_len) {
-#endif
-                bool ok = layout::apply_json((const char *)cmd.blob, cmd.blob_len);
-                net::logf("[app] apply_layout %u bytes -> %s", (unsigned)cmd.blob_len,
-                          ok ? "ok" : "fail");
-                if (ok) {
-                    // Pump runs on the LVGL task, so building LVGL widgets
-                    // from the new layout::Config is safe here. Editor-shape
-                    // screens swap their roots; legacy-shape screens keep
-                    // their hardcoded MetricBinding tables.
-                    size_t replaced = ui::layout_render::apply();
-                    if (replaced) {
-                        net::logf("[app] layout-render: %u screens replaced", (unsigned)replaced);
-                        s_layout_applied = true;  // theme rebuilds re-apply it
-                    }
-                }
-            }
             break;
         }
         case CommandType::SetTheme: {
@@ -465,20 +291,6 @@ void pump() {
             net::dispatchCommand(String(cmd.a));
             break;
         }
-        case CommandType::ApplyManagedScreens: {
-            // LVGL must only be touched on the UI task. The manager
-            // worker heap-allocates a RenderPlan and posts here; we
-            // hand it to manager_screens::apply() and free below.
-            if (cmd.blob) {
-                const auto *plan_p = static_cast<const manager_config::RenderPlan *>(cmd.blob);
-#if YEYBOATS_LEGACY_SCREENS
-                manager_screens::apply(*plan_p);
-#else
-                (void)plan_p;  // MIDL records: ignore manager screens (blob freed below)
-#endif
-            }
-            break;
-        }
         case CommandType::ShowOverlay: {
             // Spec 17 §8 overlay.show. cmd.a carries the message (up
             // to 255 chars - the alarm banner truncates if it doesn't
@@ -498,29 +310,6 @@ void pump() {
             knob_ui::apply_event(cmd.i, cmd.b[0] == '1');
 #endif
             break;
-        case CommandType::ConfigApplyMidl: {
-            // Blob is a MIDL JSON document (UTF-8, not NUL-terminated).
-            // cmd.a carries the optional screen_id; default "midl".
-            // Runs on the LVGL task — LVGL mutations are safe here.
-            // The blob is freed by the post-switch heap_caps_free below.
-            if (cmd.blob && cmd.blob_len) {
-                const char *sid = (cmd.a[0] != '\0') ? cmd.a : "midl";
-                JsonDocument doc(&yeyboats::psram_json);
-                DeserializationError err =
-                    deserializeJson(doc, (const char *)cmd.blob, cmd.blob_len);
-                if (err) {
-                    net::logf("[app] ConfigApplyMidl: JSON parse error: %s", err.c_str());
-                } else {
-                    bool ok = midl::render::apply_doc(doc.as<JsonVariantConst>(), sid);
-                    net::logf("[app] ConfigApplyMidl %u bytes screen='%s' -> %s",
-                              (unsigned)cmd.blob_len, sid, ok ? "ok" : "fail");
-                    // Keep a copy of the applied doc so a live theme switch
-                    // can rebuild the MIDL screen set with the new palette.
-                    if (ok) remember_midl_doc((const char *)cmd.blob, cmd.blob_len, sid);
-                }
-            }
-            break;
-        }
         case CommandType::Select: {
             // "OK/Enter" verb (BLE HID Play/Pause, Menu-Pick, keyboard
             // Enter). Priority 1: a MIDL fullscreen-zoom overlay eats the
@@ -531,29 +320,17 @@ void pump() {
             // switch re-indexes the registry), then hop back on the next Select.
             static char s_prev_before_select[32] = "";
             const char *cur = ui::current_id();
-#if YEYBOATS_MIDL_RECORDS
             char home_id[midl::records::SCREEN_ID_LEN], owner[midl::records::ID_LEN];
             midl::store::home(home_id, sizeof(home_id), owner, sizeof(owner));
-#else
-            const char *home_id = "dashboard";
-#endif
             bool on_home = (cur && strcmp(cur, home_id) == 0);
             if (!on_home) {
                 strncpy(s_prev_before_select, cur ? cur : "", sizeof(s_prev_before_select) - 1);
-#if YEYBOATS_MIDL_RECORDS
                 midl::store_ui::home();
-#else
-                ui::show_by_id(home_id);
-#endif
             } else if (s_prev_before_select[0]) {
                 char back[32];
                 memcpy(back, s_prev_before_select, sizeof(back));
                 s_prev_before_select[0] = 0;
-#if YEYBOATS_MIDL_RECORDS
                 midl::store_ui::show(back);
-#else
-                ui::show_by_id(back);
-#endif
             }
             break;
         }

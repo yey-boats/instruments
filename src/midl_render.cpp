@@ -4,8 +4,8 @@
 
 #include "midl_render.h"
 #include "midl_kinds.h"
-#include "layout_renderer.h"  // ui::layout_render::path_to_source
-#include "midl_limits.h"      // midl::FirmwareLimits::path_len
+#include "metric_source_map.h"  // ui::metric_map::path_to_source
+#include "midl_limits.h"        // midl::FirmwareLimits::path_len
 
 #include <stdlib.h>
 #include <ctype.h>
@@ -22,10 +22,7 @@ using ui::layouts::MetricSource;
 using ui::layouts::WidgetKind;
 using ui::layouts::ZoneColor;
 
-// NOTE: This map is SEPARATE from ui::layout_render::widget_to_kind (metric_source_map.cpp).
-// It handles MIDL lowercase tokens ("single-value","windrose") emitted by the MIDL editor;
-// widget_to_kind handles the legacy editor camelCase tokens ("numeric","windRose").
-// Do not merge these two maps.
+// MIDL element type tokens ("single-value","windrose", ...) -> WidgetKind.
 WidgetKind token_to_kind(const char *t) {
     if (!t) return WidgetKind::Numeric;
     if (!strcmp(t, "compass")) return WidgetKind::Compass;
@@ -150,7 +147,7 @@ static bool parse_sector_edge(JsonVariantConst edge, JsonVariantConst bindings, 
     }
     const char *p = b["path"] | "";
     if (!p[0]) return false;
-    src = ui::layout_render::path_to_source(p);
+    src = ui::metric_map::path_to_source(p);
     if (src != MetricSource::None) return true;
     path = alloc_style_path(sa, p);
     return path != nullptr;
@@ -247,7 +244,7 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
         }
     } else {
         const char *vpath = vbind["path"] | "";
-        out.source = ui::layout_render::path_to_source(vpath);
+        out.source = ui::metric_map::path_to_source(vpath);
         if (out.source == MetricSource::None && vpath[0] && path_buf) {
             copy_path(path_buf, vpath);
             out.path = path_buf;
@@ -257,7 +254,7 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
     // (compass/windrose) independently of the centre value — midl types.ts:24;
     // the web dial renders it as the dashed warn pointer (dirDeg).
     const char *dpath = el["bindings"]["dir"]["path"] | "";
-    out.dir_source = ui::layout_render::path_to_source(dpath);
+    out.dir_source = ui::metric_map::path_to_source(dpath);
     if (out.dir_source == MetricSource::None && dpath[0] && dir_buf) {
         copy_path(dir_buf, dpath);
         out.dir_path = dir_buf;
@@ -390,7 +387,7 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
                     if (cv.is<float>()) dm.dir_const = cv.as<float>();
                 } else {
                     const char *dp = dir["path"] | "";
-                    dm.dir_source = ui::layout_render::path_to_source(dp);
+                    dm.dir_source = ui::metric_map::path_to_source(dp);
                     if (dm.dir_source == MetricSource::None && dp[0])
                         dm.dir_path = alloc_style_path(style_alloc, dp);
                 }

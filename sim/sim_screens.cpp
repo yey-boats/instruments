@@ -1,8 +1,6 @@
-// Host harness that renders any of the QuadGrid-template screens (nav, depth,
-// steering, route, trip) and the full-screen "zoom" view headlessly via LVGL,
-// writing a 24-bit BMP. Lets every screen be eyeballed at every display class
-// without a panel. Screen id is argv[1], output path argv[2]. Values come from
-// the boat::current_view stub in sim/stubs.cpp.
+// Host harness that renders the system touch screens (touch_grid, touch_cal)
+// headlessly via LVGL, writing a 24-bit BMP. Content screens are MIDL records
+// (env:sim-midl). Screen id is argv[1], output path argv[2].
 //
 // touch_grid / touch_cal are full-screen roots that poll raw touch from an
 // lv_timer. With SIM_REBUILD=1 they are deleted the way reset_screens() does
@@ -13,8 +11,6 @@
 #include <Arduino.h>  // sim clock: g_sim_millis
 #include <lvgl.h>
 
-#include "trip_log.h"
-
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -23,7 +19,6 @@
 #include "board_pins.h"
 #include "screens.h"
 #include "sim_theme.h"  // SIM_THEME env -> ui::use_theme
-#include "ui_layouts.h"
 #include "signalk.h"
 
 static void flush_cb(lv_display_t *d, const lv_area_t *, uint8_t *) {
@@ -80,22 +75,6 @@ static void write_bmp(const char *path, const uint8_t *rgb565, int w, int h, int
     printf("wrote %s (%dx%d)\n", path, w, h);
 }
 
-// Zoom targets used to exercise the full-screen single-value view.
-static const ui::layouts::MetricBinding kZoomPos = {
-    "pos",   "POSITION", "", ui::layouts::MetricSource::Position, 0x39d98a,
-    nullptr, 0,          {}, ui::layouts::WidgetKind::Text};
-static const ui::layouts::MetricBinding kZoomNum = {
-    "sog",   "SOG", "kn", ui::layouts::MetricSource::SOG_kn, 0x57c7d8,
-    nullptr, 0,     {},   ui::layouts::WidgetKind::Numeric};
-
-// Template-only screens with buttons (#67 contrast review): the Settings form
-// and the autopilot control console, built through the generic dispatcher.
-static const ui::layouts::ScreenVariantSpec kSetupSpec = {
-    "setup", "SETTINGS", ui::layouts::TemplateId::SetupForm, nullptr, 0, 0};
-static const ui::layouts::ScreenVariantSpec kConsoleSpec = {
-    "console", "AUTOPILOT", ui::layouts::TemplateId::ControlConsole, nullptr, 0, 0};
-static lv_obj_t *s_template_root = nullptr;
-
 // Raw touch fed to the touch screens' poll timers (main.cpp on device).
 static int s_touch_x = -1, s_touch_y = -1, s_touch_pressed = 0;
 extern "C" void main_touch_raw(int *raw_x, int *raw_y, int *pressed) {
@@ -128,34 +107,7 @@ static bool is_touch_screen(const char *id) {
     return !strcmp(id, "touch_grid") || !strcmp(id, "touch_cal");
 }
 
-static const ui::layouts::ScreenVariantSpec *template_spec(const char *id) {
-    if (!strcmp(id, "setup")) return &kSetupSpec;
-    if (!strcmp(id, "console")) return &kConsoleSpec;
-    return nullptr;
-}
-
 static lv_obj_t *build_screen(const char *id) {
-    lv_obj_t *p = lv_screen_active();
-    if (!strcmp(id, "nav")) return ui::nav::build(p);
-    if (!strcmp(id, "depth")) return ui::depth::build(p);
-    if (!strcmp(id, "steering")) return ui::steering::build(p);
-    if (!strcmp(id, "route")) return ui::route::build(p);
-    if (!strcmp(id, "trip")) {
-        trip_log::setup();  // SIM_TRIP_NM seeds the persisted distance
-        return ui::trip::build(p);
-    }
-    if (!strcmp(id, "wind_steer")) return ui::wind_steer::build(p);
-    if (!strcmp(id, "wind_classic")) return ui::wind_classic::build(p);
-    if (const auto *spec = template_spec(id))
-        return s_template_root = ui::layouts::create(p, *spec);
-    if (!strcmp(id, "zoom-pos")) {
-        ui::layouts::set_zoom_target(kZoomPos);
-        return ui::zoom::build(p);
-    }
-    if (!strcmp(id, "zoom-num")) {
-        ui::layouts::set_zoom_target(kZoomNum);
-        return ui::zoom::build(p);
-    }
     // Touch screens are standalone roots (lazy-built with a NULL parent on
     // device) and only act while loaded, so load them like show() does.
     lv_obj_t *r = nullptr;
@@ -166,25 +118,12 @@ static lv_obj_t *build_screen(const char *id) {
 }
 
 static void refresh_screen(const char *id) {
-    if (!strcmp(id, "nav")) return ui::nav::refresh();
-    if (!strcmp(id, "depth")) return ui::depth::refresh();
-    if (!strcmp(id, "steering")) return ui::steering::refresh();
-    if (!strcmp(id, "route")) return ui::route::refresh();
-    if (!strcmp(id, "trip")) return ui::trip::refresh();
-    if (!strcmp(id, "wind_steer")) return ui::wind_steer::refresh();
-    if (!strcmp(id, "wind_classic")) return ui::wind_classic::refresh();
-    if (!strncmp(id, "zoom", 4)) return ui::zoom::refresh();
     if (!strcmp(id, "touch_grid")) return ui::touch_grid_screen::refresh();
     if (!strcmp(id, "touch_cal")) return ui::touch_cal_screen::refresh();
-    if (const auto *spec = template_spec(id)) {
-        static boat::View v;
-        boat::current_view(v);
-        ui::layouts::update(s_template_root, *spec, v);
-    }
 }
 
 int main(int argc, char **argv) {
-    const char *id = (argc > 1) ? argv[1] : "nav";
+    const char *id = (argc > 1) ? argv[1] : "touch_grid";
     const char *out = (argc > 2) ? argv[2] : "screen.bmp";
 
     if (!sim::apply_theme_from_env()) return 2;

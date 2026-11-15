@@ -44,71 +44,23 @@ personal, research, educational, and other noncommercial use.
   <em>Live screenshots captured from the device (glass-cockpit theme).</em>
 </p>
 
-> **Latest UI (2026-06):** a "glass-cockpit" redesign — bordered gradient
-> cells, a cool high-contrast palette, large hero numerals (custom 64 px
-> font), semantic color, and a single consolidated style source. The
-> **autopilot** and **wind** screens were reworked into a reference HUD style:
-> a semicircular heading compass (white band, green rail, red cardinals, amber
-> target bug), a centered HDG readout with COG/SOG, a cross-track-error strip,
-> and clean numeric tiles. The wind rose keeps the full 360° (wind can blow
-> from any bearing) plus a live tidal **current vector**, with all numbers moved
-> out to tiles. Tapping a dashboard tile opens a full-screen **zoom** view. See
-> [docs/user-guide-signalk.md](docs/user-guide-signalk.md) for managing
-> displays, dashboards, and OTA firmware from SignalK.
+> **Screens are MIDL documents.** Every content screen is a
+> [MIDL](https://github.com/yey-boats/midl) record: the built-in screens
+> (dashboard, wind, nav, depth, steering, route, autopilot, trip, status, ...;
+> the knob's ap_hud / knob_compass / knob_wind / knob_big) are embedded in the
+> firmware from `midl/library/builtin`, and Display Manager pushes (or the
+> device pulls) further records. Settings, Wi-Fi setup and touch calibration
+> stay native system UI. Contract: [docs/midl/midl-only.md](docs/midl/midl-only.md).
+> See [docs/user-guide-signalk.md](docs/user-guide-signalk.md) for managing
+> displays and OTA firmware from SignalK.
 
 <p align="center">
-  <img src="docs/sim-shots/ap-480x480.png" alt="Autopilot HUD 480x480" width="200">
-  <img src="docs/sim-shots/ap-800x480.png" alt="Autopilot HUD 800x480" width="300">
+  <img src="docs/sim-shots/midl-square-480.png" alt="MIDL demo doc rendered at 480x480" width="200">
+  <img src="docs/sim-shots/midl-round-360-round-safe.png" alt="MIDL on the round 360 panel" width="200">
   <br>
-  <img src="docs/sim-shots/ap-1024x600.png" alt="Autopilot HUD 1024x600" width="340">
-  <br>
-  <em>Autopilot HUD — semicircular compass, target bug, XTE strip, and numeric
-  tiles — rendered at every supported display class (480×480 square, 800×480 and
-  1024×600 wide). Engage/standby and mode are touch (long-press = mode picker)
-  or driven by the external network knob.</em>
-</p>
-
-<p align="center">
-  <img src="docs/sim-shots/wind-480x480.png" alt="Wind dial 480x480" width="190">
-  <img src="docs/sim-shots/wind-800x480.png" alt="Wind dial 800x480" width="300">
-  <br>
-  <img src="docs/sim-shots/wind-1024x600.png" alt="Wind dial 1024x600" width="340">
-  <br>
-  <em>Wind dial — full 360° rose with apparent/true wind indices, close-hauled
-  sectors, and the tidal current vector; AWS/AWA/TWS/TWA in tiles.</em>
-</p>
-
-<p align="center">
-  <img src="docs/sim-shots/dash-480x480.png" alt="Dashboard 480x480" width="150">
-  <img src="docs/sim-shots/dash-800x480.png" alt="Dashboard 800x480" width="250">
-  <br>
-  <img src="docs/sim-shots/dash-1024x600.png" alt="Dashboard 1024x600" width="320">
-  <br>
-  <img src="docs/sim-shots/knob-ap_hud.png" alt="Round autopilot control (Waveshare knob)" width="150">
-  <br>
-  <em>Dashboard at every supported display class (480×480, 800×480, 1024×600),
-  and the round autopilot control on the Waveshare knob (360×360). All produced
-  by the headless LVGL host harness — <code>make sim</code> — which runs the real
-  screen code and asserts no-overlap/in-bounds per resolution.</em>
-</p>
-
-The navigation, depth, route, trip and full-screen tap-to-zoom views render
-through the same host harness and are validated at every resolution:
-
-<p align="center">
-  <img src="docs/sim-shots/nav-480x480.png" alt="Nav 480x480" width="150">
-  <img src="docs/sim-shots/route-480x480.png" alt="Route 480x480" width="150">
-  <img src="docs/sim-shots/depth-480x480.png" alt="Depth 480x480" width="150">
-  <br>
-  <img src="docs/sim-shots/trip-480x480.png" alt="Trip 480x480" width="150">
-  <img src="docs/sim-shots/wind_steer-480x480.png" alt="Wind steering 480x480" width="150">
-  <img src="docs/sim-shots/zoom-pos-480x480.png" alt="Zoom: position 480x480" width="150">
-  <br>
-  <em>Nav (compass + SOG + COG + position), Route (DTW/BTW/XTE/VMG), Depth, Trip,
-  the Wind-steering aid (TWA + tack/gybe angles + new heading + TWD), and the
-  full-screen tap-to-zoom view — which fits a two-line lat/lon as well as a single
-  big number. Wide-panel (800×480, 1024×600) renders are in
-  <a href="docs/sim-shots/">docs/sim-shots/</a>.</em>
+  <em>MIDL screens rendered by the headless LVGL host harness (<code>make sim</code>,
+  env <code>sim-midl</code>), which runs the real device render path
+  (solver -> element mapping -> tile painters) and asserts no-overlap/in-bounds.</em>
 </p>
 
 ## Features
@@ -187,8 +139,9 @@ Operators use structured pages:
   as JSON or YAML for review and version control.
 - `Preset detail` applies one dashboard preset to selected devices and can
   queue `config.reload` so the devices pull the new generated dashboard config.
-- The device web UI exposes matching dashboard config import/export endpoints:
-  `/api/dashboard/config.json` and `/api/dashboard/config.yaml`.
+- Screens are MIDL records: Display Manager pushes them to the device
+  (`PUT /api/midl/records/<id>`, `PUT /api/midl/index`) or the device pulls the
+  `midl` block of its config (docs/midl/midl-only.md).
 - `Firmware` tracks plugin-side firmware artifacts and OTA jobs; the firmware
   can pull, verify, install, reboot, and confirm jobs, with hardware
   failure-path validation still outstanding.
@@ -256,75 +209,45 @@ instead of hardcoded board names.
 ## Remote Knob
 
 The **Waveshare ESP32-S3-Knob-Touch-LCD-1.8** (`waveshare-knob-1_8`) runs the
-same firmware as a dedicated **rotary remote controller** instead of a full
-dashboard. It is a 360×360 **round** ST77916 QSPI panel driven by a rotary
-encoder with a push button: scroll the knob to adjust, click to select,
-long-press / double-click for menus. It carries a small set of round views and
-can drive **other** displays on the network through the `espdisp-manager`
-plugin (switching their active view, instant-apply via `configPush`).
+same firmware as a **rotary remote controller**. It is a 360×360 **round**
+ST77916 QSPI panel driven by a rotary encoder with a push button. Its screens
+are the embedded round-360 MIDL records (`ap_hud`, `knob_compass`, `knob_wind`,
+`knob_big`; home = the index `defaultScreen`); the rotary menu is native system
+UI drawn over them. It can also drive **other** displays on the network through
+the `espdisp-manager` plugin (switching their active view).
 
-<p align="center">
-  <img src="docs/sim-shots/knob-gallery.png" alt="Knob round views: Autopilot HUD, Compass, Wind, Big number" width="480">
-  <br>
-  <em>The four dedicated round views — Autopilot HUD, Compass, Wind angle, Big
-  number — rendered at 360×360 by the <code>make sim</code> harness.</em>
-</p>
+> Not yet verified on knob hardware since the MIDL-only change.
 
 ### Gesture cheat-sheet
 
-The **Autopilot HUD** is home. Gestures there control the autopilot directly:
+| Level | Scroll | Click | Double-click | Long-press |
+|-------|--------|-------|--------------|------------|
+| **Home** (a MIDL screen) | next / previous screen | home screen | **Steer** | **Menu** |
+| **Steer** (ap_hud + STEER badge) | AP target ±1° (hold: ±5°) | engage / standby | back to Home | Mode picker |
+| **Menu** / pickers | move highlight | select / enter | back | — |
 
-| Gesture | Action (Autopilot HUD / home) |
-|---------|-------------------------------|
-| Scroll | Adjust target heading ±1° (apparent wind angle in Wind mode) |
-| Hold + scroll | Adjust ±5° |
-| Click | Engage / disengage (toggle Standby ⇄ last active mode) |
-| Long-press | Open the **mode picker** (Standby / Compass / Wind / Route) |
-| Double-click | Open the **menu** (Select Display → Select View) |
-
-Scrolling while in Standby pre-sets the target so engaging Compass holds it.
-
-Inside menus the vocabulary is uniform: **scroll** moves the highlight,
-**click** selects/enters, **double-click** goes back one level.
+Scrolling in Steer while in Standby pre-sets the target so engaging Compass
+holds it.
 
 ### Menu map
 
 ```text
-Autopilot HUD  (home)
-  long-press  -> Mode Picker  (Standby / Compass / Wind / Route)
-  double-click-> Select Display
-                   click on a display -> Select View
-                                           click on a view -> switch that
-                                                              display to it
-                   double-click -> back to home
+Home  (MIDL carousel: scroll = next/prev, click = home screen)
+  double-click -> Steer (shows ap_hud)
+                    long-press -> Mode Picker (Standby / Compass / Wind / Route) -> Steer
+  long-press   -> Menu
+                    STEER    -> Steer
+                    AP MODE  -> Mode Picker
+                    DISPLAYS -> Select Display -> click a display -> Select View
+                                                   click a view -> switch that display to it
+                    CLOSE    -> Home
 ```
 
 The display list = the knob itself (its four round views) plus the remote MFDs
-discovered through the manager. "Select View" switches the chosen display's
-active view.
-
-The four dedicated round views:
-
-<p align="center">
-  <img src="docs/sim-shots/knob-ap_hud.png" alt="Knob Autopilot HUD" width="120">
-  <img src="docs/sim-shots/knob-compass.png" alt="Knob Compass" width="120">
-  <img src="docs/sim-shots/knob-wind.png" alt="Knob Wind angle" width="120">
-  <img src="docs/sim-shots/knob-big.png" alt="Knob Big number" width="120">
-  <br>
-  <em>Autopilot HUD · Compass · Wind angle · Big number (depth/SOG).</em>
-</p>
+discovered through the manager.
 
 For flashing, provisioning, and using the knob to drive other displays, see
-[Deploy & use the remote knob](docs/remote-knob.md). For how the knob is verified
-in software and the hardware bring-up checklist, see
-[Testing & simulation](docs/knob-testing.md).
-
-<p align="center">
-  <img src="docs/sim-shots/knob-menu-gallery.png" alt="Knob menu overlays: mode picker, Select Display, Select View" width="480">
-  <br>
-  <em>Menu overlays — mode picker · Select Display · Select View — rendered at
-  360×360 by the <code>make sim</code> harness.</em>
-</p>
+[Deploy & use the remote knob](docs/remote-knob.md).
 
 ## Control Protocol (P2P)
 
@@ -491,7 +414,7 @@ Send these over the serial monitor (`make monitor`) or BLE (`make ble`):
 | `sk <host> [port]` | Save SignalK server target and reboot |
 | `sk-status` | Print SignalK connection state + age of last delta |
 | `sk-dump` | Print currently-parsed values of every tracked field |
-| `screen <id\|next\|prev\|N>` | Switch screens (ids: dashboard wind nav depth steering route autopilot trip status wifi) |
+| `screen <id\|next\|prev\|home\|N>` | Switch MIDL screens (built-in ids: dashboard wind wind_classic wind_steer nav depth steering route autopilot trip status; loads the owning record) |
 | `theme <day\|night>` | Switch palette (saved to NVS) |
 | `pos-format <ddm\|dd\|dms>` | Lat/lon formatting; ddm is marine default |
 | `trip-reset` | Zero trip distance / time / max-speed |
@@ -523,7 +446,7 @@ companion mobile app (task #26).
 | Characteristic | UUID suffix | Props | Payload |
 |---|---|---|---|
 | **CONNECTION** | `…e001…` | Read · Write · Notify | JSON: `{ "wifi": {ssid, ip, rssi, mode}, "sk": {host, port, state}, "device": {uptime_ms, heap_free, psram_free} }` |
-| **CONFIGURATION** | `…e003…` | Read · Write · Notify | Layout JSON (same schema as the SignalK resource at `configuration.boat-mfd.layouts`), up to 512 B |
+| **CONFIGURATION** | `…e003…` | Read · Notify | MIDL status summary: `{"midl":1,"record":"dashboard","screen":"dashboard","home":"dashboard","records":11}` |
 
 Write to CONNECTION with a partial JSON to update WiFi or SignalK target:
 
@@ -533,20 +456,10 @@ Write to CONNECTION with a partial JSON to update WiFi or SignalK target:
 { "sk": { "host": "192.168.1.100", "port": 3000 } }          // saves + reboots
 ```
 
-Write to CONFIGURATION with a complete layout JSON to replace the live config.
-Reads return the last successfully applied document **only if it fits in 512
-bytes** (the BLE attribute-value cap per the BT spec). Larger layouts return
-a JSON summary stub:
-
-```json
-{ "truncated": true, "size": 917, "screen_count": 1, "alarm_count": 2,
-  "default_screen": "dashboard" }
-```
-
-For full-layout transfer above 512 B, smartphone apps should use SignalK's
-REST endpoint (`PUT /signalk/v1/api/vessels/self/configuration/boat-mfd/layouts/value`)
-and trigger a re-load via the device's `layout-fetch` command. Native BLE
-chunked transfer is on the roadmap (see task #20).
+Screens are MIDL records (up to 48 KB each), which do not fit a 512-byte GATT
+attribute: they are pushed over HTTP (`PUT /api/midl/records/<id>`, see
+[docs/midl/midl-only.md](docs/midl/midl-only.md)). CONFIGURATION only reports
+the active record / screen.
 
 ## Running with synthetic data
 
@@ -656,78 +569,26 @@ the state path back. The emulator also supports `actions.adjustHeading`; the
 current firmware target-heading command uses `target.headingTrue`, which is
 not the emulator's writable heading target.
 
-## Layout configuration (work in progress)
+## Screens: MIDL records
 
-Multi-screen layouts are described by a JSON document on the SignalK server
-(`configuration.boat-mfd.layouts`). The device fetches the config at boot,
-falls back to a baked-in default if unreachable, and re-fetches on reconnect.
+The display renders [MIDL](https://github.com/yey-boats/midl) screens only.
+A **record** is one MIDL document (one or more screens) plus `{id, title,
+source, hash}`; the device keeps embedded records (built from
+`midl/library/builtin`, per display class) and the records Display Manager
+pushes or the device pulls, on LittleFS. One record is active at a time;
+swiping past its last screen loads the next record in the index order.
 
-### Schema
-
-```jsonc
-{
-  "version": 1,
-  "settings": {
-    "default_screen": "dashboard",
-    "demo_period_ms": 3000
-  },
-  "screens": [
-    {
-      "id": "dashboard",
-      "title": "Dashboard",
-      "type": "quadrants",
-      "tiles": [
-        {
-          "id": "wind",
-          "title": "WIND",
-          "type": "wind",
-          "paths": {
-            "awa": "environment.wind.angleApparent",
-            "aws": "environment.wind.speedApparent"
-          }
-        }
-      ]
-    },
-    {
-      "id": "steering",
-      "title": "Steering",
-      "type": "steering",
-      "paths": {
-        "hdg": "navigation.headingTrue",
-        "cts": "navigation.courseRhumbline.courseToSteer",
-        "xte": "navigation.courseRhumbline.crossTrackError"
-      }
-    }
-  ],
-  "alarms": [
-    {
-      "id": "shallow",
-      "path": "environment.depth.belowTransducer",
-      "level": "alarm",
-      "lt": 3.0,
-      "message": "SHALLOW WATER"
-    }
-  ]
-}
+```sh
+curl -u admin:<pw> http://<device>/api/midl/records          # list
+curl -u admin:<pw> http://<device>/api/midl/records/wind     # one record
+curl -u admin:<pw> -X PUT http://<device>/api/midl/records/mine \
+     -d '{"title":"Mine","doc":{...}}'                       # store (source "local")
+curl -u admin:<pw> -X POST http://<device>/api/midl/reset    # back to factory
 ```
 
-### Field reference
-
-| Field | Allowed values |
-|-------|----------------|
-| `screens[].type` | `quadrants` &middot; `steering` &middot; `autopilot` &middot; `route` &middot; `trip` &middot; `chart` |
-| `screens[].tiles[].type` | `wind` &middot; `nav` &middot; `depth_temp` &middot; `device_status` &middot; `big_number` &middot; `compass` |
-| `alarms[].level` | `info` &middot; `warn` &middot; `alarm` &middot; `emergency` |
-| `alarms[].lt` / `.gt` | Number — trigger when the path's value crosses below `lt` or above `gt` |
-
-Bounds (compile-time, see `include/layout.h`): max 8 screens, 4 tiles per
-screen, 6 path bindings per object, 8 alarms. Strings truncate to 32
-chars for ids/titles, 96 for SignalK paths.
-
-### Status
-
-- Schema defined + host-portable parser with 9 unit tests passing — `include/layout.h`, `src/layout.cpp`
-- Fetcher (SignalK REST) and LVGL renderer not yet wired (tracked in task #7)
+Every write is validated against the device's own capability manifest
+(`GET /api/midl/manifest`). The full device ↔ Display Manager contract (push,
+pull, index, heartbeat) is in [docs/midl/midl-only.md](docs/midl/midl-only.md).
 
 ## Architecture
 
@@ -750,15 +611,18 @@ chars for ids/titles, 96 for SignalK paths.
  +----------------+
         |
         v
- +----------------+
- |   LVGL UI      | -- 5 Hz refresh from sk::data
- |  4 quadrants   |
- +----------------+
+ +----------------+     +-----------------------------+
+ |   LVGL UI      | <-- | MIDL record store           |
+ | MIDL screens   |     | embedded + pushed/pulled    |
+ +----------------+     +-----------------------------+
+   5 Hz refresh from boat data
 ```
 
 | File | Purpose |
 |------|---------|
 | `src/main.cpp` | Display + touch init, LVGL UI, main loop |
+| `src/midl_store.cpp` / `src/midl_store_ui.cpp` | MIDL record store, index, activation + navigation |
+| `src/midl_render*.cpp`, `src/ui/ui_layouts.cpp` | MIDL element mapping + tile painters |
 | `src/net.cpp` | WiFi STA/AP, ArduinoOTA, mDNS, BLE GATT, multi-target logging |
 | `src/signalk.cpp` | WebSocket client, subscription, NVS-persisted target |
 | `src/signalk_parser.cpp` | Pure delta parser (host-portable, unit tested) |
@@ -822,15 +686,12 @@ or `*-beta*` are marked as pre-release.
 
 ## Roadmap
 
-- [ ] Move position (lat/lon) into the Nav quadrant; promote Status to a device-health panel
-- [ ] Multi-screen layouts with server-managed configuration (JSON document on SignalK)
 - [ ] Triple-tap to expand a tile to fullscreen; triple-tap again to restore
 - [ ] Swipe gestures to scroll between screens
 - [ ] Advanced screens: compass rose, AIS targets, engine, anchor watch, tank levels, history graphs
 - [ ] Raster chart display fed by a SignalK charts plugin
 - [ ] NMEA 0183 input via RS-422 transceiver on a free UART
 - [ ] Optional NMEA 2000 (CAN) support
-- [ ] NVS caching of last-known config so the device boots into the right layout without network
 
 ## Related projects
 

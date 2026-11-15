@@ -656,18 +656,9 @@ dashboard:
       valueFontSize: 48
 ```
 
-Device-local import/export aliases:
-
-```text
-GET /api/dashboard/config.json
-PUT /api/dashboard/config.json
-GET /api/dashboard/config.yaml
-PUT /api/dashboard/config.yaml
-```
-
-JSON is canonical. SignalK emits block-style YAML and imports that constrained
-profile. The device `.yaml` endpoint uses JSON-compatible YAML syntax to avoid a
-large YAML parser in firmware.
+The device-local `/api/dashboard/config.{json,yaml}` and `/api/layout`
+endpoints are gone: the display renders MIDL records only, written with
+`PUT /api/midl/records/<id>` (docs/midl/midl-only.md).
 
 Device access security is intentionally explicit:
 

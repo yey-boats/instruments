@@ -39,12 +39,11 @@ extern volatile bool g_pointer_dragging;
 namespace ui::layouts {
 
 // ---------------------------------------------------------------------------
-// Per-template instance state. We attach this as user_data on the
-// template's root object so update() can find its labels/widgets
-// without depending on file-scope statics (templates can be
-// instantiated multiple times, e.g. test screens).
+// Per-tile instance state. The freeform screen root carries a FreeformState
+// (one TileState per MIDL element) as user_data, so update_freeform() finds
+// its labels/widgets without file-scope statics.
 
-struct QuadGridTile {
+struct TileState {
     lv_obj_t *root;
     lv_obj_t *cap;
     lv_obj_t *value;
@@ -98,13 +97,11 @@ struct QuadGridTile {
     // label's budget, which the update path re-fits its font to.
     int fit_dia;
     int fit_w, fit_h;
+    // Text element: the painter's font, the top of fit_text_font's ladder.
+    const lv_font_t *text_cap;
 };
 
-struct QuadGridState {
-    QuadGridTile tiles[4];
-};
-
-// Reverse of layout_renderer's path_to_source(): the canonical SignalK path a
+// Reverse of ui::metric_map::path_to_source(): the canonical SignalK path a
 // MetricSource consumes. Defined unconditionally so the per-screen subscription
 // manager (collect_paths) and the perf-counter store shadow share one source of
 // truth. Position and APState ARE real paths a screen subscribes; None maps to
@@ -289,13 +286,6 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
     }
 }
 
-#ifdef DBG_PERF_COUNTERS
-// Benchmark: when on, built-in screens shadow-resolve each metric through the
-// dynamic PathStore (the cost a real "port built-ins to the store" would add),
-// so bench-sweep can A/B the typed fast-path vs. the store path.
-bool g_bench_store_mode = false;
-#endif  // DBG_PERF_COUNTERS
-
 // ---------------------------------------------------------------------------
 // Metric formatting. Returns the primary value text, and optionally
 // fills `secondary` with a short context string. NaN -> "--".
@@ -407,15 +397,6 @@ static uint32_t zone_rgb(const MetricZone &z, uint32_t fallback) {
 static void format_metric(const MetricBinding &m, const boat::View &d, char *primary, size_t pcap,
                           char *secondary, size_t scap) {
     secondary[0] = 0;
-#ifdef DBG_PERF_COUNTERS
-    if (g_bench_store_mode && m.source != MetricSource::None) {
-        const char *p = source_to_path(m.source);
-        if (p) {
-            volatile double x = sk::dynamicStore().get(p);  // incur store-port cost
-            (void)x;
-        }
-    }
-#endif
     switch (m.source) {
     case MetricSource::AWS_kn:
         vfmt::format_scaled(mps_to_kn(d.aws), s_fmt.speed, primary, pcap);
@@ -723,46 +704,34 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
     }
 }
 
-// ---- tap-to-zoom target --------------------------------------------------
-// Set by a tile tap; consumed by the dedicated "zoom" screen (see ui::zoom
-// below) which renders this single metric full-screen. File-scope so both
-// the tap callback (here) and the zoom screen (same TU) share it.
-static MetricBinding g_zoom_target = {"", "", "", MetricSource::None, 0, nullptr};
-
-// Public entry so a controller (or the sim harness) can drive the zoom screen
-// to a chosen metric without a physical tile tap.
-void set_zoom_target(const MetricBinding &m) {
-    g_zoom_target = m;
-}
-
-// Optional fullscreen-zoom handler (set by the MIDL render layer). When set, a
-// fullscreen-self zoom tap routes here instead of show_by_id("zoom") — the MIDL
-// build has no "zoom" screen, so it supplies its own transient full-screen render.
+// ---- tap-to-zoom -----------------------------------------------------------
+// Fullscreen-zoom handler (set by the MIDL render layer): a fullscreen-self
+// zoom tap builds a transient single-element full-screen render.
 static ZoomFullscreenFn s_zoom_fullscreen_fn = nullptr;
 void set_zoom_fullscreen_handler(ZoomFullscreenFn fn) {
     s_zoom_fullscreen_fn = fn;
 }
 
-// Route a fullscreen-self (auto-scale) zoom request: prefer the MIDL handler if
-// installed, else fall back to the built-in "zoom" screen. Shared by both the
-// legacy (zoom_target == NULL) and authored-auto paths in tile_zoom_action_cb.
+// Route a fullscreen-self (auto-scale) zoom request to the MIDL handler.
 static void dispatch_fullscreen_self(const MetricBinding &m) {
     if (m.source == MetricSource::None && !(m.path && m.path[0])) return;
-    if (s_zoom_fullscreen_fn) {
-        s_zoom_fullscreen_fn(m);
-        return;
-    }
-    g_zoom_target = m;
-    ui::show_by_id("zoom");
+    if (s_zoom_fullscreen_fn) s_zoom_fullscreen_fn(m);
 }
 
-// Slice 6: per-field zoom dispatch. Honors the authored tile's `zoomable` /
-// `zoom_target`: "auto"/"" scales the field in place on the dedicated zoom
-// screen (reusing g_zoom_target), a "<screenId>" target switches to that full
-// screen via show_by_id. Legacy/hardcoded bindings (zoom_target == NULL) keep
-// the original always-auto-scale behavior so built-in dashboards are unchanged.
-// Runs on the LVGL/UI task (LV_EVENT_CLICKED dispatch); g_zoom_target is the
-// shared function-static scratch, so no large MetricBinding goes on this stack.
+// Record-aware navigation (the owning MIDL record is loaded first): post a
+// ShowScreen to the UI pump rather than calling ui::show_by_id directly.
+static void post_show_screen(const char *target) {
+    app::Command c;
+    c.type = app::CommandType::ShowScreen;
+    strncpy(c.a, target, sizeof(c.a) - 1);
+    c.t_post_us = micros();
+    app::post(c, 0);
+}
+
+// Slice 6: per-field zoom dispatch. Honors the element's `zoomable` /
+// `zoom_target`: "auto"/"" (or no target) opens the MIDL fullscreen zoom of
+// the field, a "<screenId>" target switches to that screen. Runs on the
+// LVGL/UI task (LV_EVENT_CLICKED dispatch).
 // g_pointer_dragging (global, set by main.cpp touch read-cb): LVGL fires CLICKED on
 // release even for long drags (MIDL tiles are non-scrollable, so scroll_limit can't
 // cancel it), so every tap/zoom/button handler ignores the click when it was a drag
@@ -772,10 +741,8 @@ static void tile_zoom_action_cb(lv_event_t *e) {
     const MetricBinding *m = (const MetricBinding *)lv_event_get_user_data(e);
     if (!m) return;
 
-    // No explicit zoom config (built-in screen tile): preserve the legacy
-    // auto-zoom for any real metric. For a MIDL fullscreen-self tile the
-    // map_element default also lands here (zoom_target == NULL with zoomable
-    // true) and routes through the MIDL handler if installed.
+    // No explicit zoom target (the map_element default for a zoomable
+    // element): fullscreen-self zoom through the MIDL handler.
     if (!m->zoom_target) {
         dispatch_fullscreen_self(*m);
         return;
@@ -786,9 +753,9 @@ static void tile_zoom_action_cb(lv_event_t *e) {
         dispatch_fullscreen_self(*m);
         break;
     case layout::ZOOM_SHOW_SCREEN:
-        // show_by_id validates the id and no-ops (returns false) on a dangling
-        // screen ref, so a stale zoom target is harmless.
-        ui::show_by_id(m->zoom_target);
+        // The pump's ShowScreen loads the owning record and no-ops on a
+        // dangling screen ref, so a stale zoom target is harmless.
+        post_show_screen(m->zoom_target);
         break;
     case layout::ZOOM_NONE:
     default:
@@ -798,8 +765,7 @@ static void tile_zoom_action_cb(lv_event_t *e) {
 
 // Numeric value for chart-able metrics, in display units. Returns NaN
 // for non-scalar bindings (Position, APState, etc). Thin wrapper over the
-// shared resolver (metric_value.h) — the single source of truth shared with
-// the MIDL renderer and the manager-pushed widget_registry. A dynamic-path
+// shared resolver (metric_value.h), shared with the MIDL mapper. A dynamic-path
 // binding (source None, raw path retained) resolves through the injected
 // PathStore resolver + format.unit conversion instead.
 static double metric_scalar(const MetricBinding &m, const boat::View &d) {
@@ -809,17 +775,7 @@ static double metric_scalar(const MetricBinding &m, const boat::View &d) {
 }
 
 // ---------------------------------------------------------------------------
-// quad_grid template - 2x2 tile dashboard
-//
-// Layout: 4 tiles laid out in a 2x2 grid, each ~240x230 px on a 480x480
-// panel. Top-of-screen has the MOB-safe band reserved (see spec 09
-// safe zone); tiles start at y=72 and the bottom row reaches y=472.
-
-static constexpr int QG_TOP_Y = 72;            // clear MOB pill
-static constexpr int QG_BOTTOM_Y = LCD_H - 8;  // small bottom margin
-static constexpr int QG_TILE_W = (LCD_W - 12) / 2;
-static constexpr int QG_TILE_H = (QG_BOTTOM_Y - QG_TOP_Y - 4) / 2;
-static constexpr int QG_GAP = 4;
+// Tile painters (one per WidgetKind) + the shared tap handlers.
 
 static void tile_clicked_cb(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
@@ -827,11 +783,7 @@ static void tile_clicked_cb(lv_event_t *e) {
     auto *target = (const char *)lv_event_get_user_data(e);
     net::logf("[layout] tile CLICKED target=%s", target ? target : "(null)");
     if (!target || !*target) return;
-    app::Command c;
-    c.type = app::CommandType::ShowScreen;
-    strncpy(c.a, target, sizeof(c.a) - 1);
-    c.t_post_us = micros();
-    app::post(c, 0);
+    post_show_screen(target);
 }
 
 // Button element tap handler (MIDL `action`). user_data is the tile's
@@ -914,7 +866,7 @@ static double binding_unit_fraction(const MetricBinding &m, double v) {
 // Shrink the hero value font to the largest ladder step whose rendered width
 // fits `max_w`. Always starts from the biggest font so the value grows back
 // when it shortens. Fixes wide scaled strings (e.g. "68.07kS", "453.95")
-// overflowing/clipping QuadGrid tiles. Called only on text change.
+// overflowing/clipping tiles. Called only on text change.
 static void fit_value_font(lv_obj_t *label, const char *txt, int max_w) {
     static const lv_font_t *const ladder[] = {&font_xl_64, &font_b612_48, &font_b612_38,
                                               &font_b612_28};
@@ -980,17 +932,73 @@ static void fit_hero_scale(lv_obj_t *label, const char *txt, int hero_h, int her
 // possibly multi-line string) fits max_w. Fixes POS clipping on the narrow
 // (160 px) freeform/quad text tiles where the lat/lon line was wider than the
 // 28 px font. Called only on text change.
-static void fit_text_font(lv_obj_t *label, const char *txt, int max_w) {
-    static const lv_font_t *const ladder[] = {&font_b612_28, &font_b612_20, &font_b612_14};
-    for (int i = 0; i < 3; ++i) {
-        lv_point_t sz;
-        lv_text_get_size(&sz, txt, ladder[i], 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-        if (sz.x <= max_w) {
+static int text_width(const char *txt, const lv_font_t *font) {
+    lv_point_t sz;
+    lv_text_get_size(&sz, txt, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    return sz.x;
+}
+
+// Ellipsize every line of `txt` at the end so it renders within `max_w` in
+// `font` ("0.4.0+196.g8d6..."), writing the result to `out`. UTF-8 safe: a cut
+// never splits a multi-byte glyph (the degree sign).
+static void ellipsize_lines(const char *txt, const lv_font_t *font, int max_w, char *out,
+                            size_t cap) {
+    static const char kDots[] = "...";
+    size_t o = 0;
+    out[0] = 0;
+    const char *line = txt;
+    while (*line && o + 1 < cap) {
+        const char *nl = strchr(line, '\n');
+        size_t len = nl ? (size_t)(nl - line) : strlen(line);
+        char buf[64];
+        size_t n = len < sizeof(buf) - sizeof(kDots) ? len : sizeof(buf) - sizeof(kDots);
+        memcpy(buf, line, n);
+        buf[n] = 0;
+        if (n < len || text_width(buf, font) > max_w) {
+            // Drop glyphs from the end until "<prefix>..." fits.
+            while (n > 0) {
+                do {
+                    --n;
+                } while (n > 0 && ((unsigned char)buf[n] & 0xC0) == 0x80);
+                memcpy(buf + n, kDots, sizeof(kDots));
+                if (text_width(buf, font) <= max_w) break;
+            }
+            if (n == 0) memcpy(buf, kDots, sizeof(kDots));
+        }
+        size_t bl = strlen(buf);
+        if (o + bl + 2 > cap) bl = cap > o + 2 ? cap - o - 2 : 0;
+        memcpy(out + o, buf, bl);
+        o += bl;
+        if (nl && o + 1 < cap) out[o++] = '\n';
+        out[o] = 0;
+        if (!nl) break;
+        line = nl + 1;
+    }
+}
+
+// Fit a MIDL text element's value to its tile width: the largest device font
+// ({48,28,20,14}, capped at the painter's pick `cap`) whose rendered width fits
+// `max_w`; if even 14 px is too wide, ellipsize at the end. A text value used
+// to keep the smallest font and overflow, and the centred label was clipped
+// at both edges (VERSION / BUILD on the status screen). Called on text change.
+static void fit_text_font(lv_obj_t *label, const char *txt, int max_w, const lv_font_t *cap) {
+    static const lv_font_t *const ladder[] = {&font_b612_48, &font_b612_28, &font_b612_20,
+                                              &font_b612_14};
+    constexpr int N = (int)(sizeof(ladder) / sizeof(ladder[0]));
+    int start = 0;
+    while (start < N - 1 && cap && ladder[start] != cap)
+        ++start;
+    if (cap && ladder[start] != cap) start = 0;  // unknown cap: whole ladder
+    for (int i = start; i < N; ++i) {
+        if (text_width(txt, ladder[i]) <= max_w) {
             lv_obj_set_style_text_font(label, ladder[i], 0);
             return;
         }
     }
-    lv_obj_set_style_text_font(label, ladder[2], 0);
+    lv_obj_set_style_text_font(label, ladder[N - 1], 0);
+    char cut[96];
+    ellipsize_lines(txt, ladder[N - 1], max_w, cut, sizeof(cut));
+    lv_label_set_text(label, cut);
 }
 
 // Gauge-centre variant of fit_value_font: the ladder is CAPPED at the
@@ -1055,10 +1063,10 @@ static uint32_t mix_rgb(uint32_t fg, uint32_t bg, int pct) {
 }
 
 static const lv_font_t *compact_font(const char *sample, int max_w, int max_h);
-static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w, int h,
+static void paint_value_only_body(TileState &t, const MetricBinding &m, int w, int h,
                                   const char *sample);
 
-static void paint_numeric_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_numeric_body(TileState &t, const MetricBinding &m, int w, int h) {
     bool has_extras = (m.extras_count > 0);
     if (t.fit_dia < 0) {  // round-safe rect too short for the layout below (#50)
         paint_value_only_body(t, m, w, h, "88.8");
@@ -1430,7 +1438,7 @@ struct CompassBandState {
 
 // Build the band into the tile. Returns false when the tile is too small for a
 // legible band (caller falls back to the round dial) or PSRAM is exhausted.
-static bool paint_compass_band_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static bool paint_compass_band_body(TileState &t, const MetricBinding &m, int w, int h) {
     const int inset = chrome::panel_border + chrome::panel_pad;
     const int cw_avail = w - 2 * inset;
     const int ch_avail = h - 2 * inset;
@@ -1509,7 +1517,7 @@ static bool paint_compass_band_body(QuadGridTile &t, const MetricBinding &m, int
 // Per-frame band drive: rotate the tick scale by -heading, relayout the upright
 // numerals, refresh hero text, and rotate authored markers/sectors with the
 // heading as reference. `pri` is format_metric's primary text for the binding.
-static void update_compass_band(QuadGridTile &t, const MetricBinding &m, const boat::View &d,
+static void update_compass_band(TileState &t, const MetricBinding &m, const boat::View &d,
                                 const char *pri) {
     CompassBandState *st = t.aux ? (CompassBandState *)lv_obj_get_user_data(t.aux) : nullptr;
     if (!st) return;
@@ -1564,7 +1572,7 @@ static void gauge_value_sample(const MetricBinding &m, char *out, size_t cap) {
 // when there is room) under the caption, inside the round-safe rect. Only
 // t.value / t.unit are created; the update paths skip the missing ring,
 // markers and secondary line (all null / empty).
-static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w, int h,
+static void paint_value_only_body(TileState &t, const MetricBinding &m, int w, int h,
                                   const char *sample) {
     const int inset = chrome::panel_border + chrome::panel_pad;
     // Caption row at the top of the content box (label at y = 2).
@@ -1626,7 +1634,7 @@ static void paint_value_only_body(QuadGridTile &t, const MetricBinding &m, int w
 // Compass widget: round bezel with accent border, heading number in the
 // center, small "▲" marker at top, CTS label at bottom. Mirrors editor
 // .wpreview .compass.
-static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_compass_body(TileState &t, const MetricBinding &m, int w, int h) {
     if (t.fit_dia < 0) {
         paint_value_only_body(t, m, w, h, "888");
         return;
@@ -1850,7 +1858,7 @@ static void paint_compass_body(QuadGridTile &t, const MetricBinding &m, int w, i
 // it a percent via binding_unit_fraction), so only the decorative tick ring
 // follows the real scale. Legacy/default tiles (range_min==range_max) keep the
 // label-less 0–100 tick ring byte-for-byte.
-static void paint_gauge_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_gauge_body(TileState &t, const MetricBinding &m, int w, int h) {
     const bool ranged = (m.range_min != m.range_max);
     // Round-fit (#50): value-only when the fitted circle cannot hold the ring;
     // else the ring is sized to the circle, the tick labels show only on a
@@ -2024,7 +2032,7 @@ static void gauge_set_bipolar_fill(lv_obj_t *arc, const MetricBinding &m, double
 
 // Bar widget: title row (label left, percent right) + LVGL bar fill.
 // Mirrors editor .wpreview .bar.
-static void paint_bar_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_bar_body(TileState &t, const MetricBinding &m, int w, int h) {
     // Bar tile: percent number is the hero element (centered, big), bar
     // sits below it. Percent dominates the tile so the operator can
     // read SOC / fuel / fresh-water at a glance, like editor's preview.
@@ -2088,11 +2096,10 @@ static void paint_bar_body(QuadGridTile &t, const MetricBinding &m, int w, int h
     }
 }
 
-// Shared Gauge/Bar tile refresh (update_quad_grid + update_freeform were
-// byte-identical here; one body keeps the two paths from diverging). Drives
+// Gauge/Bar tile refresh. Drives
 // the fill (or the centre-zero needle), the centre label, and the style.zones
 // threshold colour (web parity: fill + hero text follow the active zone).
-static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat::View &data) {
+static void update_gauge_bar(TileState &t, const MetricBinding &m, const boat::View &data) {
     double scalar = metric_scalar(m, data);
     // Honor an explicit MIDL format.range when present; legacy bindings
     // (range_min==range_max) fall back to the built-in per-source heuristic.
@@ -2198,17 +2205,37 @@ static void update_gauge_bar(QuadGridTile &t, const MetricBinding &m, const boat
 // ranged element (format.range) normalizes against its [min,max]; legacy tiles
 // use the per-source heuristic. Samples are pushed on value-change only, matching
 // the fullscreen trend (a steady reading holds the line rather than scrolling it).
-static void paint_trend_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_trend_body(TileState &t, const MetricBinding &m, int w, int h) {
     // Current reading: hero number, upper third of the tile.
+    // Value + format.unit share a bottom-aligned flex row, like a
+    // single-value tile ("6.9 kn", not a bare "6.9").
     const lv_font_t *vfont = &font_b612_28;
     if (h >= 160) vfont = &font_b612_38;
     if (w < 140) vfont = &font_b612_20;
-    t.value = lv_label_create(t.root);
+    const lv_font_t *ufont = (vfont == &font_b612_38) ? &font_b612_20 : &font_b612_14;
+    lv_obj_t *row = lv_obj_create(t.root);
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_style_pad_column(row, 6, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+    lv_obj_align(row, LV_ALIGN_TOP_MID, 0, 26);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    t.value = lv_label_create(row);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
     lv_obj_set_style_text_color(t.value, lv_color_hex(value_color(m)), 0);
-    lv_obj_align(t.value, LV_ALIGN_TOP_MID, 0, 26);
     lv_obj_clear_flag(t.value, LV_OBJ_FLAG_CLICKABLE);
+    if (m.unit && m.unit[0]) {
+        t.unit = lv_label_create(row);
+        lv_label_set_text(t.unit, m.unit);
+        lv_obj_set_style_text_font(t.unit, ufont, 0);
+        lv_obj_set_style_text_color(t.unit, lv_color_hex(theme.fg_dim), 0);
+        lv_obj_clear_flag(t.unit, LV_OBJ_FLAG_CLICKABLE);
+    }
 
     // Sparkline fills the lower half of the tile.
     int chart_w = w - 24;
@@ -2262,7 +2289,7 @@ static double clino_roll_deg(const MetricBinding &m, const boat::View &d) {
     return metric_value(MetricSource::Roll_deg, d);
 }
 
-static void paint_clinometer_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_clinometer_body(TileState &t, const MetricBinding &m, int w, int h) {
     int dia = (w < h ? w : h) - 48;
     if (dia < 96) dia = 96;
 
@@ -2360,7 +2387,7 @@ static void paint_clinometer_body(QuadGridTile &t, const MetricBinding &m, int w
 // Shared quad-grid/freeform refresh for a Clinometer tile: bubble position +
 // hero heel text + pitch secondary. Bubble/text colour follows the heel side
 // (port red / starboard green from the theme), neutral accent when upright.
-static void update_clinometer(QuadGridTile &t, const MetricBinding &m, const boat::View &data) {
+static void update_clinometer(TileState &t, const MetricBinding &m, const boat::View &data) {
     double roll = clino_roll_deg(m, data);
     // Heel text: magnitude + P/S (see format_metric Roll_deg convention).
     char buf[16];
@@ -2415,7 +2442,7 @@ static void update_clinometer(QuadGridTile &t, const MetricBinding &m, const boa
 // ---------------------------------------------------------------------------
 // Full-screen wind dial (windrose element on a single-leaf full-screen screen).
 //
-// Ported from src/ui/screen_wind.cpp. The legacy screen uses ~15 file-static
+// Ported from the retired C++ screen_wind.cpp. The legacy screen uses ~15 file-static
 // lv_obj_t* handles; here all dial state lives in a PSRAM-allocated
 // WindDialState attached to the dial root's user_data, so a windrose tile can
 // be instantiated more than once (multiple screens) without file-scope state.
@@ -3028,7 +3055,7 @@ static void update(WindDialState *st, const boat::View &d) {
 // ---------------------------------------------------------------------------
 // Full-screen autopilot HUD (autopilot element on a large/full-screen leaf).
 //
-// Ported from src/ui/screen_autopilot.cpp. The legacy screen uses ~10 file-static
+// Ported from the retired C++ screen_autopilot.cpp. The legacy screen uses ~10 file-static
 // lv_obj_t* handles + a mode modal + touch/nudge wiring; here all HUD state lives
 // in a PSRAM-allocated ApHudState attached to the HUD root's user_data, so the
 // element can be instantiated more than once without file-scope state. The HUD
@@ -3537,7 +3564,7 @@ static void update(ApHudState *st, const boat::View &d) {
 // ui::build_marker_ring, center HDG hero, tile band, PSRAM state, short-leaf
 // band-drop). DISTINCT from the `wind` screen (winddial:: — a full CIRCULAR
 // rotating dial): this is heading-up and carries the LAYLINE sectors (no-go +
-// target) ported from the legacy src/ui/screen_wind_steer.cpp::refresh, plus a
+// target) ported from the retired C++ screen_wind_steer.cpp::refresh, plus a
 // HDG/COG/CTS/TWD marker ring and AWS/AWA/TWS/TWA tiles. It reads boat::View
 // directly (NOT through MetricBinding), like the legacy screen and aphud::.
 //
@@ -4168,7 +4195,7 @@ static inline bool windsteer_is_fullscreen(int w, int h) {
 // apparent/true wind chevrons. Shared by the multi-tile windrose tile AND the
 // non-fullscreen windsteer fallback (a windsteer leaf below the dial threshold
 // renders this same compact rose). Drives via the WindRose marker-update branch.
-static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_wind_rose_standin(TileState &t, const MetricBinding &m, int w, int h) {
     // Round-fit (#50): value-only when the fitted circle cannot hold the ring;
     // else the ring is sized to the circle and the wind heads ride 6 px
     // further in so their tips stay inside it (round_safe::dial_overhang).
@@ -4247,7 +4274,7 @@ static void paint_wind_rose_standin(QuadGridTile &t, const MetricBinding &m, int
     }
 }
 
-static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_wind_rose_body(TileState &t, const MetricBinding &m, int w, int h) {
     // Full-screen single-leaf windrose → the high-fidelity rotating dial. The
     // dial reads boat::View directly (no MIDL binding). t.aux holds the dial root,
     // whose user_data is the WindDialState the update path retrieves; the
@@ -4270,7 +4297,7 @@ static void paint_wind_rose_body(QuadGridTile &t, const MetricBinding &m, int w,
 // user_data is the WindSteerState the update path retrieves. last_aux_pct == -2
 // marks "full composite" (stand-in leaves it -1, and is driven by the WindRose
 // marker branch in update).
-static void paint_wind_steer_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_wind_steer_body(TileState &t, const MetricBinding &m, int w, int h) {
     if (windsteer_is_fullscreen(w, h)) {
         WindSteerState *st = windsteer::build(t.root, w, h, elem_rgb(m, theme.good));
         if (st) {
@@ -4284,11 +4311,12 @@ static void paint_wind_steer_body(QuadGridTile &t, const MetricBinding &m, int w
 }
 
 // Text widget: monospace value centered. Mirrors editor .wpreview .text-val.
-static void paint_text_body(QuadGridTile &t, const MetricBinding &m, int /*w*/, int h) {
+static void paint_text_body(TileState &t, const MetricBinding &m, int /*w*/, int h) {
     // Text widget covers multi-line values like position (lat / lon on
     // two lines). Pick a font that won't overflow short tiles.
     const lv_font_t *vfont = &font_b612_20;
     if (h >= 160) vfont = &font_b612_28;
+    t.text_cap = vfont;  // fit_text_font steps down (then ellipsizes) from here
     t.value = lv_label_create(t.root);
     lv_label_set_text(t.value, "--");
     lv_obj_set_style_text_font(t.value, vfont, 0);
@@ -4299,7 +4327,7 @@ static void paint_text_body(QuadGridTile &t, const MetricBinding &m, int /*w*/, 
 }
 
 // Button widget: rounded accent bubble. Mirrors editor .wpreview .btn-bubble.
-static void paint_button_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_button_body(TileState &t, const MetricBinding &m, int w, int h) {
     // Fill MOST of the tile so the bubble is a large finger target (styled like
     // the autopilot nudge pills, scaled up). Leave a margin so the tile's panel
     // chrome edge still shows. Height shrinks a bit more on short tiles.
@@ -4385,7 +4413,7 @@ static void style_ap_pill(lv_obj_t *pill, lv_obj_t *value, bool engaged, const M
 
 // Autopilot widget: state pill (filled `good` tint when engaged, hollow when
 // standby) + target text + 4 nudge buttons row. Mirrors editor .wpreview .ap.
-static void paint_autopilot_body(QuadGridTile &t, const MetricBinding &m, int w, int h) {
+static void paint_autopilot_body(TileState &t, const MetricBinding &m, int w, int h) {
     // Full-screen autopilot leaf → the high-fidelity HUD (semicircular heading-up
     // compass, HDG/COG/CTS/AP-target marker ring, XTE strip, numeric tiles). The
     // HUD reads boat::View directly (no MIDL binding). t.aux holds the HUD root,
@@ -4481,9 +4509,9 @@ static lv_obj_t *make_content_box(lv_obj_t *panel, int cx, int cy, int w, int h)
 }
 
 // `disc` (round panels only, else null): the visible circle in screen coords.
-static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h, const MetricBinding &m,
-                               const ui::round_safe::Disc *disc = nullptr) {
-    QuadGridTile t = {};
+static TileState build_tile(lv_obj_t *parent, int x, int y, int w, int h, const MetricBinding &m,
+                            const ui::round_safe::Disc *disc = nullptr) {
+    TileState t = {};
     t.idx = -1;
     t.kind = m.kind;
     t.last_aux_pct = -1;
@@ -4642,1632 +4670,23 @@ static QuadGridTile build_tile(lv_obj_t *parent, int x, int y, int w, int h, con
     return t;
 }
 
-static lv_obj_t *create_quad_grid(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_radius(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    QuadGridState *st =
-        (QuadGridState *)heap_caps_calloc(1, sizeof(QuadGridState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] quad_grid alloc failed");
-        return root;  // empty screen, caller still gets a valid handle
-    }
-
-    // 2x2 layout; missing metrics leave the tile slot blank.
-    static const MetricBinding empty_metric = {"", "", "", MetricSource::None, 0x222222, nullptr};
-    for (int i = 0; i < 4; ++i) {
-        const MetricBinding &m = (i < spec.metric_count) ? spec.metrics[i] : empty_metric;
-        int col = i % 2;
-        int row = i / 2;
-        int x = QG_GAP + col * (QG_TILE_W + QG_GAP);
-        int y = QG_TOP_Y + row * (QG_TILE_H + QG_GAP);
-        st->tiles[i] = build_tile(root, x, y, QG_TILE_W, QG_TILE_H, m);
-        st->tiles[i].idx = (i < spec.metric_count) ? i : -1;
-        // Tap-to-zoom (Slice 6): per-field dispatch. A legacy/hardcoded tile
-        // (zoom_target == NULL) with a real metric opens the full-screen "zoom"
-        // view; an authored tile follows its resolved zoom_action (auto-scale
-        // or switch to a referenced screen). user_data points into the
-        // persistent spec.metrics[] so the binding outlives the tap.
-        if (i < spec.metric_count) {
-            const MetricBinding &mb = spec.metrics[i];
-            bool interactive =
-                mb.zoom_target
-                    ? (layout::zoom_action(mb.zoomable, mb.zoom_target) != layout::ZOOM_NONE)
-                    : (mb.source != MetricSource::None || (mb.path && mb.path[0]));
-            if (interactive) {
-                lv_obj_add_flag(st->tiles[i].root, LV_OBJ_FLAG_CLICKABLE);
-                lv_obj_add_event_cb(st->tiles[i].root, tile_zoom_action_cb, LV_EVENT_CLICKED,
-                                    (void *)&spec.metrics[i]);
-            }
-        }
-    }
-
-    lv_obj_set_user_data(root, st);
-    // Freed on teardown: screens are rebuilt live (theme switch / config push).
-    lv_obj_add_event_cb(root, free_user_data_cb, LV_EVENT_DELETE, nullptr);
-    return root;
-}
-
-static void update_quad_grid(lv_obj_t *root, const ScreenVariantSpec &spec,
-                             const boat::View &data) {
-    if (!root) return;
-    auto *st = (QuadGridState *)lv_obj_get_user_data(root);
-    if (!st) return;
-    for (int i = 0; i < 4; ++i) {
-        QuadGridTile &t = st->tiles[i];
-        if (t.idx < 0 || t.idx >= spec.metric_count) continue;
-        const MetricBinding &m = spec.metrics[t.idx];
-
-        char pri[40], sec[24];
-        format_metric(m, data, pri, sizeof(pri), sec, sizeof(sec));
-
-        // Per-kind aux updates (gauge arc fill, bar fill).
-        switch (t.kind) {
-        case WidgetKind::Gauge:
-        case WidgetKind::Bar:
-            // Shared with update_freeform: fill / centre-zero needle, centre
-            // label, style.zones colour tracking. See update_gauge_bar.
-            update_gauge_bar(t, m, data);
-            break;
-        case WidgetKind::Autopilot:
-            // Full-screen HUD: drives all of its own widgets from boat::View directly
-            // (last_aux_pct == -2 sentinel set by paint_autopilot_body). Skips the
-            // stand-in pill/target text path entirely.
-            if (t.last_aux_pct == -2) {
-                if (t.aux) aphud::update((ApHudState *)lv_obj_get_user_data(t.aux), data);
-                break;
-            }
-            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
-            // Engaged/standby pill restyle on state flips only. The stand-in
-            // never uses last_aux_pct as a percentage, so it doubles as the
-            // styled-state cache here: -1 unset, 0 standby, 1 engaged.
-            {
-                bool engaged = data.apState[0] && strcmp(data.apState, "standby") != 0;
-                int want = engaged ? 1 : 0;
-                if (t.last_aux_pct != want) {
-                    t.last_aux_pct = want;
-                    style_ap_pill(t.aux2, t.value, engaged, m);
-                }
-            }
-            if (t.secondary) {
-                char tgt[24];
-                snprintf(tgt, sizeof(tgt), "target %s", sec[0] ? sec : "---");
-                ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
-                                        tgt);
-            }
-            break;
-        case WidgetKind::Button:
-            // Static label; no update needed.
-            break;
-        case WidgetKind::Compass:
-            // Band composite (style.shape "band") — same sentinel as freeform.
-            if (t.last_aux_pct == -2) {
-                update_compass_band(t, m, data, pri);
-                break;
-            }
-            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
-            if (t.secondary) {
-                // Compass CTS line: prefer extras[0] (operator-bound second
-                // path like CTS or COG); fall back to format_metric's secondary.
-                char cts[24];
-                if (m.extras_count > 0 && m.extras[0].source != MetricSource::None) {
-                    MetricBinding eb = {};
-                    eb.source = m.extras[0].source;
-                    char ep[24], esec[24];
-                    format_metric(eb, data, ep, sizeof(ep), esec, sizeof(esec));
-                    snprintf(cts, sizeof(cts), "%s %s",
-                             m.extras[0].label && m.extras[0].label[0] ? m.extras[0].label : "CTS",
-                             ep);
-                } else {
-                    snprintf(cts, sizeof(cts), "%s", sec);
-                }
-                ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
-                                        cts);
-            }
-            // Markers: HDG/CTS on the inner ring, COG alone on the outer ring, so
-            // an HDG≈COG overlap doesn't merge into one faint glyph. Drive COG
-            // after HDG/CTS so its hollow outline stays readable on top. All at
-            // their true (north-up) bearings (reference=0), matching the static
-            // N/E/S/W cardinals — this fixed-bezel tile is north-up, not heading-up.
-            // An authored `bindings.dir` retargets the diamond pointer (built in
-            // warn by paint_compass_body) at the dir source instead of CTS.
-            {
-                MetricBinding hdg = {}, cog = {}, cts = {};
-                hdg.source = MetricSource::HDG_deg;
-                cog.source = MetricSource::COG_deg;
-                cts.source = MetricSource::CTS_deg;
-                double dia_deg =
-                    binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(cts, data);
-                ui::MarkerSpec inner[2] = {
-                    {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
-                    {dia_deg, ui::Glyph::Diamond, true, theme.alarm},
-                };
-                ui::marker_ring_update(t.markers, inner, 2, /*reference=*/0.0);
-                ui::MarkerSpec outer[1] = {
-                    {metric_scalar(cog, data), ui::Glyph::Triangle, false, theme.good},
-                };
-                ui::marker_ring_update(t.markers_cog, outer, 1, /*reference=*/0.0);
-            }
-            // Authored markers/sectors (north-up round dial: reference 0).
-            update_authored_ring(t.markers_auth, m, data, 0.0);
-            update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
-                               t.sector_last_hidden);
-            break;
-        case WidgetKind::Trend: {
-            // Hero number is the live reading; sparkline gets one normalized
-            // sample (0..100, same scale as the gauge/bar fill) on value-change.
-            ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
-            if (t.aux) {
-                double frac = binding_unit_fraction(m, metric_scalar(m, data));
-                if (!isnan(frac)) {
-                    int v = (int)(frac * 100.0 + 0.5);
-                    if (v != t.last_aux_pct) {
-                        lv_chart_series_t *s = lv_chart_get_series_next(t.aux, NULL);
-                        if (s) {
-                            lv_chart_set_next_value(t.aux, s, v);
-                            lv_chart_refresh(t.aux);
-                        }
-                        t.last_aux_pct = v;
-                    }
-                }
-            }
-            break;
-        }
-        case WidgetKind::Clinometer:
-            update_clinometer(t, m, data);
-            break;
-        default:
-            // Full-screen wind dial / steering composite: drive all their own
-            // widgets from boat::View directly (last_aux_pct == -2 sentinel set by
-            // paint_wind_rose_body / paint_wind_steer_body). Skip the stand-in.
-            if (t.kind == WidgetKind::WindRose && t.last_aux_pct == -2) {
-                if (t.aux) winddial::update((WindDialState *)lv_obj_get_user_data(t.aux), data);
-                break;
-            }
-            if (t.kind == WidgetKind::WindSteer && t.last_aux_pct == -2) {
-                if (t.aux) windsteer::update((WindSteerState *)lv_obj_get_user_data(t.aux), data);
-                break;
-            }
-            // Numeric, WindRose, Text fallback - all use
-            // the value/secondary text slots populated by format_metric.
-            if (ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri)) {
-                if (t.kind == WidgetKind::Numeric && m.extras_count == 0 && m.size_role == 0) {
-                    // Shrink the hero value to fit the tile (scaled k/M strings + a
-                    // P/S suffix can be wider than the big font allows). An
-                    // authored style.size role pins the font instead.
-                    fit_value_font(t.value, pri, QG_TILE_W - 56);
-                } else if (t.kind == WidgetKind::Text) {
-                    // Text tiles (e.g. POS lat/lon) overflow the 28 px font on a
-                    // 160 px tile; pick the largest Montserrat that fits.
-                    fit_text_font(t.value, pri, QG_TILE_W - 24);
-                }
-            }
-            // VMG sign tint: red when negative (opening from the mark / losing
-            // ground), green when making good toward it. Neutral on NaN so a
-            // dropout doesn't flash a false good/bad cue. Applied on the value
-            // label only for the VMG source.
-            if (t.value &&
-                (m.source == MetricSource::VMG_kn || m.source == MetricSource::VMGwind_kn)) {
-                double vmg =
-                    mps_to_kn(m.source == MetricSource::VMGwind_kn ? data.vmgWind : data.vmg);
-                uint32_t col = isnan(vmg) ? theme.fg : (vmg < 0 ? theme.alarm : theme.good);
-                lv_obj_set_style_text_color(t.value, lv_color_hex(col), 0);
-            }
-            if (t.secondary) {
-                ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
-                                        sec);
-            }
-            // WindRose / non-fullscreen WindSteer stand-in: apparent + true wind
-            // heads, bow-up and bow-relative (AWA/TWA are angles relative to the
-            // bow, 0 = wind from ahead).
-            if (t.kind == WidgetKind::WindRose || t.kind == WidgetKind::WindSteer) {
-                MetricBinding awa = {}, twa = {};
-                awa.source = MetricSource::AWA_deg;
-                twa.source = MetricSource::TWA_deg;
-                // An authored `bindings.dir` drives the warn pointer instead of
-                // the built-in AWA head (web dial dirDeg semantics).
-                double warn_deg =
-                    binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(awa, data);
-                ui::MarkerSpec wind[2] = {
-                    {warn_deg, ui::Glyph::ChevronIn, true, theme.warn},
-                    {metric_scalar(twa, data), ui::Glyph::ChevronOut, false, theme.good},
-                };
-                ui::marker_ring_update(t.markers, wind, 2, /*reference=*/0.0);  // bow-up rose
-                // Authored markers/sectors (bow-up rose: reference 0).
-                update_authored_ring(t.markers_auth, m, data, 0.0);
-                update_sector_arcs(m, data, 0.0, t.sector_arcs, t.sector_last_s, t.sector_last_e,
-                                   t.sector_last_hidden);
-            }
-            break;
-        }
-
-        // Multi-row extras (only meaningful for Numeric kind).
-        for (uint8_t e = 0; e < m.extras_count && e < 4; ++e) {
-            if (!t.extras[e]) continue;
-            MetricBinding eb = {};
-            eb.source = m.extras[e].source;
-            char ep[24], esec[24];
-            format_metric(eb, data, ep, sizeof(ep), esec, sizeof(esec));
-            char row[32];
-            if (m.extras[e].label && m.extras[e].label[0])
-                snprintf(row, sizeof(row), "%s %s", m.extras[e].label, ep);
-            else
-                snprintf(row, sizeof(row), "%s", ep);
-            ui::set_text_if_changed(t.extras[e], t.last_extras[e], sizeof(t.last_extras[e]), row);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// hero_plus template - one huge primary value with up to 4 secondary
-// stats stacked beneath it. Used by single-purpose screens (depth, wind
-// detail, single-battery view).
-
-struct HeroPlusState {
-    lv_obj_t *primary_value;
-    lv_obj_t *primary_unit;
-    lv_obj_t *primary_secondary;  // small qualifier line right of primary
-    lv_obj_t *extras_label[4];
-    lv_obj_t *extras_value[4];
-    char last_primary[24];
-    char last_primary_secondary[24];
-    char last_extras[4][24];
-    MetricBinding metric;  // copy of metrics[0]
-};
-
-static lv_obj_t *create_hero_plus(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_radius(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    HeroPlusState *st =
-        (HeroPlusState *)heap_caps_calloc(1, sizeof(HeroPlusState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] hero_plus alloc failed");
-        return root;
-    }
-    st->metric = spec.metrics[0];
-    strncpy(st->last_primary, "\xFF", sizeof(st->last_primary));
-    strncpy(st->last_primary_secondary, "\xFF", sizeof(st->last_primary_secondary));
-    for (int i = 0; i < 4; ++i)
-        strncpy(st->last_extras[i], "\xFF", sizeof(st->last_extras[0]));
-
-    // Title at top, montserrat_28, accent color.
-    lv_obj_t *title = lv_label_create(root);
-    lv_label_set_text(title, spec.title ? spec.title : st->metric.label);
-    lv_obj_set_style_text_font(title, &font_b612_28, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(st->metric.accent), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
-
-    // Hero panel (top half).
-    lv_obj_t *hero = lv_obj_create(root);
-    lv_obj_set_size(hero, LCD_W - 16, 220);
-    lv_obj_set_pos(hero, 8, 58);
-    lv_obj_set_style_bg_color(hero, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(hero, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(hero, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(hero, 1, 0);
-    lv_obj_set_style_radius(hero, 10, 0);
-    lv_obj_set_style_pad_all(hero, 0, 0);
-    lv_obj_clear_flag(hero, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Hero caption: the binding label (e.g. "BELOW KEEL") so the hero datum is
-    // unambiguous even when the screen title is generic ("Depth"). Distinct
-    // from below-transducer, which is otherwise indistinguishable.
-    if (st->metric.label && st->metric.label[0]) {
-        lv_obj_t *hcap = lv_label_create(hero);
-        lv_label_set_text(hcap, st->metric.label);
-        lv_obj_set_style_text_font(hcap, &font_b612_14, 0);
-        lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(hcap, LV_ALIGN_TOP_LEFT, 12, 10);
-    }
-
-    st->primary_value = lv_label_create(hero);
-    lv_label_set_text(st->primary_value, "--");
-    lv_obj_set_style_text_font(st->primary_value, &font_b612_48, 0);
-    // Accent color matches editor preview's .num-primary.
-    lv_obj_set_style_text_color(st->primary_value, lv_color_hex(theme.accent), 0);
-    lv_obj_align(st->primary_value, LV_ALIGN_CENTER, -30, -10);
-
-    if (st->metric.unit && st->metric.unit[0]) {
-        st->primary_unit = lv_label_create(hero);
-        lv_label_set_text(st->primary_unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->primary_unit, &font_b612_28, 0);
-        lv_obj_set_style_text_color(st->primary_unit, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(st->primary_unit, LV_ALIGN_CENTER, 80, 8);
-    }
-
-    st->primary_secondary = lv_label_create(hero);
-    lv_label_set_text(st->primary_secondary, "");
-    lv_obj_set_style_text_font(st->primary_secondary, &font_b612_20, 0);
-    lv_obj_set_style_text_color(st->primary_secondary, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->primary_secondary, LV_ALIGN_BOTTOM_MID, 0, -10);
-
-    // Secondary stat panel - 2x2 grid below hero.
-    lv_obj_t *grid = lv_obj_create(root);
-    int gy = 58 + 220 + 8;
-    lv_obj_set_size(grid, LCD_W - 16, LCD_H - gy - 8);
-    lv_obj_set_pos(grid, 8, gy);
-    lv_obj_set_style_bg_color(grid, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(grid, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(grid, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(grid, 1, 0);
-    lv_obj_set_style_radius(grid, 10, 0);
-    lv_obj_set_style_pad_all(grid, 12, 0);
-    lv_obj_clear_flag(grid, LV_OBJ_FLAG_SCROLLABLE);
-
-    int cell_w = (LCD_W - 16 - 24) / 2;
-    int cell_h = ((LCD_H - gy - 8) - 24) / 2;
-    for (uint8_t i = 0; i < st->metric.extras_count && i < 4; ++i) {
-        int col = i % 2;
-        int row = i / 2;
-        int x = col * cell_w;
-        int y = row * cell_h;
-        st->extras_label[i] = lv_label_create(grid);
-        lv_label_set_text(st->extras_label[i],
-                          st->metric.extras[i].label ? st->metric.extras[i].label : "");
-        lv_obj_set_style_text_font(st->extras_label[i], &font_b612_14, 0);
-        lv_obj_set_style_text_color(st->extras_label[i], lv_color_hex(theme.fg_dim), 0);
-        lv_obj_set_pos(st->extras_label[i], x, y);
-
-        st->extras_value[i] = lv_label_create(grid);
-        lv_label_set_text(st->extras_value[i], "--");
-        lv_obj_set_style_text_font(st->extras_value[i], &font_b612_28, 0);
-        lv_obj_set_style_text_color(st->extras_value[i], lv_color_hex(theme.fg), 0);
-        lv_obj_set_pos(st->extras_value[i], x, y + 18);
-    }
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_hero_plus(lv_obj_t *root, const ScreenVariantSpec &spec,
-                             const boat::View &data) {
-    (void)spec;
-    if (!root) return;
-    auto *st = (HeroPlusState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    char pri[40], sec[24];
-    format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
-    ui::set_text_if_changed(st->primary_value, st->last_primary, sizeof(st->last_primary), pri);
-    if (st->primary_secondary) {
-        ui::set_text_if_changed(st->primary_secondary, st->last_primary_secondary,
-                                sizeof(st->last_primary_secondary), sec);
-    }
-
-    for (uint8_t i = 0; i < st->metric.extras_count && i < 4; ++i) {
-        if (!st->extras_value[i]) continue;
-        MetricBinding eb = {};
-        eb.source = st->metric.extras[i].source;
-        char ep[24], esec[24];
-        format_metric(eb, data, ep, sizeof(ep), esec, sizeof(esec));
-        ui::set_text_if_changed(st->extras_value[i], st->last_extras[i], sizeof(st->last_extras[i]),
-                                ep);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// status_list template - vertical list of label : value rows. Up to 8
-// rows; each metric is one row. Used for system/diagnostics screens.
-
-struct StatusListState {
-    lv_obj_t *value_labels[8];
-    char last_values[8][32];
-};
-
-static lv_obj_t *create_status_list(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_radius(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    StatusListState *st =
-        (StatusListState *)heap_caps_calloc(1, sizeof(StatusListState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] status_list alloc failed");
-        return root;
-    }
-    for (int i = 0; i < 8; ++i)
-        strncpy(st->last_values[i], "\xFF", sizeof(st->last_values[0]));
-
-    // Title at top.
-    lv_obj_t *title = lv_label_create(root);
-    lv_label_set_text(title, spec.title ? spec.title : "STATUS");
-    lv_obj_set_style_text_font(title, &font_b612_28, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
-
-    // Panel container.
-    lv_obj_t *panel = lv_obj_create(root);
-    lv_obj_set_size(panel, LCD_W - 16, LCD_H - 60);
-    lv_obj_set_pos(panel, 8, 52);
-    lv_obj_set_style_bg_color(panel, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(panel, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(panel, 1, 0);
-    lv_obj_set_style_radius(panel, 10, 0);
-    lv_obj_set_style_pad_all(panel, 12, 0);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
-
-    int row_h = (LCD_H - 60 - 24) / 8;
-    int n = spec.metric_count > 8 ? 8 : spec.metric_count;
-    for (int i = 0; i < n; ++i) {
-        const MetricBinding &m = spec.metrics[i];
-        lv_obj_t *lbl = lv_label_create(panel);
-        lv_label_set_text(lbl, m.label ? m.label : "");
-        lv_obj_set_style_text_font(lbl, &font_b612_20, 0);
-        lv_obj_set_style_text_color(lbl, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_set_pos(lbl, 0, i * row_h);
-
-        st->value_labels[i] = lv_label_create(panel);
-        lv_label_set_text(st->value_labels[i], "--");
-        lv_obj_set_style_text_font(st->value_labels[i], &font_b612_20, 0);
-        lv_obj_set_style_text_color(st->value_labels[i], lv_color_hex(theme.fg), 0);
-        lv_obj_set_pos(st->value_labels[i], 180, i * row_h);
-    }
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_status_list(lv_obj_t *root, const ScreenVariantSpec &spec,
-                               const boat::View &data) {
-    if (!root) return;
-    auto *st = (StatusListState *)lv_obj_get_user_data(root);
-    if (!st) return;
-    int n = spec.metric_count > 8 ? 8 : spec.metric_count;
-    for (int i = 0; i < n; ++i) {
-        if (!st->value_labels[i]) continue;
-        char pri[40], sec[24];
-        format_metric(spec.metrics[i], data, pri, sizeof(pri), sec, sizeof(sec));
-        char combined[32];
-        if (spec.metrics[i].unit && spec.metrics[i].unit[0]) {
-            snprintf(combined, sizeof(combined), "%s %s", pri, spec.metrics[i].unit);
-        } else {
-            snprintf(combined, sizeof(combined), "%s", pri);
-        }
-        ui::set_text_if_changed(st->value_labels[i], st->last_values[i], sizeof(st->last_values[i]),
-                                combined);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// round_instrument template - circular bezel with center value. Minimal
-// first cut (no rotating needle yet); useful for compass/heading
-// digital readouts where a future revision can layer the needle on top.
-
-struct RoundInstrumentState {
-    lv_obj_t *value;
-    lv_obj_t *unit;
-    lv_obj_t *secondary;
-    char last_value[24];
-    char last_secondary[24];
-    MetricBinding metric;
-};
-
-static lv_obj_t *create_round_instrument(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    RoundInstrumentState *st = (RoundInstrumentState *)heap_caps_calloc(
-        1, sizeof(RoundInstrumentState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] round_inst alloc failed");
-        return root;
-    }
-    st->metric = spec.metrics[0];
-    strncpy(st->last_value, "\xFF", sizeof(st->last_value));
-    strncpy(st->last_secondary, "\xFF", sizeof(st->last_secondary));
-
-    // Title at top.
-    lv_obj_t *title = lv_label_create(root);
-    lv_label_set_text(title, spec.title ? spec.title : st->metric.label);
-    lv_obj_set_style_text_font(title, &font_b612_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(st->metric.accent), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
-
-    // Bezel: a rounded square that approximates a circle on a square panel.
-    int dial_size = LCD_W - 80;
-    lv_obj_t *bezel = lv_obj_create(root);
-    lv_obj_set_size(bezel, dial_size, dial_size);
-    lv_obj_align(bezel, LV_ALIGN_CENTER, 0, 10);
-    lv_obj_set_style_bg_color(bezel, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(bezel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(bezel, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(bezel, 4, 0);
-    lv_obj_set_style_radius(bezel, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_pad_all(bezel, 0, 0);
-    lv_obj_clear_flag(bezel, LV_OBJ_FLAG_SCROLLABLE);
-
-    st->value = lv_label_create(bezel);
-    lv_label_set_text(st->value, "--");
-    lv_obj_set_style_text_font(st->value, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->value, LV_ALIGN_CENTER, 0, -8);
-
-    if (st->metric.unit && st->metric.unit[0]) {
-        st->unit = lv_label_create(bezel);
-        lv_label_set_text(st->unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->unit, &font_b612_20, 0);
-        lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(st->unit, LV_ALIGN_CENTER, 0, 32);
-    }
-
-    st->secondary = lv_label_create(bezel);
-    lv_label_set_text(st->secondary, "");
-    lv_obj_set_style_text_font(st->secondary, &font_b612_14, 0);
-    lv_obj_set_style_text_color(st->secondary, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->secondary, LV_ALIGN_BOTTOM_MID, 0, -16);
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_round_instrument(lv_obj_t *root, const ScreenVariantSpec &spec,
-                                    const boat::View &data) {
-    (void)spec;
-    if (!root) return;
-    auto *st = (RoundInstrumentState *)lv_obj_get_user_data(root);
-    if (!st) return;
-    char pri[40], sec[24];
-    format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
-    ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
-    if (st->secondary) {
-        ui::set_text_if_changed(st->secondary, st->last_secondary, sizeof(st->last_secondary), sec);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// split_pair template - two large metrics side by side.
-// 480x480 layout: each half is 234 px wide; metric primary value
-// montserrat_48 centred, caption above, unit beside primary,
-// secondary line (small) below.
-
-struct SplitHalf {
-    lv_obj_t *cap;
-    lv_obj_t *value;
-    lv_obj_t *unit;
-    lv_obj_t *secondary;
-    char last_value[24];
-    char last_secondary[24];
-    MetricBinding metric;
-};
-
-struct SplitPairState {
-    SplitHalf left;
-    SplitHalf right;
-};
-
-static void split_half_build(lv_obj_t *parent, int x, int y, int w, int h, const MetricBinding &m,
-                             SplitHalf &out) {
-    out.metric = m;
-    strncpy(out.last_value, "\xFF", sizeof(out.last_value));
-    strncpy(out.last_secondary, "\xFF", sizeof(out.last_secondary));
-
-    lv_obj_t *panel = lv_obj_create(parent);
-    lv_obj_set_size(panel, w, h);
-    lv_obj_set_pos(panel, x, y);
-    // Glass-cockpit chrome via the consolidated style; this hero variant
-    // centre-aligns its content, so override padding back to 0. No accent rail.
-    style_panel(panel);
-    lv_obj_set_style_pad_all(panel, 0, 0);
-
-    out.cap = lv_label_create(panel);
-    lv_label_set_text(out.cap, m.label ? m.label : "");
-    lv_obj_set_style_text_font(out.cap, &font_b612_20, 0);
-    lv_obj_set_style_text_color(out.cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(out.cap, LV_ALIGN_TOP_MID, 0, 12);
-
-    out.value = lv_label_create(panel);
-    lv_label_set_text(out.value, "--");
-    lv_obj_set_style_text_font(out.value, &font_b612_48, 0);
-    lv_obj_set_style_text_color(out.value, lv_color_hex(theme.fg), 0);
-    lv_obj_align(out.value, LV_ALIGN_CENTER, -10, 0);
-
-    if (m.unit && m.unit[0]) {
-        out.unit = lv_label_create(panel);
-        lv_label_set_text(out.unit, m.unit);
-        lv_obj_set_style_text_font(out.unit, &font_b612_20, 0);
-        lv_obj_set_style_text_color(out.unit, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(out.unit, LV_ALIGN_CENTER, 60, 12);
-    } else {
-        out.unit = nullptr;
-    }
-
-    out.secondary = lv_label_create(panel);
-    lv_label_set_text(out.secondary, "");
-    lv_obj_set_style_text_font(out.secondary, &font_b612_14, 0);
-    lv_obj_set_style_text_color(out.secondary, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(out.secondary, LV_ALIGN_BOTTOM_MID, 0, -10);
-}
-
-static lv_obj_t *create_split_pair(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    SplitPairState *st =
-        (SplitPairState *)heap_caps_calloc(1, sizeof(SplitPairState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] split_pair alloc failed");
-        return root;
-    }
-
-    // Title across top.
-    if (spec.title && spec.title[0]) {
-        lv_obj_t *title = lv_label_create(root);
-        lv_label_set_text(title, spec.title);
-        lv_obj_set_style_text_font(title, &font_b612_20, 0);
-        lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
-    }
-
-    // Two panels share the screen below the MOB-safe band.
-    const int top_y = 64;
-    const int bottom_margin = 8;
-    const int gap = 8;
-    int half_w = (LCD_W - 16 - gap) / 2;
-    int h = LCD_H - top_y - bottom_margin;
-    int left_x = 8;
-    int right_x = left_x + half_w + gap;
-
-    split_half_build(root, left_x, top_y, half_w, h, spec.metrics[0], st->left);
-    if (spec.metric_count >= 2) {
-        split_half_build(root, right_x, top_y, half_w, h, spec.metrics[1], st->right);
-    } else {
-        // single-metric mode: stretch left to full width
-        lv_obj_set_size(lv_obj_get_child(root, 1), LCD_W - 16, h);
-    }
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_split_pair(lv_obj_t *root, const ScreenVariantSpec &spec,
-                              const boat::View &data) {
-    if (!root) return;
-    auto *st = (SplitPairState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    auto update_half = [&](SplitHalf &h) {
-        if (!h.value) return;
-        char pri[40], sec[24];
-        format_metric(h.metric, data, pri, sizeof(pri), sec, sizeof(sec));
-        ui::set_text_if_changed(h.value, h.last_value, sizeof(h.last_value), pri);
-        if (h.secondary) {
-            ui::set_text_if_changed(h.secondary, h.last_secondary, sizeof(h.last_secondary), sec);
-        }
-    };
-    update_half(st->left);
-    if (spec.metric_count >= 2) update_half(st->right);
-}
-
-// ---------------------------------------------------------------------------
-// trend_chart template - large primary value + rolling N-sample chart.
-// Auto-scales the Y axis to the running min/max of the visible window
-// so the trace stays useful across very different metrics (depth 0.5..40
-// vs battery 11..14 vs SOG 0..10).
-//
-// Single MetricBinding[0]. If metric.unit is set, shown next to value.
-// Skips inserting a new sample when the scalar hasn't moved by more
-// than 1 % of the visible range (keeps the trace from drawing a flat
-// line of N identical points and forcing redraws).
-
-struct TrendChartState {
-    lv_obj_t *value;
-    lv_obj_t *unit;
-    lv_obj_t *secondary;
-    lv_obj_t *chart;
-    lv_chart_series_t *series;
-    char last_value[24];
-    char last_secondary[24];
-    MetricBinding metric;
-    static constexpr int POINTS = 60;
-    double samples[POINTS];
-    int next_idx = 0;
-    int filled = 0;
-    double last_sample = NAN;
-};
-
-static lv_obj_t *create_trend_chart(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    TrendChartState *st =
-        (TrendChartState *)heap_caps_calloc(1, sizeof(TrendChartState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] trend_chart alloc failed");
-        return root;
-    }
-    st->metric = spec.metrics[0];
-    strncpy(st->last_value, "\xFF", sizeof(st->last_value));
-    strncpy(st->last_secondary, "\xFF", sizeof(st->last_secondary));
-
-    // Title (caption) top-left.
-    lv_obj_t *cap = lv_label_create(root);
-    lv_label_set_text(cap, st->metric.label ? st->metric.label : "");
-    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap, LV_ALIGN_TOP_LEFT, 16, 16);
-
-    st->value = lv_label_create(root);
-    lv_label_set_text(st->value, "--");
-    lv_obj_set_style_text_font(st->value, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->value, LV_ALIGN_TOP_LEFT, 16, 40);
-
-    if (st->metric.unit && st->metric.unit[0]) {
-        st->unit = lv_label_create(root);
-        lv_label_set_text(st->unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->unit, &font_b612_28, 0);
-        lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(st->unit, LV_ALIGN_TOP_LEFT, 180, 56);
-    }
-
-    st->secondary = lv_label_create(root);
-    lv_label_set_text(st->secondary, "");
-    lv_obj_set_style_text_font(st->secondary, &font_b612_20, 0);
-    lv_obj_set_style_text_color(st->secondary, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->secondary, LV_ALIGN_TOP_RIGHT, -16, 16);
-
-    // Chart fills the lower 240 px.
-    st->chart = lv_chart_create(root);
-    lv_obj_set_size(st->chart, LCD_W - 32, 240);
-    lv_obj_align(st->chart, LV_ALIGN_BOTTOM_MID, 0, -16);
-    lv_chart_set_type(st->chart, LV_CHART_TYPE_LINE);
-    lv_chart_set_point_count(st->chart, TrendChartState::POINTS);
-    lv_chart_set_div_line_count(st->chart, 4, 6);
-    lv_chart_set_range(st->chart, LV_CHART_AXIS_PRIMARY_Y, 0, 100);
-    lv_obj_set_style_bg_color(st->chart, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(st->chart, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(st->chart, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(st->chart, 1, 0);
-    lv_obj_set_style_radius(st->chart, 8, 0);
-    lv_obj_set_style_line_color(st->chart, lv_color_hex(theme.grid), LV_PART_MAIN);
-    lv_obj_set_style_line_color(st->chart, lv_color_hex(theme.grid), LV_PART_ITEMS);
-    st->series =
-        lv_chart_add_series(st->chart, lv_color_hex(st->metric.accent), LV_CHART_AXIS_PRIMARY_Y);
-    for (int i = 0; i < TrendChartState::POINTS; ++i) {
-        st->samples[i] = NAN;
-    }
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_trend_chart(lv_obj_t *root, const ScreenVariantSpec &spec,
-                               const boat::View &data) {
-    (void)spec;
-    if (!root) return;
-    auto *st = (TrendChartState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    // Text update (primary + secondary) always.
-    char pri[40], sec[24];
-    format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
-    ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
-    if (st->secondary) {
-        ui::set_text_if_changed(st->secondary, st->last_secondary, sizeof(st->last_secondary), sec);
-    }
-
-    // Insert a new sample only when the value changed.
-    double v = metric_scalar(st->metric, data);
-    if (isnan(v)) return;
-    if (!isnan(st->last_sample) && fabs(v - st->last_sample) < 1e-3) return;
-    st->last_sample = v;
-    st->samples[st->next_idx] = v;
-    st->next_idx = (st->next_idx + 1) % TrendChartState::POINTS;
-    if (st->filled < TrendChartState::POINTS) st->filled++;
-
-    // Recompute min/max over the filled window.
-    double lo = INFINITY, hi = -INFINITY;
-    for (int i = 0; i < st->filled; ++i) {
-        double s = st->samples[i];
-        if (isnan(s)) continue;
-        if (s < lo) lo = s;
-        if (s > hi) hi = s;
-    }
-    if (!isfinite(lo) || !isfinite(hi)) return;
-    if (fabs(hi - lo) < 1e-3) {
-        hi += 0.5;
-        lo -= 0.5;
-    }
-    // Pad 10 % so the trace doesn't kiss the bezel.
-    double pad = (hi - lo) * 0.1;
-    lo -= pad;
-    hi += pad;
-    // lv_chart works in integer coords; scale to fixed-point x10.
-    int32_t y_min = (int32_t)(lo * 10);
-    int32_t y_max = (int32_t)(hi * 10);
-    if (y_min == y_max) y_max = y_min + 1;
-    lv_chart_set_range(st->chart, LV_CHART_AXIS_PRIMARY_Y, y_min, y_max);
-
-    // Walk the rolling buffer chronologically into the chart series.
-    int p = (st->next_idx + TrendChartState::POINTS - st->filled) % TrendChartState::POINTS;
-    for (int i = 0; i < TrendChartState::POINTS; ++i) {
-        if (i < TrendChartState::POINTS - st->filled) {
-            lv_chart_set_value_by_id(st->chart, st->series, i, LV_CHART_POINT_NONE);
-        } else {
-            double s = st->samples[p];
-            p = (p + 1) % TrendChartState::POINTS;
-            if (isnan(s)) {
-                lv_chart_set_value_by_id(st->chart, st->series, i, LV_CHART_POINT_NONE);
-            } else {
-                lv_chart_set_value_by_id(st->chart, st->series, i, (int32_t)(s * 10));
-            }
-        }
-    }
-    lv_chart_refresh(st->chart);
-}
-
-// ---------------------------------------------------------------------------
-// alert_focus template - single-value full-screen view that flips between
-// nominal / warning / alarm visual states when the metric crosses a
-// threshold.
-//
-// Thresholds come from the existing runtime alarm config
-// (ui::depth_alarm_m, ui::battery_alarm_v) so screen authors don't
-// duplicate them. For metrics without an alarm config, the template
-// stays in the nominal state.
-//
-// Visual states:
-//   nominal: theme.panel bg, accent rail
-//   alarm  : theme.alarm bg, white text, banner-style title
-//
-// Use as a focus screen for safety overlays - the existing
-// `alarm_banner` global pill still fires on top; this template gives
-// a dedicated tap-target screen that focuses one metric at a time.
-
-struct AlertFocusState {
-    lv_obj_t *root_panel;
-    lv_obj_t *cap;
-    lv_obj_t *value;
-    lv_obj_t *unit;
-    lv_obj_t *status;
-    char last_value[24];
-    char last_status[24];
-    MetricBinding metric;
-    bool in_alarm = false;
-};
-
-static bool alarm_for(const MetricBinding &m, const boat::View &d) {
-    switch (m.source) {
-    case MetricSource::Depth_m:
-        return !isnan(d.depth) && d.depth > 0 && d.depth < ui::depth_alarm_m();
-    case MetricSource::BatteryV:
-        return !isnan(d.battVoltage) && d.battVoltage < ui::battery_alarm_v();
-    default:
-        return false;
-    }
-}
-
-static lv_obj_t *create_alert_focus(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    if (spec.metric_count < 1) return nullptr;
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    AlertFocusState *st =
-        (AlertFocusState *)heap_caps_calloc(1, sizeof(AlertFocusState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] alert_focus alloc failed");
-        return root;
-    }
-    st->metric = spec.metrics[0];
-    strncpy(st->last_value, "\xFF", sizeof(st->last_value));
-    strncpy(st->last_status, "\xFF", sizeof(st->last_status));
-
-    st->root_panel = lv_obj_create(root);
-    lv_obj_set_size(st->root_panel, LCD_W - 16, LCD_H - 16 - 64);
-    lv_obj_set_pos(st->root_panel, 8, 64);
-    lv_obj_set_style_bg_color(st->root_panel, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(st->root_panel, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(st->root_panel, lv_color_hex(st->metric.accent), 0);
-    lv_obj_set_style_border_width(st->root_panel, 4, 0);
-    lv_obj_set_style_radius(st->root_panel, 12, 0);
-    lv_obj_set_style_pad_all(st->root_panel, 0, 0);
-    lv_obj_clear_flag(st->root_panel, LV_OBJ_FLAG_SCROLLABLE);
-
-    st->cap = lv_label_create(st->root_panel);
-    lv_label_set_text(st->cap, st->metric.label ? st->metric.label : "");
-    lv_obj_set_style_text_font(st->cap, &font_b612_28, 0);
-    lv_obj_set_style_text_color(st->cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->cap, LV_ALIGN_TOP_MID, 0, 20);
-
-    st->value = lv_label_create(st->root_panel);
-    lv_label_set_text(st->value, "--");
-    // Largest available font; spec 12 visual adoption notes go further
-    // when a 60-72 pt font ships.
-    lv_obj_set_style_text_font(st->value, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->value, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->value, LV_ALIGN_CENTER, 0, -10);
-
-    if (st->metric.unit && st->metric.unit[0]) {
-        st->unit = lv_label_create(st->root_panel);
-        lv_label_set_text(st->unit, st->metric.unit);
-        lv_obj_set_style_text_font(st->unit, &font_b612_28, 0);
-        lv_obj_set_style_text_color(st->unit, lv_color_hex(theme.fg_dim), 0);
-        lv_obj_align(st->unit, LV_ALIGN_CENTER, 0, 40);
-    }
-
-    st->status = lv_label_create(st->root_panel);
-    lv_label_set_text(st->status, "");
-    lv_obj_set_style_text_font(st->status, &font_b612_20, 0);
-    lv_obj_set_style_text_color(st->status, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->status, LV_ALIGN_BOTTOM_MID, 0, -16);
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_alert_focus(lv_obj_t *root, const ScreenVariantSpec &spec,
-                               const boat::View &data) {
-    (void)spec;
-    if (!root) return;
-    auto *st = (AlertFocusState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    char pri[40], sec[24];
-    format_metric(st->metric, data, pri, sizeof(pri), sec, sizeof(sec));
-    ui::set_text_if_changed(st->value, st->last_value, sizeof(st->last_value), pri);
-
-    bool now_alarm = alarm_for(st->metric, data);
-    const char *status_text = now_alarm ? "ALARM" : (sec[0] ? sec : "nominal");
-    ui::set_text_if_changed(st->status, st->last_status, sizeof(st->last_status), status_text);
-
-    if (now_alarm != st->in_alarm) {
-        st->in_alarm = now_alarm;
-        uint32_t bg = now_alarm ? theme.alarm : theme.panel;
-        uint32_t fg = now_alarm ? theme.alarm_fg : theme.fg;
-        uint32_t fg_dim = now_alarm ? theme.alarm_fg : theme.fg_dim;
-        lv_obj_set_style_bg_color(st->root_panel, lv_color_hex(bg), 0);
-        lv_obj_set_style_border_color(st->root_panel,
-                                      lv_color_hex(now_alarm ? theme.alarm : st->metric.accent), 0);
-        lv_obj_set_style_text_color(st->value, lv_color_hex(fg), 0);
-        lv_obj_set_style_text_color(st->cap, lv_color_hex(fg_dim), 0);
-        if (st->unit) lv_obj_set_style_text_color(st->unit, lv_color_hex(fg_dim), 0);
-        lv_obj_set_style_text_color(st->status, lv_color_hex(fg_dim), 0);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// control_console template - autopilot-specific mode + adjust panel.
-//
-// Layout:
-//   top row    : mode segmented buttons (Standby / Auto / Wind / Track)
-//   middle     : large current/target heading display (deg, montserrat_48)
-//   bottom row : -10 | -1 | +1 | +10 heading-delta buttons + Silence
-//
-// Click handlers call autopilot:: which posts to the net worker queue,
-// so this runs safely from the LVGL task. State is read on each
-// update() call so the active-mode highlight reflects what the
-// emulator/backend actually believes (not just what we last asked for).
-
-struct ControlConsoleState {
-    lv_obj_t *mode_btns[5];  // standby auto wind pretrack track
-    autopilot::Mode mode_for[5];
-    lv_obj_t *current_lbl;
-    lv_obj_t *target_lbl;
-    lv_obj_t *backend_lbl;
-    autopilot::Mode last_mode = autopilot::Mode::Unknown;
-    char last_current[16];
-    char last_target[16];
-};
-
-static void cc_mode_btn_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    auto mode = static_cast<autopilot::Mode>((uintptr_t)lv_event_get_user_data(e));
-    autopilot::Result r = autopilot::set_mode(mode);
-    net::logf("[cc] set_mode(%s) -> %d", autopilot::mode_name(mode), (int)r);
-}
-
-static void cc_adjust_btn_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int delta = (int)(intptr_t)lv_event_get_user_data(e);
-    autopilot::Result r = autopilot::adjust_heading_deg(delta);
-    net::logf("[cc] adjust(%+d) -> %d", delta, (int)r);
-}
-
-static void cc_silence_btn_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    autopilot::Result r = autopilot::silence_alarm();
-    net::logf("[cc] silence -> %d", (int)r);
-}
-
-static lv_obj_t *cc_make_button(lv_obj_t *parent, int x, int y, int w, int h, const char *label,
-                                uint32_t bg, uint32_t fg, lv_event_cb_t cb, void *user) {
-    lv_obj_t *b = lv_btn_create(parent);
-    lv_obj_set_size(b, w, h);
-    lv_obj_set_pos(b, x, y);
-    lv_obj_set_style_bg_color(b, lv_color_hex(bg), 0);
-    lv_obj_set_style_radius(b, 8, 0);
-    lv_obj_set_style_border_width(b, 0, 0);
-    lv_obj_set_style_pad_all(b, 0, 0);
-    lv_obj_t *lbl = lv_label_create(b);
-    lv_label_set_text(lbl, label);
-    lv_obj_set_style_text_font(lbl, &font_b612_20, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
-    lv_obj_center(lbl);
-    lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
-    return b;
-}
-
-static lv_obj_t *create_control_console(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    ControlConsoleState *st = (ControlConsoleState *)heap_caps_calloc(
-        1, sizeof(ControlConsoleState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] control_console alloc failed");
-        return root;
-    }
-    strncpy(st->last_current, "\xFF", sizeof(st->last_current));
-    strncpy(st->last_target, "\xFF", sizeof(st->last_target));
-
-    // Title.
-    if (spec.title && spec.title[0]) {
-        lv_obj_t *title = lv_label_create(root);
-        lv_label_set_text(title, spec.title);
-        lv_obj_set_style_text_font(title, &font_b612_20, 0);
-        lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
-        lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 6);
-    }
-
-    // Mode row (4 buttons across) at y=70..130.
-    const char *names[4] = {"STANDBY", "AUTO", "WIND", "TRACK"};
-    autopilot::Mode modes[4] = {
-        autopilot::Mode::Standby,
-        autopilot::Mode::Auto,
-        autopilot::Mode::Wind,
-        autopilot::Mode::Track,
-    };
-    int mode_w = (LCD_W - 16 - 12) / 4;  // 12px gaps
-    for (int i = 0; i < 4; ++i) {
-        int x = 8 + i * (mode_w + 4);
-        st->mode_btns[i] = cc_make_button(root, x, 70, mode_w, 60, names[i], theme.panel, theme.fg,
-                                          cc_mode_btn_cb, (void *)(uintptr_t)modes[i]);
-        st->mode_for[i] = modes[i];
-    }
-
-    // Current heading + target.
-    lv_obj_t *cap_cur = lv_label_create(root);
-    lv_label_set_text(cap_cur, "CURRENT");
-    lv_obj_set_style_text_font(cap_cur, &font_b612_14, 0);
-    lv_obj_set_style_text_color(cap_cur, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap_cur, LV_ALIGN_TOP_LEFT, 24, 152);
-
-    st->current_lbl = lv_label_create(root);
-    lv_label_set_text(st->current_lbl, "---");
-    lv_obj_set_style_text_font(st->current_lbl, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->current_lbl, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->current_lbl, LV_ALIGN_TOP_LEFT, 24, 172);
-
-    lv_obj_t *cap_tgt = lv_label_create(root);
-    lv_label_set_text(cap_tgt, "TARGET");
-    lv_obj_set_style_text_font(cap_tgt, &font_b612_14, 0);
-    lv_obj_set_style_text_color(cap_tgt, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(cap_tgt, LV_ALIGN_TOP_RIGHT, -24, 152);
-
-    st->target_lbl = lv_label_create(root);
-    lv_label_set_text(st->target_lbl, "---");
-    lv_obj_set_style_text_font(st->target_lbl, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->target_lbl, lv_color_hex(theme.accent), 0);
-    lv_obj_align(st->target_lbl, LV_ALIGN_TOP_RIGHT, -24, 172);
-
-    st->backend_lbl = lv_label_create(root);
-    lv_label_set_text(st->backend_lbl, "");
-    lv_obj_set_style_text_font(st->backend_lbl, &font_b612_14, 0);
-    lv_obj_set_style_text_color(st->backend_lbl, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(st->backend_lbl, LV_ALIGN_TOP_MID, 0, 240);
-
-    // Adjust row + silence at y=320..380.
-    const char *adj_names[4] = {"-10", "-1", "+1", "+10"};
-    int adj_vals[4] = {-10, -1, 1, 10};
-    int adj_w = 80;
-    int adj_y = 320;
-    int total_w = adj_w * 4 + 12;  // 4 buttons + 3 gaps of 4
-    int adj_x0 = (LCD_W - total_w) / 2;
-    for (int i = 0; i < 4; ++i) {
-        int x = adj_x0 + i * (adj_w + 4);
-        cc_make_button(root, x, adj_y, adj_w, 60, adj_names[i], theme.button_active_bg,
-                       theme.button_active_fg, cc_adjust_btn_cb, (void *)(intptr_t)adj_vals[i]);
-    }
-    // Silence button across the full width at the bottom.
-    cc_make_button(root, 8, adj_y + 70, LCD_W - 16, 50, "SILENCE", theme.alarm, theme.alarm_fg,
-                   cc_silence_btn_cb, nullptr);
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_control_console(lv_obj_t *root, const ScreenVariantSpec &spec,
-                                   const boat::View &data) {
-    (void)spec;
-    (void)data;
-    if (!root) return;
-    auto *st = (ControlConsoleState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    autopilot::State ap;
-    autopilot::copy_state(ap);
-
-    // Update mode-button highlights only when the mode actually changes.
-    if (ap.mode != st->last_mode) {
-        st->last_mode = ap.mode;
-        for (int i = 0; i < 4; ++i) {
-            bool active = (st->mode_for[i] == ap.mode);
-            uint32_t bg = active ? theme.button_active_bg : theme.panel;
-            uint32_t fg = active ? theme.button_active_fg : theme.fg;
-            lv_obj_set_style_bg_color(st->mode_btns[i], lv_color_hex(bg), 0);
-            // child label is first child
-            lv_obj_t *lbl = lv_obj_get_child(st->mode_btns[i], 0);
-            if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
-        }
-    }
-
-    char cur[16], tgt[16];
-    if (isnan(ap.current_heading_rad))
-        snprintf(cur, sizeof(cur), "---");
-    else
-        snprintf(cur, sizeof(cur), "%03d", (int)(ap.current_heading_rad * 180.0 / M_PI));
-    if (isnan(ap.target_heading_rad))
-        snprintf(tgt, sizeof(tgt), "---");
-    else
-        snprintf(tgt, sizeof(tgt), "%03d", (int)(ap.target_heading_rad * 180.0 / M_PI));
-    ui::set_text_if_changed(st->current_lbl, st->last_current, sizeof(st->last_current), cur);
-    ui::set_text_if_changed(st->target_lbl, st->last_target, sizeof(st->last_target), tgt);
-    char bk[32];
-    snprintf(bk, sizeof(bk), "backend: %s", autopilot::backend_name(ap.backend));
-    lv_label_set_text(st->backend_lbl, bk);
-}
-
-// ---------------------------------------------------------------------------
-// route_progress template - XTE bar + BTW + DTW summary.
-//
-// Reads from boat::Snapshot via boat::View (which composes fused values).
-// Layout:
-//   top      : "TO WP" caption
-//   middle   : BTW (big, accent) | DTW (big)
-//   centre   : horizontal XTE bar with port (red) / stbd (green)
-//              colored fills, center marker
-//   bottom   : XTE numeric (m) + L/R indicator
-//
-// MetricBinding is unused beyond title - this template doesn't need
-// a binding because the SK paths it cares about (XTE, BTW, DTW) are
-// fixed. Caller can supply spec.metrics[0] to override the title /
-// accent color; otherwise sensible defaults apply.
-
-struct RouteProgressState {
-    lv_obj_t *btw_lbl;
-    lv_obj_t *dtw_lbl;
-    lv_obj_t *xte_bar;
-    lv_obj_t *xte_lbl;
-    lv_obj_t *centre_marker;
-    char last_btw[12];
-    char last_dtw[12];
-    char last_xte[16];
-    double xte_full_scale_m;  // bar saturates at this magnitude
-};
-
-static lv_obj_t *create_route_progress(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    RouteProgressState *st =
-        (RouteProgressState *)heap_caps_calloc(1, sizeof(RouteProgressState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] route_progress alloc failed");
-        return root;
-    }
-    strncpy(st->last_btw, "\xFF", sizeof(st->last_btw));
-    strncpy(st->last_dtw, "\xFF", sizeof(st->last_dtw));
-    strncpy(st->last_xte, "\xFF", sizeof(st->last_xte));
-    st->xte_full_scale_m = 200.0;  // ±200 m saturates the bar
-
-    // Title at top.
-    lv_obj_t *title = lv_label_create(root);
-    lv_label_set_text(title, spec.title ? spec.title : "ROUTE");
-    lv_obj_set_style_text_font(title, &font_b612_20, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 8);
-
-    // BTW left / DTW right at y=80.
-    lv_obj_t *btw_cap = lv_label_create(root);
-    lv_label_set_text(btw_cap, "BEARING");
-    lv_obj_set_style_text_font(btw_cap, &font_b612_14, 0);
-    lv_obj_set_style_text_color(btw_cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(btw_cap, LV_ALIGN_TOP_LEFT, 24, 76);
-
-    st->btw_lbl = lv_label_create(root);
-    lv_label_set_text(st->btw_lbl, "---");
-    lv_obj_set_style_text_font(st->btw_lbl, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->btw_lbl, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->btw_lbl, LV_ALIGN_TOP_LEFT, 24, 96);
-
-    lv_obj_t *dtw_cap = lv_label_create(root);
-    lv_label_set_text(dtw_cap, "DISTANCE");
-    lv_obj_set_style_text_font(dtw_cap, &font_b612_14, 0);
-    lv_obj_set_style_text_color(dtw_cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(dtw_cap, LV_ALIGN_TOP_RIGHT, -24, 76);
-
-    st->dtw_lbl = lv_label_create(root);
-    lv_label_set_text(st->dtw_lbl, "---");
-    lv_obj_set_style_text_font(st->dtw_lbl, &font_b612_48, 0);
-    lv_obj_set_style_text_color(st->dtw_lbl, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->dtw_lbl, LV_ALIGN_TOP_RIGHT, -24, 96);
-
-    // XTE bar around y=260, full width. Port = red, stbd = green.
-    // The bar's value 0..200 represents -fullscale..+fullscale; we
-    // recolor based on sign. lv_bar doesn't natively support bipolar
-    // so we use the "symmetrical" range trick.
-    st->xte_bar = lv_bar_create(root);
-    lv_obj_set_size(st->xte_bar, LCD_W - 48, 28);
-    lv_obj_align(st->xte_bar, LV_ALIGN_TOP_MID, 0, 260);
-    lv_bar_set_mode(st->xte_bar, LV_BAR_MODE_SYMMETRICAL);
-    lv_bar_set_range(st->xte_bar, -100, 100);
-    lv_bar_set_value(st->xte_bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(st->xte_bar, lv_color_hex(theme.panel), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(st->xte_bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(st->xte_bar, 6, LV_PART_MAIN);
-    lv_obj_set_style_radius(st->xte_bar, 6, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(st->xte_bar, lv_color_hex(theme.alarm), LV_PART_INDICATOR);
-
-    // Centre marker line.
-    st->centre_marker = lv_obj_create(root);
-    lv_obj_set_size(st->centre_marker, 2, 40);
-    lv_obj_align(st->centre_marker, LV_ALIGN_TOP_MID, 0, 254);
-    lv_obj_set_style_bg_color(st->centre_marker, lv_color_hex(theme.fg), 0);
-    lv_obj_set_style_bg_opa(st->centre_marker, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(st->centre_marker, 0, 0);
-    lv_obj_clear_flag(st->centre_marker, LV_OBJ_FLAG_SCROLLABLE);
-
-    // XTE numeric below the bar.
-    lv_obj_t *xte_cap = lv_label_create(root);
-    lv_label_set_text(xte_cap, "XTE");
-    lv_obj_set_style_text_font(xte_cap, &font_b612_14, 0);
-    lv_obj_set_style_text_color(xte_cap, lv_color_hex(theme.fg_dim), 0);
-    lv_obj_align(xte_cap, LV_ALIGN_TOP_MID, 0, 304);
-
-    st->xte_lbl = lv_label_create(root);
-    lv_label_set_text(st->xte_lbl, "---");
-    lv_obj_set_style_text_font(st->xte_lbl, &font_b612_28, 0);
-    lv_obj_set_style_text_color(st->xte_lbl, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->xte_lbl, LV_ALIGN_TOP_MID, 0, 324);
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_route_progress(lv_obj_t *root, const ScreenVariantSpec &spec,
-                                  const boat::View &data) {
-    (void)spec;
-    if (!root) return;
-    auto *st = (RouteProgressState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    char buf[16];
-    // BTW
-    if (isnan(data.btw))
-        snprintf(buf, sizeof(buf), "---");
-    else
-        snprintf(buf, sizeof(buf), "%03d", (int)rad_to_deg_pos(data.btw));
-    ui::set_text_if_changed(st->btw_lbl, st->last_btw, sizeof(st->last_btw), buf);
-
-    // DTW: show nm if >= 1, otherwise m
-    if (isnan(data.dtw))
-        snprintf(buf, sizeof(buf), "---");
-    else if (data.dtw >= 1852.0)
-        snprintf(buf, sizeof(buf), "%.1fnm", data.dtw / 1852.0);
-    else
-        snprintf(buf, sizeof(buf), "%.0fm", data.dtw);
-    ui::set_text_if_changed(st->dtw_lbl, st->last_dtw, sizeof(st->last_dtw), buf);
-
-    // XTE
-    if (isnan(data.xte)) {
-        snprintf(buf, sizeof(buf), "--");
-        lv_bar_set_value(st->xte_bar, 0, LV_ANIM_OFF);
-    } else {
-        double mag = data.xte / st->xte_full_scale_m * 100.0;
-        if (mag > 100) mag = 100;
-        if (mag < -100) mag = -100;
-        lv_bar_set_value(st->xte_bar, (int32_t)mag, LV_ANIM_OFF);
-        // Color: port (red) when negative, stbd (green) when positive.
-        uint32_t color = data.xte < 0 ? theme.port : theme.good;
-        lv_obj_set_style_bg_color(st->xte_bar, lv_color_hex(color), LV_PART_INDICATOR);
-        const char *side = data.xte < 0 ? "L" : "R";
-        snprintf(buf, sizeof(buf), "%.0f%s m", fabs(data.xte), data.xte == 0 ? "" : side);
-    }
-    ui::set_text_if_changed(st->xte_lbl, st->last_xte, sizeof(st->last_xte), buf);
-}
-
-// ---------------------------------------------------------------------------
-// setup_form template - scrollable list of settings rows.
-//
-// MVP: hardcoded set of common settings (theme, brightness, audible
-// alarms). Each row has a caption + a control widget:
-//   theme            -> segmented (day / night / auto)
-//   brightness       -> -/+ pair around the current value
-//   audible alarms   -> toggle
-//   reboot           -> action button
-//
-// Descriptor-driven schema (SettingKind / SettingSpec per spec 13)
-// is a follow-up - this template's contract is "show the settings
-// that exist today" so screens can adopt it without their authors
-// needing to re-wire every preference.
-
-// Settings THEME row: DAY / NIGHT pick the sunlight and night-vision skins
-// (owner choice, 2026-11-14); "auto" stays the legacy token. Shared with the
-// built-in Settings screen via theme_choice.h. Used both to build the buttons
-// and to highlight the active one.
-static const char *const *const kSettingsThemeVals = theme_choice::themes();
-
-struct SetupFormState {
-    lv_obj_t *theme_btns[3];
-    lv_obj_t *brightness_lbl;
-    lv_obj_t *audible_btn;
-    char last_theme[8];
-    uint8_t last_brightness;
-    bool last_audible;
-};
-
-static void sf_theme_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    const char *t = (const char *)lv_event_get_user_data(e);
-    app::Command c;
-    c.type = app::CommandType::SetTheme;
-    strncpy(c.a, t, sizeof(c.a) - 1);
-    app::post(c, 100);
-}
-
-static void sf_bright_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    int delta = (int)(intptr_t)lv_event_get_user_data(e);
-    int now = (int)ui::brightness() + delta;
-    if (now < 20) now = 20;
-    if (now > 255) now = 255;
-    app::Command c;
-    c.type = app::CommandType::SetBrightness;
-    c.i = now;
-    app::post(c, 100);
-}
-
-static void sf_audible_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    beeper::set_audible_alarms(!beeper::audible_alarms_enabled());
-}
-
-static void sf_reboot_cb(lv_event_t *e) {
-    if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-    app::Command c;
-    c.type = app::CommandType::Reboot;
-    app::post(c, 100);
-}
-
-static lv_obj_t *sf_make_row(lv_obj_t *parent, int y, const char *label, lv_obj_t **out_panel) {
-    lv_obj_t *row = lv_obj_create(parent);
-    lv_obj_set_size(row, LCD_W - 16, 56);
-    lv_obj_set_pos(row, 8, y);
-    lv_obj_set_style_bg_color(row, lv_color_hex(theme.panel), 0);
-    lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(row, lv_color_hex(theme.panel_edge), 0);
-    lv_obj_set_style_border_width(row, 1, 0);
-    lv_obj_set_style_radius(row, 6, 0);
-    lv_obj_set_style_pad_all(row, 0, 0);
-    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *cap = lv_label_create(row);
-    lv_label_set_text(cap, label);
-    lv_obj_set_style_text_font(cap, &font_b612_20, 0);
-    lv_obj_set_style_text_color(cap, lv_color_hex(theme.fg), 0);
-    lv_obj_align(cap, LV_ALIGN_LEFT_MID, 12, 0);
-    if (out_panel) *out_panel = row;
-    return row;
-}
-
-static lv_obj_t *create_setup_form(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    lv_obj_t *root = lv_obj_create(parent);
-    lv_obj_set_size(root, LCD_W, LCD_H);
-    if (parent) lv_obj_set_pos(root, 0, 0);
-    lv_obj_set_style_bg_color(root, lv_color_hex(theme.bg), 0);
-    lv_obj_set_style_bg_opa(root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(root, 0, 0);
-    lv_obj_set_style_pad_all(root, 0, 0);
-    lv_obj_clear_flag(root, LV_OBJ_FLAG_SCROLLABLE);
-
-    SetupFormState *st =
-        (SetupFormState *)heap_caps_calloc(1, sizeof(SetupFormState), MALLOC_CAP_INTERNAL);
-    if (!st) {
-        net::logf("[layout] setup_form alloc failed");
-        return root;
-    }
-    strncpy(st->last_theme, "?", sizeof(st->last_theme));
-    st->last_brightness = 0;
-    st->last_audible = false;
-
-    lv_obj_t *title = lv_label_create(root);
-    lv_label_set_text(title, spec.title ? spec.title : "SETTINGS");
-    lv_obj_set_style_text_font(title, &font_b612_28, 0);
-    lv_obj_set_style_text_color(title, lv_color_hex(theme.accent), 0);
-    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
-
-    int y = 60;
-
-    // Theme: 3 segmented buttons inside the row, right-aligned.
-    lv_obj_t *theme_row;
-    sf_make_row(root, y, "THEME", &theme_row);
-    static const char *theme_names[3] = {"DAY", "NIGHT", "AUTO"};
-    int seg_w = 70;
-    int seg_h = 36;
-    for (int i = 0; i < 3; ++i) {
-        st->theme_btns[i] =
-            cc_make_button(theme_row, LCD_W - 16 - 12 - (3 - i) * (seg_w + 4), (56 - seg_h) / 2,
-                           seg_w, seg_h, theme_names[i], theme.button_bg, theme.button_fg,
-                           sf_theme_cb, (void *)kSettingsThemeVals[i]);
-    }
-    y += 68;
-
-    // Brightness: -/+ buttons around current value label.
-    lv_obj_t *bright_row;
-    sf_make_row(root, y, "BRIGHTNESS", &bright_row);
-    cc_make_button(bright_row, LCD_W - 16 - 12 - 200, 8, 60, 40, "-", theme.button_active_bg,
-                   theme.button_active_fg, sf_bright_cb, (void *)(intptr_t)-16);
-    st->brightness_lbl = lv_label_create(bright_row);
-    lv_label_set_text(st->brightness_lbl, "---");
-    lv_obj_set_style_text_font(st->brightness_lbl, &font_b612_28, 0);
-    lv_obj_set_style_text_color(st->brightness_lbl, lv_color_hex(theme.fg), 0);
-    lv_obj_align(st->brightness_lbl, LV_ALIGN_RIGHT_MID, -80, 0);
-    cc_make_button(bright_row, LCD_W - 16 - 12 - 60, 8, 60, 40, "+", theme.button_active_bg,
-                   theme.button_active_fg, sf_bright_cb, (void *)(intptr_t)16);
-    y += 68;
-
-    // Audible alarms: toggle.
-    lv_obj_t *aud_row;
-    sf_make_row(root, y, "AUDIBLE ALARMS", &aud_row);
-    st->audible_btn = cc_make_button(aud_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "OFF",
-                                     theme.button_bg, theme.button_fg, sf_audible_cb, nullptr);
-    y += 68;
-
-    // Reboot action.
-    lv_obj_t *rb_row;
-    sf_make_row(root, y, "REBOOT", &rb_row);
-    cc_make_button(rb_row, LCD_W - 16 - 12 - 100, 8, 100, 40, "REBOOT", theme.alarm, theme.alarm_fg,
-                   sf_reboot_cb, nullptr);
-
-    lv_obj_set_user_data(root, st);
-    return root;
-}
-
-static void update_setup_form(lv_obj_t *root, const ScreenVariantSpec &spec,
-                              const boat::View &data) {
-    (void)spec;
-    (void)data;
-    if (!root) return;
-    auto *st = (SetupFormState *)lv_obj_get_user_data(root);
-    if (!st) return;
-
-    // Read current theme from prefs (cheap; happens at ~5 Hz).
-    std::string cur_theme;
-    {
-        storage::Namespace pu("ui", true);
-        cur_theme = pu.get_string("theme", "night");
-    }
-    if (strcmp(st->last_theme, cur_theme.c_str()) != 0) {
-        strncpy(st->last_theme, cur_theme.c_str(), sizeof(st->last_theme));
-        for (int i = 0; i < 3; ++i) {
-            // Shared mapping: legacy day/night light DAY/NIGHT here too (#66).
-            bool active = theme_choice::index_for(cur_theme.c_str()) == i;
-            uint32_t bg = active ? theme.button_active_bg : theme.button_bg;
-            uint32_t fg = active ? theme.button_active_fg : theme.button_fg;
-            lv_obj_set_style_bg_color(st->theme_btns[i], lv_color_hex(bg), 0);
-            lv_obj_t *lbl = lv_obj_get_child(st->theme_btns[i], 0);
-            if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
-        }
-    }
-
-    uint8_t b = ui::brightness();
-    if (b != st->last_brightness) {
-        st->last_brightness = b;
-        char buf[8];
-        snprintf(buf, sizeof(buf), "%u", (unsigned)b);
-        lv_label_set_text(st->brightness_lbl, buf);
-    }
-
-    bool aud = beeper::audible_alarms_enabled();
-    if (aud != st->last_audible) {
-        st->last_audible = aud;
-        lv_obj_t *lbl = lv_obj_get_child(st->audible_btn, 0);
-        if (lbl) lv_label_set_text(lbl, aud ? "ON" : "OFF");
-        // ON = selected state: same active tokens as the theme segment (the
-        // old good fill with fg ink was 1.7:1 on night).
-        uint32_t bg = aud ? theme.button_active_bg : theme.button_bg;
-        uint32_t fg = aud ? theme.button_active_fg : theme.button_fg;
-        lv_obj_set_style_bg_color(st->audible_btn, lv_color_hex(bg), 0);
-        if (lbl) lv_obj_set_style_text_color(lbl, lv_color_hex(fg), 0);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Freeform builder — one tile per solver-provided pixel rect.
 //
-// Reuses build_tile() and the per-tile update logic from the QuadGrid path so
-// all painters (numeric, compass, gauge, bar, wind_rose, text, button,
-// autopilot) are exercised without duplication. Called directly by
-// midl_render; NOT wired into create()/update() dispatch (no TemplateId
-// churn needed — and the tile_count is variable, not fixed at 4).
-//
-// Tile state is heap-allocated (MALLOC_CAP_INTERNAL) and attached via
-// lv_obj_set_user_data, matching the QuadGrid pattern.
+// build_tile() dispatches to the per-kind painters (numeric, compass, gauge,
+// bar, wind_rose, wind_steer, text, button, autopilot, trend, clinometer).
+// Called directly by midl_render_apply. Tile state is heap-allocated (PSRAM)
+// and attached via lv_obj_set_user_data.
 
 // Maximum freeform tiles per screen — mirrors the MIDL solver bound so a
-// PlacementSet can be mapped 1:1. Spec-derived (decoupled from the legacy
-// layout::MAX_TILES_PER_SCREEN, which stays 4 to protect the layout::Config
-// size guard); see include/midl_limits.h.
+// PlacementSet can be mapped 1:1. Spec-derived; see include/midl_limits.h.
 static constexpr int FREEFORM_MAX_TILES = (int)midl::FirmwareLimits::max_tiles_per_screen;
 
-// Per-tile state extends QuadGridTile with the tile's own pixel width so the
-// update path can correctly call fit_value_font() without relying on the
-// QuadGrid-specific QG_TILE_W constant.
+// Per-tile state extends TileState with the tile's own pixel width so the
+// update path can fit fonts to the solver rect.
 struct FreeformTile {
-    QuadGridTile tile;  // reuse the full per-tile widget + cache state
-    int tile_w;         // pixel width of this tile (from the solver rect)
+    TileState tile;  // reuse the full per-tile widget + cache state
+    int tile_w;      // pixel width of this tile (from the solver rect)
 };
 
 struct FreeformState {
@@ -6320,7 +4739,7 @@ lv_obj_t *create_freeform(lv_obj_t *parent, const ScreenVariantSpec &spec, const
         st->tiles[i].tile.idx = i;
         st->tiles[i].tile_w = st->tiles[i].tile.body_w ? st->tiles[i].tile.body_w : r.w;
 
-        // Tap-to-zoom: mirror the QuadGrid interactive-tile logic.
+        // Tap-to-zoom: a zoomable element, or any live metric by default.
         const MetricBinding &mb = spec.metrics[i];
         bool interactive =
             mb.zoom_target ? (layout::zoom_action(mb.zoomable, mb.zoom_target) != layout::ZOOM_NONE)
@@ -6344,21 +4763,22 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
     if (!root) return;
     auto *st = (FreeformState *)lv_obj_get_user_data(root);
     if (!st) return;
+    s_fmt = config::format();  // snapshot display formatting for this refresh
 
     for (int i = 0; i < st->count; ++i) {
-        QuadGridTile &t = st->tiles[i].tile;
+        TileState &t = st->tiles[i].tile;
         if (t.idx < 0 || t.idx >= spec.metric_count) continue;
         const MetricBinding &m = spec.metrics[t.idx];
 
         char pri[40], sec[24];
         format_metric(m, data, pri, sizeof(pri), sec, sizeof(sec));
 
-        // Per-kind aux updates — mirrors update_quad_grid exactly.
+        // Per-kind aux updates.
         switch (t.kind) {
         case WidgetKind::Gauge:
         case WidgetKind::Bar:
-            // Shared with update_quad_grid: fill / centre-zero needle, centre
-            // label, style.zones colour tracking. See update_gauge_bar.
+            // Fill / centre-zero needle, centre label, style.zones colour
+            // tracking. See update_gauge_bar.
             update_gauge_bar(t, m, data);
             break;
         case WidgetKind::Autopilot:
@@ -6370,8 +4790,8 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 break;
             }
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
-            // Engaged/standby pill restyle on state flips only (mirrors
-            // update_quad_grid): last_aux_pct doubles as the styled-state
+            // Engaged/standby pill restyle on state flips only:
+            // last_aux_pct doubles as the styled-state
             // cache for the stand-in (-1 unset, 0 standby, 1 engaged).
             {
                 bool engaged = data.apState[0] && strcmp(data.apState, "standby") != 0;
@@ -6416,10 +4836,10 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 ui::set_text_if_changed(t.secondary, t.last_secondary, sizeof(t.last_secondary),
                                         cts);
             }
-            // HDG/CTS inner ring + COG outer ring (mirrors update_quad_grid): the
+            // HDG/CTS inner ring + COG outer ring: the
             // two-ring split keeps an HDG≈COG overlap from merging into one glyph.
             // An authored `bindings.dir` retargets the diamond pointer at the dir
-            // source instead of CTS (mirrors update_quad_grid).
+            // source instead of CTS.
             {
                 MetricBinding hdg = {}, cog = {}, cts = {};
                 hdg.source = MetricSource::HDG_deg;
@@ -6443,7 +4863,7 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                                t.sector_last_hidden);
             break;
         case WidgetKind::Trend: {
-            // Mirrors update_quad_grid: hero number is the live reading; the
+            // Hero number is the live reading; the
             // sparkline gets one normalized 0..100 sample on value-change.
             ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
             if (t.aux) {
@@ -6463,7 +4883,6 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
             break;
         }
         case WidgetKind::Clinometer:
-            // Mirrors update_quad_grid.
             update_clinometer(t, m, data);
             break;
         default:
@@ -6489,14 +4908,14 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                     lv_obj_set_style_text_font(t.value, compact_font(pri, t.fit_w, t.fit_h), 0);
                 } else if (t.kind == WidgetKind::Numeric && m.extras_count == 0 &&
                            m.size_role == 0) {
-                    // Use the tile's own width (solver may pick a rect different
-                    // from the fixed QG_TILE_W). -56 matches the QuadGrid margin.
+                    // Fit the tile's own width (the solver rect) minus the
+                    // caption/unit margin.
                     // An authored style.size role pins the font instead.
                     fit_value_font(t.value, pri, st->tiles[i].tile_w - 56);
                 } else if (t.kind == WidgetKind::Text) {
-                    // Text tiles overflow on narrow (160 px) freeform tiles; pick
-                    // the largest Montserrat that fits the tile's real width.
-                    fit_text_font(t.value, pri, st->tiles[i].tile_w - 24);
+                    // Step the font down to the tile's real width, else
+                    // ellipsize (sys.version / sys.build on the status tiles).
+                    fit_text_font(t.value, pri, st->tiles[i].tile_w - 24, t.text_cap);
                 }
             }
             if (t.value &&
@@ -6515,7 +4934,7 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
                 awa.source = MetricSource::AWA_deg;
                 twa.source = MetricSource::TWA_deg;
                 // An authored `bindings.dir` drives the warn pointer instead of
-                // the built-in AWA head (mirrors update_quad_grid).
+                // the built-in AWA head.
                 double warn_deg =
                     binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(awa, data);
                 ui::MarkerSpec wind[2] = {
@@ -6548,205 +4967,4 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public factory entry points
-
-lv_obj_t *create(lv_obj_t *parent, const ScreenVariantSpec &spec) {
-    switch (spec.template_id) {
-    case TemplateId::QuadGrid:
-        return create_quad_grid(parent, spec);
-    case TemplateId::HeroPlus:
-        return create_hero_plus(parent, spec);
-    case TemplateId::StatusList:
-        return create_status_list(parent, spec);
-    case TemplateId::RoundInstrument:
-        return create_round_instrument(parent, spec);
-    case TemplateId::SplitPair:
-        return create_split_pair(parent, spec);
-    case TemplateId::TrendChart:
-        return create_trend_chart(parent, spec);
-    case TemplateId::AlertFocus:
-        return create_alert_focus(parent, spec);
-    case TemplateId::ControlConsole:
-        return create_control_console(parent, spec);
-    case TemplateId::RouteProgress:
-        return create_route_progress(parent, spec);
-    case TemplateId::SetupForm:
-        return create_setup_form(parent, spec);
-    default:
-        net::logf("[layout] template %d not implemented yet", (int)spec.template_id);
-        return nullptr;
-    }
-}
-
-void update(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::View &data) {
-    s_fmt = config::format();  // snapshot display formatting for this refresh
-    switch (spec.template_id) {
-    case TemplateId::QuadGrid:
-        update_quad_grid(root, spec, data);
-        break;
-    case TemplateId::HeroPlus:
-        update_hero_plus(root, spec, data);
-        break;
-    case TemplateId::StatusList:
-        update_status_list(root, spec, data);
-        break;
-    case TemplateId::RoundInstrument:
-        update_round_instrument(root, spec, data);
-        break;
-    case TemplateId::SplitPair:
-        update_split_pair(root, spec, data);
-        break;
-    case TemplateId::TrendChart:
-        update_trend_chart(root, spec, data);
-        break;
-    case TemplateId::AlertFocus:
-        update_alert_focus(root, spec, data);
-        break;
-    case TemplateId::ControlConsole:
-        update_control_console(root, spec, data);
-        break;
-    case TemplateId::RouteProgress:
-        update_route_progress(root, spec, data);
-        break;
-    case TemplateId::SetupForm:
-        update_setup_form(root, spec, data);
-        break;
-    default:
-        break;
-    }
-}
-
 }  // namespace ui::layouts
-
-// ===========================================================================
-// Full-screen single-value "zoom" screen. Opened by tapping a dashboard tile
-// (ui::layouts::tile_zoom_action_cb sets the file-static g_zoom_target then
-// navigates here for an auto-scale field). A dedicated screen (not a layer_top
-// overlay) so it composites into
-// the active-screen snapshot and is screenshot-verifiable. Tapping anywhere
-// returns to the dashboard; swipe-down also works via the global gesture map.
-// ===========================================================================
-namespace ui::zoom {
-
-static lv_obj_t *s_root = nullptr;
-static lv_obj_t *s_cap = nullptr;
-static lv_obj_t *s_value = nullptr;
-static lv_obj_t *s_unit = nullptr;
-static char s_last[40] = {(char)0xFF};
-static int s_last_kind = -1;  // 0 = big number, 1 = multi-line/long (e.g. position)
-
-// A rebuilt screen (theme switch / config push -> reset_screens -> build)
-// starts with placeholder text, so forget what the previous widgets showed:
-// otherwise any value that has not changed since is never redrawn.
-static void reset_caches() {
-    s_last[0] = (char)0xFF;
-    s_last_kind = -1;
-}
-
-static void back_cb(lv_event_t *) {
-    ui::show_by_id("dashboard");
-}
-
-// Hero color: an authored per-element accent (MIDL style.color) wins, else the
-// theme accent token. The pre-theme built-in screens and the sim harness zoom
-// targets bake the ORIGINAL dark-palette literals into their bindings' accent
-// field (cyan 0x57c7d8 "accent" / green 0x39d98a "good"); those are legacy
-// defaults, not authored intent, so remap them to the live theme token —
-// honoring them verbatim painted cyan/green heroes in every theme (a night
-// vision violation in red-night, off-palette in classic).
-static uint32_t hero_rgb(const ui::layouts::MetricBinding &m) {
-    // An authored style.color (token or literal, #000000 included) always wins.
-    if (m.style_color != ui::layouts::ZoneColor::Default)
-        return ui::layouts::style_rgb(m, ui::theme.accent, ui::layouts::live_tokens());
-    switch (m.accent) {
-    case 0:
-    case 0x57c7d8:  // legacy dark-palette accent literal
-        return ui::theme.accent;
-    case 0x39d98a:  // legacy dark-palette good literal
-        return ui::theme.good;
-    default:
-        return m.accent;
-    }
-}
-
-lv_obj_t *build(lv_obj_t *parent) {
-    reset_caches();
-    s_root = lv_obj_create(parent);
-    lv_obj_set_size(s_root, LCD_W, LCD_H);
-    lv_obj_set_pos(s_root, 0, 0);
-    lv_obj_set_style_bg_color(s_root, lv_color_hex(ui::theme.bg), 0);
-    lv_obj_set_style_bg_opa(s_root, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(s_root, 0, 0);
-    lv_obj_set_style_radius(s_root, 0, 0);
-    lv_obj_set_style_pad_all(s_root, 0, 0);
-    lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(s_root, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(s_root, back_cb, LV_EVENT_CLICKED, nullptr);
-
-    s_cap = lv_label_create(s_root);
-    lv_obj_set_style_text_font(s_cap, &font_b612_38, 0);
-    lv_obj_set_style_text_color(s_cap, lv_color_hex(ui::theme.fg_dim), 0);
-    lv_obj_align(s_cap, LV_ALIGN_TOP_MID, 0, 60);
-
-    // Big hero value: font_xl_64 scaled ~1.6x (820/256) -> ~100px digits for
-    // short numerics. Multi-line / long values (e.g. a two-line lat/lon
-    // position) switch to an unscaled medium font in refresh so they fit the
-    // view instead of overflowing. Width is bounded to the screen and centered.
-    s_value = lv_label_create(s_root);
-    lv_obj_set_style_text_font(s_value, &font_xl_64, 0);
-    // Pivot the scale about the label's own center; otherwise transform_scale
-    // grows from the default (0,0) top-left pivot, pushing the hero digits
-    // down-right of the CENTER align and clipping their top edge.
-    lv_obj_set_style_transform_pivot_x(s_value, lv_pct(50), 0);
-    lv_obj_set_style_transform_pivot_y(s_value, lv_pct(50), 0);
-    lv_obj_set_style_transform_scale(s_value, 410, 0);
-    lv_obj_set_style_text_color(s_value, lv_color_hex(ui::theme.fg), 0);
-    lv_obj_set_style_text_align(s_value, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(s_value, LV_ALIGN_CENTER, 0, 0);
-    lv_label_set_text(s_value, "--");
-
-    s_unit = lv_label_create(s_root);
-    lv_obj_set_style_text_font(s_unit, &font_b612_38, 0);
-    lv_obj_set_style_text_color(s_unit, lv_color_hex(ui::theme.fg_dim), 0);
-    lv_obj_align(s_unit, LV_ALIGN_BOTTOM_MID, 0, -70);
-
-    // A subtle hint that tapping returns.
-    lv_obj_t *hint = lv_label_create(s_root);
-    lv_label_set_text(hint, "tap to close");
-    lv_obj_set_style_text_font(hint, &font_b612_14, 0);
-    lv_obj_set_style_text_color(hint, lv_color_hex(ui::theme.fg_dim), 0);
-    lv_obj_align(hint, LV_ALIGN_BOTTOM_MID, 0, -16);
-    return s_root;
-}
-
-void refresh() {
-    if (!s_root) return;
-    const ui::layouts::MetricBinding &m = ui::layouts::g_zoom_target;
-    lv_obj_set_style_text_color(s_value, lv_color_hex(hero_rgb(m)), 0);
-    lv_label_set_text(s_cap, m.label ? m.label : "");
-    lv_label_set_text(s_unit, m.unit ? m.unit : "");
-    boat::View d;
-    boat::current_view(d);
-    char pri[40], sec[64];
-    ui::layouts::format_metric(m, d, pri, sizeof(pri), sec, sizeof(sec));
-
-    // Choose the value styling by content: a short scalar gets the big scaled
-    // hero font; a multi-line or long value (a two-line position, a time, etc.)
-    // gets an unscaled medium font so it fits the screen width.
-    bool multiline = strchr(pri, '\n') != nullptr || strlen(pri) > 8;
-    int kind = multiline ? 1 : 0;
-    if (kind != s_last_kind) {
-        s_last_kind = kind;
-        if (multiline) {
-            lv_obj_set_style_text_font(s_value, &font_b612_38, 0);
-            lv_obj_set_style_transform_scale(s_value, 256, 0);  // 256 = 1.0x (no scale)
-        } else {
-            lv_obj_set_style_text_font(s_value, &font_xl_64, 0);
-            lv_obj_set_style_transform_scale(s_value, 410, 0);
-        }
-    }
-    ui::set_text_if_changed(s_value, s_last, sizeof(s_last), pri);
-}
-
-}  // namespace ui::zoom

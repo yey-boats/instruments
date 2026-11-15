@@ -1,37 +1,14 @@
-// metric_source_map.cpp — pure string-to-enum bridges, host-testable.
-//
-// Extracted from layout_renderer.cpp so that host-only TUs (midl_render,
-// Unity tests) can link against path_to_source / widget_to_kind without
-// pulling in the full device-only layout_renderer.cpp.
+// metric_source_map.cpp — SignalK path -> MetricSource bridge, host-testable.
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
-#include "layout_renderer.h"
+#include "metric_source_map.h"
 
 #include <string.h>
 
-namespace ui::layout_render {
+namespace ui::metric_map {
 
 using ui::layouts::MetricSource;
-using ui::layouts::WidgetKind;
-
-// NOTE: This map is SEPARATE from midl::render::token_to_kind (midl_render.cpp).
-// It handles legacy editor camelCase tokens ("numeric","windRose"); token_to_kind
-// handles MIDL lowercase tokens ("single-value","windrose"). Do not merge these two maps.
-WidgetKind widget_to_kind(const char *widget) {
-    if (!widget || !widget[0]) return WidgetKind::Numeric;
-    if (strcmp(widget, "compass") == 0) return WidgetKind::Compass;
-    if (strcmp(widget, "gauge") == 0) return WidgetKind::Gauge;
-    if (strcmp(widget, "bar") == 0) return WidgetKind::Bar;
-    if (strcmp(widget, "windRose") == 0) return WidgetKind::WindRose;
-    if (strcmp(widget, "windSteer") == 0) return WidgetKind::WindSteer;
-    if (strcmp(widget, "clinometer") == 0) return WidgetKind::Clinometer;
-    if (strcmp(widget, "autopilot") == 0) return WidgetKind::Autopilot;
-    if (strcmp(widget, "text") == 0) return WidgetKind::Text;
-    if (strcmp(widget, "button") == 0) return WidgetKind::Button;
-    if (strcmp(widget, "trend") == 0) return WidgetKind::Trend;
-    return WidgetKind::Numeric;
-}
 
 MetricSource path_to_source(const char *p) {
     if (!p || !p[0]) return MetricSource::None;
@@ -91,4 +68,4 @@ MetricSource path_to_source(const char *p) {
     return MetricSource::None;
 }
 
-}  // namespace ui::layout_render
+}  // namespace ui::metric_map

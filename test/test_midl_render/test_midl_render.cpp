@@ -2,8 +2,8 @@
 #include <ArduinoJson.h>
 #include <string.h>
 #include "midl_render.h"
-#include "layout.h"           // layout::zoom_action / ZOOM_NONE — the interactivity gate
-#include "layout_renderer.h"  // ui::layout_render::path_to_source (enum bridge checks)
+#include "layout.h"             // layout::zoom_action / ZOOM_NONE — the interactivity gate
+#include "metric_source_map.h"  // ui::metric_map::path_to_source (enum bridge checks)
 
 using ui::layouts::MetricBinding;
 using ui::layouts::MetricSource;
@@ -249,7 +249,7 @@ void test_style_range_fallback_and_format_range_wins() {
 void test_engine_paths_bridge_to_enum_sources() {
     // The MIDL library Engine screen binds propulsion.main.* — every path must
     // hit the typed enum bridge so the tiles read the fused Snapshot fields.
-    using ui::layout_render::path_to_source;
+    using ui::metric_map::path_to_source;
     TEST_ASSERT_EQUAL(MetricSource::EngineRpm, path_to_source("propulsion.main.revolutions"));
     TEST_ASSERT_EQUAL(MetricSource::EngineCoolant_C, path_to_source("propulsion.main.temperature"));
     TEST_ASSERT_EQUAL(MetricSource::EngineOilP_bar, path_to_source("propulsion.main.oilPressure"));

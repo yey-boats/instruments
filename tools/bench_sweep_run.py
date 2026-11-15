@@ -2,7 +2,7 @@
 """Drive the device's bench-sweep over USB serial and capture the CSV table.
 
 Opens the CH340, waits for boot/SignalK, sends `bench-sweep`, and records every
-`[bench-sweep]` line for the duration of the sweep (~screens x 2 modes x dwell).
+`[bench-sweep]` line for the duration of the sweep (~screens x dwell).
 """
 import sys
 import time

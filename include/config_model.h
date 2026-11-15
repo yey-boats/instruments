@@ -8,7 +8,7 @@
 // not implemented in this first cut.
 //
 // Domain coverage in this iteration:
-//   - Ui (theme + brightness + pos_format + default_screen)
+//   - Ui (theme + brightness + pos_format + display formats)
 //   - Alarms (shallow depth threshold, low battery voltage)
 //   - SignalK (host, port, token-ref)
 //
@@ -78,7 +78,6 @@ struct UiConfig {
     // so any of those choices remain valid post-load.
     uint8_t brightness = 255;
     PosFormat pos_format = PosFormat::DDM;
-    char default_screen[16] = "dashboard";
     FormatConfig format;
 };
 

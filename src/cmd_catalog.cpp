@@ -29,7 +29,8 @@ static const Entry CATALOG[] = {
 
     // --- screen / UI ---
     {"ui", "screen", "Print current screen id", true, true},
-    {"ui", "screen <id|next|prev>", "Navigate to a screen", true, true},
+    {"ui", "screen <id|next|prev|home|N>", "Navigate MIDL screens (loads the owning record)", true,
+     true},
     {"ui", "bright", "Read backlight (0..255)", true, true},
     {"ui", "bright <0-255>", "Set backlight", true, true},
     {"ui", "theme", "Print the active theme", true, true},
@@ -104,19 +105,7 @@ static const Entry CATALOG[] = {
     {"manager", "manager-discover", "mDNS _yeyboats-mgmt._tcp probe (spec 18 §4)", true, true},
     {"manager", "manager-errors", "Dump recent errors ring buffer (spec 17 §5)", true, true},
     {"manager", "manager-errors clear", "Reset the recent errors ring buffer", true, true},
-    {"manager", "manager-layout", "Print applied render plan summary (spec 19 D7)", true, true},
-    {"manager", "manager-widgets", "Print applied widget definitions (spec 19 D7)", true, true},
-    {"manager", "manager-config-dump", "JSON-dump applied config summary (spec 19 D7)", true, true},
-    {"manager", "font-dump", "List compiled font sizes + sample resolves (spec 19 D7)", true, true},
-
-    // --- layout ---
-    {"layout", "layout-show", "Dump current loaded layout (JSON)", true, true},
-    {"layout", "layout-fetch", "Pull layout from SK REST and apply", true, true},
-    {"layout", "layout-load <name>", "Load a built-in/saved layout", true, true},
-
-    // --- MIDL (dashboard language, Slice 2) ---
-    {"midl", "midl-render [screenId]",
-     "Render baked MIDL demo doc as a live screen (default id: midl)", true, true},
+    {"manager", "manager-config-dump", "Print the applied config version + hash", true, true},
 
 #if YEYBOATS_ENABLE_INPUT_TEST
     // --- input injection (BLE/serial only) ---

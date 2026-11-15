@@ -300,9 +300,9 @@ jobs:
       # Host-only LVGL render harness envs (no hardware). Keeps the documented
       # `make sim` design-preview workflow from silently breaking at link time.
       - name: Build sim render envs
-        run: pio run -e sim -e sim-screens -e sim-ap -e sim-wind -e sim-midl -e sim-knob -e sim-control
+        run: pio run -e sim-midl -e sim-screens -e sim-control
 
-      # A screen rebuilt in place (live theme switch / config push) must render
-      # like a fresh build: catches dirty-value caches that outlive their widgets.
+      # A system screen rebuilt in place (live theme switch) must render like a
+      # fresh build, and its poll timers must die with the root (ASan).
       - name: Rebuilt screens render like fresh ones
         run: bash tools/check_rebuild_render.sh

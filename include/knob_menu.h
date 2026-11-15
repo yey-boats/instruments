@@ -4,7 +4,16 @@
 // on the native host test env. The device glue (knob_ui / main) feeds it
 // Events + a read-only Inputs snapshot and turns the emitted Action into
 // the existing app::Command path. Levels and gestures per
-// docs/superpowers/specs/2026-06-13-waveshare-knob-remote-design.md §3.4.
+// docs/superpowers/specs/2026-06-13-waveshare-knob-remote-design.md §3.4,
+// reworked for the MIDL-only display (docs/midl/midl-only.md):
+//
+//   Home          turn = next/prev MIDL screen, click = home screen,
+//                 double-click = Steer, long-press = Menu
+//   Menu          STEER / AP MODE / DISPLAYS / CLOSE (system UI overlay)
+//   Steer         turn = AP target ±1° (±5° held), click = engage/standby,
+//                 long-press = ModePicker, double-click = back Home
+//   ModePicker    STANDBY / COMPASS / WIND / ROUTE -> back to Steer
+//   SelectDisplay / SelectView   pick a display, then switch its view
 
 #include <stddef.h>
 #include <stdint.h>
@@ -14,16 +23,23 @@ namespace knob {
 constexpr int kStepSmallDeg = 1;
 constexpr int kStepBigDeg = 5;
 constexpr int kModeCount = 4;  // STANDBY, COMPASS, WIND, ROUTE
+constexpr int kMenuCount = 4;  // STEER, AP MODE, DISPLAYS, CLOSE
 
 enum class Event : uint8_t { None = 0, DetentCW, DetentCCW, Click, DoubleClick, LongPress };
 
-enum class Level : uint8_t { Home = 0, ModePicker, SelectDisplay, SelectView };
+enum class Level : uint8_t { Home = 0, ModePicker, SelectDisplay, SelectView, Menu, Steer };
+
+// Menu rows (Level::Menu highlight index).
+enum MenuItem : int { MenuSteer = 0, MenuApMode, MenuDisplays, MenuClose };
 
 enum class ActionType : uint8_t {
     NoAction = 0,
     ApSetState,      // arg_str = "standby"|"auto"|"wind"|"route"
     ApSetTargetRad,  // arg_f = absolute target heading (radians, 0..2pi)
     SwitchView,      // arg_dev_idx + arg_view_idx -> switch that display's view
+    NextScreen,      // carousel: next MIDL screen (crosses record boundaries)
+    PrevScreen,      // carousel: previous MIDL screen
+    HomeScreen,      // the index defaultScreen
 };
 
 struct Action {
@@ -60,6 +76,8 @@ Action step(Model &m, const Inputs &in, Event ev, bool held);
 
 // 0->"standby", 1->"auto", 2->"wind", 3->"route". Out-of-range -> "standby".
 const char *mode_state_string(int picker_idx);
+// Menu row label ("STEER", "AP MODE", "DISPLAYS", "CLOSE"); "" out of range.
+const char *menu_item_label(int idx);
 const char *level_name(Level l);
 
 // Fills the SignalK PUT path + JSON value for an autopilot Action. This is the
@@ -69,7 +87,7 @@ const char *level_name(Level l);
 //                     value "\"<arg_str>\"" (JSON-quoted, e.g. "auto")
 //   ApSetTargetRad -> path "steering.autopilot.target.headingTrue",
 //                     value "%.4f" of arg_f (radians)
-//   else (NoAction / SwitchView) -> returns false, leaves outputs empty
+//   else (NoAction / SwitchView / screen nav) -> returns false, leaves outputs empty
 //                                    (null-terminated path_out[0]/value_out[0]).
 // Returns true when a PUT was produced, false otherwise.
 bool signalk_put_for(const Action &a, char *path_out, size_t path_cap, char *value_out,

@@ -2,8 +2,8 @@
 
 // Glue between the knob input events and the pure knob_menu state machine.
 // Lives on the LVGL/UI task. apply_event() steps the machine, performs the
-// resulting Action (autopilot PUT or remote view switch), and updates the
-// menu overlay. Device-only.
+// resulting Action (MIDL screen nav, autopilot PUT or remote view switch),
+// and updates the menu overlay. Device-only.
 
 #include "knob_menu.h"
 

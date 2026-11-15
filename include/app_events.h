@@ -7,9 +7,8 @@
 // UI task. SignalK PUTs and other slow network work are routed to a
 // dedicated network worker task instead (post_net()).
 //
-// Payloads are fixed-size for safety. The single exception is
-// ApplyLayout, which carries a heap-owned blob - producer mallocs into
-// PSRAM, consumer frees after handling.
+// Payloads are fixed-size for safety. A command may also carry a heap-owned
+// blob - producer mallocs into PSRAM, consumer frees after handling.
 
 #include <Arduino.h>
 #include <stddef.h>
@@ -19,24 +18,20 @@ namespace app {
 
 enum class CommandType : uint8_t {
     None = 0,
-    ShowScreen,     // a = id ("wind", "next", "prev", "home") or numeric
-    ApplyLayout,    // blob = JSON bytes; blob_len = length; consumer frees
+    ShowScreen,     // a = MIDL/system screen id, "next", "prev", "home", or numeric
     SetTheme,       // a = "day" or "night"
     SetBrightness,  // i = 0..255
     Reboot,
-    RunCommand,           // a = console command line (legacy dispatchCommand)
-    SignalKPut,           // a = SK dotted path, b = JSON value (sent to net queue)
-    SaveWifi,             // a = ssid, b = password (sent to net queue, reboots)
-    ApplyManagedScreens,  // blob = manager_config::RenderPlan*; consumer
-                          // calls manager_screens::apply() then frees.
-    ShowOverlay,          // a = message text (spec 17 §8 overlay.show)
-    ClearOverlay,         // (spec 17 §8 overlay.clear)
-    Knob,                 // i = knob::Event value; b[0] = '1' if button held during detent
-    ConfigApplyMidl,      // blob = MIDL JSON bytes; a = screen_id (or "" -> "midl"); consumer frees
-    Select,               // "OK/Enter" verb: dismiss an active MIDL zoom overlay; else
-                          // toggle between the current screen and home.
-    MidlActivate,         // a = record id ("" = owner of the home screen), b = screen id;
-                          // i = 1: keep the current screen when still present (b ignored).
+    RunCommand,    // a = console command line (dispatchCommand)
+    SignalKPut,    // a = SK dotted path, b = JSON value (sent to net queue)
+    SaveWifi,      // a = ssid, b = password (sent to net queue, reboots)
+    ShowOverlay,   // a = message text (spec 17 §8 overlay.show)
+    ClearOverlay,  // (spec 17 §8 overlay.clear)
+    Knob,          // i = knob::Event value; b[0] = '1' if button held during detent
+    Select,        // "OK/Enter" verb: dismiss an active MIDL zoom overlay; else
+                   // toggle between the current screen and home.
+    MidlActivate,  // a = record id ("" = owner of the home screen), b = screen id;
+                   // i = 1: keep the current screen when still present (b ignored).
 };
 
 struct Command {
@@ -48,8 +43,8 @@ struct Command {
     char a[256] = {0};
     char b[256] = {0};
     int32_t i = 0;
-    // Heap-owned payload for ApplyLayout. The consumer (pump or net
-    // worker) is responsible for heap_caps_free(blob).
+    // Optional heap-owned payload. The consumer (pump or net worker) is
+    // responsible for heap_caps_free(blob).
     void *blob = nullptr;
     size_t blob_len = 0;
     // Wall-clock stamp (micros() at post site). Read by pump() to

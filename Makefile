@@ -88,7 +88,7 @@ build: setup version-check  ## Build firmware
 test: version-check  ## Run host-side unit tests
 	$(PIO) test -e native
 
-sim:  ## Render dashboard at all resolutions via headless LVGL harness -> docs/sim-shots/
+sim:  ## Render the MIDL demo doc + system screens via the headless LVGL harness -> docs/sim-shots/
 	bash tools/sim_render.sh
 
 sys-test:  ## Run unattended system tests against YEYBOATS_HOST (set env var)

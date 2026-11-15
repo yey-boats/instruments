@@ -22,7 +22,6 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #endif
-#include "layout_loader.h"
 #include "ui_screens.h"
 #include "ui_theme.h"
 #include "ui_data.h"
@@ -48,7 +47,6 @@
 #endif
 
 #include "storage.h"
-#include "midl_demo_doc.h"
 #include "midl_render.h"
 #include "midl_store.h"
 #include "trip_log.h"
@@ -1477,11 +1475,7 @@ void overlay_clear() {
 // ----- Demo / fps -------------------------------------------------------
 
 static void demo_tick(lv_timer_t *) {
-#if YEYBOATS_MIDL_RECORDS
     midl::store_ui::next();  // walks the whole carousel, across records
-#else
-    ui::next();
-#endif
 }
 
 static void demo_start(uint32_t period_ms) {
@@ -1511,11 +1505,7 @@ static void demo_stop() {
         g_demo_timer = nullptr;
     }
     if (g_demo_badge) lv_obj_add_flag(g_demo_badge, LV_OBJ_FLAG_HIDDEN);
-#if YEYBOATS_MIDL_RECORDS
     midl::store_ui::home();
-#else
-    ui::show(0);
-#endif
     net::logf("[demo] stopped");
 }
 
@@ -1585,14 +1575,10 @@ static void note_slow_section(const char *name, uint32_t dt_us) {
 // ---- bench-sweep: walk every non-hidden screen x {typed, store} render mode,
 // dwell SWEEP_DWELL s (first tick discarded), and log a per-cell metrics row.
 // Driven by fps_tick (1 Hz), so it runs on the LVGL/UI task (ui::show is safe).
-namespace ui::layouts {
-extern bool g_bench_store_mode;  // shadow-resolve built-ins through PathStore
-}
 
 static const int SWEEP_DWELL = 4;  // seconds per cell (tick 0 = settle, discarded)
 static bool g_sweep_active = false;
-static int g_sweep_mode = 0;  // 0 = typed, 1 = store
-static int g_sweep_pos = 0;   // index into g_sweep_list
+static int g_sweep_pos = 0;  // index into g_sweep_list
 static int g_sweep_tick = 0;
 static int g_sweep_list[32];
 static int g_sweep_n = 0;
@@ -1656,14 +1642,12 @@ static void bench_sweep_start() {
         return;
     }
     g_sweep_saved = ui::current_index();
-    g_sweep_mode = 0;
-    ui::layouts::g_bench_store_mode = false;
     g_sweep_pos = 0;
     g_sweep_tick = 0;
     g_sweep_row.reset();
     char hdr[300];
     bench::BenchRow::header(hdr, sizeof(hdr));
-    net::logf("[bench-sweep] start: %d screens x 2 modes, %d s dwell (tick 1 discarded)", g_sweep_n,
+    net::logf("[bench-sweep] start: %d screens, %d s dwell (tick 1 discarded)", g_sweep_n,
               SWEEP_DWELL);
     net::logf("[bench-sweep] %s", hdr);
     sweep_show_current();
@@ -1675,7 +1659,7 @@ static void sweep_finish_cell() {
     bool hid = false;
     ui::screen_info(g_sweep_list[g_sweep_pos], &sid, &t, &hid);
     char label[64];
-    snprintf(label, sizeof(label), "%s,%s", sid ? sid : "?", g_sweep_mode ? "store" : "typed");
+    snprintf(label, sizeof(label), "%s,typed", sid ? sid : "?");  // CSV keeps its mode column
     char row[320];
     g_sweep_row.format(label, row, sizeof(row));
     net::logf("[bench-sweep] %s", row);
@@ -1685,16 +1669,9 @@ static void sweep_finish_cell() {
     ++g_sweep_pos;
     if (g_sweep_pos >= g_sweep_n) {
         g_sweep_pos = 0;
-        if (g_sweep_mode == 0) {
-            g_sweep_mode = 1;
-            ui::layouts::g_bench_store_mode = true;  // A/B: route built-ins via store
-            sweep_show_current();
-        } else {
-            net::logf("[bench-sweep] complete");
-            g_sweep_active = false;
-            ui::layouts::g_bench_store_mode = false;
-            ui::show(g_sweep_saved);
-        }
+        net::logf("[bench-sweep] complete");
+        g_sweep_active = false;
+        ui::show(g_sweep_saved);
         return;
     }
     sweep_show_current();
@@ -1913,7 +1890,6 @@ static void screen_gesture_handler(lv_event_t *e) {
         return;
     }
 
-#if YEYBOATS_MIDL_RECORDS
     if (dir == LV_DIR_LEFT)
         midl::store_ui::next();
     else if (dir == LV_DIR_RIGHT)
@@ -1922,16 +1898,6 @@ static void screen_gesture_handler(lv_event_t *e) {
         ui::show_by_id("settings");
     else if (dir == LV_DIR_BOTTOM)
         midl::store_ui::home();
-#else
-    if (dir == LV_DIR_LEFT)
-        ui::next();
-    else if (dir == LV_DIR_RIGHT)
-        ui::prev();
-    else if (dir == LV_DIR_TOP)
-        ui::show_by_id("settings");
-    else if (dir == LV_DIR_BOTTOM)
-        ui::show(0);
-#endif
 }
 
 // ----- Command handler --------------------------------------------------
@@ -2061,16 +2027,6 @@ static bool handleMainCommand(const String &line) {
         touch_cal::reset();
         return true;
     }
-    if (line == "wind-refresh" || line.startsWith("wind-refresh ")) {
-        String v = line.length() > 13 ? line.substring(13) : String();
-        v.trim();
-        if (v == "on" || v == "1")
-            ui::wind::set_refresh_enabled(true);
-        else if (v == "off" || v == "0")
-            ui::wind::set_refresh_enabled(false);
-        net::logf("[ui] wind-refresh=%s", ui::wind::refresh_enabled() ? "on" : "off");
-        return true;
-    }
     if (line == "force-invalidate" || line.startsWith("force-invalidate ")) {
         String v = line.length() > 17 ? line.substring(17) : String();
         v.trim();
@@ -2089,34 +2045,6 @@ static bool handleMainCommand(const String &line) {
         mob_clear();
         return true;
     }
-    if (line == "midl-render" || line.startsWith("midl-render ")) {
-        // Load the baked MIDL demo doc and render it as a live LVGL screen.
-        // Usage: midl-render [screenId]  (default screen id: "midl")
-        String sid = "";
-        if (line.length() > 12) {
-            sid = line.substring(12);
-            sid.trim();
-        }
-        const char *json = midl::demo::SQUARE_480_JSON;
-        size_t len = strlen(json);
-        void *blob = heap_caps_malloc(len + 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!blob) {
-            net::logf("[midl-render] PSRAM alloc failed");
-            return true;
-        }
-        memcpy(blob, json, len + 1);  // include NUL so deserializeJson sees a C-string
-        app::Command cmd;
-        cmd.type = app::CommandType::ConfigApplyMidl;
-        cmd.blob = blob;
-        cmd.blob_len = len;
-        strncpy(cmd.a, sid.c_str(), sizeof(cmd.a) - 1);
-        cmd.a[sizeof(cmd.a) - 1] = '\0';
-        if (!app::post(cmd)) {
-            net::logf("[midl-render] ui queue full");
-            heap_caps_free(blob);
-        }
-        return true;
-    }
     if (line == "screen") {
         ui::log_state();
         return true;
@@ -2124,48 +2052,17 @@ static bool handleMainCommand(const String &line) {
     if (line.startsWith("screen ")) {
         String v = line.substring(7);
         v.trim();
-#if YEYBOATS_MIDL_RECORDS
         // Through the UI-task funnel: record-aware (loads the owning record),
-        // and safe from any caller task (serial/BLE/HTTP).
+        // and safe from any caller task (serial/BLE/HTTP). Accepts a screen
+        // id, next / prev / home, or a carousel index.
         if (v.length()) {
             app::Command c;
             c.type = app::CommandType::ShowScreen;
             strncpy(c.a, v.c_str(), sizeof(c.a) - 1);
             app::post(c, 50);
-        }
-        return true;
-#endif
-        if (v == "next") {
-            ui::next();
-        } else if (v == "prev") {
-            ui::prev();
-        } else if (v.length() && isdigit(v[0])) {
-            ui::show(v.toInt());
         } else {
-            if (!ui::show_by_id(v.c_str())) {
-                net::logf("usage: screen <id|next|prev|N>; ids: dashboard wind nav depth status "
-                          "steering trip");
-                return true;
-            }
+            net::logf("usage: screen <id|next|prev|home|N>");
         }
-        return true;
-    }
-    // Back-compat: old 'view' command (q0..q3 / grid) now maps to first 5 screens
-    if (line.startsWith("view ")) {
-        String v = line.substring(5);
-        v.trim();
-        if (v == "grid")
-            ui::show(0);
-        else if (v == "q0")
-            ui::show_by_id("wind");
-        else if (v == "q1")
-            ui::show_by_id("nav");
-        else if (v == "q2")
-            ui::show_by_id("depth");
-        else if (v == "q3")
-            ui::show_by_id("status");
-        else
-            net::logf("usage: screen <id|next|prev|N>");
         return true;
     }
     if (line == "pos-format") {
@@ -2189,7 +2086,7 @@ static bool handleMainCommand(const String &line) {
         return true;
     }
     if (line == "trip-reset") {
-        ui::trip::reset();
+        trip_log::reset();
         return true;
     }
     if (line == "thresholds") {
@@ -2594,68 +2491,11 @@ void setup() {
         if (!ui::use_theme(themePref.c_str())) ui::use_night();
     }
 
-    // Each screen is a DETACHED screen object (parent = NULL). Screen
-    // manager swaps via lv_screen_load, so only the active screen lives
-    // in the render tree at any time. Possible now that LVGL pool sits in
-    // PSRAM (8 MB) - all 10 screen trees fit with room to spare.
-    // Boot-time eager build for dashboard (first frame after boot must
-    // show something). All other screens are lazy: their LVGL trees only
-    // get allocated when the operator navigates to them, freeing boot heap
-    // for SK websocket buffers and OTA. Once visited, the root is cached
-    // for the session - no rebuild on subsequent visits.
+    // Each screen is a DETACHED screen object (parent = NULL); the screen
+    // manager swaps via lv_screen_load, so only the active screen lives in
+    // the render tree. Content screens are the active MIDL record's screens
+    // (midl::store_ui); system screens are built lazily on first visit.
     trip_log::setup();  // screen-independent trip odometer (ticked in ui_refresh)
-#if YEYBOATS_LEGACY_SCREENS
-#if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
-    // Waveshare knob: dedicated round views only. The autopilot HUD is the
-    // first/home view; the rotary menu (knob_ui) drives mode + view switching.
-    ui::register_screen_lazy("ap_hud", "Autopilot", ui::ap_hud::build, ui::ap_hud::refresh, false);
-    ui::register_screen_lazy("knob_compass", "Compass", ui::knob_compass::build,
-                             ui::knob_compass::refresh, false);
-    ui::register_screen_lazy("knob_wind", "Wind", ui::knob_wind::build, ui::knob_wind::refresh,
-                             false);
-    ui::register_screen_lazy("knob_big", "Big", ui::knob_big::build, ui::knob_big::refresh, false);
-    knob_ui::setup();  // inits model + seeds knob_remote registry + builds overlay
-    ui::show_by_id("ap_hud");
-#else
-    ui::Screen dash = {};
-    dash.id = "dashboard";
-    dash.title = "Dashboard";
-    dash.root = ui::dashboard::build(NULL);
-    dash.refresh = ui::dashboard::refresh;
-    ui::register_screen(dash);
-
-    // Hidden: not in the swipe rotation; reached only by tapping a dashboard
-    // tile (and dismissed by tapping it or swiping down).
-    ui::register_screen_lazy("zoom", "Zoom", ui::zoom::build, ui::zoom::refresh, true);
-    ui::register_screen_lazy("wind", "Wind", ui::wind::build, ui::wind::refresh, false);
-    ui::register_screen_lazy("wind_classic", "Wind (classic)", ui::wind_classic::build,
-                             ui::wind_classic::refresh, false);
-    ui::register_screen_lazy("wind_steer", "Wind Steer", ui::wind_steer::build,
-                             ui::wind_steer::refresh, false);
-    ui::register_screen_lazy("nav", "Nav", ui::nav::build, ui::nav::refresh, false);
-    ui::register_screen_lazy("depth", "Depth", ui::depth::build, ui::depth::refresh, false);
-    ui::register_screen_lazy("steering", "Steering", ui::steering::build, ui::steering::refresh,
-                             false);
-    ui::register_screen_lazy("route", "Route", ui::route::build, ui::route::refresh, false);
-    ui::register_screen_lazy("autopilot", "Autopilot", ui::autopilot::build, ui::autopilot::refresh,
-                             false);
-    ui::register_screen_lazy("trip", "Trip", ui::trip::build, ui::trip::refresh, false);
-    ui::register_screen_lazy("status", "System", ui::status_panel::build, ui::status_panel::refresh,
-                             false);
-    ui::register_screen_lazy("wifi", "WiFi Setup", ui::wifi_setup::build, ui::wifi_setup::refresh,
-                             true);
-    ui::register_screen_lazy("settings", "Settings", ui::settings::build, ui::settings::refresh,
-                             true);
-#if YEYBOATS_ENABLE_TOUCH_CAL_UI
-    ui::register_screen_lazy("touch_cal", "Touch Cal", ui::touch_cal_screen::build,
-                             ui::touch_cal_screen::refresh, true);
-#endif
-    ui::register_screen_lazy("touch_grid", "Touch Grid", ui::touch_grid_screen::build,
-                             ui::touch_grid_screen::refresh, true);
-    ui::register_screen_lazy("demo_grid", "Demo Grid", ui::demo_grid::build, ui::demo_grid::refresh,
-                             true);
-#endif  // BOARD_ID_WAVESHARE_KNOB_1_8 (else: Sunton screen registration)
-#else   // MIDL records (docs/midl/midl-only.md)
     // System UI first: registered as SYSTEM screens so every MIDL apply
     // (ui::reset_screens) keeps them; hidden, so never in the carousel.
 #if !defined(BOARD_ID_WAVESHARE_KNOB_1_8)
@@ -2679,7 +2519,6 @@ void setup() {
 #if defined(BOARD_ID_WAVESHARE_KNOB_1_8)
     knob_ui::setup();  // rotary menu overlay + knob_remote registry (views = knob records)
 #endif
-#endif  // YEYBOATS_LEGACY_SCREENS
 
     // Attach the gesture handler to EVERY screen root via a post-build
     // hook. LVGL routes LV_EVENT_GESTURE to the currently loaded screen
@@ -2692,13 +2531,12 @@ void setup() {
         lv_obj_add_event_cb(root, screen_gesture_handler, LV_EVENT_GESTURE, NULL);
         // LVGL delivers LV_EVENT_GESTURE to the widget the touch landed on; it
         // only reaches the root handler above if intermediate children carry
-        // LV_OBJ_FLAG_EVENT_BUBBLE. Hand-built screens (wind_classic,
-        // wind_steer, autopilot, ...) have dial/tile/button children without
-        // that flag, so a swipe starting on a child never bubbles and those
-        // screens become unreachable/un-leavable by swipe. Tag every
-        // descendant so the gesture always bubbles to root. (CLICK also
-        // bubbles, but root handles only LV_EVENT_GESTURE and a swipe does not
-        // fire a button CLICK, so the buttons' own click handlers are intact.)
+        // LV_OBJ_FLAG_EVENT_BUBBLE. MIDL tiles (dials, HUDs, buttons) and the
+        // system screens have children without that flag, so a swipe starting on a child never
+        // bubbles and those screens become unreachable/un-leavable by swipe. Tag every descendant
+        // so the gesture always bubbles to root. (CLICK also bubbles, but root handles only
+        // LV_EVENT_GESTURE and a swipe does not fire a button CLICK, so the buttons' own click
+        // handlers are intact.)
         bubble_gestures(root);
     });
 
@@ -2755,7 +2593,6 @@ void setup() {
     net::setup();
     web::setup();
 
-    layout::load_default();
     sk::setup("", 3000);
     nmea_wifi::setup();
     nmea2000::setup();

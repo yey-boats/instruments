@@ -3,7 +3,8 @@
 #include "net.h"
 #include "psram_json.h"
 #include "signalk.h"
-#include "layout_loader.h"
+#include "midl_store.h"
+#include "ui_screens.h"
 #include "app_events.h"
 #include "proto_target.h"
 #include "proto/proto.h"
@@ -227,58 +228,32 @@ class WifiScanCb : public NimBLECharacteristicCallbacks {
     }
 };
 
+// CONFIGURATION: a read-only MIDL status summary (docs/midl/midl-only.md).
+// Screens are MIDL records pushed over HTTP by Display Manager; a single
+// 512-byte GATT attribute cannot carry a record (48 KB cap), so this
+// characteristic only reports what is shown:
+//   {"midl":1,"record":"<active>","screen":"<current>","home":"<default>",
+//    "records":<visible count>}
+static String midlStatusJson() {
+    char rec[midl::records::ID_LEN] = "";
+    char home_sid[midl::records::SCREEN_ID_LEN] = "", owner[midl::records::ID_LEN] = "";
+    midl::store::active(rec, sizeof(rec));
+    midl::store::home(home_sid, sizeof(home_sid), owner, sizeof(owner));
+    JsonDocument doc(&yeyboats::psram_json);
+    doc["midl"] = 1;
+    doc["record"] = rec;
+    doc["screen"] = ui::current_id();
+    doc["home"] = home_sid;
+    doc["records"] = (uint32_t)midl::store::visible_count();
+    String out;
+    serializeJson(doc, out);
+    return out;
+}
+
 class ConfigCb : public NimBLECharacteristicCallbacks {
     BLE_ON_READ(c) {
-        // BLE attribute values are capped at 512 bytes (NimBLE / BLE spec).
-        // Layouts that exceed this can't be transferred in a single GATT read
-        // here - phone apps should use the SignalK REST endpoint or chunked
-        // writes for large layouts. We return either the full layout (if it
-        // fits) or a compact summary indicating size + screen count.
-        String body;
-        bool have = layout::copy_last_json(body);
-        if (have && body.length() && body.length() <= 512) {
-            c->setValue((const uint8_t *)body.c_str(), body.length());
-            return;
-        }
-        // Fall back to summary: total size + screen list
-        JsonDocument doc(&yeyboats::psram_json);
-        doc["truncated"] = true;
-        doc["size"] = (uint32_t)(have ? body.length() : 0);
-        if (layout::loaded()) {
-            const layout::Config &cfg = layout::current();
-            doc["screen_count"] = cfg.screen_count;
-            doc["alarm_count"] = cfg.alarm_count;
-            doc["default_screen"] = cfg.settings.default_screen;
-        }
-        String out;
-        serializeJson(doc, out);
+        String out = midlStatusJson();
         c->setValue((const uint8_t *)out.c_str(), out.length());
-    }
-    BLE_ON_WRITE(c) {
-        std::string data(c->getValue());
-        net::logf("[bleconfig] configuration write: %u bytes", (unsigned)data.size());
-        if (data.empty()) return;
-        if (data.size() > 512) {
-            net::logf("[bleconfig] configuration write: rejected (size > 512)");
-            return;
-        }
-        // Copy into a PSRAM blob and queue for the UI task. BLE callback
-        // must not call layout::apply_json directly (touches LVGL state
-        // indirectly via the screen renderer reading it).
-        void *blob = heap_caps_malloc(data.size(), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (!blob) {
-            net::logf("[bleconfig] configuration write: blob alloc failed");
-            return;
-        }
-        memcpy(blob, data.data(), data.size());
-        app::Command cmd;
-        cmd.type = app::CommandType::ApplyLayout;
-        cmd.blob = blob;
-        cmd.blob_len = data.size();
-        if (!app::post(cmd, 50)) {
-            heap_caps_free(blob);
-            net::logf("[bleconfig] configuration write: queue full");
-        }
     }
 };
 
@@ -540,14 +515,9 @@ void setup() {
         s_conn->setValue((const uint8_t *)j.c_str(), j.length());
     }
 
-    s_config = svc->createCharacteristic(
-        CONFIG_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::NOTIFY);
+    s_config =
+        svc->createCharacteristic(CONFIG_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
     s_config->setCallbacks(new ConfigCb());
-    {
-        String body;
-        if (layout::copy_last_json(body) && body.length())
-            s_config->setValue((const uint8_t *)body.c_str(), body.length());
-    }
 
     // WIFISCAN (BLE-3): write "scan" -> async WiFi scan; result readable +
     // notified as a JSON array. The scan itself runs on wifi_scan_worker.
@@ -582,14 +552,9 @@ void notifyAll() {
         s_conn->notify();
     }
     if (s_config) {
-        String body;
-        bool have = layout::copy_last_json(body);
-        if (have && body.length() && body.length() <= 512) {
-            s_config->setValue((const uint8_t *)body.c_str(), body.length());
-            s_config->notify();
-        }
-        // For layouts > 512 B, the read callback returns a summary; no notify
-        // to avoid spamming the NimBLE "value exceeds max" error.
+        String j = midlStatusJson();
+        s_config->setValue((const uint8_t *)j.c_str(), j.length());
+        s_config->notify();
     }
 }
 
@@ -597,7 +562,7 @@ void notifyAll() {
 
 #else  // YEYBOATS_DISABLE_BLE
 
-// No-op stubs so callers (net.cpp, layout_loader.cpp) still link when NimBLE
+// No-op stubs so callers (net.cpp) still link when NimBLE
 // is compiled out. Signatures match include/ble_config.h exactly.
 namespace bleconfig {
 void setup() {

@@ -210,3 +210,68 @@ matches these.
 - `ShowScreen "home"` = `index.defaultScreen` (swipe down, Select, HUD HOME,
   settings Close). Swipe down on settings returns to the screen it was opened
   from. The console `screen <id|next|prev|N>` goes through the same funnel.
+
+## Firmware phase 2: legacy pipelines removed (instruments)
+
+The `YEYBOATS_LEGACY_SCREENS` build flag and everything it kept compiling are
+gone; the device has no non-MIDL screen path left.
+
+### Removed
+- The C++ content screens (dashboard, nav, route, steering, depth, trip, wind,
+  wind_classic, wind_steer, autopilot, status, demo_grid, the "zoom" screen)
+  and the knob's C++ round views (ap_hud, knob_compass, knob_wind, knob_big).
+  The ids live on as the embedded records.
+- Managed screens: `manager_config` RenderPlan parsing, `manager_screens`,
+  `widget_registry`, `font_resolver`, `ApplyManagedScreens`, the console
+  `manager-layout` / `manager-widgets` / `font-dump`.
+- The `layout::Config` pipeline: `layout_loader`, `layout_renderer`, boot
+  `layout::load_default()`, `ApplyLayout`, `/api/layout`,
+  `/api/dashboard/config.{json,yaml}`, `layout-show` / `layout-fetch` /
+  `layout-load`. `layout.h` keeps only the shared bounds (`MAX_SCREENS`,
+  `STR_LEN`, `PATH_LEN`) and `layout::zoom_action`.
+- The RAM-only `midl_doc` store, `ConfigApplyMidl`, `midl::render::apply_doc`,
+  the `midl-render` command (`include/midl_demo_doc.h` stays as a test/sim
+  fixture), `view q0..q3`, `wind-refresh`.
+- The v2 capability manifest (`capabilities.cpp`) and the heartbeat/identity
+  fields listed under "Heartbeat / identity" above. `config.ui.default_screen`
+  (the home screen is `index.defaultScreen`).
+- The template painters only the C++ screens used (QuadGrid, HeroPlus,
+  StatusList, RoundInstrument, SplitPair, TrendChart, AlertFocus,
+  ControlConsole, RouteProgress, SetupForm, `ui::layouts::create/update`,
+  `TemplateId`). The freeform painter and its per-kind painters, including the
+  winddial / windsteer / aphud HUD composites, stay.
+- `design/midl/*.json` (superseded by `midl/library/builtin`), the sim envs
+  `sim`, `sim-wind`, `sim-ap`, `sim-knob`, `tools/render_all_resolutions.sh`.
+
+### Changed device surfaces
+- `GET /api/screens` lists the whole carousel across the visible records
+  (`{index,id,title,record,hidden:false,active}`), then the hidden system
+  screens. Before, it listed only the registered screens of the active
+  record.
+- BLE CONFIGURATION (`…e003…`) is read/notify only and returns a status
+  summary `{midl:1, record, screen, home, records}`. Writes are gone (a
+  512-byte attribute cannot carry a record).
+- `/api/security` `write_endpoints` lists `/api/midl/records/<id>` and
+  `/api/midl/index` instead of the layout endpoints.
+
+### Knob (round-360)
+The knob shows its embedded records only. The rotary menu is system UI on
+`lv_layer_top()` (`src/knob_menu.cpp` state machine, host-tested):
+
+| Level | Turn | Click | Double-click | Long-press |
+|---|---|---|---|---|
+| Home (MIDL screen) | next / prev screen | home screen | Steer | Menu |
+| Steer (shows `ap_hud`, STEER badge) | AP target ±1° (±5° held) | engage / standby | Home | Mode picker |
+| Menu: STEER / AP MODE / DISPLAYS / CLOSE | highlight | select | Home | Home |
+| Mode picker | highlight | set mode, back to Steer | back to Steer | |
+| Displays / Views | highlight | enter / switch view | back | |
+
+### Rendering fixes in the same change
+- Text elements fit their tile: the font steps down 48/28/20/14 px (capped at
+  the painter's size) until the value fits the tile width, else the value is
+  ellipsized at the end. VERSION / BUILD on the status record were clipped at
+  both edges.
+- Trend elements show `format.unit` next to the current value, like
+  single-value tiles.
+- The freeform painter now snapshots the display format config
+  (`config::format()`) each refresh; only the removed template path did.

@@ -112,21 +112,23 @@ class TestMidlClass(unittest.TestCase):
                     self.assertEqual(EXPECTED[base], midl_class.resolve_class(e["flags"]))
 
     def test_sim_envs_render_their_own_class(self):
-        # Host render envs pick their class too (sim-knob is round-360, not the
-        # square-480 host default); size-less sims fall back to square-480.
-        self.assertIn("sim-knob", SIM_ENVS)
+        # Host render envs pick their class too; size-less sims fall back to
+        # square-480.
+        self.assertIn("sim-midl", SIM_ENVS)
         for name, e in SIM_ENVS.items():
             with self.subTest(env=name):
                 self.assertIn("pre:tools/midl_class.py", e["extra_scripts"])
-        self.assertEqual("round-360", midl_class.resolve_class(
-            SIM_ENVS["sim-knob"]["flags"], default="square-480"))
         self.assertEqual("square-480", midl_class.resolve_class(
             SIM_ENVS["sim-control"]["flags"], default="square-480"))
         # tools/sim_render.sh injects the size through PLATFORMIO_BUILD_FLAGS.
         self.assertEqual("landscape-800x480", midl_class.resolve_class(
-            SIM_ENVS["sim"]["flags"] + " -DSIM_LCD_W=800 -DSIM_LCD_H=480", default="square-480"))
+            SIM_ENVS["sim-midl"]["flags"] + " -DSIM_LCD_W=800 -DSIM_LCD_H=480",
+            default="square-480"))
         self.assertEqual("square-480", midl_class.resolve_class(
-            SIM_ENVS["sim"]["flags"], default="square-480"))
+            SIM_ENVS["sim-midl"]["flags"], default="square-480"))
+        self.assertEqual("round-360", midl_class.resolve_class(
+            SIM_ENVS["sim-midl"]["flags"] + " -DSIM_LCD_W=360 -DSIM_LCD_H=360",
+            default="square-480"))
         # The default never hides an unmapped board or size.
         with self.assertRaises(ValueError):
             midl_class.resolve_class("-D SIM_LCD_W=320 -D SIM_LCD_H=480", default="square-480")

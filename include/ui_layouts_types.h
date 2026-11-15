@@ -21,20 +21,6 @@ struct View;  // fwd — full definition in boat_data.h (not needed here)
 
 namespace ui::layouts {
 
-enum class TemplateId : uint8_t {
-    QuadGrid = 0,
-    HeroPlus,
-    RoundInstrument,
-    TrendChart,
-    SplitPair,
-    StatusList,
-    ControlConsole,
-    RouteProgress,
-    SetupForm,
-    AlertFocus,
-    COUNT
-};
-
 // Identifies which boat::View field feeds a metric. The factory keeps
 // the lookup pure - a controller layer can later replace this with
 // arbitrary SignalK path strings.
@@ -92,7 +78,7 @@ struct MetricRow {
     MetricSource source;
 };
 
-// Widget kind dispatched per-tile inside the QuadGrid template. Each
+// Widget kind dispatched per-tile by the freeform painter. Each
 // kind has a dedicated painter in ui_layouts.cpp that mirrors the
 // editor's widgetPreview() render so the device and layout editor
 // agree visually. Default is Numeric for back-compat with the existing
@@ -383,13 +369,12 @@ inline uint32_t authored_rgb(const MetricBinding &m, uint32_t fallback, const Co
     return token_rgb(m.style_color, m.accent, fallback, t);
 }
 
+// One MIDL screen as the freeform painter sees it (midl_render_apply.cpp).
 struct ScreenVariantSpec {
     const char *screen_id;
     const char *title;
-    TemplateId template_id;
     const MetricBinding *metrics;
     uint8_t metric_count;
-    uint8_t variant_flags;  // template-specific; e.g. quad_grid: 0 = footer, 1 = no footer
 };
 
 // Pixel-space rectangle used by the freeform builder to place one tile
