@@ -353,6 +353,9 @@ make demo-down        Stop the local demo stack
 make demo-up-remote   Start SignalK on nav-server over SSH+Docker
 make demo-down-remote Stop the remote stack
 make sys-test-remote  Source .env.test and run system tests against the lab rig
+make midl-latest   Bump the midl submodule to midl main + regenerate every embed
+make embed-check   Fail if a midl embed (records, editor, commit, fixture) is stale
+make midl-drift    Show how far the pinned midl is behind midl main
 make lint          Check formatting + Python syntax
 make format        Auto-format C++ sources
 make backup        Dump device flash to backup/full_flash_16MB.bin
@@ -589,6 +592,25 @@ curl -u admin:<pw> -X POST http://<device>/api/midl/reset    # back to factory
 Every write is validated against the device's own capability manifest
 (`GET /api/midl/manifest`). The full device ↔ Display Manager contract (push,
 pull, index, heartbeat) is in [docs/midl/midl-only.md](docs/midl/midl-only.md).
+
+### Editing screens on a standalone display
+
+The display serves the MIDL editor itself, so a boat without Display Manager
+(or without internet) can still edit its screens:
+
+1. Find the display's address: the status record (swipe to **Status**) shows
+   `net.ip`, or use `make discover`, or `http://<device id>.local/`.
+2. Open `http://<display>/editor` in a browser on the same network (or on the
+   display's setup AP). It asks for the display's web password (Basic auth,
+   user `espdisp` by default); the root page `/` has an **Edit screens** link.
+3. Pick a screen: the preview shows the display's own live values (polled once
+   a second from `GET /api/midl/live`). Edit, **Save** (stored on the display
+   as a `local` record; editing a built-in stores an override), **Show on
+   display**, reorder the carousel, set the home screen, or **Reset to
+   built-in** / factory reset.
+
+The page is embedded in the firmware from the pinned midl
+(`midl/editor/device/dist`) and makes no external requests.
 
 ## Architecture
 

@@ -24,6 +24,14 @@ namespace sk {
 // instance (e.g. a function-static on the UI task), never a fresh stack local.
 void setDesiredPaths(const SubscriptionSet &screenPaths);
 
+// Editor live preview (GET /api/midl/live): keep `paths` subscribed until
+// ~10 s (midl::live::WATCH_TTL_MS) after the last call that named them. A
+// bounded set (midl::live::WatchSet::CAP, least recently asked evicted),
+// unioned into the desired set after the active screen's paths. Wildcards and
+// malformed paths are ignored. Thread-safe (web task caller).
+void editorWatch(const char *const *paths, size_t n);
+size_t editorWatchCount();
+
 // Fill `out` with the FULL legacy path list (the ~28 paths the firmware used to
 // subscribe unconditionally). Used as the path-set for screens that can't be
 // introspected (fullscreen HUDs reading sk::data directly), so they keep all

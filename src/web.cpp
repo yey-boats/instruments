@@ -38,6 +38,12 @@
 #include "midl_kinds.h"
 #include "midl_validate.h"
 #include "midl_store.h"
+#include "midl_live.h"
+#include "midl_local_device.h"
+#include "midl_local_ids.h"
+#include "midl_gen/editor_page.h"
+#include "midl_gen/midl_commit.h"
+#include "widget_data_resolver.h"
 #include "web_auth_policy.h"
 #include "web_pw.h"
 #include "web_pw_store.h"
@@ -278,6 +284,9 @@ static void build_state_doc(JsonDocument &doc) {
     dev["firmware_version_source"] = FW_VERSION_SOURCE;
     dev["git_commit"] = FW_GIT_COMMIT;
     dev["build_iso"] = FW_BUILD_ISO;
+    // The midl (language/schema/built-in records/editor) commit this build
+    // embeds (include/midl_gen/midl_commit.h).
+    dev["midl_commit"] = midl_gen::MIDL_COMMIT;
 
     JsonObject wifi = doc["wifi"].to<JsonObject>();
     wifi["up"] = net::wifiUp();
@@ -748,6 +757,7 @@ static void send_err(int code, const char *msg) {
     JsonDocument doc(&yeyboats::psram_json);
     doc["ok"] = false;
     doc["error"] = msg;
+    doc["message"] = msg;  // the device editor shows `message`
     send_json(code, doc);
 }
 
@@ -969,6 +979,97 @@ static void handle_midl_reset() {
     out["ok"] = true;
     out["reset"] = "factory";
     send_json(200, out);
+}
+
+// ---- device-hosted MIDL editor (docs/midl/midl-only.md) -------------------
+// GET /editor: the midl repo's device editor page (midl/editor/device/dist),
+// embedded by tools/embed_editor.py into include/midl_gen/editor_page.h as
+// gzip bytes in flash rodata (external font imports stripped). Served as-is
+// with Content-Encoding: gzip, the sha256 of the page as ETag. Same web Basic
+// auth as the rest of the UI; the page calls the same-origin /api/midl/* API.
+static void handle_editor() {
+    if (!require_api_auth()) return;
+    if (!heap_ok(HEAP_MEDIUM)) return;
+    static char etag[72];
+    if (!etag[0]) snprintf(etag, sizeof(etag), "\"%s\"", midl_editor::SHA256);
+    server.sendHeader("Cache-Control", "no-cache");
+    server.sendHeader("ETag", etag);
+    if (server.hasHeader("If-None-Match") && server.header("If-None-Match") == etag) {
+        server.send(304);
+        return;
+    }
+    server.sendHeader("Content-Encoding", "gzip");
+    server.send_P(200, PSTR("text/html; charset=utf-8"), (PGM_P)midl_editor::GZ,
+                  midl_editor::GZ_LEN);
+}
+
+static void handle_editor_redirect() {
+    server.sendHeader("Location", "/editor");
+    server.send(302, "text/plain", "/editor");
+}
+
+// GET /api/midl/live?paths=<p1,p2,...>&locals=<id1,id2,...>
+// -> {"t":<ms>,"values":{"<path>":number|string|null},"locals":{"<id>":...}}
+// Paths: raw SignalK SI via widget_data::resolve_numeric (typed fields, then
+// the dynamic PathStore), else the string resolver (autopilot state), else
+// null. Locals: the MIDL painters' resolvers (midl_local_device.h). Every valid
+// path is put on the SignalK editor watch (sk::editorWatch) so a path the
+// active screen does not bind gets subscribed; it expires ~10 s after the last
+// request. At most midl::live::MAX_KEYS paths and locals each ("truncated":
+// true when more were sent). Parsing/caps/shape: src/midl_live.cpp (native).
+namespace {
+class DeviceLiveResolver : public midl::live::Resolver {
+  public:
+    explicit DeviceLiveResolver(const boat::View &v) : view_(v) {}
+    void path(const char *p, midl::live::Value &out) override {
+        double d = widget_data::resolve_numeric(p, view_, &sk::dynamicStore());
+        if (!isnan(d)) {
+            out.kind = midl::live::Value::Number;
+            out.num = d;
+            return;
+        }
+        if (widget_data::resolve_string(p, view_, out.text, sizeof(out.text)))
+            out.kind = midl::live::Value::Text;
+    }
+    void local(const char *id, midl::live::Value &out) override {
+        static midl::local_dev::TextCache cache = {};  // web task's own cache
+        if (midl::local_dev::text(id, out.text, sizeof(out.text), cache)) {
+            out.kind = midl::live::Value::Text;
+            return;
+        }
+        double d = midl::local_dev::numeric(id);
+        if (!isnan(d)) {
+            out.kind = midl::live::Value::Number;
+            out.num = d;
+        }
+    }
+
+  private:
+    const boat::View &view_;
+};
+}  // namespace
+
+static void handle_midl_live() {
+    midl::records::Source src;
+    if (!midl_auth(src)) return;
+    if (!heap_ok(HEAP_LIGHT)) return;
+    // ~2.6 KB each + a ~1.5 KB View: PSRAM, never the web task's stack. Web
+    // handlers run serially on one task, so function-statics are race-free.
+    static midl::live::KeyList &paths = *yeyboats::psram_new<midl::live::KeyList>();
+    static midl::live::KeyList &locals = *yeyboats::psram_new<midl::live::KeyList>();
+    static boat::View &view = *yeyboats::psram_new<boat::View>();
+    midl::live::parse_list(server.hasArg("paths") ? server.arg("paths").c_str() : "", paths, false);
+    midl::live::parse_list(server.hasArg("locals") ? server.arg("locals").c_str() : "", locals,
+                           true);
+    const char *ptrs[midl::live::MAX_KEYS];
+    for (size_t i = 0; i < paths.n; ++i)
+        ptrs[i] = paths.key[i];
+    sk::editorWatch(ptrs, paths.n);
+    boat::current_view(view);
+    DeviceLiveResolver r(view);
+    JsonDocument doc(&yeyboats::psram_json);
+    midl::live::build_json(doc.to<JsonObject>(), (uint32_t)millis(), paths, locals, r);
+    send_json(200, doc);  // Cache-Control: no-store
 }
 
 static void handle_security() {
@@ -1436,12 +1537,15 @@ const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
   .status.disconnected{color:#ff4d6d}
 </style>
 <h1>Yey Boats Instruments</h1>
+<div><a href="/editor" style="color:#9ec5fe;font-weight:600">Edit screens (MIDL editor)</a>
+  <span class=k>&nbsp; live preview, presets, carousel; works without Display Manager</span></div>
 <div class=row>
   <div class=card>
     <div class=k>DEVICE</div><div class=v id=dev>-</div>
     <div class=k>WIFI</div><div class=v id=wifi>-</div>
     <div class=k>SIGNALK</div><div class=v><span id=sk class=status>-</span></div>
     <div class=k>SCREEN</div><div class=v id=screen>-</div>
+    <div class=k>ABOUT</div><div class=v id=about style="font-size:13px">-</div>
   </div>
   <div class=card>
     <div class=k>SCREENS</div>
@@ -1509,6 +1613,7 @@ async function refresh(){
     sk.textContent = s.sk.state + '  ' + s.sk.host + ':' + s.sk.port;
     sk.className = 'status ' + s.sk.state;
     document.getElementById('screen').textContent = s.screen.title + ' (' + (s.screen.index+1) + '/' + s.screen.count + ')';
+    document.getElementById('about').textContent = 'firmware ' + (s.device.firmware_version||'-') + '  git ' + String(s.device.git_commit||'-').slice(0,7) + '  midl ' + String(s.device.midl_commit||'-').slice(0,7);
 
     const screens = await (await fetch('/api/screens')).json();
     const sc = document.getElementById('screens');
@@ -1873,6 +1978,11 @@ static void bind_routes() {
     server.on("/api/midl/records", HTTP_GET, handle_midl_records_list);
     server.on("/api/midl/index", HTTP_GET, handle_midl_index_get);
     server.on("/api/midl/index", HTTP_PUT, handle_midl_index_put);
+    server.on("/api/midl/live", HTTP_GET, handle_midl_live);
+    server.on("/editor", HTTP_GET, handle_editor);
+    server.on("/editor/", HTTP_GET, handle_editor_redirect);
+    server.on("/midl/editor", HTTP_GET, handle_editor_redirect);
+    server.on("/midl/editor/", HTTP_GET, handle_editor_redirect);
     server.on("/api/cmd", HTTP_POST, handle_cmd);
     server.on("/api/wifi/scan", HTTP_POST, handle_wifi_scan);
     server.on("/api/wifi/networks", HTTP_GET, handle_wifi_networks);
@@ -1883,8 +1993,9 @@ static void bind_routes() {
     server.on("/api/screenshot.png", HTTP_GET, handle_screenshot_png);
     // Custom request headers WebServer must keep (Authorization is always
     // collected): the manager device token on the MIDL records API.
-    static const char *kHeaders[] = {"X-YeyBoats-Authorization"};
-    server.collectHeaders(kHeaders, 1);
+    // If-None-Match: the /editor ETag revalidation.
+    static const char *kHeaders[] = {"X-YeyBoats-Authorization", "If-None-Match"};
+    server.collectHeaders(kHeaders, 2);
 
     server.onNotFound([]() {
         if (server.uri().startsWith("/api/midl/records/") &&

@@ -241,6 +241,31 @@ jobs:
       - name: Check include/midl_gen/*/builtin_records.h match the pinned midl library
         run: python3 tools/embed_builtin_records.py --check
 
+      # The device-hosted MIDL editor page (/editor) is embedded from
+      # midl/editor/device/dist with external font imports stripped; the build
+      # fails if any other external resource reference is left in the page.
+      - name: Check include/midl_gen/editor_page.h matches the pinned midl editor
+        run: python3 tools/embed_editor.py --check
+
+      - name: Check include/midl_gen/midl_commit.h stamps the pinned midl commit
+        run: python3 tools/embed_midl_commit.py --check
+
+  # midl tracking: the firmware follows midl main. Behind main = a loud
+  # ::error:: annotation + job summary, but the job passes (the daily
+  # midl-bump workflow opens the bump PR; unrelated PRs must not go red because
+  # midl moved). A pinned commit that is NOT on midl main fails the job.
+  midl-drift:
+    name: midl pinned vs midl main
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Compare the pinned midl commit with midl main
+        run: python3 tools/midl_drift.py --github
+
   midl-class-map:
     name: MIDL display class per env
     runs-on: ubuntu-latest
@@ -255,6 +280,8 @@ jobs:
 
       - name: Every firmware env maps to a class and runs the pre-script
         run: python3 -m unittest discover -s tools -p 'test_midl_class.py' -v
+      - name: Editor embed (font strip)
+        run: python3 -m unittest discover -s tools -p 'test_embed_editor.py' -v
 
   web-security:
     name: Web security guards
