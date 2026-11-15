@@ -280,6 +280,8 @@ jobs:
 
       - name: Every firmware env maps to a class and runs the pre-script
         run: python3 -m unittest discover -s tools -p 'test_midl_class.py' -v
+      - name: Editor embed (font strip)
+        run: python3 -m unittest discover -s tools -p 'test_embed_editor.py' -v
 
   web-security:
     name: Web security guards

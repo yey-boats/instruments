@@ -45,10 +45,19 @@ OUT = os.path.join(REPO_ROOT, "include", "midl_gen", "editor_page.h")
 ALLOWED_HOSTS = {"www.w3.org", "reactjs.org"}
 FONT_HOSTS = r"fonts\.(?:googleapis|gstatic)\.com"
 
-# @import "https://fonts..."; / @import url(https://fonts...); (optional quotes,
-# optional media list) up to the terminating semicolon.
+# @import "https://fonts..."; / @import url("https://fonts..."); / @import
+# url(https://fonts...); with an optional media list. A quoted URL is consumed
+# through its closing quote: Google Fonts URLs carry semicolons of their own
+# (`wght@400;500`), so stopping at the first `;` leaves a stray quote behind
+# and the browser drops the whole stylesheet.
 _IMPORT_RE = re.compile(
-    r"@import\s*(?:url\(\s*)?[\"']?(?:https?:)?//" + FONT_HOSTS + r"[^;]*;", re.IGNORECASE)
+    r"@import\s*(?:url\(\s*)?(?:"
+    r"\"(?:https?:)?//" + FONT_HOSTS + r"[^\"]*\"|"
+    r"'(?:https?:)?//" + FONT_HOSTS + r"[^']*'|"
+    r"(?:https?:)?//" + FONT_HOSTS + r"[^)\s]*"
+    r")\s*\)?[^;\"']*;", re.IGNORECASE)
+# Pieces of a font URL that must never survive stripping.
+_FONT_REMNANT_RE = re.compile(r"family=[A-Za-z+]+:wght@|display=swap", re.IGNORECASE)
 _LINK_RE = re.compile(r"<link\b[^>]*" + FONT_HOSTS + r"[^>]*>", re.IGNORECASE)
 _URL_RE = re.compile(r"(?:https?:)?//([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
 _SCHEME_RE = re.compile(r"https?://([A-Za-z0-9.-]+)", re.IGNORECASE)
@@ -67,6 +76,8 @@ def external_refs(page):
     bad = sorted({h for h in _SCHEME_RE.findall(page) if h.lower() not in ALLOWED_HOSTS})
     if re.search(FONT_HOSTS, page, re.IGNORECASE):
         bad.append("fonts.googleapis.com/gstatic (unstripped)")
+    if _FONT_REMNANT_RE.search(page):
+        bad.append("remnant of a font URL (partially stripped @import)")
     return bad
 
 
