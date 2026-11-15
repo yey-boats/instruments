@@ -6,6 +6,10 @@
 #include "net.h"
 #include "theme_choice.h"
 #include "trip_log.h"
+#include "manager.h"
+#include "web_auth_policy.h"
+#include "web_login_info.h"
+#include "web_pw_store.h"
 
 #include "board_pins.h"
 #include "build_config.h"
@@ -26,6 +30,9 @@ static lv_obj_t *s_root = nullptr;
 static lv_obj_t *brightness_value = nullptr;
 static lv_obj_t *depth_value = nullptr;
 static lv_obj_t *battery_value = nullptr;
+static lv_obj_t *web_who = nullptr;
+static lv_obj_t *web_where = nullptr;
+static uint32_t web_refreshed_ms = 0;
 
 static constexpr uint8_t BRIGHTNESS_VALUES[] = {32, 80, 128, 200, 255};
 static constexpr double DEPTH_VALUES[] = {1.0, 2.0, 3.0, 5.0, 10.0};
@@ -250,6 +257,34 @@ static void on_open_touch_cal(lv_event_t *e) {
     ui::show_by_id("touch_cal");
 }
 
+// The "web login" row (web_login_info.h): username, address + /editor and
+// where the password is. The device keeps only a hash of the password
+// (instruments#30), so it is never shown here. UI task only; reads NVS, so
+// refresh() rate-limits it.
+static void update_web_login() {
+    if (!web_who || !web_where) return;
+    std::string user;
+    uint8_t flag;
+    {
+        storage::Namespace p("web", true);
+        user = p.get_string("user", web_auth_policy::DEFAULT_USER);
+        flag = p.get_u8("auth", web_auth_policy::FLAG_DEFAULT);
+    }
+    String ip = net::ipString();
+    web_login_info::Input in{web_auth_policy::state(flag, web_pw_store::is_set() ? "set" : ""),
+                             user.c_str(), ip.c_str(), manager::is_provisioned()};
+    char who[80], where[64];
+    web_login_info::describe(in, who, sizeof(who), where, sizeof(where));
+    lv_label_set_text(web_who, who);
+    lv_label_set_text(web_where, where);
+    web_refreshed_ms = millis();
+}
+
+static void on_root_delete(lv_event_t *) {
+    web_who = nullptr;
+    web_where = nullptr;
+}
+
 static void on_close(lv_event_t *e) {
     if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
     // "home" = the index defaultScreen (MIDL records); the funnel returns to
@@ -268,6 +303,7 @@ lv_obj_t *build(lv_obj_t *parent) {
     lv_obj_set_style_pad_all(s_root, 8, 0);
     lv_obj_clear_flag(s_root, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(s_root, LV_OBJ_FLAG_EVENT_BUBBLE);
+    lv_obj_add_event_cb(s_root, on_root_delete, LV_EVENT_DELETE, nullptr);
 
     make_action(s_root, "close", 12, 8, 80, theme.fg_dim, on_close);
 
@@ -289,7 +325,8 @@ lv_obj_t *build(lv_obj_t *parent) {
     const int value_x = 88;
     const int segment_x = 150;
     const int segment_w = 318;
-    const int row_h = 54;
+    // 48 (was 54) leaves room for the web login row at the bottom.
+    const int row_h = 48;
     // y0 must clear the global MOB pill (LV_ALIGN_TOP_RIGHT -6, 6,
     // 56x56 = y reaches 62) so the topmost segmented control's right
     // edge can't be intercepted by MOB.
@@ -327,8 +364,21 @@ lv_obj_t *build(lv_obj_t *parent) {
                 on_trip_reset);
 #endif
 
-    make_action(s_root, "wifi setup", 150, 402, 154, theme.accent, on_open_wifi);
-    make_action(s_root, "calibrate", 318, 402, 150, theme.accent, on_open_touch_cal);
+    const int actions_y = y0 + row_h * 6 + 2;
+    make_action(s_root, "wifi setup", 150, actions_y, 154, theme.accent, on_open_wifi);
+    make_action(s_root, "calibrate", 318, actions_y, 150, theme.accent, on_open_touch_cal);
+
+    const int web_y = actions_y + 50;
+    make_label(s_root, "WEB", label_x, web_y + 9);
+    web_who = make_label(s_root, "", value_x, web_y);
+    lv_obj_set_width(web_who, LCD_W - value_x - 20);
+    lv_label_set_long_mode(web_who, LV_LABEL_LONG_DOT);
+    web_where = lv_label_create(s_root);
+    style_value(web_where, &font_b612_14, theme.fg);
+    lv_obj_set_pos(web_where, value_x, web_y + 19);
+    lv_obj_set_width(web_where, LCD_W - value_x - 20);
+    lv_label_set_long_mode(web_where, LV_LABEL_LONG_DOT);
+    update_web_login();
 
     update_segment(seg_brightness, nearest_brightness_index(brightness()));
     update_brightness_label();
@@ -356,7 +406,9 @@ lv_obj_t *build(lv_obj_t *parent) {
 }
 
 void refresh() {
-    // No live data - settings update from their own events.
+    // Settings update from their own events; only the web login row follows
+    // the network (address, manager pairing), every ~2 s while visible.
+    if (web_who && (uint32_t)(millis() - web_refreshed_ms) >= 2000) update_web_login();
 }
 
 }  // namespace ui::settings
