@@ -22,6 +22,10 @@ namespace ui::layouts {
 // non-scalar (None / Position / APState).
 double metric_value(MetricSource src, const boat::View &d);
 
+// True wind direction in degrees [0, 360): headingTrue + TWA, NAN if either is
+// missing. Backs MetricSource::TWD_deg (environment.wind.directionTrue).
+double true_wind_direction_deg(const boat::View &d);
+
 // Map a display value `v` (as returned by metric_value) to a 0..1 gauge/bar
 // fill fraction using the built-in per-source heuristic range. Returns NaN for
 // sources without an obvious range (headings, positions) or NaN input.

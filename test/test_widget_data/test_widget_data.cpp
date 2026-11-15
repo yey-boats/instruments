@@ -42,6 +42,16 @@ static void test_raw_sk_path_numeric() {
         0.82, widget_data::resolve_numeric("electrical.batteries.house.stateOfCharge", d));
 }
 
+static void test_true_wind_direction_is_derived() {
+    boat::View d = make_data();
+    d.headingTrue = 6.0;  // rad
+    d.twa = 0.5;          // 6.5 rad wraps to 6.5 - 2pi
+    TEST_ASSERT_DOUBLE_WITHIN(1e-9, 6.5 - 2.0 * M_PI,
+                              widget_data::resolve_numeric("environment.wind.directionTrue", d));
+    d.twa = NAN;
+    TEST_ASSERT_TRUE(std::isnan(widget_data::resolve_numeric("environment.wind.directionTrue", d)));
+}
+
 static void test_coverage_wave_paths_numeric() {
     boat::View d;
     d.roll = -0.0872;
@@ -135,6 +145,7 @@ int main(int, char **) {
     RUN_TEST(test_local_alias_numeric);
     RUN_TEST(test_raw_sk_path_numeric);
     RUN_TEST(test_coverage_wave_paths_numeric);
+    RUN_TEST(test_true_wind_direction_is_derived);
     RUN_TEST(test_unknown_path_returns_nan);
     RUN_TEST(test_string_path_autopilot_state);
     RUN_TEST(test_string_path_unknown_returns_empty);
