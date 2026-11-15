@@ -25,6 +25,7 @@
 
 #include "storage.h"
 #include "theme_choice.h"
+#include "web_pw_new.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -818,6 +819,11 @@ static void button_action_cb(lv_event_t *e) {
             strncpy(c.a, m->command, sizeof(c.a) - 1);
             strncpy(c.b, val, sizeof(c.b) - 1);
             app::post_net(c, 100);
+            return;
+        }
+        if (web_pw_new::is_console_only(m->command)) {
+            // Would change the web login with the password on the console only.
+            net::logf("[layout] button command='%s' refused (console/Settings only)", m->command);
             return;
         }
         net::logf("[layout] button command='%s'", m->command);

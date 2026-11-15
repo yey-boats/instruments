@@ -12,9 +12,12 @@
 #include <mbedtls/version.h>
 #include <string.h>
 
+#include "manager.h"
 #include "net.h"
 #include "storage.h"
+#include "web_auth_policy.h"
 #include "web_pw.h"
+#include "web_pw_new.h"
 
 namespace web_pw_store {
 
@@ -135,8 +138,7 @@ void image_confirmed() {
     reconcile(false);
 }
 
-bool set_password(const char *pw) {
-    Lock l;
+static bool set_password_locked(const char *pw) {
     NvsKv kv;
     uint8_t salt[web_pw::SALT_LEN];
     esp_fill_random(salt, sizeof(salt));
@@ -144,6 +146,11 @@ bool set_password(const char *pw) {
     s_cache.clear();
     s_set = web_pw::is_set(kv) ? 1 : 0;
     return ok;
+}
+
+bool set_password(const char *pw) {
+    Lock l;
+    return set_password_locked(pw);
 }
 
 // Fail safe: if a migration could not write the record (NVS full/error), the
@@ -162,6 +169,77 @@ bool verify(const char *pw, size_t len) {
     NvsKv kv;
     return web_pw::verify_cached(kv, pw, len, pbkdf2_sha256, cache_tag, s_cache,
                                  (uint32_t)millis());
+}
+
+static uint32_t hw_rng() {
+    // Hardware RNG (true random while WiFi/BLE RF is up, which it is
+    // whenever a console or the UI is reachable).
+    return esp_random();
+}
+
+NewResult new_password(char *out, size_t n) {
+    if (out && n) out[0] = '\0';
+    Lock l;
+    if (manager::is_provisioned()) return NewResult::Managed;
+    if (!web_pw_new::generate(hw_rng, out, n)) return NewResult::Failed;
+    if (!set_password_locked(out)) {
+        web_pw_new::wipe(out, n);
+        return NewResult::Failed;
+    }
+    {
+        storage::Namespace p(NS, false);
+        if (p.get_u8("auth", web_auth_policy::FLAG_DEFAULT) != 1) p.put_u8("auth", 1);
+    }
+    net::requestMdnsAdvertise();  // TXT auth=basic
+    net::logf("[web] new web password made on the display; Basic auth on");
+    return NewResult::Ok;
+}
+
+static web_auth_policy::State state_now(std::string *user) {
+    storage::Namespace p(NS, true);
+    if (user) *user = p.get_string("user", web_auth_policy::DEFAULT_USER);
+    return web_auth_policy::state(p.get_u8("auth", web_auth_policy::FLAG_DEFAULT),
+                                  is_set() ? "set" : "");
+}
+
+bool handleSerialCommand(const String &line) {
+    if (line == "web-pass") {
+        std::string user;
+        web_auth_policy::State st = state_now(&user);
+        bool managed = manager::is_provisioned();
+        net::logf("[web] login %s, user %s, password %s, %s", web_auth_policy::state_name(st),
+                  user.c_str(), is_set() ? "set" : "unset",
+                  managed ? "managed (password on the Display Manager device page)"
+                          : "standalone (web-pass-new makes one)");
+        return true;
+    }
+    if (!web_pw_new::is_console_only(line.c_str())) return false;
+    // Function-static: commands run serially (serial loop / UI task).
+    static char pw[web_pw_new::BUF_LEN];
+    static char msg[96];
+    switch (new_password(pw, sizeof(pw))) {
+    case NewResult::Managed:
+        net::logf("[web] web-pass-new refused: this display is managed; its password is on "
+                  "the Display Manager device page");
+        return true;
+    case NewResult::Failed:
+        net::logf_at(net::LOG_ERROR, "[web] web-pass-new FAILED (password unchanged)");
+        return true;
+    case NewResult::Ok:
+        break;
+    }
+    std::string user;
+    state_now(&user);
+    // The plaintext goes to the local console only (serial + BLE NUS), never
+    // through net::logf: no log ring (/api/logs), crash trail or UDP mirror.
+    snprintf(msg, sizeof(msg), "[web] NEW web password for user %s: %s  (shown once)", user.c_str(),
+             pw);
+    net::consoleSecret(msg);
+    web_pw_new::wipe(msg, sizeof(msg));
+    web_pw_new::wipe(pw, sizeof(pw));
+    String ip = net::ipString();
+    net::logf("[web] sign in at http://%s/editor as %s", ip.c_str(), user.c_str());
+    return true;
 }
 
 }  // namespace web_pw_store

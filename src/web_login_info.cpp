@@ -16,9 +16,12 @@ void describe(const Input &in, char *who, size_t who_n, char *where, size_t wher
             in.username && in.username[0] ? in.username : web_auth_policy::DEFAULT_USER;
         switch (in.state) {
         case web_auth_policy::State::Enforced:
-            snprintf(who, who_n, "user %.31s, password: %s", user,
-                     in.manager_paired ? "Display Manager device page"
-                                       : "kept by the Display Manager");
+            // Unpaired + enforced: a password made on this display
+            // (web_pw_new.h) or one a since-unpaired manager pushed.
+            if (in.manager_paired)
+                snprintf(who, who_n, "user %.31s, password: Display Manager device page", user);
+            else
+                snprintf(who, who_n, "user %.31s, password set", user);
             break;
         case web_auth_policy::State::DisabledByOwner:
             snprintf(who, who_n, "login off (web auth disabled)");

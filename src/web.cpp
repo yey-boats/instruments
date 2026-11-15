@@ -46,6 +46,7 @@
 #include "widget_data_resolver.h"
 #include "web_auth_policy.h"
 #include "web_pw.h"
+#include "web_pw_new.h"
 #include "web_pw_store.h"
 #include <mbedtls/base64.h>
 
@@ -1261,6 +1262,12 @@ static void handle_cmd() {
     // attacker on the LAN should not be able to drive the UI.
     if (input_test::is_injection_command(line)) {
         server.send(403, "text/plain", "injection commands are BLE/serial only");
+        return;
+    }
+    // `web-pass-new` prints the new password to the local console only; over
+    // IP it would change the login without the caller seeing it.
+    if (web_pw_new::is_console_only(line.c_str())) {
+        server.send(403, "text/plain", "web-pass-new is BLE/serial only (or Settings on screen)");
         return;
     }
     // Queue for the UI task. Many console commands touch LVGL state

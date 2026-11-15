@@ -8,6 +8,8 @@
 
 #include <string>
 
+class String;
+
 namespace web_pw_store {
 
 // Boot (web::setup): hash a legacy plaintext "web"/"pass" into "pass_h".
@@ -30,5 +32,19 @@ bool is_set();
 // Verify a presented password: RAM cache hit (constant-time tag compare,
 // CACHE_TTL_MS) or a full PBKDF2 derive + constant-time compare.
 bool verify(const char *pw, size_t len);
+
+// web_pw_new.h: make a random password on a STANDALONE display. The check
+// for a manager and the store happen under the same lock as the manager's own
+// set_password, so a manager that pairs later always writes after this and
+// its password wins. On Ok, `out` holds the plaintext (the caller shows it
+// once and wipes it); only the record is stored, and Basic auth is switched
+// on (NVS web/auth = 1) if the display was setup-open or opted out.
+enum class NewResult : uint8_t { Ok, Managed, Failed };
+NewResult new_password(char *out, size_t n);
+
+// Console: `web-pass` (login status, never a secret) and `web-pass-new`
+// (new_password; the plaintext goes to net::consoleSecret only). Chained
+// into net::dispatchCommand.
+bool handleSerialCommand(const String &line);
 
 }  // namespace web_pw_store

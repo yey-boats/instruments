@@ -425,6 +425,8 @@ Send these over the serial monitor (`make monitor`) or BLE (`make ble`):
 | `demo [N]` / `demo-off` | Auto-cycle screens every N seconds |
 | `fps` / `bench` | Toggle FPS overlay / dump rendering stats |
 | `reboot` | Soft restart |
+| `web-pass` | Print the web login state: basic / setup-open / disabled, user, password set, managed or standalone (never a secret) |
+| `web-pass-new` | Standalone display only: make a random web password, turn login on, print it **once** to this console (see [Web login](#web-login)) |
 
 ## BLE access
 
@@ -601,8 +603,9 @@ The display serves the MIDL editor itself, so a boat without Display Manager
 1. Find the display's address: the status record (swipe to **Status**) shows
    `net.ip`, or use `make discover`, or `http://<device id>.local/`.
 2. Open `http://<display>/editor` in a browser on the same network (or on the
-   display's setup AP). It asks for the display's web password (Basic auth,
-   user `espdisp` by default); the root page `/` has an **Edit screens** link.
+   display's setup AP). If the display has a web password it asks for it
+   (Basic auth, user `espdisp` by default; see [Web login](#web-login)); the
+   root page `/` has an **Edit screens** link.
 3. Pick a screen: the preview shows the display's own live values (polled once
    a second from `GET /api/midl/live`). Edit, **Save** (stored on the display
    as a `local` record; editing a built-in stores an override), **Show on
@@ -611,6 +614,32 @@ The display serves the MIDL editor itself, so a boat without Display Manager
 
 The page is embedded in the firmware from the pinned midl
 (`midl/editor/device/dist`) and makes no external requests.
+
+### Web login
+
+The display's web UI (`/`, `/api/*`) and the editor (`/editor`) use HTTP
+Basic auth once the display has a web password. The display stores only a
+salted PBKDF2 record of it (NVS `web/pass_h`), never the plaintext, so it can
+not show a stored password again. **Settings → WEB** shows the username, the
+editor address and where the password is:
+
+- **Managed** (paired with Display Manager): DM issues the password and keeps
+  it; read it on the display's device page in DM ("Show password"). The
+  display offers no "new pass" button, so DM's copy never goes stale.
+- **Standalone, no password yet**: the web UI is open ("setup-open") so first
+  setup works. Press **new pass**, then press it again within 5 s
+  (**confirm?**). The display makes a random 12-character password (letters
+  and digits without 0/O/o/1/l/I), stores only its hash, turns login on and
+  shows the password on screen for 30 s (or until **hide** / leaving
+  Settings). The username stays as configured (default `espdisp`).
+- **Standalone, password set**: the same button replaces it (the old one stops
+  working). Lost the password? Make a new one the same way.
+
+Headless displays: `web-pass-new` on the USB serial or BLE console does the
+same and prints the password once to that console. It is not kept in the log
+ring (`/api/logs`), the crash trail or the UDP log mirror, and is refused over
+`POST /api/cmd` and from MIDL buttons. If a Display Manager pairs later, its
+password replaces the one made on the display.
 
 ## Architecture
 

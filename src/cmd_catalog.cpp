@@ -107,6 +107,13 @@ static const Entry CATALOG[] = {
     {"manager", "manager-errors clear", "Reset the recent errors ring buffer", true, true},
     {"manager", "manager-config-dump", "Print the applied config version + hash", true, true},
 
+    // --- web login (web_pw_new.h) ---
+    {"web", "web-pass", "Print the web login state (user, password set, managed)", true, true},
+    {"web", "web-pass-new",
+     "Standalone only: make a random web password, turn Basic auth on, print it once to this "
+     "console",
+     false, true},
+
 #if YEYBOATS_ENABLE_INPUT_TEST
     // --- input injection (BLE/serial only) ---
     {"input-test", "touch <x> <y> <0|1>", "Write raw touch snapshot", false, true},

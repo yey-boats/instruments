@@ -1105,6 +1105,7 @@ bool dispatchCommand(const String &line) {
     if (input_test::handleConsoleCommand(line)) return true;
 #endif
     if (manager::handleSerialCommand(line)) return true;
+    if (web_pw_store::handleSerialCommand(line)) return true;
     if (beeper::handleSerialCommand(line)) return true;
     if (autopilot::handleSerialCommand(line)) return true;
     if (s_extra && s_extra(line)) return true;
@@ -1293,6 +1294,23 @@ static void log_emit(uint8_t level, const char *fmt, va_list ap) {
     udp_log_emit(level, buf, n);
 #else
     (void)level;
+#endif
+    if (locked) xSemaphoreGive(s_log_mtx);
+}
+
+void consoleSecret(const char *line) {
+    if (!line || !line[0]) return;
+    size_t n = strlen(line);
+    bool locked = false;
+    if (s_log_mtx && xSemaphoreTake(s_log_mtx, pdMS_TO_TICKS(50)) == pdTRUE) locked = true;
+    fwrite(line, 1, n, stdout);
+    if (line[n - 1] != '\n') putchar('\n');
+    fflush(stdout);
+#ifndef YEYBOATS_DISABLE_BLE
+    if (bleConnected && bleTxChar) {
+        bleTxChar->setValue((const uint8_t *)line, n);
+        bleTxChar->notify();
+    }
 #endif
     if (locked) xSemaphoreGive(s_log_mtx);
 }

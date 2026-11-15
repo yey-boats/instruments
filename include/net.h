@@ -29,6 +29,12 @@ enum LogLevel : uint8_t {
 void logf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 void logf_at(LogLevel level, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
+// One line for the LOCAL console only: USB serial (stdout) and a connected
+// BLE NUS central. Unlike logf it is NOT kept in the log ring (/api/logs),
+// the RTC crash trail or the UDP mirror. For a secret shown once
+// (`web-pass-new`); the caller wipes its buffer afterwards.
+void consoleSecret(const char *line);
+
 // Runtime knobs for the UDP log filter (debug builds only; no-op in
 // release). Both are NVS-persisted under namespace "log". Pass an empty
 // string to logTagFilter() to clear the tag filter (all tags pass).
