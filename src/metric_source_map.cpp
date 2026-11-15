@@ -39,7 +39,6 @@ MetricSource path_to_source(const char *p) {
     if (strcmp(p, "environment.wind.angleApparent") == 0) return MetricSource::AWA_deg;
     if (strcmp(p, "environment.wind.speedTrue") == 0) return MetricSource::TWS_kn;
     if (strcmp(p, "environment.wind.angleTrueWater") == 0) return MetricSource::TWA_deg;
-    if (strcmp(p, "environment.wind.directionTrue") == 0) return MetricSource::TWD_deg;
     if (strcmp(p, "navigation.speedOverGround") == 0) return MetricSource::SOG_kn;
     if (strcmp(p, "navigation.speedThroughWater") == 0) return MetricSource::STW_kn;
     if (strcmp(p, "navigation.courseOverGroundTrue") == 0) return MetricSource::COG_deg;

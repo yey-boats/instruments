@@ -189,29 +189,18 @@ const char *source_to_path(MetricSource s) {
         return "navigation.magneticVariation";
     case MetricSource::EngineHours_h:
         return "propulsion.main.runTime";
-    case MetricSource::TWD_deg:
-        // Derived from heading + TWA (see add_source_paths, which adds TWA).
-        return "navigation.headingTrue";
     case MetricSource::None:
     default:
         return nullptr;
     }
 }
 
-// source_to_path() plus the second input of a derived source. Returns the
-// primary path (nullptr for None) so callers can fall back to a raw path.
-static const char *add_source_paths(MetricSource s, sk::SubscriptionSet &out) {
-    const char *p = source_to_path(s);
-    if (p) out.add(p);
-    if (s == MetricSource::TWD_deg) out.add("environment.wind.angleTrueWater");
-    return p;
-}
-
 void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
     if (!spec.metrics) return;
     for (uint8_t i = 0; i < spec.metric_count; ++i) {
         const MetricBinding &m = spec.metrics[i];
-        const char *p = add_source_paths(m.source, out);
+        const char *p = source_to_path(m.source);
+        if (p) out.add(p);
         // Dynamic-path binding: subscribe the RAW path so the PathStore is fed.
         if (!p && m.path && m.path[0]) out.add(m.path);
         // `bindings.dir` second source (dial pointer).
@@ -240,7 +229,8 @@ void collect_paths(const ScreenVariantSpec &spec, sk::SubscriptionSet &out) {
         uint8_t ne = m.extras_count;
         if (ne > 4) ne = 4;  // bound to the fixed extras[] array
         for (uint8_t e = 0; e < ne; ++e) {
-            add_source_paths(m.extras[e].source, out);
+            const char *pe = source_to_path(m.extras[e].source);
+            if (pe) out.add(pe);
         }
         // Composite elements (windrose/wind-steer/autopilot/compass) read extra
         // boat::View fields DIRECTLY — not via a single MetricSource binding — so the
@@ -659,14 +649,6 @@ static void format_metric(const MetricBinding &m, const boat::View &d, char *pri
         else
             snprintf(primary, pcap, "--");
         break;
-    case MetricSource::TWD_deg: {
-        double twd = true_wind_direction_deg(d);
-        if (!isnan(twd))
-            snprintf(primary, pcap, "%03.0f", twd);
-        else
-            snprintf(primary, pcap, "--");
-        break;
-    }
     case MetricSource::Position:
         if (!isnan(d.lat) && !isnan(d.lon)) {
             format_position(d.lat, d.lon, pos_format(), primary, pcap);

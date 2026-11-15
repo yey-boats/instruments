@@ -167,20 +167,6 @@ static void test_heading_magnetic_and_variation() {
     TEST_ASSERT_FLOAT_WITHIN(0.01, 2.86, metric_value(MetricSource::Variation_deg, d));
 }
 
-static void test_true_wind_direction_derived() {
-    boat::View d = blank();
-    d.headingTrue = 350.0 * M_PI / 180.0;
-    d.twa = 30.0 * M_PI / 180.0;  // starboard: wraps past north
-    TEST_ASSERT_FLOAT_WITHIN(0.01, 20.0, metric_value(MetricSource::TWD_deg, d));
-    d.twa = -40.0 * M_PI / 180.0;  // port
-    TEST_ASSERT_FLOAT_WITHIN(0.01, 310.0, metric_value(MetricSource::TWD_deg, d));
-    d.headingTrue = 10.0 * M_PI / 180.0;
-    d.twa = -40.0 * M_PI / 180.0;  // negative sum wraps into [0,360)
-    TEST_ASSERT_FLOAT_WITHIN(0.01, 330.0, metric_value(MetricSource::TWD_deg, d));
-    d.twa = NAN;
-    TEST_ASSERT_TRUE(isnan(metric_value(MetricSource::TWD_deg, d)));
-}
-
 // ---- metric_unit_fraction: gauge/bar fill ----------------------------------
 
 static void test_fraction_soc() {
@@ -238,7 +224,6 @@ int main(int, char **) {
     RUN_TEST(test_battery_current_signed_and_temp);
     RUN_TEST(test_engine_hours_s_to_h);
     RUN_TEST(test_heading_magnetic_and_variation);
-    RUN_TEST(test_true_wind_direction_derived);
     RUN_TEST(test_fraction_soc);
     RUN_TEST(test_fraction_speed_range);
     RUN_TEST(test_fraction_unranged_source_is_nan);

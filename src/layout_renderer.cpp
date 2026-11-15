@@ -39,7 +39,6 @@ static const char *unit_for_source(MetricSource s) {
     case MetricSource::COG_deg:
     case MetricSource::HDG_deg:
     case MetricSource::HDGm_deg:
-    case MetricSource::TWD_deg:
     case MetricSource::BTW_deg:
     case MetricSource::CTS_deg:
     case MetricSource::Roll_deg:

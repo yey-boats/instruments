@@ -19,12 +19,6 @@ double rad_to_deg_pos(double rad) {
 
 }  // namespace
 
-double true_wind_direction_deg(const boat::View &d) {
-    if (isnan(d.headingTrue) || isnan(d.twa)) return NAN;
-    double deg = fmod(units::rad_to_deg(d.headingTrue + d.twa), 360.0);
-    return deg < 0 ? deg + 360.0 : deg;
-}
-
 double metric_value(MetricSource src, const boat::View &d) {
     switch (src) {
     case MetricSource::AWS_kn:
@@ -101,8 +95,6 @@ double metric_value(MetricSource src, const boat::View &d) {
         return isnan(d.variation) ? NAN : units::rad_to_deg(d.variation);  // signed, +E
     case MetricSource::EngineHours_h:
         return isnan(d.engineHours) ? NAN : units::s_to_h(d.engineHours);
-    case MetricSource::TWD_deg:
-        return true_wind_direction_deg(d);
     default:
         return NAN;
     }

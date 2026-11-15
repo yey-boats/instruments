@@ -40,12 +40,6 @@ double r_tws(const boat::View &d) {
 double r_twa(const boat::View &d) {
     return d.twa;
 }
-// Derived true wind direction, rad in [0, 2pi): headingTrue + TWA.
-double r_twd(const boat::View &d) {
-    if (isnan(d.headingTrue) || isnan(d.twa)) return NAN;
-    double r = fmod(d.headingTrue + d.twa, 2.0 * M_PI);
-    return r < 0 ? r + 2.0 * M_PI : r;
-}
 double r_depth(const boat::View &d) {
     return d.depth;
 }
@@ -158,7 +152,6 @@ const NumEntry NUM_TABLE[] = {
     {"environment.wind.angleApparent", r_awa},
     {"environment.wind.speedTrue", r_tws},
     {"environment.wind.angleTrueWater", r_twa},
-    {"environment.wind.directionTrue", r_twd},
     {"environment.depth.belowTransducer", r_depth},
     {"environment.water.temperature", r_waterTemp},
     {"electrical.batteries.house.voltage", r_battV},

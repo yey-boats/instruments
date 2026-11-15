@@ -83,8 +83,6 @@ enum class MetricSource : uint8_t {
     HDGm_deg,             // rad_to_deg_pos(d.headingMag)
     Variation_deg,        // signed deg, +E / -W
     EngineHours_h,        // s_to_h(d.engineHours) — propulsion.*.runTime / N2K 127489
-    TWD_deg,              // true wind direction (environment.wind.directionTrue), derived
-                          // as headingTrue + TWA in [0,360) like the built-in wind screens
 };
 
 // Optional extra row beneath the primary value (multi-value tiles).

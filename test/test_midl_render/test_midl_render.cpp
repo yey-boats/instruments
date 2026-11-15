@@ -259,13 +259,6 @@ void test_engine_paths_bridge_to_enum_sources() {
     TEST_ASSERT_EQUAL(MetricSource::None, path_to_source("propulsion.port.revolutions"));
 }
 
-void test_true_wind_direction_bridges_to_derived_source() {
-    // Authored wind screens bind environment.wind.directionTrue (TWD); the
-    // display derives it from heading + TWA, so it must not stay dynamic.
-    using ui::layout_render::path_to_source;
-    TEST_ASSERT_EQUAL(MetricSource::TWD_deg, path_to_source("environment.wind.directionTrue"));
-}
-
 void test_map_single_value() {
     MetricBinding m = mapOne(
         R"({"type":"single-value","name":"SOG","format":{"unit":"kn"},
@@ -954,7 +947,6 @@ int main(int, char **) {
     RUN_TEST(test_map_rudder_center_zero_bar);
     RUN_TEST(test_style_range_fallback_and_format_range_wins);
     RUN_TEST(test_engine_paths_bridge_to_enum_sources);
-    RUN_TEST(test_true_wind_direction_bridges_to_derived_source);
     RUN_TEST(test_map_single_value);
     RUN_TEST(test_map_unknown_path_is_none);
     RUN_TEST(test_map_unknown_path_without_buf_degrades);
