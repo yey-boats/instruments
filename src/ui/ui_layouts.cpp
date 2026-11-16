@@ -2383,7 +2383,9 @@ static void paint_trend_body(TileState &t, const MetricBinding &m, int w, int h)
     lv_obj_set_style_height(chart, 0, LV_PART_INDICATOR);
     lv_obj_clear_flag(chart, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(chart, LV_OBJ_FLAG_SCROLLABLE);
-    uint32_t accent = m.accent ? m.accent : theme.accent;
+    // style_rgb (via value_color), not a raw m.accent read: a MIDL binding
+    // with a named style.color token leaves accent at 0 (#55).
+    uint32_t accent = value_color(m);
     lv_chart_series_t *s =
         lv_chart_add_series(chart, lv_color_hex(accent), LV_CHART_AXIS_PRIMARY_Y);
     // Before any data: an empty chart (every bucket a gap) and no labels.
