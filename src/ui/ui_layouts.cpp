@@ -4465,11 +4465,17 @@ static inline bool windsteer_is_fullscreen(int w, int h) {
     return w >= 400 && h >= 300;
 }
 
-// Small wind-rose stand-in: a dashed warn ring with the AWS hero number and
+// Small wind-rose stand-in: a dashed ring with the AWS hero number and
 // apparent/true wind chevrons. Shared by the multi-tile windrose tile AND the
 // non-fullscreen windsteer fallback (a windsteer leaf below the dial threshold
 // renders this same compact rose). Drives via the WindRose marker-update branch.
-static void paint_wind_rose_standin(TileState &t, const MetricBinding &m, int w, int h) {
+// `default_rgb`: the ring/hero colour when style.color isn't authored — callers
+// pass their own element's default so a style.color (or its absence) resolves
+// to the SAME colour here as it does on that element's full-screen rendering
+// (#52: windsteer's badge defaults to theme.good, so its stand-in must too,
+// even though here it colours the ring/hero instead of a badge).
+static void paint_wind_rose_standin(TileState &t, const MetricBinding &m, int w, int h,
+                                    uint32_t default_rgb) {
     // Round-fit (#50): value-only when the fitted circle cannot hold the ring;
     // else the ring is sized to the circle and the wind heads ride 6 px
     // further in so their tips stay inside it (round_safe::dial_overhang).
@@ -4487,7 +4493,7 @@ static void paint_wind_rose_standin(TileState &t, const MetricBinding &m, int w,
     lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
     // style.color replaces the ring and hero (web dial.ts opts.color); the wind
     // heads, sectors and authored markers keep their own colours.
-    const uint32_t rose_rgb = elem_rgb(m, theme.warn);
+    const uint32_t rose_rgb = elem_rgb(m, default_rgb);
     lv_obj_set_style_border_color(ring, lv_color_hex(rose_rgb), 0);
     lv_obj_set_style_border_width(ring, 2, 0);
     lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
@@ -4562,7 +4568,9 @@ static void paint_wind_rose_body(TileState &t, const MetricBinding &m, int w, in
         }
         // Fall through to the stand-in if the PSRAM alloc failed.
     }
-    paint_wind_rose_standin(t, m, w, h);
+    // windrose's own default: ring/hero follow style.color, else theme.warn
+    // (matches winddial::build's hero_rgb default just above).
+    paint_wind_rose_standin(t, m, w, h, theme.warn);
 }
 
 // Wind-steering composite: full-screen heading-up dial with laylines, else the
@@ -4581,7 +4589,11 @@ static void paint_wind_steer_body(TileState &t, const MetricBinding &m, int w, i
         }
         // Fall through to the stand-in if the PSRAM alloc failed.
     }
-    paint_wind_rose_standin(t, m, w, h);
+    // windsteer's own default (#52): the stand-in has no engaged badge to
+    // colour, but an authored style.color (or its absence) must still resolve
+    // to the same colour it would on the full-screen badge, so default to
+    // theme.good here too, not windrose's theme.warn.
+    paint_wind_rose_standin(t, m, w, h, theme.good);
 }
 
 // Text widget: monospace value centered. Mirrors editor .wpreview .text-val.
