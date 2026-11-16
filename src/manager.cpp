@@ -58,6 +58,7 @@ extern "C" const char *main_touch_mode();
 #include "ui_data.h"
 #include "ui_screens.h"
 #include "build_config.h"
+#include "apply_blank.h"
 #include "midl_store.h"
 #include "psram_static.h"
 #include "web_pw.h"
@@ -1708,6 +1709,11 @@ void pull_midl_records(JsonVariantConst blk) {
             record_error("[mgr] config midl block rejected: %s", err.message);
         return;
     }
+    // One dark window for the whole pull (#106): several record writes + the
+    // index would otherwise flicker the backlight between fetches. Only when
+    // something changes; a no-op pull never blanks (the index write skips an
+    // unchanged index itself).
+    apply_blank::Guard blank(acts.fetch_count > 0 || acts.remove_count > 0);
     unsigned fetched = 0;
     for (uint8_t i = 0; i < acts.fetch_count; ++i)
         if (fetch_midl_record(plan.entries[acts.fetch[i]])) ++fetched;

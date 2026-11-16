@@ -13,6 +13,7 @@
 
 #include <string.h>
 
+#include "apply_blank.h"
 #include "midl_render.h"
 #include "net.h"
 #include "psram_json.h"
@@ -101,6 +102,7 @@ bool activate(const char *record_id, const char *screen_id) {
     }
     if (used < 0) {
         net::logf("[midl-store] activate '%s': nothing rendered", rec);
+        apply_blank::rendered(false);  // nothing new to flush: release the dark window
         return false;
     }
     const Candidate &c = chain[used];
@@ -112,6 +114,8 @@ bool activate(const char *record_id, const char *screen_id) {
     if (!shown && keep && keep_id[0]) shown = ui::show_by_id(keep_id);
     net::logf("[midl-store] active record '%s' (%s) on '%s'", c.id,
               midl::records::copy_name(c.copy), ui::current_id());
+    // A blanked apply (#106) stays dark until this rebuild's first full flush.
+    apply_blank::rendered(true);
     return true;
 }
 
