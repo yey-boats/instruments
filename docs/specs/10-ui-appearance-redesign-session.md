@@ -70,9 +70,9 @@ rail when the circular geometry is the primary visual cue.
 
 ### Typography
 
-- Captions: Montserrat 14, dim text.
-- Standard values: Montserrat 20 or 28.
-- Hero values: Montserrat 48.
+- Captions: B612 14 (Regular), dim text.
+- Standard values: B612 20 (Regular) or 28 (Bold).
+- Hero values: B612 48 (Bold).
 - Use color on hero values only when it communicates status or domain.
 
 ### Screen Roles

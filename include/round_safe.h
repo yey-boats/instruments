@@ -48,15 +48,15 @@ Rect fit_circle(const Rect &t, const Disc &d, const Rect *avoid = nullptr);
 // ---- firmware tile plan --------------------------------------------------
 // How build_tile (ui_layouts.cpp) places one tile's content. Mirrors midl's
 // paintScreenSvg round branch, with the firmware chrome metrics: the caption
-// is montserrat_20 at content (10, 2) inside a style_panel inset of 11 px.
+// is font_b612_20 at content (10, 2) inside a style_panel inset of 11 px.
 
 // Smallest round-safe content width worth drawing into (midl MIN_SAFE).
 constexpr int kMinSafe = 24;
 // Height of the firmware caption row incl. the panel inset (11 + 2 + ~24 px
-// montserrat_20 line box + 1); midl's captionBand(180 px cell) is 29 with its
+// font_b612_20 line box + 1); midl's captionBand(180 px cell) is 29 with its
 // caption 6 px from the cell top.
 constexpr int kCaptionBand = 38;
-// Caption box width estimate: inset + 10 px + ~15 px per montserrat_20
+// Caption box width estimate: inset + 10 px + ~15 px per font_b612_20
 // uppercase glyph.
 constexpr int kCaptionLeft = 21;
 constexpr int kCaptionGlyphW = 15;

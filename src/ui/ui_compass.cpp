@@ -71,7 +71,7 @@ static constexpr int LABEL_INSET = 44;
 
 // Cardinal labels are dark ink (neutral) like the numeric degree labels -- red
 // is reserved for port-side / alarm cues, so the N/E/S/W letters must not steal
-// it. They read against the white band on weight (montserrat_28) instead.
+// it. They read against the white band on weight (font_b612_28) instead.
 static bool is_cardinal(int i) {
     return (i % 3) == 0;  // 0=N 90=E 180=S 270=W at i = 0,3,6,9
 }

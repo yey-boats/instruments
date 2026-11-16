@@ -933,7 +933,7 @@ static void fit_hero_scale(lv_obj_t *label, const char *txt, int hero_h, int her
     lv_obj_set_style_transform_scale(label, (int32_t)scale, 0);
 }
 
-// Text-tile variant of fit_value_font with a smaller Montserrat ladder. Picks
+// Text-tile variant of fit_value_font with a smaller B612 ladder. Picks
 // the largest font whose measured width (lv_text_get_size over the full,
 // possibly multi-line string) fits max_w. Fixes POS clipping on the narrow
 // (160 px) freeform/quad text tiles where the lat/lon line was wider than the
@@ -1017,8 +1017,8 @@ static void fit_gauge_center_font(lv_obj_t *label, const char *txt, int dia) {
     static const lv_font_t *const ladder[] = {&font_b612_48, &font_b612_38, &font_b612_28,
                                               &font_b612_20};
     int start = 2;              // mirrors paint_gauge_body's vfont pick
-    if (dia >= 110) start = 1;  // montserrat_38
-    if (dia >= 160) start = 0;  // montserrat_48
+    if (dia >= 110) start = 1;  // font_b612_38
+    if (dia >= 160) start = 0;  // font_b612_48
     // Inner width budget: label sits at the dial's vertical centre, where the
     // 10px fill arc bounds it on both sides; keep a couple px of air.
     int max_w = dia - 24;
@@ -1807,7 +1807,7 @@ static void paint_compass_body(TileState &t, const MetricBinding &m, int w, int 
     // memorizing color/shape. Three compact rows — cyan▲ HDG, green△ COG, red◆
     // CTS — built from the same ui::draw_glyph the rings use (so the legend glyph
     // matches the rim glyph exactly). A 16px glyph canvas scaled into a small box
-    // sits left of each montserrat_14 label in theme.fg_dim. Kept tight in the
+    // sits left of each font_b612_14 label in theme.fg_dim. Kept tight in the
     // tile's lower-left corner so it doesn't crowd the dial. Only drawn when the
     // rows really clear the ring, its orbiting marker glyphs and the CTS line
     // (ui::geom::compass_legend_fits). On a 480x480 quad tile they would print
@@ -2159,7 +2159,7 @@ static void update_gauge_bar(TileState &t, const MetricBinding &m, const boat::V
             // glued unit ("%", "°"=UTF-8 0xC2 lead byte); a plain ASCII
             // space before word units ("kn"/"V"/"m"). Keeps BATT reading
             // "77%" and rudder "12°", not a bare "77"/"12". Must be a
-            // regular space: the bundled Montserrat fonts have no glyph
+            // regular space: the bundled B612 fonts have no glyph
             // for U+2009 THIN SPACE (or U+2007/U+00A0), which rendered
             // as a tofu box between value and unit.
             // A round-fit gauge (#50) shows a word unit in its own label (or
@@ -4621,7 +4621,7 @@ static void paint_button_body(TileState &t, const MetricBinding &m, int w, int h
     lv_obj_t *label = lv_label_create(btn);
     const char *ltxt = (m.label && m.label[0]) ? m.label : "TAP";
     lv_label_set_text(label, ltxt);
-    // Scale the label by bubble HEIGHT first. Must be a Montserrat font —
+    // Scale the label by bubble HEIGHT first. Must be a B612 font —
     // font_xl_64 is digits-only and would drop letters from labels like "HOME".
     const lv_font_t *lfont = &font_b612_20;
     if (btn_h >= 60) lfont = &font_b612_28;

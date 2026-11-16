@@ -36,7 +36,7 @@ inline bool box_clears_disc(const Box &b, int cx, int cy, int r, int margin) {
 // three-row HDG/COG/CTS legend in the content box's bottom-left corner. All
 // coordinates are content-box coordinates. Constants mirror the renderer.
 constexpr int kLegendInset = 4;      // gx: left inset of the swatches
-constexpr int kLegendRowH = 16;      // one row: 14 px swatch + montserrat_14 label
+constexpr int kLegendRowH = 16;      // one row: 14 px swatch + font_b612_14 label
 constexpr int kLegendW = 14 + 32;    // swatch + "HDG"/"COG"/"CTS" label
 constexpr int kLegendTopClear = 24;  // keep below the tile's caption row
 constexpr int kMarkerOverhang = 20;  // = ui_markers.cpp GLYPH_OVERHANG (static_assert there)

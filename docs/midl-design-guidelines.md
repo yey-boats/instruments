@@ -31,12 +31,12 @@ compare at the **element-render** level, not screen-for-screen.
 
 4. **Tap targets fill the tile.** A `button` element is a large, centered, finger-sized
    rounded bubble filling ~`w-24` × most of the height (radius 14, accent fill via
-   `value_color`, dark ink, Montserrat label scaled to bubble height) — never a tiny
+   `value_color`, dark ink, B612 label scaled to bubble height) — never a tiny
    content-hugged pill. Keep the hit-test on the **tile root** (the bubble has `CLICKABLE`
    cleared) so the whole tile is tappable; the chrome cap is suppressed for buttons.
 
-5. **Legibility at 160 px — font set is fixed.** Only Montserrat **14 / 20 / 28 / 38 / 48**
-   and `font_xl_64` are enabled (16/18 are deliberately disabled — internal-heap glyph-cache
+5. **Legibility at 160 px — font set is fixed.** Only B612 **14 / 20 (Regular) and 28 / 38 / 48
+   (Bold)** and `font_xl_64` are enabled (16/18 are deliberately disabled — internal-heap glyph-cache
    starvation). `font_xl_64` is **digits + a fixed symbol set only**
    (`0-9 . - ° S T P N E W k m n d e g V A %`) — reserve it for numeric heroes; **never**
    route letters/labels (e.g. "HOME", "ROUTE") through it.
