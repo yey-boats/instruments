@@ -129,7 +129,11 @@ constexpr Palette classic = {
     0xe8e1cf, 0xf7f1e3, 0xe9e1cc, 0xb9ab8c, 0xe4dbc4, 0x2e2a24, 0x685d4e,
     0x7a5a10, 0x8a5500, 0x9e2f28, 0x3e6b41, 0x9e2f28, 0x3e6b41, 0x9b8d70,
     0xefe8d6, 0x35566b, 0xa89878, 0x16222f, 0x5a6b78,
-    0xb9ab8c, 0x2e2a24, 0x9a741b, 0x000000, 0xffffff, 0x1a0000, 0xffffff,
+    // button_active_bg nudged from 0x9a741b toward accent (0x7a5a10, #78) so
+    // the brass tone reads closer between the title and active buttons; kept
+    // short of a full match to hold button_active_fg (black) at >=4.5:1 AA
+    // (test_theme_contrast) — accent itself is only 3.3:1 on black.
+    0xb9ab8c, 0x2e2a24, 0x957019, 0x000000, 0xffffff, 0x1a0000, 0xffffff,
     0xff5252, 0x2f6170,
 };
 

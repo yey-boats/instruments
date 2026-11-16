@@ -1130,6 +1130,11 @@ static ActiveAlarm g_active_alarms[6];
 static int g_active_alarm_n = 0;
 static int g_alarm_cycle = 0;
 static lv_timer_t *g_alarm_timer = nullptr;
+// Blink phase for alarm_tick, kept at file scope so alarms_restyle() (called
+// on a theme switch mid-alarm) can resync it to the "on" look it just
+// painted — otherwise the untouched phase toggles back to that same look on
+// its next tick, doubling one blink phase to ~1 s (#78).
+static uint8_t g_alarm_blink_phase = 0;
 // Defined below alarms_build (which creates the timer pointing at it).
 static void alarm_tick(lv_timer_t *);
 
@@ -1308,8 +1313,16 @@ static void mob_build(lv_obj_t *scr) {
 static void alarms_restyle() {
     if (!alarm_banner) return;
     lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(ui::theme.alarm), 0);
-    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ui::theme.alarm_fg), 0);
+    // Border stays a constant alarm color across both blink phases (#78): the
+    // dark phase's fill (alarm_fg) can sit close to the screen bg on some
+    // skins (e.g. night), so a border that also went dark would let the
+    // whole banner blend away instead of just dimming.
+    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ui::theme.alarm), 0);
     lv_obj_set_style_text_color(alarm_label, lv_color_hex(ui::theme.alarm_fg), 0);
+    // This paints the "on" (phase 1) look; keep alarm_tick's phase in sync so
+    // its next toggle lands on the dark phase after one normal 500 ms tick,
+    // not two.
+    g_alarm_blink_phase = 1;
 }
 
 static void alarms_build(lv_obj_t *scr) {
@@ -1348,16 +1361,17 @@ static void alarm_render() {
 // LVGL task, so lv_obj_* mutations are safe. 500 ms blink; advance every 3 ticks
 // (~1.5 s) when more than one alarm is active.
 static void alarm_tick(lv_timer_t *) {
-    static uint8_t phase = 0, cyc = 0;
+    static uint8_t cyc = 0;
     if (g_active_alarm_n == 0 || !alarm_banner) return;
-    phase ^= 1;
+    g_alarm_blink_phase ^= 1;
     // Blink by swapping fill and ink (reverse video), never by fading: the
     // text reads at the full alarm_fg/alarm ratio in both phases. The old
-    // 30% fill + 50% text phase fell to 1.23:1 on high-contrast (#67).
-    uint32_t fill = phase ? ui::theme.alarm : ui::theme.alarm_fg;
-    uint32_t ink = phase ? ui::theme.alarm_fg : ui::theme.alarm;
+    // 30% fill + 50% text phase fell to 1.23:1 on high-contrast (#67). The
+    // border stays a constant theme.alarm (set in alarms_restyle) across
+    // both phases, so it never blends into the background either (#78).
+    uint32_t fill = g_alarm_blink_phase ? ui::theme.alarm : ui::theme.alarm_fg;
+    uint32_t ink = g_alarm_blink_phase ? ui::theme.alarm_fg : ui::theme.alarm;
     lv_obj_set_style_bg_color(alarm_banner, lv_color_hex(fill), 0);
-    lv_obj_set_style_border_color(alarm_banner, lv_color_hex(ink), 0);
     lv_obj_set_style_text_color(alarm_label, lv_color_hex(ink), 0);
     if (g_active_alarm_n > 1 && ++cyc >= 3) {
         cyc = 0;

@@ -2062,7 +2062,7 @@ static void paint_bar_body(TileState &t, const MetricBinding &m, int w, int h) {
     lv_obj_align_to(bar, t.value, LV_ALIGN_OUT_BOTTOM_MID, 0, 16);
     lv_bar_set_range(bar, 0, 100);
     lv_bar_set_value(bar, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(0x001a20), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(theme.panel_bot), LV_PART_MAIN);
     lv_obj_set_style_border_color(bar, lv_color_hex(theme.panel_edge), LV_PART_MAIN);
     lv_obj_set_style_border_width(bar, 1, LV_PART_MAIN);
     lv_obj_set_style_radius(bar, 3, LV_PART_MAIN);
@@ -2854,10 +2854,18 @@ static void build_bezel(WindDialState *st, lv_obj_t *parent) {
 
     make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2, 26, theme.arc_band, LV_OPA_90);
     make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2 + 18, 7, theme.good, LV_OPA_80);
-    make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, 0x0c1828, LV_OPA_COVER);
+    make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, theme.panel_edge, LV_OPA_COVER);
 
     for (int deg = 0; deg < 360; deg += 45) {
-        make_tick_at(st->bezel, bcx, bcy, deg + 22, 10, 2, theme.band_ink_dim, R_BEZEL);
+        // Cardinal (N/E/S/W) ticks are longer and thicker than intercardinal
+        // ones, same as the cardinal/intercardinal label font sizes just
+        // below — so the two stay distinguishable by weight/length even on
+        // skins (red-night) where band_ink and band_ink_dim read close (#78).
+        bool card = (deg % 90) == 0;
+        uint32_t color = card ? theme.band_ink : theme.band_ink_dim;
+        int len = card ? 14 : 10;
+        int width = card ? 3 : 2;
+        make_tick_at(st->bezel, bcx, bcy, deg + 22, len, width, color, R_BEZEL);
     }
 
     // Fixed bow indicator (red triangle) outside the bezel group so it stays at top.
@@ -3023,7 +3031,7 @@ static void build_tide(WindDialState *st, lv_obj_t *parent) {
 static void build_waypoint(WindDialState *st, lv_obj_t *parent) {
     st->waypoint_marker = lv_obj_create(parent);
     lv_obj_set_size(st->waypoint_marker, 14, 18);
-    lv_obj_set_style_bg_color(st->waypoint_marker, lv_color_hex(0xffd21f), 0);
+    lv_obj_set_style_bg_color(st->waypoint_marker, lv_color_hex(theme.warn), 0);
     lv_obj_set_style_bg_opa(st->waypoint_marker, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(st->waypoint_marker, lv_color_hex(theme.panel_edge), 0);
     lv_obj_set_style_border_width(st->waypoint_marker, 1, 0);
@@ -4649,7 +4657,11 @@ static void paint_button_body(TileState &t, const MetricBinding &m, int w, int h
         }
     }
     lv_obj_set_style_text_font(label, lfont, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(0x001218), 0);  // dark ink
+    // Fixed dark ink assumed the bubble's fill (value_color, usually accent)
+    // is always bright; it isn't on every skin/custom color. button_active_fg
+    // is the token already verified (test_theme_contrast) to read on an
+    // accent-family fill across all six skins.
+    lv_obj_set_style_text_color(label, lv_color_hex(theme.button_active_fg), 0);
     lv_obj_center(label);
     t.aux = btn;
 }
