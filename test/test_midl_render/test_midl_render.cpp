@@ -159,6 +159,22 @@ void test_authored_rgb_ignores_legacy_accent() {
     TEST_ASSERT_EQUAL_HEX32(0x000000u, ui::layouts::authored_rgb(m, t.warn, t));
 }
 
+// instruments#55: hero-plus / round-instrument / trend-chart / alert-focus
+// used to read `m.accent` raw instead of resolving through style_rgb. A
+// MIDL-built binding leaves `accent` at 0 and stores a named token only in
+// `style_color`, so the raw read rendered black; style_rgb must still honour
+// the token.
+void test_style_rgb_resolves_named_token_when_accent_is_zero() {
+    ui::layouts::ColorTokens t{};
+    t.accent = 0x111111;
+    t.warn = 0x222222;
+    MetricBinding m = mapColor("\"warn\"");
+    TEST_ASSERT_EQUAL_HEX32(0u, m.accent);  // as a MIDL binding leaves it
+    TEST_ASSERT_EQUAL((int)ZoneColor::Warn, (int)m.style_color);
+    TEST_ASSERT_EQUAL_HEX32(0x222222u, ui::layouts::style_rgb(m, t.accent, t));
+    TEST_ASSERT_NOT_EQUAL(0u, ui::layouts::style_rgb(m, t.accent, t));
+}
+
 void test_style_color_integer_zero_is_unset() {
     MetricBinding m = mapColor("0");
     TEST_ASSERT_EQUAL((int)ZoneColor::Default, (int)m.style_color);
@@ -1004,6 +1020,7 @@ int main(int, char **) {
     RUN_TEST(test_style_color_absent_is_unset);
     RUN_TEST(test_zone_and_marker_colours_take_full_allowlist);
     RUN_TEST(test_style_rgb_precedence);
+    RUN_TEST(test_style_rgb_resolves_named_token_when_accent_is_zero);
     RUN_TEST(test_authored_rgb_ignores_legacy_accent);
     RUN_TEST(test_style_color_integer_zero_is_unset);
     RUN_TEST(test_marker_and_sector_colours_take_full_allowlist);
