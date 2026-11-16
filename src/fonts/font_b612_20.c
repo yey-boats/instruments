@@ -1,4 +1,12 @@
 /*******************************************************************************
+ * Glyphs below are compiled from third-party font software, distributed under
+ * the SIL Open Font License, Version 1.1 (OFL-1.1). See THIRD-PARTY-NOTICES.md
+ * (repo root) for the required copyright notices and full license text.
+ *   - B612: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612)
+ *   - Font Awesome Free: Copyright (c) Fonticons, Inc. (https://fontawesome.com)
+ ******************************************************************************/
+
+/*******************************************************************************
  * Size: 20 px
  * Bpp: 4
  * Opts: --font tools/fonts/B612-Regular.ttf --range 0x20-0x7E,0xA0-0xFF,0x2013-0x2014,0x2022,0x2026 --font tools/fonts/FontAwesome5-Solid+Brands+Regular.woff --range 0xF077,0xF078 --size 20 --bpp 4 --format lvgl --lv-include lvgl.h --lv-font-name font_b612_20 --no-compress -o src/fonts/font_b612_20.c

@@ -46,6 +46,29 @@ FA="tools/fonts/FontAwesome5-Solid+Brands+Regular.woff"
 # header is identical on every machine (no absolute home path leaks in).
 cd "$REPO"
 
+# OFL 1.1 clause 2 requires the copyright notice and license to accompany
+# every distributed copy of the font software, including copies embedded in
+# generated source. Prepend a short notice (full text + copyright lines in
+# THIRD-PARTY-NOTICES.md) to each generated .c so it ships with every build.
+prepend_license_header() {  # file notice_line...
+    local file="$1"; shift
+    local tmp
+    tmp="$(mktemp)"
+    {
+        echo "/*******************************************************************************"
+        echo " * Glyphs below are compiled from third-party font software, distributed under"
+        echo " * the SIL Open Font License, Version 1.1 (OFL-1.1). See THIRD-PARTY-NOTICES.md"
+        echo " * (repo root) for the required copyright notices and full license text."
+        for line in "$@"; do
+            echo " *   - $line"
+        done
+        echo " ******************************************************************************/"
+        echo
+        cat "$file"
+    } > "$tmp"
+    mv "$tmp" "$file"
+}
+
 gen_ui() {  # size ttf
     echo "[gen_fonts] font_b612_$1.c <- $(basename "$2") (${1}px, bpp4)"
     "$LVFC_BIN" \
@@ -54,6 +77,9 @@ gen_ui() {  # size ttf
         --size "$1" --bpp 4 --format lvgl --lv-include lvgl.h \
         --lv-font-name "font_b612_$1" \
         --no-compress -o "src/fonts/font_b612_$1.c"
+    prepend_license_header "src/fonts/font_b612_$1.c" \
+        "B612: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612)" \
+        "Font Awesome Free: Copyright (c) Fonticons, Inc. (https://fontawesome.com)"
 }
 gen_ui 14 tools/fonts/B612-Regular.ttf
 gen_ui 20 tools/fonts/B612-Regular.ttf
@@ -74,5 +100,7 @@ echo "[gen_fonts] font_xl_64.c <- B612-Bold.ttf (64px, bpp4)"
     --symbols "$HERO_SYMBOLS" \
     --lv-font-name font_xl_64 \
     --no-compress -o src/fonts/font_xl_64.c
+prepend_license_header "src/fonts/font_xl_64.c" \
+    "B612: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612)"
 
 echo "[gen_fonts] done. Review the diff and commit src/fonts/*.c."
