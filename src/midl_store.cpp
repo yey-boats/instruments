@@ -19,6 +19,7 @@
 #include <string.h>
 
 #include "app_events.h"
+#include "apply_blank.h"
 #include "generated_midl_builtin.h"
 #include "generated_midl_manifest.h"
 #include "midl_gen/midl_commit.h"
@@ -345,6 +346,9 @@ bool put_record(const char *id, const char *title, JsonVariantConst doc, Source 
 
     bool ok = false;
     bool was_active = false;
+    // Blank the panel across the flash write and the re-render it triggers
+    // (#106). Armed only right before the write, so a refused doc never blanks.
+    apply_blank::Guard blank;
     {
         Lock l;
         State &s = st();
@@ -381,6 +385,7 @@ bool put_record(const char *id, const char *title, JsonVariantConst doc, Source 
             prefix += ",\"doc\":";
             char path[80];
             record_path(path, sizeof(path), id, false);
+            blank.arm();
             if (!write_file(path, prefix.c_str(), prefix.length(), bytes, doc_len, "}", 1)) {
                 fail(r, 500, "write_failed", "flash write failed");
             } else if (!s.store.put(cand)) {
@@ -403,6 +408,7 @@ bool put_record(const char *id, const char *title, JsonVariantConst doc, Source 
 bool delete_record(const char *id, Result &r) {
     memset(&r, 0, sizeof(r));
     bool was_active = false;
+    apply_blank::Guard blank;
     {
         Lock l;
         State &s = st();
@@ -412,6 +418,7 @@ bool delete_record(const char *id, Result &r) {
                  emb ? "built-in record (nothing to delete)" : "no such record");
             return false;
         }
+        blank.arm();
         remove_files(id);
         s.store.remove(id);
         was_active = strcmp(s.active, id) == 0;
@@ -438,6 +445,7 @@ bool put_index(JsonVariantConst v, Result &r) {
         return false;
     }
     memcpy(&st().store.index(), &ix, sizeof(Index));
+    apply_blank::Guard blank(true);
     if (!save_index()) {
         fail(r, 500, "write_failed", "flash write failed");
         return false;
@@ -448,6 +456,7 @@ bool put_index(JsonVariantConst v, Result &r) {
 }
 
 void factory_reset() {
+    apply_blank::Guard blank(true);  // removes files, then renders the embedded default
     {
         Lock l;
         State &s = st();
@@ -610,7 +619,12 @@ bool plan_pull(JsonVariantConst blk, PullPlan &plan, PullActions &acts, Error &e
 bool apply_pull_index(const PullPlan &plan) {
     if (!plan.has_index) return true;
     Lock l;
+    char before[HASH_LEN], after[HASH_LEN];
+    index_hash(before, sizeof(before));
     memcpy(&st().store.index(), &plan.index, sizeof(Index));
+    index_hash(after, sizeof(after));
+    if (strcmp(before, after) == 0) return true;  // unchanged: no flash write, no blank
+    apply_blank::Guard blank(true);
     return save_index();
 }
 
@@ -619,8 +633,10 @@ bool request_activate(const char *record_id, const char *screen_id) {
     c.type = app::CommandType::MidlActivate;
     copy_str(c.a, sizeof(c.a), record_id);
     copy_str(c.b, sizeof(c.b), screen_id);
-    c.i = screen_id ? 0 : 1;  // 1 = keep the current screen when still present
+    c.i = screen_id ? 0 : 1;       // 1 = keep the current screen when still present
+    apply_blank::expect_render();  // no-op unless a write window is dark
     bool ok = app::post(c, 50);
+    if (!ok) apply_blank::rendered(false);  // never coming: release the window
     if (!ok) net::logf("[midl-store] activate '%s' not queued (ui queue full)", c.a);
     return ok;
 }
@@ -663,6 +679,9 @@ void promote_lkg(const char *id) {
     size_t len = 0;
     char *buf = read_file(path, &len);
     if (!buf) return;
+    // Runs on the UI task before the new screen's first flush; the guard
+    // keeps (or makes) the panel dark until that frame is out (#106).
+    apply_blank::Guard blank(true);
     if (write_file(lkg, buf, len)) {
         set_lkg_hash(id, r->hash);
         net::logf("[midl-store] '%s' rendered: promoted to last-known-good", id);

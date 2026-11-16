@@ -50,6 +50,7 @@
 #include "storage.h"
 #include "midl_render.h"
 #include "midl_store.h"
+#include "apply_blank.h"
 #include "trip_log.h"
 #include "psram_json.h"
 #include <math.h>
@@ -333,6 +334,9 @@ static void disp_flush_cb(lv_display_t *d, const lv_area_t *area, uint8_t *px_ma
         gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, w, h);
     }
 #endif
+    // Blanked record apply (#106): count whole frames so the backlight comes
+    // back only after the new screen's first full flush.
+    if (lv_display_flush_is_last(d)) apply_blank::frame_flushed();
     lv_display_flush_ready(d);
     uint32_t dt = micros() - t0;
     g_flush_count++;
@@ -2674,6 +2678,7 @@ static void lvgl_task(void *) {
         }
         uint32_t t = micros();
         lv_timer_handler();
+        apply_blank::poll();  // restore the backlight after a blanked record apply
         uint32_t dt = micros() - t;
         if (dt > g_lvgl_max_us) g_lvgl_max_us = dt;
         note_slow_section("lvgl", dt);
