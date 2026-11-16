@@ -277,6 +277,16 @@ static bool display_db_init() {
     // separate variable from the double-buffer flip; turning both on at once would
     // make a panic/no-panic result ambiguous. Bounce buffers + OTA-while-rendering
     // soak are a deliberate follow-up (spec 21 §H driver #1).
+#if defined(RGB_BOUNCE_BUFFER_LINES) && RGB_BOUNCE_BUFFER_LINES > 0
+    // #106 spike (env esp32-4848s040-idf5-bb): bounce buffers. The RGB DMA scans out
+    // of two internal-SRAM buffers of RGB_BOUNCE_BUFFER_LINES lines each, refilled
+    // from the PSRAM framebuffer by the IRAM-safe ISR. Paired with code/rodata in
+    // PSRAM (CONFIG_SPIRAM_XIP_FROM_PSRAM) so a flash write/erase no longer disables
+    // the cache the refill reads through: the documented fix for the panel drifting
+    // while LittleFS writes. LCD_H must be a multiple of the line count.
+    static_assert(LCD_H % RGB_BOUNCE_BUFFER_LINES == 0, "bounce buffer lines must divide LCD_H");
+    cfg.bounce_buffer_size_px = LCD_W * RGB_BOUNCE_BUFFER_LINES;
+#endif
     cfg.psram_trans_align = 64;
     cfg.hsync_gpio_num = RGB_HSYNC;
     cfg.vsync_gpio_num = RGB_VSYNC;
@@ -2349,7 +2359,12 @@ void setup() {
         while (1)
             delay(1000);
     }
+#if defined(RGB_BOUNCE_BUFFER_LINES) && RGB_BOUNCE_BUFFER_LINES > 0
+    printf("[gfx] ST7701 + esp_lcd DOUBLE-BUFFER (num_fbs=2) + bounce buffers %d lines ok\n",
+           RGB_BOUNCE_BUFFER_LINES);
+#else
     puts("[gfx] ST7701 + esp_lcd DOUBLE-BUFFER (num_fbs=2) ok");
+#endif
 #else
     if (!gfx->begin()) {
         puts("[gfx] begin FAILED");
