@@ -1,4 +1,11 @@
 /*******************************************************************************
+ * Glyphs below are compiled from third-party font software, distributed under
+ * the SIL Open Font License, Version 1.1 (OFL-1.1). See THIRD-PARTY-NOTICES.md
+ * (repo root) for the required copyright notices and full license text.
+ *   - B612: Copyright 2012 The B612 Project Authors (https://github.com/polarsys/b612)
+ ******************************************************************************/
+
+/*******************************************************************************
  * Size: 64 px
  * Bpp: 4
  * Opts: --font tools/fonts/B612-Bold.ttf --size 64 --bpp 4 --format lvgl --lv-include lvgl.h --symbols 0123456789.-°STPNEWkmndegVA%  --lv-font-name font_xl_64 --no-compress -o src/fonts/font_xl_64.c
