@@ -1,0 +1,10 @@
+{
+  "name": "yey-memory-history",
+  "version": "0.1.0",
+  "description": "Bench-only in-memory SignalK History API provider for trend-history backfill tests",
+  "main": "index.js",
+  "keywords": ["signalk-node-server-plugin"],
+  "license": "SEE LICENSE IN ../../../LICENSE",
+  "private": true,
+  "signalk-plugin-enabled-by-default": false
+}
