@@ -110,9 +110,19 @@ jobs:
           done
           ls -la "$out"
 
+      - name: Attach third-party notices
+        # instruments#70: OFL 1.1 clause 2 requires the font copyright notices
+        # and license to accompany every distributed copy. The short notice is
+        # compiled into src/fonts/*.c (#103); every release also ships the full
+        # texts. cp fails the job if any of them is missing.
+        run: |
+          set -euo pipefail
+          cp THIRD-PARTY-NOTICES.md release-staging/
+          cp tools/fonts/B612-OFL.txt tools/fonts/FontAwesome5-OFL.txt release-staging/
+
       - name: Generate checksums
         run: |
-          ( cd release-staging && sha256sum *.bin *.elf > SHA256SUMS )
+          ( cd release-staging && sha256sum -- *.bin *.elf THIRD-PARTY-NOTICES.md *-OFL.txt > SHA256SUMS )
           ls -la release-staging
 
       - name: Generate release notes
@@ -150,6 +160,12 @@ jobs:
             echo '> downgrade below this version, re-push the device config (password) from the'
             echo '> manager; until then the older firmware API is setup-open. See SECURITY.md.'
             echo ""
+            echo "## Licenses"
+            echo ""
+            echo 'The firmware embeds the B612 and Font Awesome fonts (SIL Open Font License 1.1):'
+            echo "see \`THIRD-PARTY-NOTICES.md\`, \`B612-OFL.txt\` and \`FontAwesome5-OFL.txt\` attached to"
+            echo 'this release.'
+            echo ""
             echo "## SignalK plugin"
             echo ""
             echo "The SignalK manager plugin is released separately from the"
@@ -167,5 +183,8 @@ jobs:
             release-staging/*.bin
             release-staging/*.elf
             release-staging/SHA256SUMS
+            release-staging/THIRD-PARTY-NOTICES.md
+            release-staging/B612-OFL.txt
+            release-staging/FontAwesome5-OFL.txt
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-alpha') || contains(github.ref, '-beta') }}
