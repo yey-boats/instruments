@@ -999,8 +999,48 @@ void test_trend_history_invalid_keeps_defaults() {
     TEST_ASSERT_EQUAL_UINT32(0, n.history_window_s);
 }
 
+// #109: TWD is a dynamic SI path, not the built-in heading enum.
+void test_compass_twd_defaults_to_whole_degrees() {
+    MetricBinding m = mapOne(
+        R"({"type":"compass","name":"TWD","bindings":{"value":{"kind":"signalk","path":"environment.wind.directionTrue"}}})",
+        "wind");
+    TEST_ASSERT_EQUAL_STRING("TWD", m.label);
+    TEST_ASSERT_EQUAL_STRING("deg", m.unit);
+    TEST_ASSERT_EQUAL_INT(0, m.precision);
+    TEST_ASSERT_EQUAL_STRING("environment.wind.directionTrue", m.path);
+    char value[24];
+    snprintf(value, sizeof(value), "%.*f", m.precision,
+             ui::layouts::convert_si_display(4.3, m.unit));
+    TEST_ASSERT_EQUAL_STRING("246", value);
+}
+
+void test_compass_explicit_format_is_preserved() {
+    MetricBinding m = mapOne(
+        R"({"type":"compass","format":{"unit":"rad","decimals":2},"bindings":{"value":{"kind":"signalk","path":"environment.wind.directionTrue"}}})",
+        "wind");
+    TEST_ASSERT_EQUAL_STRING("rad", m.unit);
+    TEST_ASSERT_EQUAL_INT(2, m.precision);
+    TEST_ASSERT_DOUBLE_WITHIN(0.001, 4.3, ui::layouts::convert_si_display(4.3, m.unit));
+    m = mapOne(
+        R"({"type":"compass","format":{"decimals":1},"bindings":{"value":{"kind":"signalk","path":"environment.wind.directionTrue"}}})",
+        "wind");
+    TEST_ASSERT_EQUAL_STRING("deg", m.unit);
+    TEST_ASSERT_EQUAL_INT(1, m.precision);
+}
+
+void test_windrose_value_keeps_its_speed_format() {
+    MetricBinding m = mapOne(
+        R"({"type":"windrose","bindings":{"value":{"kind":"signalk","path":"environment.wind.speedTrue"}}})",
+        "wind");
+    TEST_ASSERT_EQUAL_STRING("", m.unit);
+    TEST_ASSERT_EQUAL_INT(-1, m.precision);
+}
+
 int main(int, char **) {
     UNITY_BEGIN();
+    RUN_TEST(test_compass_twd_defaults_to_whole_degrees);
+    RUN_TEST(test_compass_explicit_format_is_preserved);
+    RUN_TEST(test_windrose_value_keeps_its_speed_format);
     RUN_TEST(test_token_to_kind);
     RUN_TEST(test_map_clinometer_binds_attitude_roll);
     RUN_TEST(test_map_rudder_center_zero_bar);

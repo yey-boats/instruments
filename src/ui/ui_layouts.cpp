@@ -775,6 +775,18 @@ static double metric_scalar(const MetricBinding &m, const boat::View &d) {
     return dynamic_display_value(m, d);
 }
 
+// Dial geometry always uses degrees even when the hero explicitly requests rad.
+static double compass_value_deg(const MetricBinding &m, const boat::View &d) {
+    if (m.source != MetricSource::None) return convert_si_display(metric_si(m.source, d), "deg");
+    if (m.value_kind != BindKind::PathBind) {
+        double v = bound_value(m, d);
+        return m.unit && !strcmp(m.unit, "rad") ? convert_si_display(v, "deg") : v;
+    }
+    return m.path && m.path[0] && s_dynamic_resolver
+               ? convert_si_display(s_dynamic_resolver(m.path, d), "deg")
+               : NAN;
+}
+
 // ---------------------------------------------------------------------------
 // Tile painters (one per WidgetKind) + the shared tap handlers.
 
@@ -1528,7 +1540,7 @@ static void update_compass_band(TileState &t, const MetricBinding &m, const boat
     CompassBandState *st = t.aux ? (CompassBandState *)lv_obj_get_user_data(t.aux) : nullptr;
     if (!st) return;
     ui::set_text_if_changed(t.value, t.last_value, sizeof(t.last_value), pri);
-    double hdg = metric_scalar(m, d);
+    double hdg = compass_value_deg(m, d);
     double ref = isnan(hdg) ? 0.0 : hdg;
     int16_t before = st->last_rot;
     ui::set_rot_if_changed(st->cp.scale, &st->last_rot, ui::deg_to_lvgl(-ref));
@@ -1788,7 +1800,7 @@ static void paint_compass_body(TileState &t, const MetricBinding &m, int w, int 
     // width). The offset scales with the value font's height.
     int vh = lv_font_get_line_height(vfont);
     lv_obj_t *hcap = lv_label_create(ring);
-    lv_label_set_text(hcap, "HDG");
+    lv_label_set_text(hcap, m.label ? m.label : "");
     lv_obj_set_style_text_font(hcap, &font_b612_14, 0);
     lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(hcap, LV_ALIGN_CENTER, 0, 6 - vh / 2 - 8);
@@ -1825,7 +1837,7 @@ static void paint_compass_body(TileState &t, const MetricBinding &m, int w, int 
         // Per call, not static: follows style.color (the HDG pointer) and the
         // live theme after a switch.
         const LegendItem kLegend[3] = {
-            {ui::Glyph::Triangle, true, elem_rgb(m, theme.accent), "HDG"},
+            {ui::Glyph::Triangle, true, elem_rgb(m, theme.accent), m.label ? m.label : ""},
             {ui::Glyph::Triangle, false, theme.good, "COG"},
             {ui::Glyph::Diamond, true, theme.alarm, "CTS"},
         };
@@ -5145,14 +5157,13 @@ void update_freeform(lv_obj_t *root, const ScreenVariantSpec &spec, const boat::
             // An authored `bindings.dir` retargets the diamond pointer at the dir
             // source instead of CTS.
             {
-                MetricBinding hdg = {}, cog = {}, cts = {};
-                hdg.source = MetricSource::HDG_deg;
+                MetricBinding cog = {}, cts = {};
                 cog.source = MetricSource::COG_deg;
                 cts.source = MetricSource::CTS_deg;
                 double dia_deg =
                     binding_has_dir(m) ? binding_dir_deg(m, data) : metric_scalar(cts, data);
                 ui::MarkerSpec inner[2] = {
-                    {metric_scalar(hdg, data), ui::Glyph::Triangle, true, theme.accent},
+                    {compass_value_deg(m, data), ui::Glyph::Triangle, true, theme.accent},
                     {dia_deg, ui::Glyph::Diamond, true, theme.alarm},
                 };
                 ui::marker_ring_update(t.markers, inner, 2, /*reference=*/0.0);
