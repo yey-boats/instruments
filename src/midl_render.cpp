@@ -284,6 +284,12 @@ bool map_element(JsonVariantConst el, const char *element_id, MetricBinding &out
         int p = prec.as<int>();
         if (p >= 0 && p <= 127) out.precision = (int8_t)p;
     }
+    // A compass value is an angle, including dynamic paths such as TWD. Match
+    // midl-web's default whole-degree hero instead of printing raw SI radians.
+    if (out.kind == WidgetKind::Compass && !unit_buf[0]) {
+        copy32(unit_buf, "deg");
+        if (out.precision < 0) out.precision = 0;
+    }
     // format.side (audit item 5): truthy = boolean true or a non-empty string
     // (the design's "port-stbd"), mirroring web model.ts sideEnabled().
     JsonVariantConst side = el["format"]["side"];
