@@ -42,3 +42,6 @@ CONFIG_MBEDTLS_KEY_EXCHANGE_PSK=y
 # "undefined reference to app_main" (espidf expects an app_main we don't define;
 # our code is Arduino setup()/loop()).
 CONFIG_AUTOSTART_ARDUINO=y
+# No BLE mesh: Arduino's lib-builder defaults enable it, and its include dir
+# (bt/esp_ble_mesh/core) carries a net.h that shadows include/net.h.
+CONFIG_BLE_MESH=n

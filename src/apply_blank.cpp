@@ -11,9 +11,11 @@
 
 #include "apply_blank.h"
 
-#if defined(YEYBOATS_HARNESS)
+#if defined(YEYBOATS_HARNESS) || defined(APPLY_BLANK_OFF)
 
-// Headless harness: no panel, no UI task to restore from.
+// Headless harness: no panel, no UI task to restore from. APPLY_BLANK_OFF (the #106
+// bounce-buffer spike env): keep the backlight on during record applies, so any drift
+// left after the real fix is visible instead of hidden by the blanking.
 namespace apply_blank {
 uint32_t begin() {
     return 0;
