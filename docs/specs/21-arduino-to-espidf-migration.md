@@ -15,8 +15,10 @@
 > `sdkconfig.defaults` (the "duplicate-library" theory was wrong — see
 > §A.1), and the **`Arduino_RGB_Display` gap on arduino-3.x** (§H) is
 > resolved by the esp_lcd RGB path (`display_db_init`), now running
-> `num_fbs=2` DIRECT double-buffer (bounce buffers deferred). **Not yet
-> hardware-validated** — needs a USB flash + screen walk + flicker check.
+> `num_fbs=2` DIRECT double-buffer (bounce buffers deferred). **Hardware result
+> 2026-11-19 (#106, §A.3):** bounce buffers + XIP stop the drift (camera A/B);
+> phase A starts with an early-boot panic in the refill path and the internal-SRAM
+> budget.
 > Everything below the line is the dependency-ordered module work.
 
 ## Why now — three production drivers
@@ -284,6 +286,62 @@ it *generates* `sdkconfig.<env>` the first time; once that file exists it is
 reused and `.defaults` edits are ignored. Delete the stale generated
 `sdkconfig.esp32-4848s040-idf5` (it is gitignored via `sdkconfig.*`) to
 force regeneration after editing `.defaults`.
+
+### A.3 Hardware result + phase A plan (2026-11-19, #106)
+
+**Spike (#110, env `esp32-4848s040-idf5-bb`), camera A/B on one 4848S040.**
+Same protocol on both builds: 11 theme switches over the serial console, each an
+NVS erase/write plus a full redraw, #107 blanking off.
+
+| build | result |
+|---|---|
+| `-idf5` (num_fbs=2, no bounce buffers) | constant severe horizontal drift: shifted, wrapped, duplicated content, not only during writes |
+| `-idf5-bb` (bounce 10 lines + `CONFIG_SPIRAM_XIP_FROM_PSRAM`) | stable through every write |
+
+So bounce buffers + XIP deliver drivers #1/#3. The spike also showed what phase A
+must fix first:
+
+- **Boot panic in the refill path.** 2 of 4 boots: `Cache disabled but cached memory
+  region accessed`, IRAM `0x40375a58` → ROM copy (the bounce refill) during an
+  early-boot flash op; once followed by `LoadProhibited`. Runtime writes after boot
+  were clean.
+- **Internal SRAM.** The bounce buffers take ~19 KB; WiFi then could not associate
+  (7 KB free) until `CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP` +
+  `CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC` moved those buffers to PSRAM. About 9 KB
+  internal free after WiFi is still too tight for BLE.
+- Bring-up traps, fixed in #110: BLE-mesh `net.h` shadowing `include/net.h`
+  (`CONFIG_BLE_MESH=n`); Arduino 3's `default_16MB.csv` moves LittleFS (the env now
+  uses production's `partitions/esp32-4848s040-16MB.csv`); esptool must write a
+  `dio` header (`qio` makes the ROM fail to load the bootloader); pioarduino's
+  `custom_sdkconfig` overwrites `sdkconfig.defaults` (use
+  `cmake_extra_args -DSDKCONFIG_DEFAULTS=...`).
+
+**Phase A, in order.** Each item has a bench acceptance test.
+
+1. **Boot panic** (first). Find which boot-time flash op runs while the RGB DMA
+   refills: NVS init, LittleFS mount, LKG/record writes. Then do one of: create and
+   start the panel after storage init and first writes; enable
+   `CONFIG_SPI_FLASH_AUTO_SUSPEND` (S3: suspend instead of cache-off); keep the
+   refill path entirely in IRAM/DRAM. *Accept:* 50 cold boots + 50 soft resets,
+   scripted (esptool reset + serial capture), zero panics.
+2. **Internal-SRAM budget.** Measure at boot, after WiFi, and after BLE. Levers:
+   WiFi/LWIP + mbedTLS in PSRAM (done in the spike), NimBLE memory in PSRAM, smaller
+   bounce buffers (8 lines), BSS in PSRAM, task-stack review. *Accept:* ≥ 30 KB
+   internal free with WiFi + BLE up; WiFi associates on every boot.
+3. **BLE on NimBLE-Arduino 2.x**, including `ble_hid_host.cpp` (const
+   `NimBLEAdvertisedDevice*` API), which is unflagged in the idf5 envs for now (§A.2).
+4. **Promote the hybrid to the production 4848S040 env.** Keep an Arduino 2.x env as
+   a fallback for one release. Add the env to CI.
+5. **Field migration path.** Prove an app-only OTA from 4.4 firmware boots on the old
+   bootloader (keep production's partition table); else USB-only migration plus
+   release notes. Decision gate before rollout.
+6. **Bench soak** (camera-recorded, frame-diff check): 200 pushed records (the real
+   #106 trigger, LittleFS), 20 OTA-while-rendering cycles, 24 h run. Then decide
+   whether #107's blanking stays as a defence or is removed.
+
+Out of scope: the other RGB boards (8048S050/070, Waveshare 4/4.3/5/7) have the same
+mechanism and follow per board after phase A. *Estimate:* ~1.5–2 weeks with a bench
+device; item 1 is the unknown.
 
 With A.1 resolved, the remaining critical-path item for §A is the §H
 display port (now also landed in first form — `num_fbs=2` double-buffer,
