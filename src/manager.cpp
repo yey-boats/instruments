@@ -59,6 +59,7 @@ extern "C" const char *main_touch_mode();
 #include "ui_screens.h"
 #include "build_config.h"
 #include "apply_blank.h"
+#include "midl_pull_run.h"
 #include "midl_store.h"
 #include "psram_static.h"
 #include "web_pw.h"
@@ -1664,7 +1665,7 @@ uint8_t *read_persisted_config(size_t *out_len) {
 // "manager"; manager records the block no longer lists are deleted; embedded
 // and local records are left alone. Worker task only (serial): the plan and
 // actions are function-static PSRAM blocks, never stack locals.
-bool fetch_midl_record(const midl::records::PullEntry &pe) {
+bool fetch_midl_record(const midl::records::PullEntry &pe, apply_blank::Guard &blank) {
     if (!pe.url[0]) {
         record_error("[mgr] midl record %s: no url", pe.id);
         return false;
@@ -1685,6 +1686,9 @@ bool fetch_midl_record(const midl::records::PullEntry &pe) {
                 record_error("[mgr] midl record %s: response names %s", pe.id, rid);
             } else {
                 static midl::store::Result res;
+                // The pull's dark window opens here, at its first flash write,
+                // not before the GET (#113); put_record arms its own too.
+                blank.arm();
                 ok = midl::store::put_record(pe.id, r["title"] | pe.title, r["doc"],
                                              midl::records::Source::Manager, res,
                                              r["hash"] | pe.hash);
@@ -1710,17 +1714,21 @@ void pull_midl_records(JsonVariantConst blk) {
         return;
     }
     // One dark window for the whole pull (#106): several record writes + the
-    // index would otherwise flicker the backlight between fetches. Only when
-    // something changes; a no-op pull never blanks (the index write skips an
-    // unchanged index itself).
-    apply_blank::Guard blank(acts.fetch_count > 0 || acts.remove_count > 0);
-    unsigned fetched = 0;
-    for (uint8_t i = 0; i < acts.fetch_count; ++i)
-        if (fetch_midl_record(plan.entries[acts.fetch[i]])) ++fetched;
+    // index would otherwise flicker the backlight between fetches. It opens at
+    // the first flash write (a fetched record, or the deletes), never before a
+    // network fetch (#113); a no-op pull never blanks (the index write skips an
+    // unchanged index itself). include/midl_pull_run.h, host-tested.
+    apply_blank::Guard blank;
     static midl::store::Result res;
-    for (uint8_t i = 0; i < acts.remove_count; ++i)
-        midl::store::delete_record(acts.remove[i], res);
-    if (!midl::store::apply_pull_index(plan)) record_error("[mgr] midl index write failed");
+    unsigned fetched = midl::pull::run(
+        blank, acts.fetch_count,
+        [](uint8_t i, apply_blank::Guard &g) {
+            return fetch_midl_record(plan.entries[acts.fetch[i]], g);
+        },
+        acts.remove_count, [](uint8_t i) { midl::store::delete_record(acts.remove[i], res); },
+        [] {
+            if (!midl::store::apply_pull_index(plan)) record_error("[mgr] midl index write failed");
+        });
     net::logf("[mgr] midl pull: %u listed, %u/%u fetched, %u removed", (unsigned)plan.count,
               fetched, (unsigned)acts.fetch_count, (unsigned)acts.remove_count);
 }
