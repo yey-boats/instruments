@@ -14,6 +14,7 @@
 #include "ui_compass.h"  // ui::numeric_tile for the full-screen wind dial's AWS/AWA/TWS/TWA band
 #include "ui_geom.h"     // compass legend overlap test (pure, host-tested)
 #include "round_safe.h"  // round-panel content placement (#50, pure, host-tested)
+#include "ui_paint_rules.h"  // painter decisions (#112, pure, host-tested)
 #include "signalk.h"
 #include "midl_kinds.h"  // button_route: PUT vs console for a button action (#31)
 #include "ui_screens.h"
@@ -1061,8 +1062,7 @@ static inline uint32_t value_color(const MetricBinding &m) {
 // style.color gets near-black on a light fill, white on a dark one.
 static uint32_t badge_ink(uint32_t bg) {
     if (bg == theme.good) return theme.bg;
-    uint32_t r = (bg >> 16) & 0xFF, g = (bg >> 8) & 0xFF, b = bg & 0xFF;
-    return (r * 299 + g * 587 + b * 114) / 1000 >= 96 ? 0x05101c : 0xffffff;
+    return ui::paint::ink_for_fill(bg, 0x05101c, 0xffffff);
 }
 
 // Blend `fg` over `bg` at pct% (0..100). Used to derive theme-relative tint
@@ -1602,9 +1602,9 @@ static void paint_value_only_body(TileState &t, const MetricBinding &m, int w, i
     const int step_h = h < 110 ? 34 : h < 150 ? 46 : 58;
     if (ch > step_h) ch = step_h;
     // A glued unit is part of the value text; a word unit rides beside it.
-    const bool word_unit = m.unit && m.unit[0] &&
-                           !(t.kind == WidgetKind::Gauge &&
-                             (unit_is_glued(m.unit) || m.side || m.range_min == m.range_max));
+    const bool word_unit =
+        ui::paint::value_only_word_unit(t.kind == WidgetKind::Gauge, t.kind == WidgetKind::Compass,
+                                        m.unit, m.side, m.range_min, m.range_max);
     int unit_w = 0;
     if (word_unit) {
         lv_point_t usz;
@@ -1800,7 +1800,9 @@ static void paint_compass_body(TileState &t, const MetricBinding &m, int w, int 
     // width). The offset scales with the value font's height.
     int vh = lv_font_get_line_height(vfont);
     lv_obj_t *hcap = lv_label_create(ring);
-    lv_label_set_text(hcap, m.label ? m.label : "");
+    char cap_buf[16];
+    // A short quantity tag ("TWD", "HDG"), never the tile caption again (#112).
+    lv_label_set_text(hcap, ui::paint::compass_caption(m.label, m.id, cap_buf, sizeof cap_buf, 8));
     lv_obj_set_style_text_font(hcap, &font_b612_14, 0);
     lv_obj_set_style_text_color(hcap, lv_color_hex(theme.fg_dim), 0);
     lv_obj_align(hcap, LV_ALIGN_CENTER, 0, 6 - vh / 2 - 8);
@@ -1836,8 +1838,10 @@ static void paint_compass_body(TileState &t, const MetricBinding &m, int w, int 
         };
         // Per call, not static: follows style.color (the HDG pointer) and the
         // live theme after a switch.
+        char leg_buf[8];
         const LegendItem kLegend[3] = {
-            {ui::Glyph::Triangle, true, elem_rgb(m, theme.accent), m.label ? m.label : ""},
+            {ui::Glyph::Triangle, true, elem_rgb(m, theme.accent),
+             ui::paint::compass_caption(m.label, m.id, leg_buf, sizeof leg_buf, 4)},
             {ui::Glyph::Triangle, false, theme.good, "COG"},
             {ui::Glyph::Diamond, true, theme.alarm, "CTS"},
         };
@@ -2870,16 +2874,13 @@ static void build_bezel(WindDialState *st, lv_obj_t *parent) {
     make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2 + 18, 7, theme.good, LV_OPA_80);
     make_ring_at(st->bezel, bcx, bcy, R_BEZEL * 2 - 26, 1, theme.panel_edge, LV_OPA_COVER);
 
-    for (int deg = 0; deg < 360; deg += 45) {
-        // Cardinal (N/E/S/W) ticks are longer and thicker than intercardinal
-        // ones, same as the cardinal/intercardinal label font sizes just
-        // below — so the two stay distinguishable by weight/length even on
-        // skins (red-night) where band_ink and band_ink_dim read close (#78).
-        bool card = (deg % 90) == 0;
-        uint32_t color = card ? theme.band_ink : theme.band_ink_dim;
-        int len = card ? 14 : 10;
-        int width = card ? 3 : 2;
-        make_tick_at(st->bezel, bcx, bcy, deg + 22, len, width, color, R_BEZEL);
+    // Separators between the labels, all alike (ui::paint::bezel_tick, #112):
+    // each sits between a cardinal and an intercardinal, so cardinals are told
+    // apart by their larger label (build_cardinals), not by uneven ticks.
+    for (int k = 0; k < 8; ++k) {
+        ui::paint::BezelTick tk = ui::paint::bezel_tick(k);
+        uint32_t color = tk.strong ? theme.band_ink : theme.band_ink_dim;
+        make_tick_at(st->bezel, bcx, bcy, tk.angle_deg, tk.len, tk.width, color, R_BEZEL);
     }
 
     // Fixed bow indicator (red triangle) outside the bezel group so it stays at top.
@@ -4683,11 +4684,11 @@ static void paint_button_body(TileState &t, const MetricBinding &m, int w, int h
         }
     }
     lv_obj_set_style_text_font(label, lfont, 0);
-    // Fixed dark ink assumed the bubble's fill (value_color, usually accent)
-    // is always bright; it isn't on every skin/custom color. button_active_fg
-    // is the token already verified (test_theme_contrast) to read on an
-    // accent-family fill across all six skins.
-    lv_obj_set_style_text_color(label, lv_color_hex(theme.button_active_fg), 0);
+    // Ink chosen by the bubble's own fill (value_color: style.color or the
+    // accent), dark on bright fills and white on dark ones (#112). A fixed
+    // token can't do both: button_active_fg is white on the day skins, ~1.4:1
+    // on a bright MIDL style.color such as #ffd000.
+    lv_obj_set_style_text_color(label, lv_color_hex(badge_ink(value_color(m))), 0);
     lv_obj_center(label);
     t.aux = btn;
 }
