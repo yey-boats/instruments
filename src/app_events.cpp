@@ -229,10 +229,20 @@ void pump() {
         case CommandType::SetTheme: {
             String t(cmd.a);
             t.trim();
+            if (t == "auto") {
+                // Legacy manager token (#81): the manager now sends explicit
+                // theme names and no longer needs "auto". Resolve it to the
+                // night palette it has always booted into (main.cpp's boot
+                // load falls back to night for "auto"/unknown) instead of
+                // silently persisting the token and doing nothing live.
+                t = "night";
+            }
             if (strcmp(t.c_str(), ui::theme_id()) == 0) {
-                // Palette already live, but cfg_ui may still hold an older
-                // theme (power cut inside its debounce window, #76): re-sync
-                // it so /api/config heals on a re-select. No rebuild needed.
+                // Palette already live, but cfg_ui and/or the legacy
+                // "ui/theme" NVS string may still hold an older value
+                // (power cut inside the debounce window, #76; or a stale
+                // "auto" token from before this fix, #81): heal both on a
+                // re-select. No rebuild needed.
                 config::Theme want = config::parse_theme(t.c_str(), config::Theme::Night);
                 if (config::ui().theme != want) {
                     config::Mutation m;
@@ -243,6 +253,16 @@ void pump() {
                     net::logf("[ui] theme already %s (config re-synced)", t.c_str());
                 } else {
                     net::logf("[ui] theme already %s", t.c_str());
+                }
+                bool stale_legacy_key;
+                {
+                    storage::Namespace p("ui", true);
+                    stale_legacy_key = (p.get_string("theme", "") != t.c_str());
+                }
+                if (stale_legacy_key) {
+                    storage::Namespace p("ui", false);
+                    p.put_string("theme", t.c_str());
+                    net::logf("[ui] legacy ui/theme NVS key resynced to %s", t.c_str());
                 }
                 break;
             }
@@ -263,10 +283,6 @@ void pump() {
                 // ui::theme. We are on the LVGL task (pump), so this is safe.
                 retheme_screens();
                 net::logf("[ui] theme -> %s (live)", t.c_str());
-            } else if (t == "auto") {
-                // Legacy manager token: persisted verbatim, renders as night.
-                storage::Namespace p("ui", false);
-                p.put_string("theme", t.c_str());
             } else {
                 net::logf("[ui] unknown theme '%s' "
                           "(day|night|high-contrast|red-night|classic|sun)",

@@ -11,8 +11,8 @@ bool is_valid_brightness(int value) {
 bool is_valid_theme(const char *name) {
     if (!name) return false;
     // All six palettes are in the MIDL catalog (ui_theme.h). "auto" is a
-    // legacy token the manager API accepts (persisted verbatim; renders as
-    // night).
+    // legacy token the manager API still accepts; the SetTheme handler
+    // resolves it to "night" immediately (instruments#81).
     return strcmp(name, "day") == 0 || strcmp(name, "night") == 0 ||
            strcmp(name, "high-contrast") == 0 || strcmp(name, "red-night") == 0 ||
            strcmp(name, "classic") == 0 || strcmp(name, "sun") == 0 || strcmp(name, "auto") == 0;
