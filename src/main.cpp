@@ -2155,7 +2155,7 @@ static bool handleMainCommand(const String &line) {
         // Validate here (pure check — this handler can run on the BLE task),
         // then hand off to the pump: the SetTheme case flips the palette,
         // persists it, and rebuilds the built screens live (no reboot).
-        // "auto" is a legacy token the pump persists without a palette flip.
+        // "auto" is a legacy token the pump resolves to "night" (#81).
         if (!ui::theme_known(v.c_str()) && v != "auto") {
             net::logf("usage: theme day|night|high-contrast|red-night|classic|sun");
             return true;

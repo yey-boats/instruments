@@ -6,9 +6,14 @@
 // (test/test_theme_choice) and links into every env without filter edits.
 //
 // DAY / NIGHT pick the sunlight and night-vision skins (owner choice,
-// 2026-11-14, instruments#61); AUTO stays the legacy manager token (persisted
-// verbatim, renders as night). Legacy persisted "day" / "night" highlight the
-// DAY / NIGHT button so a device upgraded from before #61 still shows its row.
+// 2026-11-14, instruments#61). AUTO is the legacy manager token; the
+// `theme.set` handler (src/app_events.cpp) resolves it to "night" immediately
+// on receipt (instruments#81) rather than persisting it verbatim and no-op'ing
+// until reboot, so a freshly-picked AUTO now round-trips as NIGHT. `index_for`
+// still recognizes a literal "auto" so a device that persisted the pre-#81
+// token keeps highlighting this button until it is next re-selected. Legacy
+// persisted "day" / "night" highlight the DAY / NIGHT button so a device
+// upgraded from before #61 still shows its row.
 //
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 
