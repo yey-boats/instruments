@@ -40,6 +40,7 @@
 #include "storage.h"
 #include "ui_config_check.h"
 #include "manager_endpoint.h"
+#include "manager_auth_classify.h"
 #include "config_persist.h"
 #include "manager_url.h"
 #include "net.h"
@@ -1904,12 +1905,36 @@ ManagerCall do_heartbeat() {
         return ManagerCall::fail(ManagerStatus::SendFailed, code);
     }
     if (code == 401 || code == 403) {
-        net::logf("[mgr] heartbeat auth failed (%d) - will re-register", code);
-        lock_state();
-        s_token = "";
-        s_auth = AuthState::Unprovisioned;
-        s_force_register = true;
-        unlock_state();
+        // instruments#91: a 401/403 here can come from SignalK security
+        // rejecting the request before it ever reaches the plugin (no/bad
+        // sk_token) just as easily as from the plugin itself deciding the
+        // device token is bad. Read the body (bounded, same cap as the
+        // normal heartbeat response) and tell the two apart by shape
+        // rather than assuming every 401 means "wipe the token".
+        auto cause = manager_auth_classify::HeartbeatAuthFailure::Other;
+        if (resp_within_cap(http, MAX_HEARTBEAT_RESP_BYTES, "heartbeat auth")) {
+            String resp_body = http.getString();
+            cause = manager_auth_classify::classify_heartbeat_401(
+                std::string(resp_body.c_str(), resp_body.length()));
+        }
+        if (cause == manager_auth_classify::HeartbeatAuthFailure::ManagerRejectedToken) {
+            net::logf("[mgr] heartbeat auth failed (%d): %s - clearing token", code,
+                      manager_auth_classify::reason_for(cause));
+            lock_state();
+            s_token = "";
+            s_auth = AuthState::Unprovisioned;
+            s_force_register = true;
+            unlock_state();
+        } else {
+            // Not the plugin's own rejection - the device token itself may
+            // still be valid. Keep it and re-register with it rather than
+            // dropping to NotProvisioned (which previously wiped a token
+            // the operator had just delivered over one SignalK-security
+            // 401 on the very next heartbeat).
+            net::logf("[mgr] heartbeat auth failed (%d): %s - re-registering with saved token",
+                      code, manager_auth_classify::reason_for(cause));
+            s_force_register = true;
+        }
     } else if (code == 404) {
         // Device id changed (e.g. via network.hostname config) or the
         // plugin record was deleted. Re-register so the plugin learns
