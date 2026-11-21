@@ -60,6 +60,7 @@ extern "C" const char *main_touch_mode();
 #include "ui_screens.h"
 #include "build_config.h"
 #include "apply_blank.h"
+#include "ota_screen.h"
 #include "midl_pull_run.h"
 #include "midl_store.h"
 #include "psram_static.h"
@@ -1212,6 +1213,7 @@ void ota_task(void *) {
     // avoiding device-side HTTPS. Resolve it against the plugin base.
     if (url.startsWith("/")) url = build_url(url.c_str());
     String want_sha = s_ota_sha256;
+    String version = s_ota_version;
     size_t want_size = s_ota_size;
     const char *failure_detail = nullptr;
     int outcome_code = -1;
@@ -1256,6 +1258,12 @@ void ota_task(void *) {
                 goto fail;
             }
         }
+        // Image size for the bar: the job's size, else Content-Length.
+        const uint32_t bar_total =
+            want_size ? (uint32_t)want_size : (actual_size > 0 ? (uint32_t)actual_size : 0);
+        // On-device update screen, on the panel BEFORE the first flash write
+        // (Update.begin only checks the partition; erases start in write).
+        ota_screen::begin("manager", version.c_str(), bar_total);
         if (!Update.begin(want_size ? want_size : UPDATE_SIZE_UNKNOWN)) {
             failure_detail = "Update.begin failed";
             http.end();
@@ -1288,6 +1296,8 @@ void ota_task(void *) {
                 goto fail;
             }
             written += n;
+            // Between two writes: the bar redraws here at whole 4 % steps.
+            ota_screen::progress((uint32_t)written, bar_total);
             // Periodic progress every ~2 s while downloading.
             uint32_t now = millis();
             if (now - last_progress_ms > 2000 && want_size > 0) {
@@ -1305,6 +1315,7 @@ void ota_task(void *) {
         sha256_to_hex(digest, got_sha);
 
         post_ota_progress(job_id, "verifying", 100);
+        ota_screen::status("Verifying");
         if (want_sha.length() == 64) {
             String w(want_sha);
             w.toLowerCase();
@@ -1317,6 +1328,7 @@ void ota_task(void *) {
         }
 
         post_ota_progress(job_id, "installing", 100);
+        ota_screen::status("Installing");
         if (!Update.end(true)) {
             failure_detail = "Update.end failed";
             goto fail;
@@ -1329,6 +1341,7 @@ void ota_task(void *) {
 
     post_ota_progress(job_id, "rebooting", 100);
     net::logf("[mgr-ota] job=%s installed, rebooting", job_id.c_str());
+    ota_screen::succeeded();
     s_ota_in_flight = false;
     delay(500);
     ESP.restart();
@@ -1340,6 +1353,9 @@ fail:
     record_error("[mgr-ota] FAILED job=%s detail=%s code=%d", job_id.c_str(),
                  failure_detail ? failure_detail : "?", outcome_code);
     post_ota_progress(job_id, "failed", -1, failure_detail ? failure_detail : "unknown");
+    // Failure frame for a moment, then the previous screen + backlight come
+    // back (no-op when the update screen never went up, e.g. GET failed).
+    ota_screen::failed(failure_detail ? failure_detail : "unknown");
     s_ota_in_flight = false;
     app_pause_ui(false);  // OTA aborted; bring the UI back
     s_ota_task = nullptr;

@@ -90,4 +90,11 @@ void apply_event(int, bool) {
 }
 }  // namespace knob_ui
 
+// ---------------------------------------------------------------------------
+// app_pause_ui - main.cpp's LVGL-pump pause, called around a firmware OTA
+// (manager pull OTA, ArduinoOTA in net.cpp). No LVGL pump headless.
+// ---------------------------------------------------------------------------
+void app_pause_ui(bool) {
+}
+
 #endif  // YEYBOATS_HARNESS
