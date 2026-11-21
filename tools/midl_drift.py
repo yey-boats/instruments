@@ -44,7 +44,11 @@ def main(argv):
         pinned = git("rev-parse", "HEAD:midl").stdout.strip()
         if not os.path.exists(os.path.join(MIDL_DIR, ".git")):
             raise RuntimeError("midl submodule not checked out (git submodule update --init midl)")
-        git("fetch", "--quiet", remote, "main", cwd=MIDL_DIR)
+        # CI checks the submodule out at depth 1: without its history every
+        # pin that midl main has moved past looks "not on main" (red) instead
+        # of "behind" (the warning-only case). midl is small; fetch it whole.
+        shallow = git("rev-parse", "--is-shallow-repository", cwd=MIDL_DIR).stdout.strip() == "true"
+        git("fetch", "--quiet", *(["--unshallow"] if shallow else []), remote, "main", cwd=MIDL_DIR)
         main_sha = git("rev-parse", "FETCH_HEAD", cwd=MIDL_DIR).stdout.strip()
     except RuntimeError as e:
         print("midl drift: %s" % e)
