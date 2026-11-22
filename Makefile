@@ -15,7 +15,12 @@ SK_PORT   ?= 3000
 # WITHOUT a password when none is set (lab bench only; release envs refuse it
 # at compile time). Default: ArduinoOTA needs a password.
 LAB_OPEN_OTA ?=
-LAB_ENV   := $(if $(filter 1,$(LAB_OPEN_OTA)),PLATFORMIO_BUILD_FLAGS="$$PLATFORMIO_BUILD_FLAGS -D YEYBOATS_LAB_OPEN_OTA=1",)
+# instruments#106: OTA_SCREEN_DARK=1 builds the comparison fallback for the
+# firmware-update screen: backlight off for the whole OTA write instead of the
+# lit, mostly black progress screen (include/ota_progress.h).
+OTA_SCREEN_DARK ?=
+LAB_FLAGS := $(if $(filter 1,$(LAB_OPEN_OTA)),-D YEYBOATS_LAB_OPEN_OTA=1,) $(if $(filter 1,$(OTA_SCREEN_DARK)),-D YEYBOATS_OTA_SCREEN_DARK=1,)
+LAB_ENV   := $(if $(strip $(LAB_FLAGS)),PLATFORMIO_BUILD_FLAGS="$$PLATFORMIO_BUILD_FLAGS $(strip $(LAB_FLAGS))",)
 # VERSION holds the repo-configured MAJOR.MINOR.0 source of truth. MAJOR.MINOR
 # are authoritative; the third component (BUILD) is owned by CI
 # (github.run_number). Local builds stamp MAJOR.MINOR.0 so a bench binary is
@@ -59,6 +64,7 @@ help:  ## Show this help
 	@printf "  REMOTE      user@host: OTA relay and server-* target (no default; OTA flashes directly)\n"
 	@printf "  LAB_REMOTE  lab box for lab-logger-*/lab-up when REMOTE is unset (default: $(LAB_REMOTE))\n"
 	@printf "  LAB_OPEN_OTA=1 lab-only dev build: ArduinoOTA without a password when none is set\n"
+	@printf "  OTA_SCREEN_DARK=1 OTA writes with the backlight off instead of the lit progress screen (#106 A/B)\n"
 	@printf "  SK_HOST     SignalK server host for 'make demo' (default: localhost)\n"
 	@printf "  PROJECT_VERSION firmware version MAJOR.MINOR.BUILD (default: $(PROJECT_VERSION); CI sets BUILD=run_number)\n"
 

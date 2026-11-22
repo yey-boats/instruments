@@ -51,6 +51,7 @@
 #include "midl_render.h"
 #include "midl_store.h"
 #include "apply_blank.h"
+#include "ota_screen.h"
 #include "trip_log.h"
 #include "psram_json.h"
 #include <math.h>
@@ -2678,7 +2679,8 @@ static void pollSerialCommands() {
 // churns the PSRAM framebuffer) must go quiet during the sustained 2 MB
 // Update.write, or it intermittently hangs the device on this precompiled
 // arduino-esp32 build (flash-cache-disabled window vs. cached access — the
-// CLAUDE.md flash-cache hazard). The panel keeps showing the last frame.
+// CLAUDE.md flash-cache hazard). While paused the task only serves the
+// firmware-update screen (include/ota_screen.h), between write chunks.
 volatile bool g_ui_paused = false;
 void app_pause_ui(bool paused) {
     g_ui_paused = paused;
@@ -2687,10 +2689,14 @@ void app_pause_ui(bool paused) {
 static void lvgl_task(void *) {
     for (;;) {
         if (g_ui_paused) {
-            vTaskDelay(pdMS_TO_TICKS(50));
+            // Paused for a firmware OTA: no lv_timer_handler, but serve the
+            // update screen's redraws (each one between two Update.write
+            // chunks; the OTA task waits for it). Doubles as the 50 ms idle.
+            ota_screen::ui_service(50);
             continue;
         }
         uint32_t t = micros();
+        ota_screen::ui_poll();  // finish a post-OTA-failure restore that timed out
         lv_timer_handler();
         apply_blank::poll();  // restore the backlight after a blanked record apply
         uint32_t dt = micros() - t;

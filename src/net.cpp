@@ -8,6 +8,7 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include "ota_policy.h"
+#include "ota_screen.h"
 #if YEYBOATS_ARDUINO_OTA
 #include <ArduinoOTA.h>
 #endif
@@ -536,11 +537,18 @@ static void otaSetup() {
         logf_at(LOG_WARN, "[ota] start cmd=%s int_free=%u int_largest=%u",
                 ArduinoOTA.getCommand() == U_FLASH ? "flash" : "fs", int_heap_free(),
                 int_heap_largest());
+        // Same quiesce as the manager pull OTA (manager.cpp ota_task): the
+        // LVGL pump stops for the flash writes and the panel shows the update
+        // screen instead, up before the first Update.write (onStart runs after
+        // Update.begin, which does not touch flash, and before any data).
+        app_pause_ui(true);
+        ota_screen::begin("espota", nullptr, 0);
     });
     ArduinoOTA.onEnd([]() {
         s_ota_in_progress = false;
         logf_at(LOG_WARN, "[ota] end int_free=%u int_largest=%u", int_heap_free(),
                 int_heap_largest());
+        ota_screen::succeeded();  // ArduinoOTA reboots right after this returns
     });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) {
         // 10% milestones at WARN so we know how far the upload got
@@ -554,11 +562,17 @@ static void otaSetup() {
                     int_heap_free(), int_heap_largest());
             last_decile = decile;
         }
+        // Called between Update.write chunks: the bar redraws at 4 % steps.
+        ota_screen::progress(p, t);
     });
     ArduinoOTA.onError([](ota_error_t e) {
         s_ota_in_progress = false;
         logf_at(LOG_WARN, "[ota] error %d (%s) int_free=%u int_largest=%u", (int)e,
                 ota_error_name(e), int_heap_free(), int_heap_largest());
+        // AUTH/BEGIN errors come before onStart: no screen, UI never paused.
+        char why[32];
+        snprintf(why, sizeof(why), "espota %s error", ota_error_name(e));
+        if (ota_screen::failed(why)) app_pause_ui(false);
     });
     ArduinoOTA.begin();
     ota_started = true;
