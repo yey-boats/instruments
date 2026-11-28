@@ -8,7 +8,7 @@
 
 // clang-format off
 namespace midl_gen {
-inline constexpr const char *MIDL_COMMIT = "ccecc52e4dae67590b2f2552f4f9c3d6cd2a6547";
-inline constexpr const char *MIDL_COMMIT_SHORT = "ccecc52";
+inline constexpr const char *MIDL_COMMIT = "765460d34964da2ab0501609d45919c38f896ab3";
+inline constexpr const char *MIDL_COMMIT_SHORT = "765460d";
 }  // namespace midl_gen
 // clang-format on
